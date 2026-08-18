@@ -1,4 +1,50 @@
-# Welcome to your organization's demo respository
-This code repository (or "repo") is designed to demonstrate the best GitHub has to offer with the least amount of noise.
+# RUBY Benchmark Repository
 
-The repo includes an `index.html` file (so it can render a web page), two GitHub Actions workflows, and a CSS stylesheet dependency.
+KISA WHS 4기 Team RUBY가 논문과 오픈소스 프로젝트의 벤치마킹 과정, 실행 환경, 결과를 공유하는 저장소입니다.
+
+현재 단계의 목표는 서로 다른 로컬 장비에서 완전히 동일한 성능을 측정하는 것이 아니라, 공통 절차와 Docker 환경을 이용해 다음 내용을 검증하는 것입니다.
+
+- 논문 또는 오픈소스의 실행 가능 여부
+- 주요 기능과 결과의 재현 가능 여부
+- 실행 과정에서 발견한 오류와 제약사항
+- 이후 공통 서버 실험에 필요한 환경 조건
+
+## 저장소 구조
+
+```text
+benchmarks/     프로젝트별 벤치마크 문서
+environments/   Docker 및 실행 환경 설정
+results/        공통 결과 양식과 요약
+templates/      새 벤치마크 작성용 템플릿
+.github/        PR·Issue 템플릿과 CODEOWNERS
+```
+
+각 벤치마크는 다음 형태로 추가합니다.
+
+```text
+benchmarks/<project-name>/
+├── README.md       # 대상과 실행 방법
+├── environment.md  # OS, Docker, 도구 및 버전
+└── results.md      # 실행 결과와 해석
+```
+
+## 작업 방법
+
+1. 최신 `main`에서 개인 브랜치를 생성합니다.
+2. `templates/`의 양식을 복사해 벤치마크 내용을 작성합니다.
+3. 인증 정보와 대용량 원본 데이터가 포함되지 않았는지 확인합니다.
+4. 저장소에 브랜치를 push하고 `main`을 대상으로 Pull Request를 만듭니다.
+5. 관리자 검토와 승인을 받은 뒤 병합합니다.
+
+자세한 규칙은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요.
+
+## 보안 주의사항
+
+다음 항목은 저장소에 올리지 않습니다.
+
+- API 키, 액세스 토큰, 비밀번호
+- `.env`와 Codex 인증 파일
+- 개인 식별 정보 또는 외부 공개가 제한된 데이터
+- 라이선스상 재배포할 수 없는 데이터셋과 모델 파일
+
+실수로 비밀 정보를 커밋했다면 해당 값을 즉시 폐기·재발급하고 관리자에게 알립니다. 파일을 삭제하는 것만으로는 Git 기록에서 제거되지 않습니다.
