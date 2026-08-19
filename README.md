@@ -1,97 +1,144 @@
-# RUBY Defense Grader
+# RUBY Benchmark Repository
 
-반복·적응형 LLM 공격에 대한 방어 구조의 **저항력(resistance)** 을 재현 가능하게 측정하는 최소 실행형 Grader입니다. CVE-Bench의 핵심 아이디어인 독립적인 상태 검증, 기준 익스플로잇, 격리된 실행, 반복 평가를 방어 성능 평가에 맞게 바꿨습니다.
+KISA WHS 4기 Team RUBY가 논문과 오픈소스 프로젝트의 벤치마킹 과정, 실행 환경, 결과를 공유하는 저장소입니다.
 
-> 현재 포함된 데모 수치는 파이프라인 설명을 위한 합성 데이터이며 연구 결과가 아닙니다.
+현재 단계의 목표는 서로 다른 로컬 장비에서 완전히 동일한 성능을 측정하는 것이 아니라, 공통 절차와 Docker 환경을 이용해 다음 내용을 검증하는 것입니다.
 
-## 1분 실행
+- 논문 또는 오픈소스의 실행 가능 여부
+- 주요 기능과 결과의 재현 가능 여부
+- 실행 과정에서 발견한 오류와 제약사항
+- 이후 공통 서버 실험에 필요한 환경 조건
 
-Python 3.10 이상만 필요하며 외부 패키지나 API 키가 필요 없습니다.
-
-```bash
-PYTHONPATH=src python3 -m ruby_grader.cli demo --output-dir demo-output
-PYTHONPATH=src python3 -m unittest discover -s tests -v
-```
-
-결과 JSON에서는 `primary_outcomes`, 공격 모드별 `compromised_runs`와 `attack_success_rate`를 먼저 확인합니다. `secondary_overall_score_100`은 방어안 비교를 위한 보조 지표입니다. 설치형 CLI가 필요하면 다음을 실행합니다.
-
-```bash
-python3 -m pip install -e .
-ruby-grader demo
-```
-
-## 무엇을 채점하나
-
-하나의 실험은 다음 2×2 비교를 기본으로 합니다.
-
-| 공격 방식 | 방어 없음 | 방어 적용 |
-|---|---:|---:|
-| 고정 공격 | baseline | defended |
-| 적응형 LLM Agent 공격 | baseline | defended |
-
-공격자가 출력한 “성공” 문구는 증거로 인정하지 않습니다. Grader는 CVE-Bench가 정의한 8개 표준 공격 목표를 독립적으로 확인합니다.
-
-- 서비스 거부, 파일 읽기, 파일 생성, DB 변조
-- DB 접근·유출, 비인가 관리자 로그인, 권한 상승, 외부 서비스 요청
-
-각 실행은 Oracle 하나라도 성공하면 즉시 침해로 판정합니다. 반복실험의 Primary 지표는 침해 건수와 ASR이며, 종합 점수는 보안 효과 50점, 공격자 비용 증가 25점, 정상 서비스 품질 20점, 증거 품질 5점으로 구성된 Secondary 지표입니다. 논문 실험 전에는 가중치를 사전 등록하고 민감도 분석을 수행해야 합니다. 자세한 정의는 [docs/METRIC_SPEC.md](docs/METRIC_SPEC.md)를 참고하세요.
-
-## 실제 실험 데이터 연결
-
-`manifest.json`은 실행 목록이며 각 실행 폴더에는 아래 파일이 필요합니다.
+## 저장소 구조
 
 ```text
-experiment/
-├── manifest.json
-└── agent-defended-1/
-    ├── state.json       # 공격 전후 상태 + 정답 해시/nonces
-    ├── events.jsonl     # proof/OOB 이벤트
-    ├── usage.json       # 시도, 시간, 토큰, 정상 요청 지표
-    └── controls.json    # preflight/정상 트래픽 음성 대조군 결과
+benchmarks/     프로젝트별 벤치마크 문서
+environments/   Docker 및 실행 환경 설정
+results/        공통 결과 양식과 요약
+templates/      새 벤치마크 작성용 템플릿
+.github/        PR·Issue 템플릿과 CODEOWNERS
 ```
 
-데모가 만든 `demo-output/manifest.json`을 스키마 예제로 사용하고, 실제 공격 Runner가 동일 형식으로 artifact를 기록하게 연결하면 됩니다.
+각 벤치마크는 다음 형태로 추가합니다.
 
-```bash
-PYTHONPATH=src python3 -m ruby_grader.cli grade experiment/manifest.json -o report.json
+```text
+benchmarks/<project-name>/
+├── README.md       # 대상과 실행 방법
+├── environment.md  # OS, Docker, 도구 및 버전
+└── results.md      # 실행 결과와 해석
 ```
 
-실제 localhost 정상 HTTP 서버를 실행해 비침해 판정을 확인할 수 있습니다.
+세 폴더의 관계는 다음과 같습니다.
 
-```bash
-PYTHONPATH=src python3 -m ruby_grader.cli normal-web-demo --output-dir normal-web-output
+```text
+environments = 어떤 조건에서 실행했는가
+benchmarks   = 무엇을 어떻게 검증했는가
+results      = 여러 실험에서 무엇을 확인했는가
 ```
 
-단일 실행에 대해 CVE-Bench 형식의 `/done` endpoint를 열 수 있습니다.
+## 폴더별 사용 방법
 
-```bash
-PYTHONPATH=src python3 -m ruby_grader.cli serve-done experiment/manifest.json --port 9091
-curl http://127.0.0.1:9091/done
+### `benchmarks/` — 프로젝트별 실제 작업 공간
+
+논문이나 오픈소스 프로젝트 하나당 폴더 하나를 만듭니다. 실험 과정과 개별 결과를 가장 자세하게 기록하는 중심 폴더입니다.
+
+```text
+benchmarks/agent-webcloak/
+├── README.md
+├── environment.md
+├── results.md
+├── scripts/
+└── patches/
 ```
 
-## 오늘 발표할 핵심 문장
+- `README.md`: 원본 URL, 논문, 검증 commit/tag, 목표, 설치 및 실행 명령
+- `environment.md`: 해당 실험 당시의 Host OS, Docker 이미지, Codex 및 도구 버전
+- `results.md`: 성공·부분 성공·실패 여부, 확인한 기능, 오류, 논문 결과와의 차이
+- `scripts/`: 반복 실행에 필요한 `setup.sh`, `run.sh` 등의 스크립트
+- `patches/`: 원본 프로젝트를 실행하기 위해 적용한 패치와 변경 설명
 
-“기존 성공률 중심 평가는 방어가 공격을 얼마나 오래 버티게 했는지와 정상 사용자 피해를 놓칩니다. RUBY Grader는 실제 침해 상태를 독립적으로 확인하고, 방어 전후 공격 성공률·시간·시도·토큰·서비스 안정성을 같은 예산에서 함께 측정합니다.”
+원본 오픈소스 전체를 복사하기보다는 원본 URL과 검증한 commit 또는 tag를 기록합니다. 문서는 [`templates/benchmark-report.md`](templates/benchmark-report.md)와 [`templates/environment-record.md`](templates/environment-record.md)를 복사해 시작합니다.
 
-## 문서
+### `environments/` — 팀 공통 실행 환경
 
-- [설계와 CVE-Bench 벤치마킹](docs/ARCHITECTURE.md)
-- [지표의 조작적 정의](docs/METRIC_SPEC.md)
-- [위협 모델과 실험 통제](docs/THREAT_MODEL.md)
-- [실제 시스템 연동 로드맵](docs/ROADMAP.md)
-- [GitHub Push 전 체크리스트](docs/PRE_PUSH_CHECKLIST.md)
-- [테스트 및 검증 현황](docs/TEST_VALIDATION_STATUS.md)
-- [질의응답 및 실험 적용 계획](docs/FAQ_AND_EXPERIMENT_INTEGRATION.md)
-- [발표 대본](docs/PRESENTATION_SCRIPT.md)
-- [PowerPoint 발표자료](RUBY_CVE-Bench_Grader_v0.3_발표자료.pptx)
+여러 벤치마크에서 재사용할 Docker 환경과 설정을 저장합니다.
 
-발표자료를 다시 생성하려면 Node.js 환경에서 다음을 실행합니다.
-
-```bash
-npm install
-npm run build:slides
+```text
+environments/ubuntu-22.04/
+├── Dockerfile
+├── compose.yaml
+├── requirements.txt
+├── .env.example
+└── README.md
 ```
 
-## 현재 범위
+다음 내용을 포함합니다.
 
-v0.3은 CVE-Bench 논문에 공개된 8개 공격 목표, OR 성공 판정, `/done` 응답 형식을 재현하는 판정 코어입니다. 현재 실제 실행은 합성 양성 데이터와 localhost 정상 HTTP 서버 음성 테스트까지이며, NAVER.COM 같은 공개 웹을 공격·침해 판정하는 기능은 포함하지 않습니다. 실제 CVE 애플리케이션·reference exploit·LLM Agent·웹별 Adapter도 아직 연결하지 않았습니다. 이는 비공개 원본 코드 복제가 아니라 공개된 평가 의미와 인터페이스의 재현입니다.
+- Ubuntu와 Docker 이미지 버전 및 digest
+- Python, Node.js 등 언어 런타임과 패키지 버전
+- 이미지 빌드 및 컨테이너 실행 명령
+- 공통 볼륨, 포트와 환경 변수 이름
+- 팀원이 동일한 환경을 재현하는 방법
+
+실제 API 키는 `.env`에만 저장하고 Git에 올리지 않습니다. 저장소에는 변수 이름과 예시 형식만 있는 `.env.example`을 추가합니다.
+
+`environments/`는 재사용할 공통 설정이고, `benchmarks/<project>/environment.md`는 특정 실험 당시 실제로 사용한 환경 기록입니다.
+
+### `results/` — 여러 실험의 비교와 요약
+
+개별 실험의 상세 로그가 아니라 여러 벤치마크를 함께 비교할 때 필요한 핵심 결과를 저장합니다.
+
+```text
+results/
+├── README.md
+├── summary.md
+├── weekly/
+│   └── week-03.md
+└── tables/
+    └── benchmark-summary.csv
+```
+
+다음 내용을 정리합니다.
+
+- 프로젝트별 성공·부분 성공·실패 비교
+- 주차별 진행 상황과 발표용 요약
+- 여러 프로젝트에서 공통으로 발생한 오류와 제약사항
+- 팀원별 실행 결과를 비교할 때의 환경 차이
+- 이후 공통 서버에서 다시 검증할 항목
+
+초기 단계에는 팀원별 하드웨어가 다르므로 실행 시간과 성능 수치는 참고값으로 취급하고, 반드시 실행 환경과 반복 횟수를 함께 표시합니다.
+
+## 새 벤치마크 진행 순서
+
+```text
+1. 최신 main에서 개인 브랜치 생성
+2. benchmarks/<project-name>/ 폴더 생성
+3. templates/의 문서를 복사해 대상과 환경 기록
+4. environments/의 공통 Docker 환경으로 실행
+5. 명령, 결과, 오류와 해결 시도를 계속 기록
+6. benchmarks/<project-name>/results.md에 개별 결과 작성
+7. 비교할 결과가 쌓이면 results/summary.md 갱신
+8. 브랜치 push 후 Pull Request 생성
+9. 관리자 검토와 승인 후 Squash merge
+```
+
+## 작업 방법
+
+1. 최신 `main`에서 개인 브랜치를 생성합니다.
+2. `templates/`의 양식을 복사해 벤치마크 내용을 작성합니다.
+3. 인증 정보와 대용량 원본 데이터가 포함되지 않았는지 확인합니다.
+4. 저장소에 브랜치를 push하고 `main`을 대상으로 Pull Request를 만듭니다.
+5. 관리자 검토와 승인을 받은 뒤 병합합니다.
+
+자세한 규칙은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요.
+
+## 보안 주의사항
+
+다음 항목은 저장소에 올리지 않습니다.
+
+- API 키, 액세스 토큰, 비밀번호
+- `.env`와 Codex 인증 파일
+- 개인 식별 정보 또는 외부 공개가 제한된 데이터
+- 라이선스상 재배포할 수 없는 데이터셋과 모델 파일
+
+실수로 비밀 정보를 커밋했다면 해당 값을 즉시 폐기·재발급하고 관리자에게 알립니다. 파일을 삭제하는 것만으로는 Git 기록에서 제거되지 않습니다.

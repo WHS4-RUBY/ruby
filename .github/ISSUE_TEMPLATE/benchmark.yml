@@ -1,0 +1,44 @@
+name: Benchmark proposal
+description: 새 논문 또는 오픈소스 벤치마크를 제안합니다.
+title: "[Benchmark] "
+labels: ["benchmark"]
+assignees: ["Opal1031"]
+body:
+  - type: markdown
+    attributes:
+      value: 벤치마크를 시작하기 전에 대상과 범위를 공유해 주세요.
+  - type: input
+    id: target
+    attributes:
+      label: 대상
+      description: 논문 또는 오픈소스 프로젝트 이름
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: 원본 URL
+      placeholder: https://github.com/...
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: 검증 목표
+      description: 어떤 기능이나 결과를 확인할 것인지 작성해 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 예상 실행 환경
+      description: OS, Docker, GPU, 주요 도구 등 현재 파악한 조건
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 사전 확인
+      options:
+        - label: 원본 저장소의 라이선스와 실행 요구사항을 확인했습니다.
+          required: true
+        - label: 비밀 정보와 제한된 데이터는 업로드하지 않겠습니다.
+          required: true
