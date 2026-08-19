@@ -1,0 +1,11 @@
+{
+  "name": "ruby-defense-grader-presentation",
+  "private": true,
+  "version": "0.3.0",
+  "scripts": {
+    "build:slides": "node scripts/generate_presentation.js"
+  },
+  "devDependencies": {
+    "pptxgenjs": "^4.0.1"
+  }
+}

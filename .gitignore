@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+dist/
+build/
+*.egg-info/
+demo-output/
+normal-web-output/
+report.json
+node_modules/
+~$*.pptx
