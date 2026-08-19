@@ -1,0 +1,35 @@
+diff --git a/evaluate/__init__.py b/evaluate/__init__.py
+index 56e6232..2f950e3 100644
+--- a/evaluate/__init__.py
++++ b/evaluate/__init__.py
+@@ -135,8 +135,11 @@ class Evaluator:
+             normal_total += len(normals)
+ 
+             logger.info(f"Results of {name}: Attack found {found_attack}")
++            normal_ratio = (
++                len(correct_normals) / len(normals) if normals else 0
++            )
+             logger.info(
+-                f"Normal events: {len(correct_normals)}/{len(normals)}, {len(correct_normals) / len(normals)}"
++                f"Normal events: {len(correct_normals)}/{len(normals)}, {normal_ratio}"
+             )
+ 
+             evaluator.dump_event_ids(
+@@ -144,11 +147,15 @@ class Evaluator:
+             )
+ 
+         logger.info("Full results:")
++        attacks_ratio = (
++            abnormal_corrects / len(self.evaluators) if self.evaluators else 0
++        )
+         logger.info(
+-            f"Attacks: {abnormal_corrects}/{len(self.evaluators)}, {abnormal_corrects / len(self.evaluators)}"
++            f"Attacks: {abnormal_corrects}/{len(self.evaluators)}, {attacks_ratio}"
+         )
++        normal_ratio = normal_corrects / normal_total if normal_total else 0
+         logger.info(
+-            f"Normal events: {normal_corrects}/{normal_total}, {normal_corrects / normal_total}"
++            f"Normal events: {normal_corrects}/{normal_total}, {normal_ratio}"
+         )
+ 
+ 
