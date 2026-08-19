@@ -1,0 +1,195 @@
+diff --git a/capture/capture.py b/capture/capture.py
+index e96feba..e0e29b0 100644
+--- a/capture/capture.py
++++ b/capture/capture.py
+@@ -1,9 +1,10 @@
++import glob
+ import itertools
+ import orjson as json
+ import os
+ import subprocess
+ import time
+-from typing import Any, Generator, Iterable, NoReturn
++from typing import Any, Generator, Iterable
+ 
+ from loguru import logger
+ from rich import print
+@@ -15,6 +16,9 @@ from parse.features.definitions import get_sysdig_fields as feature_sysdig_field
+ from parse.output_parsers.definitions import get_sysdig_fields as parser_sysdig_fields
+ from partition import get_sysdig_fields as partition_sysdig_fields
+ 
++DOCKER_SYSDIG_NAME = "apiecho-sysdig-capture"
++DOCKER_SYSDIG_IMAGE = "sysdig/sysdig:latest"
++
+ 
+ def prepare(output: str) -> None:
+     """
+@@ -23,11 +27,6 @@ def prepare(output: str) -> None:
+     os.makedirs(output, exist_ok=True)
+ 
+ 
+-def exec_command(command: str) -> None:
+-    print(command)
+-    os.system(command)
+-
+-
+ def spawn_sysdig(
+     output: str, chunk: int, duration: int, filter_: str
+ ) -> tuple[subprocess.Popen[Any], str]:
+@@ -38,26 +37,87 @@ def spawn_sysdig(
+ 
+     print("Spawning Sysdig subprocess...")
+ 
+-    filter_rule = "((evt.category=net or evt.category=file or evt.category=process) and container.id!='host' and container.id!='')"
++    filter_rule = "((evt.category=net or evt.category=file or evt.category=process or evt.type=write) and container.id!='host' and container.id!='')"
+     if filter_:
+         filter_rule = filter_rule + " and " + filter_
+ 
+     print(f"Filter: {filter_rule}")
+ 
+-    clear_command = f"sudo rm {output}/capture.scap*"
+-    exec_command(clear_command)
++    old_captures = glob.glob(f"{output}/capture.scap*")
++    if old_captures:
++        if os.environ.get("APIECHO_SYSDIG_DOCKER") == "1":
++            output = os.path.abspath(output)
++            subprocess.run(
++                [
++                    "docker",
++                    "run",
++                    "--rm",
++                    "-v",
++                    f"{output}:/captures",
++                    "--entrypoint",
++                    "rm",
++                    DOCKER_SYSDIG_IMAGE,
++                    "-f",
++                    *[
++                        f"/captures/{os.path.basename(path)}"
++                        for path in old_captures
++                    ],
++                ],
++                check=True,
++            )
++        else:
++            subprocess.run(["sudo", "-n", "rm", "-f", *old_captures], check=True)
+ 
+-    command = ["sudo"]
++    sysdig_args = []
++    if os.environ.get("APIECHO_SYSDIG_MODERN_BPF") == "1":
++        sysdig_args.append("--modern-bpf")
+     if duration != 0:
+-        command += ["timeout", str(duration)]
+-    command += [
+-        "sysdig",
++        sysdig_args += ["-M", str(duration)]
++    sysdig_args += [
+         "-C",
+         str(chunk),
+         filter_rule,
+-        "-w",
+-        f"{output}/capture.scap",
+     ]
++    if os.environ.get("APIECHO_SYSDIG_DOCKER") == "1":
++        subprocess.run(
++            ["docker", "rm", "-f", DOCKER_SYSDIG_NAME],
++            stdout=subprocess.DEVNULL,
++            stderr=subprocess.DEVNULL,
++        )
++        output = os.path.abspath(output)
++        command = [
++            "docker",
++            "run",
++            "--rm",
++            "--name",
++            DOCKER_SYSDIG_NAME,
++            "--privileged",
++            "--net=host",
++            "-v",
++            "/var/run/docker.sock:/host/var/run/docker.sock",
++            "-v",
++            "/dev:/host/dev",
++            "-v",
++            "/proc:/host/proc:ro",
++            "-v",
++            "/boot:/host/boot:ro",
++            "-v",
++            "/lib/modules:/host/lib/modules:ro",
++            "-v",
++            "/usr:/host/usr:ro",
++            "-v",
++            "/etc:/host/etc:ro",
++            "-v",
++            f"{output}:/captures",
++            "--entrypoint",
++            "sysdig",
++            DOCKER_SYSDIG_IMAGE,
++            *sysdig_args,
++            "-w",
++            "/captures/capture.scap",
++        ]
++    else:
++        command = ["sudo", "-n", "sysdig", *sysdig_args, "-w", f"{output}/capture.scap"]
+     print(command)
+     with open("./sysdig_output.log", "w") as outfile, open(
+         "./sysdig_error.log", "w"
+@@ -98,8 +158,11 @@ def read_chunk(
+ 
+ 
+ def read_chunks(
+-    output: str, filter_rule: str, fields_string: str | None
+-) -> Generator[str, Any, NoReturn]:
++    output: str,
++    filter_rule: str,
++    fields_string: str | None,
++    capture_process: subprocess.Popen[Any] | None,
++) -> Generator[str, Any, None]:
+     current_ID = 0
+     while True:
+         if os.path.exists(f"{output}/capture.scap{current_ID+1}"):
+@@ -110,6 +173,14 @@ def read_chunks(
+             if not settings.capture.keep_scap:
+                 os.remove(path)
+             current_ID += 1
++        elif capture_process and capture_process.poll() is not None:
++            path = f"{output}/capture.scap{current_ID}"
++            if os.path.exists(path):
++                for log in read_chunk(path, filter_rule, fields_string):
++                    yield log
++                if not settings.capture.keep_scap:
++                    os.remove(path)
++            return
+         else:
+             time.sleep(1)
+ 
+@@ -119,8 +190,11 @@ def parse_log(
+     filter_rule: str,
+     fields_string: str | None,
+     combiner: LogCombiner | None,
++    capture_process: subprocess.Popen[Any] | None,
+ ) -> Generator[Log, None, None]:
+-    for logline in read_chunks(output, filter_rule, fields_string):
++    for logline in read_chunks(
++        output, filter_rule, fields_string, capture_process
++    ):
+         if logline:
+             data = json.loads(logline)
+             data = process_format(data)
+@@ -165,6 +239,7 @@ def capture(
+                 | categorizer_sysdig_fields()
+             ),
+             LogCombiner() if settings.capture.combine else None,
++            sysdig_process,
+         ):
+             yield log
+     except Exception as e:
+@@ -172,3 +247,9 @@ def capture(
+     finally:
+         if sysdig_process:
+             sysdig_process.terminate()
++            if os.environ.get("APIECHO_SYSDIG_DOCKER") == "1":
++                subprocess.run(
++                    ["docker", "rm", "-f", DOCKER_SYSDIG_NAME],
++                    stdout=subprocess.DEVNULL,
++                    stderr=subprocess.DEVNULL,
++                )

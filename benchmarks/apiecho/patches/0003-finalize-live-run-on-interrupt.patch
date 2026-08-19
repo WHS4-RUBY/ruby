@@ -1,0 +1,17 @@
+diff --git a/main.py b/main.py
+index 3e8ac13..8b40fb7 100644
+--- a/main.py
++++ b/main.py
+@@ -196,8 +196,10 @@ async def _run() -> None:
+         LogSources().add_handler(LogType.sysdig, sysdig_handler.handle)
+         # .add_handler(LogType.tshark, handle_tshark)
+     )
+-    await src.start()
+-    sysdig_handler.finalize()
++    try:
++        await src.start()
++    finally:
++        sysdig_handler.finalize()
+ 
+ 
+ class OutputOnlyHandler:

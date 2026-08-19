@@ -1,0 +1,13 @@
+diff --git a/categorizer/by_api.py b/categorizer/by_api.py
+index 6361d82..2576302 100644
+--- a/categorizer/by_api.py
++++ b/categorizer/by_api.py
+@@ -14,7 +14,7 @@ type Unit = tuple[str, list[Log]]
+ 
+ 
+ class CategorizerByApi(BaseCategorizer):
+-    sysdig_require_fields = ["evt.arg.data", "fd.cip", "evt.datetime"]
++    sysdig_require_fields = ["evt.arg.data", "fd.rip", "evt.datetime"]
+ 
+     def __init__(self) -> None:
+         super().__init__()
