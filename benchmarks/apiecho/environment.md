@@ -10,6 +10,7 @@
 - 대상 image ID: `sha256:9b242c9de5a6e03bd035e6b6e842ef9acab82adf5396591639c4c51d1c698125`
 - Sysdig image digest: `sysdig/sysdig@sha256:740a122ba3ab923467c09a25725cdc5b530d93345f00cc1ced1b4a32bd9c52a9`
 - Codex CLI: 사용하지 않음
+- 작업 지원 도구: Gajae Code `gjc/0.14.1`
 
 ## Host 환경
 
@@ -17,7 +18,7 @@
 - Kernel: `5.15.167.4-microsoft-standard-WSL2`
 - Architecture: x86_64
 - CPU: Intel Core Ultra 5 125H
-- RAM: 실행 당시 별도 기록하지 않음
+- RAM: 16GB
 - GPU: Microsoft Corporation Device 008e
 - Docker: Docker Desktop 29.2.1
 - Python: 3.12.13
