@@ -3,8 +3,8 @@
 ## 결과 요약
 
 - 결과 상태: 성공
-- 최종 실행 ID: `20260819T014708Z`
-- 실행 시간: 2026년 8월 19일 01:47:08~01:49:47 UTC
+- 발표 화면 실행 ID: `20260819T075426Z`
+- 실행 완료 시간: 2026년 8월 19일 07:57:08 UTC
 - 탐지 임계값: `2.0`
 - 전체 처리 unit: `52개`
 - 정상 unit: `51개`
@@ -22,6 +22,30 @@
 | D | 반복 정상 요청의 API category 처리 | 성공 |
 | E | 동일 API category에 다른 시스템 행위 입력 | 성공 |
 | F | `DistanceDetector`의 이상 요청 탐지 | 성공 |
+
+## 실행 증거
+
+### 대상 컨테이너 실행
+
+![FastAPI 대상 컨테이너 빌드 및 시작](images/01-target-build.png)
+
+Docker 이미지 빌드와 `apiecho-target` 컨테이너 시작을 완료했으며, 스크립트의 상태 점검을 통과했다.
+
+![Docker Desktop의 Uvicorn 실행 상태](images/02-target-running.png)
+
+Docker Desktop에서도 Uvicorn 프로세스의 시작 완료와 `8000` 포트 연결 상태를 확인했다.
+
+### 벤치마크 완료
+
+![정상 및 이상 트래픽 처리 완료](images/03-experiment-complete.png)
+
+정상 요청 50건과 이상 요청 1건을 전송한 후 총 52개 요청 단위가 생성됐다. 이상 요청 1건은 탐지됐고 정상 요청 오탐은 없었다.
+
+### 탐지 점수
+
+![이상 탐지 점수와 판정](images/04-detection-result.png)
+
+화면에 표시된 탐지 결과는 `detection-summary.json`의 집계값과 일치한다.
 
 ## 탐지 결과
 
@@ -82,12 +106,12 @@ FastAPI 시작 시 `python request_start 0.` bootstrap delimiter도 추가했다
 로컬 실험 디렉터리의 다음 파일을 기준으로 결과를 확인했다.
 
 ```text
-results/runs/20260819T014708Z/detection-summary.json
-results/runs/20260819T014708Z/dump_results/GET _api_users_1.txt
-results/runs/20260819T014708Z/sysdig-smoke.log
-results/runs/20260819T014708Z/output.jsonl
-results/traffic/normal-20260819T014803Z.jsonl
-results/traffic/anomaly-20260819T014806Z.jsonl
+results/runs/20260819T075426Z/detection-summary.json
+results/runs/20260819T075426Z/dump_results/GET _api_users_1.txt
+results/runs/20260819T075426Z/sysdig-smoke.log
+results/runs/20260819T075426Z/output.jsonl
+results/traffic/normal-20260819T075521Z.jsonl
+results/traffic/anomaly-20260819T075524Z.jsonl
 results/captured/capture.scap*
 ```
 
