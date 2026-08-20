@@ -1,28 +1,3 @@
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.coverage
-.mypy_cache/
-.ruff_cache/
-.venv/
-venv/
-dist/
-build/
-*.egg-info/
-demo-output/
-normal-web-output/
-report.json
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-pnpm-debug.log*
-coverage/
-.cache/
-.tmp/
-tmp/
-logs/
-*.log
-~$*.pptx
 # Secrets and local configuration
 .env
 .env.*
@@ -43,6 +18,7 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+~$*.pptx
 
 # Python
 __pycache__/
@@ -50,8 +26,10 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
 .venv/
 venv/
+*.egg-info/
 
 # Node.js
 node_modules/
@@ -68,6 +46,9 @@ tmp/
 logs/
 *.log
 coverage/
+demo-output/
+normal-web-output/
+report.json
 
 # Large local artifacts
 datasets/
