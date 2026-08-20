@@ -114,7 +114,7 @@ done
 
 ### 결과 확인
 
-각 실행은 `~/ruby-project/cheat-lab/<코드 또는 T-번호>/` 아래에 다음을 남긴다.
+각 실행은 `~/ruby-project/cheat-lab/<코드 또는 T-번호>/`(codex 작업 디렉토리) 아래에 다음을 남긴다.
 
 - `recon_notes.html` — 실제로 심어진 payload 원문(육안으로 문구 확인 가능)
 - `codex-result.txt` — codex의 최종 판단·다음 행동 요약
