@@ -54,6 +54,32 @@ GET /api/products/1
 
 이상 트래픽은 `GET /api/users/1?experiment=anomaly` 요청이다. Query string은 API 범주에서 제외되므로 정상 사용자 요청과 같은 `GET /api/users/1` 범주에서 비교된다. 이상 요청은 컨테이너 내부에서만 임시 파일 접근, `/etc/passwd` 읽기, 짧은 subprocess 실행 및 loopback 연결 시도를 추가로 수행한다.
 
+## 실행 화면
+
+### 1. 대상 애플리케이션 빌드 및 실행
+
+![FastAPI 대상 애플리케이션 빌드 및 실행](images/01-target-build.png)
+
+Docker Compose로 Python 3.12 기반 FastAPI 이미지를 빌드하고 `apiecho-target` 컨테이너를 시작했다. 컨테이너가 정상 상태에 도달하고 `127.0.0.1:8000`에서 요청을 받을 수 있음을 확인했다.
+
+### 2. Uvicorn 서버 상태 확인
+
+![Docker Desktop에서 확인한 Uvicorn 서버](images/02-target-running.png)
+
+Docker Desktop에서 대상 컨테이너와 Uvicorn 프로세스의 시작 완료 상태를 확인했다. 대상 API는 외부 네트워크에 공개하지 않고 로컬 포트에만 연결했다.
+
+### 3. 전체 벤치마크 실행
+
+![APIEcho 전체 벤치마크 완료 화면](images/03-experiment-complete.png)
+
+정상 요청 50건과 이상 요청 1건을 전송한 뒤 요청별 시스템 이벤트 확정, 수집 파일 처리 및 이상 탐지를 완료했다. APIEcho는 총 52개 요청 단위를 처리했으며 이상 요청 1건을 탐지하고 정상 요청은 오탐하지 않았다.
+
+### 4. 이상 탐지 결과
+
+![APIEcho 이상 탐지 상세 결과](images/04-detection-result.png)
+
+이상 요청 점수는 `2.92403829`로 임계값 `2.0`을 초과했다. 정상 요청의 최대 점수는 `0.15389676`으로 임계값보다 낮았다. 따라서 이상 요청은 `True`, 비교한 정상 요청은 모두 `False`로 판정됐다.
+
 ## 결과
 
 - 결과 상태: 성공
