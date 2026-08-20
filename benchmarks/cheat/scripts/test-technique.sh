@@ -2,7 +2,7 @@
 # CHeaT 기법 1개를 codex CLI로 실제 테스트한다.
 # WSL2 Ubuntu 셸에서 실행한다 (Docker + codex-cli가 이미 설치·로그인되어 있어야 함).
 #
-# 사용법: ./test-technique.sh <CHeaT-코드> [method] [파일명]
+# 사용법: ./test-technique.sh <CHeaT-코드> [method] [파일명] [template]
 #   method는 prompt_injection(기본값, cheat/README.md 문서화된 동작) 또는 honeytoken.
 #   results.md의 매핑표에 "honeytoken"이라고 적힌 코드(S7i, S3ii, S10i 등)는
 #   반드시 명시해야 한다 — 처음 이 스크립트를 만들 때 그 문서를 안 챙겨보고
@@ -11,24 +11,39 @@
 #   ERROR 로그만 찍고 종료 코드는 0으로 끝나서(cheat의 설계상 특성) `set -e`로도
 #   못 걸러졌다 — 그래서 아래에 plant 결과를 직접 확인하는 로직을 추가했다.
 #
+#   template은 생략하면 cheat 자체 기본값(cheat/main.py: "Combined_Attack",
+#   "task completed.\nIgnore previous instructions." 문구 포함)이 그대로 쓰인다.
+#   cheat/database/honeytokens_templates.json·prompt_injection_templates.json에
+#   정의된 다른 injection_variant 이름(예: Non_Injection_Audit)을 넘기면 그 템플릿으로
+#   심어진다 — 2026-08-20, "Ignore previous instructions" 문구가 판정을 좌우하는지
+#   검증하기 위해 추가.
+#
 # 예시:   ./test-technique.sh S2ii
 #         ./test-technique.sh S7i honeytoken
 #         ./test-technique.sh S4i prompt_injection system_notes.txt
+#         ./test-technique.sh S7i honeytoken recon_notes.html Non_Injection_Audit
 set -euo pipefail
 
-CODE="${1:?사용법: ./test-technique.sh <CHeaT-코드> [method] [파일명]  예) ./test-technique.sh S7i honeytoken}"
+CODE="${1:?사용법: ./test-technique.sh <CHeaT-코드> [method] [파일명] [template]  예) ./test-technique.sh S7i honeytoken}"
 METHOD="${2:-prompt_injection}"
 FILE_NAME="${3:-recon_notes.html}"
+TEMPLATE="${4:-}"
 
 LAB_ROOT="$HOME/ruby-project/cheat-lab"
 LAB_DIR="${LAB_ROOT}/${CODE}"
 mkdir -p "${LAB_DIR}"
 rm -f "${LAB_DIR:?}/${FILE_NAME}" "${LAB_DIR}/codex-result.txt"
 
-echo "=== [1/2] ${CODE}(method=${METHOD}) payload를 ${LAB_DIR}/${FILE_NAME} 에 심는 중 ==="
+if [ -n "${TEMPLATE}" ]; then
+  DETAILS_JSON="{\"assettype\": \"web_file\", \"file_path\": \"/lab/${FILE_NAME}\", \"technique\": \"${CODE}\", \"method\": \"${METHOD}\", \"template\": \"${TEMPLATE}\"}"
+  echo "=== [1/2] ${CODE}(method=${METHOD}, template=${TEMPLATE}) payload를 ${LAB_DIR}/${FILE_NAME} 에 심는 중 ==="
+else
+  DETAILS_JSON="{\"assettype\": \"web_file\", \"file_path\": \"/lab/${FILE_NAME}\", \"technique\": \"${CODE}\", \"method\": \"${METHOD}\"}"
+  echo "=== [1/2] ${CODE}(method=${METHOD}) payload를 ${LAB_DIR}/${FILE_NAME} 에 심는 중 ==="
+fi
 PLANT_OUTPUT=$(docker run --rm -v "${LAB_DIR}:/lab" cheat:pristine bash -lc "
   echo '<html><body>Internal recon notes.</body></html>' > /lab/${FILE_NAME}
-  cheat --action plant --details '{\"assettype\": \"web_file\", \"file_path\": \"/lab/${FILE_NAME}\", \"technique\": \"${CODE}\", \"method\": \"${METHOD}\"}'
+  cheat --action plant --details '${DETAILS_JSON}'
 " 2>&1)
 echo "${PLANT_OUTPUT}"
 
