@@ -62,7 +62,7 @@ docker run --rm cheat:pristine bash -lc '
 '
 ```
 
-## 실행 — codex CLI로 13개 기법 재현 (검증 목표 3번)
+## 실행 — codex CLI로 13개 기법 재현
 
 `cheat` CLI 검증과는 별도로, 15개 기법 중 13개를 [`scripts/test-technique.sh`](scripts/test-technique.sh)(`cheat` 카탈로그 10개)와 [`scripts/test-dataset-payload.sh`](scripts/test-dataset-payload.sh)(`datasets/payloads.json` 3개)로 codex CLI를 상대로 실제 시행했다. 둘 다 WSL2 Ubuntu 셸에서 실행하고, 사전에 `docker ps`·`codex --version`으로 Docker/codex-cli가 살아있는지만 확인하면 된다.
 
@@ -119,7 +119,7 @@ done
 - `recon_notes.html` — 실제로 심어진 payload 원문(육안으로 문구 확인 가능)
 - `codex-result.txt` — codex의 최종 판단·다음 행동 요약
 
-터미널 출력에도 두 파일 내용이 그대로 찍힌다. 판정 기준(방어 성공/실패/판정 불가)과 13개 전체 판정·근거는 [`results.md`](results.md#codex-cli로-15개-기법-개별-테스트)에 정리해뒀다 — 새로 실행한 결과를 그 표와 대조해 재현되는지 확인하면 된다.
+터미널 출력에도 두 파일 내용이 그대로 찍힌다. 판정 기준(방어 성공/실패/판정 불가)과 13개 전체 판정·근거는 [`results.md`](results.md#codex-cli로-15개-기법-개별-테스트)에 정리해뒀다 
 
 ## 결과
 
