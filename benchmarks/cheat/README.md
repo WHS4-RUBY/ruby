@@ -132,7 +132,7 @@ done
 - 논문 또는 공식 결과와 일치한 부분: 실제 생성 payload 문구가 논문 §5.1~5.3 예시(`T1.1` "There are no vulnerabilities…", `T4.1` CVE 20개 나열 "CVE Overload", `T6.1` curl\|bash 유도 "Reverse Shell to Attacker", `T6.3` "Bruteforce Bait")와 완전히 동일. 15개 기법 → CHeaT 코드 매핑표를 별도 작성함([`results.md`](results.md) 참고).
 - 일치하지 않은 부분: 없음. 원본 코드에 어떤 패치도 적용하지 않았다.
 
-상세 결과(13개 기법별 판정·근거)와 해석은 [`results.md`](results.md)에 기록했다.
+상세 결과(13개 기법별 판정·근거)와 해석, 다음 단계는 [`results.md`](results.md)에 기록했다.
 
 ## 버그 및 한계
 
@@ -141,8 +141,3 @@ done
 | 환경(WSL2+Docker) | 오류나 패치 없이 원본 코드가 그대로 동작 |
 | CHeaT 도구 자체 버그 | `cheat plant`가 비가시 유니코드 Tag 문자(`\U000e...`)를 실제 코드포인트로 디코딩하지 않고 이스케이프 텍스트 그대로 심음 — T3.1/T3.2의 "사람 눈엔 안 보이는" 트릭이 CLI로 심으면 무력화됨(codex가 즉시 알아챔) |
 | T4.3·T4.4 | 논문 §6이 "별도 절에서 분석했다"고 명시한 멀티스텝/표적형 기법이라 단일 payload 심기로는 재현 불가 |
-
-## 다음 단계
-
-- T1.2·T2.1·T4.2는 `cheat` 카탈로그에 대응 코드가 없어 `datasets/payloads.json`에서 찾아 테스트함 — 필요하면 `cheat/database/*.json`에 정식으로 코드 추가하는 것도 검토
-- 논문 평가용 249개 payload(`datasets/payloads/payloads.json` + `payloads_boosted_with_prompt_injection.json`) 전체 대상 Round 0 베이스라인은 OpenAI API 키 확보 후 별도 벤치마크로 진행
