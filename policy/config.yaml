@@ -1,0 +1,10 @@
+# classification별 기본 전략
+strategies:
+  likely_ai: challenge
+  suspicious: throttle
+  human: passthrough
+
+# 지연 스텁 설정: risk_score 0.1당 delay_ms_per_step 만큼 응답 지연
+delay:
+  step: 0.1
+  delay_ms_per_step: 200

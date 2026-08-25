@@ -1,0 +1,28 @@
+services:
+  detection:
+    image: ${IMAGE_PREFIX:-local}/detection:${IMAGE_TAG:-latest}
+    build: ./detection
+    ports:
+      - "8081:8081"
+    environment:
+      - NEXT_HOP_URL=http://policy:8082
+    depends_on:
+      - policy
+
+  policy:
+    image: ${IMAGE_PREFIX:-local}/policy:${IMAGE_TAG:-latest}
+    build: ./policy
+    ports:
+      - "8082:8082"
+    environment:
+      - NEXT_HOP_URL=http://defense:8080
+    depends_on:
+      - defense
+
+  defense:
+    image: ${IMAGE_PREFIX:-local}/defense:${IMAGE_TAG:-latest}
+    build: ./defense
+    ports:
+      - "8080:8080"
+    environment:
+      - BENCHMARK_TARGET_URL=${BENCHMARK_TARGET_URL:-http://host.docker.internal:9000}

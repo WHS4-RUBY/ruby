@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build-check:
+    runs-on: ubuntu-26.04
+    strategy:
+      matrix:
+        service: [detection, policy, defense]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ${{ matrix.service }} image
+        run: docker build -t ${{ matrix.service }}:ci ./${{ matrix.service }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps for ${{ matrix.service }}
+        run: pip install -r ${{ matrix.service }}/requirements.txt
+
+      - name: Import check (문법/의존성 오류 조기 발견)
+        working-directory: ${{ matrix.service }}
+        run: python -c "import app.main"
