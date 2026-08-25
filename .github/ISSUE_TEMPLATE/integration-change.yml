@@ -1,0 +1,40 @@
+name: 통합 실행 변경 제안
+description: 여러 영역에 걸친 실행, 배포 또는 통합 테스트 변경을 제안합니다.
+title: "[Integration] "
+labels: ["integration"]
+assignees: ["Opal1031"]
+body:
+  - type: checkboxes
+    id: areas
+    attributes:
+      label: 영향 영역
+      options:
+        - label: Benchmark
+        - label: Defense
+        - label: Detection
+        - label: 공통 설정 또는 CI/CD
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: 변경 내용과 목적
+      description: 서비스, 이미지, 포트, 네트워크, 환경 변수 또는 실행 순서의 변화를 작성해 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: 검증 및 복구 계획
+      description: 확인 방법과 실패 시 되돌리는 방법을 작성해 주세요.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 제출 전 확인
+      options:
+        - label: 다른 영역의 인터페이스에 미치는 영향을 확인했습니다.
+          required: true
+        - label: 비밀 정보와 실제 서버 식별 정보를 포함하지 않았습니다.
+          required: true

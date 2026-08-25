@@ -1,0 +1,36 @@
+name: 탐지 기능 제안
+description: 탐지 기능, 규칙 또는 Policy Engine 변경을 제안합니다.
+title: "[Detection] "
+labels: ["detection"]
+assignees: ["Opal1031"]
+body:
+  - type: input
+    id: target
+    attributes:
+      label: 대상 영역
+      placeholder: Detection Proxy, scoring, Policy Engine 등
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 문제 또는 필요성
+      description: 현재 동작과 변경이 필요한 이유를 작성해 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 예상 동작
+      description: 입력, 판정, 출력과 검증 기준을 작성해 주세요.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 사전 확인
+      options:
+        - label: 비밀 정보와 개인정보를 포함하지 않았습니다.
+          required: true
+        - label: 다른 계층에 미치는 영향을 확인했습니다.
+          required: true

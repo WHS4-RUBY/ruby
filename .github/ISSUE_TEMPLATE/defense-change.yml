@@ -1,0 +1,36 @@
+name: 방어 기능 제안
+description: 새로운 방어 기법 또는 기존 기법의 변경을 제안합니다.
+title: "[Defense] "
+labels: ["defense"]
+assignees: ["Opal1031"]
+body:
+  - type: input
+    id: technique
+    attributes:
+      label: 방어 기법
+      placeholder: 차단, 변환, 지연, 기만 등
+    validations:
+      required: true
+  - type: textarea
+    id: condition
+    attributes:
+      label: 적용 조건과 목적
+      description: 어떤 탐지 결과에 적용하며 무엇을 방어하는지 작성해 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: 검증 계획
+      description: 정상·공격 요청의 예상 결과와 측정 기준을 작성해 주세요.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 사전 확인
+      options:
+        - label: 정상 요청에 미칠 영향을 검토했습니다.
+          required: true
+        - label: 비밀 정보와 개인정보를 포함하지 않았습니다.
+          required: true
