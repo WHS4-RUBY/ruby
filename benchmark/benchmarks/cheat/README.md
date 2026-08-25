@@ -26,12 +26,13 @@ WSL2 Ubuntu 셸에서 실행한다(`wsl` 진입 후):
 
 ```bash
 mkdir -p ~/ruby-project && cd ~/ruby-project
+git clone <RUBY_MONOREPO_URL> RUBY
 git clone https://github.com/Daniel-Ayz/CHeaT.git CHeaT-docker
 cd CHeaT-docker
 git checkout ee69d2c2a68b38a77f9266595655e8fa8cd9ae90
 
 # scripts/setup.sh가 아래 Dockerfile 복사 + 이미지 빌드를 수행한다
-../../ruby-benchmarks/benchmarks/cheat/scripts/setup.sh
+../RUBY/benchmark/benchmarks/cheat/scripts/setup.sh
 ```
 
 Dockerfile은 upstream 저장소에는 없어 이 벤치마크에서 추가했다(`scripts/Dockerfile`, patch 아님 — 순수 빌드 편의 파일).
@@ -86,7 +87,7 @@ docker run --rm cheat:pristine bash -lc '
 한 번에 다 돌리려면:
 
 ```bash
-cd ruby-benchmarks/benchmarks/cheat/scripts
+cd ~/ruby-project/RUBY/benchmark/benchmarks/cheat/scripts
 
 for pair in "S3i prompt_injection" "S2ii prompt_injection" "S7i honeytoken" "S3ii honeytoken" \
             "S9ii prompt_injection" "S4i prompt_injection" "S5i prompt_injection" \
@@ -103,7 +104,7 @@ done
 `cheat` 카탈로그엔 대응 코드가 없는 T1.2·T2.1·T4.2는 [`scripts/extract_dataset_payload.py`](scripts/extract_dataset_payload.py)가 `datasets/payloads/payloads.json`에서 `risk_category` 접두어로 payload 텍스트를 직접 뽑아 심는다.
 
 ```bash
-cd ruby-benchmarks/benchmarks/cheat/scripts
+cd ~/ruby-project/RUBY/benchmark/benchmarks/cheat/scripts
 
 for tnum in T1.2 T2.1 T4.2; do
   echo "############ $tnum ############"

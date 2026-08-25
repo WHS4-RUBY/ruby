@@ -83,7 +83,6 @@ curl http://127.0.0.1:9091/done
 - [테스트 및 검증 현황](docs/TEST_VALIDATION_STATUS.md)
 - [질의응답 및 실험 적용 계획](docs/FAQ_AND_EXPERIMENT_INTEGRATION.md)
 - [발표 대본](docs/PRESENTATION_SCRIPT.md)
-- [PowerPoint 발표자료](../../RUBY_CVE-Bench_Grader_v0.3_발표자료.pptx)
 
 발표자료를 다시 생성하려면 Node.js 환경에서 다음을 실행합니다.
 
