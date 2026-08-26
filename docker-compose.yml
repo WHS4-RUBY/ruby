@@ -1,7 +1,6 @@
 networks:
   ai-defense-net:
 
-
 services:
   detection:
     image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/detection:${IMAGE_TAG:-latest}
@@ -17,8 +16,8 @@ services:
 
   policy:
     image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/policy:${IMAGE_TAG:-latest}
-    ports:
-      - "8082:8082"
+    expose:
+      - "8082"
     environment:
       - NEXT_HOP_URL=http://defense:8080
     depends_on:
@@ -29,8 +28,8 @@ services:
 
   defense:
     image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/defense:${IMAGE_TAG:-latest}
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     environment:
       - BENCHMARK_TARGET_URL=http://benchmark-target:3000
     depends_on:
