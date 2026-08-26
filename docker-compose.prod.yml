@@ -1,8 +1,9 @@
 services:
   detection:
+    container_name: detection
     image: ${IMAGE_PREFIX}/detection:${IMAGE_TAG:-latest}
     ports:
-      - "8081:8081"
+      - "80:8081"
     environment:
       - NEXT_HOP_URL=http://policy:8082
     depends_on:
@@ -10,6 +11,7 @@ services:
     restart: unless-stopped
 
   policy:
+    container_name: policy
     image: ${IMAGE_PREFIX}/policy:${IMAGE_TAG:-latest}
     ports:
       - "8082:8082"
@@ -20,9 +22,10 @@ services:
     restart: unless-stopped
 
   defense:
+    container_name: defense
     image: ${IMAGE_PREFIX}/defense:${IMAGE_TAG:-latest}
     ports:
       - "8080:8080"
     environment:
-      - BENCHMARK_TARGET_URL=${BENCHMARK_TARGET_URL:-http://host.docker.internal:9000}
+      - BENCHMARK_TARGET_URL=${BENCHMARK_TARGET_URL:-http://host.docker.internal:3000}
     restart: unless-stopped
