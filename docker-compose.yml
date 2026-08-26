@@ -1,6 +1,6 @@
 networks:
   ai-defense-net:
-    external: true
+
 
 services:
   detection:
