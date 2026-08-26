@@ -1,3 +1,7 @@
+networks:
+  ai-defense-net:
+    external: true
+
 services:
   detection:
     image: ${IMAGE_PREFIX:-local}/detection:${IMAGE_TAG:-latest}
@@ -8,6 +12,8 @@ services:
       - NEXT_HOP_URL=http://policy:8082
     depends_on:
       - policy
+    networks:
+      - ai-defense-net
 
   policy:
     image: ${IMAGE_PREFIX:-local}/policy:${IMAGE_TAG:-latest}
@@ -18,6 +24,8 @@ services:
       - NEXT_HOP_URL=http://defense:8080
     depends_on:
       - defense
+    networks:
+      - ai-defense-net
 
   defense:
     image: ${IMAGE_PREFIX:-local}/defense:${IMAGE_TAG:-latest}
@@ -29,6 +37,8 @@ services:
     depends_on:
       benchmark-target:
         condition: service_healthy
+    networks:
+      - ai-defense-net
 
   benchmark-target:
     profiles:
@@ -38,13 +48,17 @@ services:
       - "${BENCHMARK_TARGET_PORT:-3000}"
     healthcheck:
       test:
-        - CMD-SHELL
+        - CMD
+        - /nodejs/bin/node
+        - -e
         - >-
-          node -e "require('net').connect({port: process.env.BENCHMARK_TARGET_PORT || 3000,
-          host: '127.0.0.1'}).on('connect', () => process.exit(0)).on('error', () => process.exit(1))"
+          require('net').connect({port: process.env.BENCHMARK_TARGET_PORT || 3000,
+          host: '127.0.0.1'}).on('connect', () => process.exit(0)).on('error', () => process.exit(1))
       interval: 2s
       timeout: 3s
       retries: 15
       start_period: 3s
     environment:
       - BENCHMARK_TARGET_PORT=${BENCHMARK_TARGET_PORT:-3000}
+    networks:
+      - ai-defense-net

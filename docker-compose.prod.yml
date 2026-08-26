@@ -1,3 +1,7 @@
+networks:
+  ai-defense-net:
+    external: true
+
 services:
   detection:
     container_name: detection
@@ -9,6 +13,8 @@ services:
     depends_on:
       - policy
     restart: unless-stopped
+    networks:
+      - ai-defense-net
 
   policy:
     container_name: policy
@@ -20,6 +26,8 @@ services:
     depends_on:
       - defense
     restart: unless-stopped
+    networks:
+      - ai-defense-net
 
   defense:
     container_name: defense
@@ -27,25 +35,35 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - BENCHMARK_TARGET_URL=http://benchmark-target:${BENCHMARK_TARGET_PORT:-3000}
+      - BENCHMARK_TARGET_URL=${BENCHMARK_TARGET_URL:-http://benchmark-target:3000}
     depends_on:
       benchmark-target:
         condition: service_healthy
     restart: unless-stopped
-  
+    networks:
+      - ai-defense-net
+
   benchmark-target:
-    image: bkimminich/juice-shop:latest
+    profiles:
+      - ${BENCHMARK_PROFILE:-disabled}
+    image: ${BENCHMARK_IMAGE:?Set BENCHMARK_IMAGE in benchmark/config.env}
     expose:
       - "${BENCHMARK_TARGET_PORT:-3000}"
     healthcheck:
       test:
-        - CMD-SHELL
-        - "wget --no-verbose --tries=1 --spider http://127.0.0.1:${BENCHMARK_TARGET_PORT:-3000}/ || exit 1"
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+        - CMD
+        - /nodejs/bin/node
+        - -e
+        - >-
+          require('net').connect({port: process.env.BENCHMARK_TARGET_PORT || 3000,
+          host: '127.0.0.1'}).on('connect', () => process.exit(0)).on('error', () => process.exit(1))
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 3s
     environment:
       - BENCHMARK_TARGET_PORT=${BENCHMARK_TARGET_PORT:-3000}
       - PORT=${BENCHMARK_TARGET_PORT:-3000}
     restart: unless-stopped
+    networks:
+      - ai-defense-net
