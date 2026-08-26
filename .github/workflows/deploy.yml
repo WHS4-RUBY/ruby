@@ -81,5 +81,5 @@ jobs:
             cd "$DEPLOY_DIR"
 
             export IMAGE_PREFIX IMAGE_TAG
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d
+            docker compose -f docker-compose.yml pull
+            docker compose -f docker-compose.yml up -d

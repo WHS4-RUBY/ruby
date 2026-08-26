@@ -32,7 +32,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - BENCHMARK_TARGET_URL=${BENCHMARK_TARGET_URL:-http://benchmark-target:3000}
+      - BENCHMARK_TARGET_URL=http://benchmark-target:3000
     depends_on:
       benchmark-target:
         condition: service_healthy
@@ -41,7 +41,7 @@ services:
       - ai-defense-net
 
   benchmark-target:
-    image: bkimminich/juice-shop:latest
+    image: ${BENCHMARK_IMAGE:-bkimminich/juice-shop:latest}
     expose:
       - "3000"
     healthcheck:
