@@ -1,7 +1,3 @@
-networks:
-  ai-defense-net:
-    external: true
-
 services:
   detection:
     image: ${IMAGE_PREFIX:-local}/detection:${IMAGE_TAG:-latest}
@@ -12,8 +8,6 @@ services:
       - NEXT_HOP_URL=http://policy:8082
     depends_on:
       - policy
-    networks:
-      - ai-defense-net
 
   policy:
     image: ${IMAGE_PREFIX:-local}/policy:${IMAGE_TAG:-latest}
@@ -24,8 +18,6 @@ services:
       - NEXT_HOP_URL=http://defense:8080
     depends_on:
       - defense
-    networks:
-      - ai-defense-net
 
   defense:
     image: ${IMAGE_PREFIX:-local}/defense:${IMAGE_TAG:-latest}
@@ -37,8 +29,6 @@ services:
     depends_on:
       benchmark-target:
         condition: service_healthy
-    networks:
-      - ai-defense-net
 
   benchmark-target:
     profiles:
@@ -58,5 +48,3 @@ services:
       start_period: 3s
     environment:
       - BENCHMARK_TARGET_PORT=${BENCHMARK_TARGET_PORT:-3000}
-    networks:
-      - ai-defense-net
