@@ -26,13 +26,13 @@ RUBY/
 
 ### `detection/`
 
-요청의 특징을 추출하고 공격 가능성을 분석합니다. 규칙·모델 기반 탐지, 위험도 점수와 탐지 근거를 관리합니다.
+요청의 특징을 추출하고 공격 가능성을 분석합니다. 규칙·모델 기반 탐지, 위험도 점수를 관리합니다.
 
 자세한 내용은 [`detection/README.md`](detection/README.md)를 참고하세요.
 
 ### `policy/`
 
-Detection이 산정한 위험도와 탐지 근거를 정책에 따라 해석하고, 정상 전달 또는 Defense에서 적용할 대응 전략을 선택합니다.
+Detection이 산정한 위험도 점수를 정책에 따라 해석하고, 정상 전달 또는 Defense에서 적용할 대응 전략을 선택합니다.
 
 자세한 내용은 [`policy/README.md`](policy/README.md)를 참고하세요.
 
