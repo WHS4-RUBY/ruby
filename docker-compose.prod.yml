@@ -40,13 +40,12 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - >-
-          node -e "require('net').connect({port: process.env.BENCHMARK_TARGET_PORT || 3000,
-          host: '127.0.0.1'}).on('connect', () => process.exit(0)).on('error', () => process.exit(1))"
-      interval: 2s
-      timeout: 3s
-      retries: 15
-      start_period: 3s
+        - "wget --no-verbose --tries=1 --spider http://127.0.0.1:${BENCHMARK_TARGET_PORT:-3000}/ || exit 1"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     environment:
       - BENCHMARK_TARGET_PORT=${BENCHMARK_TARGET_PORT:-3000}
+      - PORT=${BENCHMARK_TARGET_PORT:-3000}
     restart: unless-stopped
