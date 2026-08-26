@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
   
   benchmark-target:
-    image: ${BENCHMARK_IMAGE}
+    image: bkimminich/juice-shop:latest
     expose:
       - "${BENCHMARK_TARGET_PORT:-3000}"
     healthcheck:
@@ -50,4 +50,3 @@ services:
     environment:
       - BENCHMARK_TARGET_PORT=${BENCHMARK_TARGET_PORT:-3000}
     restart: unless-stopped
-    
