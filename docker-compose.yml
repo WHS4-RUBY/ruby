@@ -4,32 +4,31 @@ networks:
 
 services:
   detection:
-    image: ${IMAGE_PREFIX:-local}/detection:${IMAGE_TAG:-latest}
-    build: ./detection
+    image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/detection:${IMAGE_TAG:-latest}
     ports:
       - "80:8081"
     environment:
       - NEXT_HOP_URL=http://policy:8082
     depends_on:
       - policy
+    restart: unless-stopped
     networks:
       - ai-defense-net
 
   policy:
-    image: ${IMAGE_PREFIX:-local}/policy:${IMAGE_TAG:-latest}
-    build: ./policy
+    image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/policy:${IMAGE_TAG:-latest}
     ports:
       - "8082:8082"
     environment:
       - NEXT_HOP_URL=http://defense:8080
     depends_on:
       - defense
+    restart: unless-stopped
     networks:
       - ai-defense-net
 
   defense:
-    image: ${IMAGE_PREFIX:-local}/defense:${IMAGE_TAG:-latest}
-    build: ./defense
+    image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/defense:${IMAGE_TAG:-latest}
     ports:
       - "8080:8080"
     environment:
@@ -37,28 +36,26 @@ services:
     depends_on:
       benchmark-target:
         condition: service_healthy
+    restart: unless-stopped
     networks:
       - ai-defense-net
 
   benchmark-target:
-    profiles:
-      - ${BENCHMARK_PROFILE:-disabled}
-    image: ${BENCHMARK_IMAGE:?Set BENCHMARK_IMAGE in benchmark/config.env}
+    image: bkimminich/juice-shop:latest
     expose:
-      - "${BENCHMARK_TARGET_PORT:-3000}"
+      - "3000"
     healthcheck:
       test:
-        - CMD
-        - /nodejs/bin/node
-        - -e
-        - >-
-          require('net').connect({port: process.env.BENCHMARK_TARGET_PORT || 3000,
-          host: '127.0.0.1'}).on('connect', () => process.exit(0)).on('error', () => process.exit(1))
+        [
+          "CMD",
+          "/nodejs/bin/node",
+          "-e",
+          "require('net').connect({port:3000,host:'127.0.0.1'}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
+        ]
       interval: 2s
       timeout: 3s
       retries: 15
       start_period: 3s
-    environment:
-      - BENCHMARK_TARGET_PORT=${BENCHMARK_TARGET_PORT:-3000}
+    restart: unless-stopped
     networks:
       - ai-defense-net

@@ -46,6 +46,18 @@ Detection이 산정한 위험도 점수를 정책에 따라 해석하고, 정상
 
 세부 규칙은 [`CONTRIBUTING.md`](CONTRIBUTING.md)를 참고하세요.
 
+## 서버 배포
+
+서버에서는 [`.env.example`](.env.example)을 `.env`로 복사한 뒤 `IMAGE_PREFIX`에 배포 레지스트리 경로를, `IMAGE_TAG`에 배포할 태그를 설정합니다. `BENCHMARK_*` 변수는 기동할 벤치마크와 Defense의 내부 타깃 주소를 정합니다.
+
+```bash
+cp .env.example .env
+# .env의 IMAGE_PREFIX와 IMAGE_TAG를 배포 값으로 수정
+docker network create ai-defense-net
+docker compose pull
+docker compose up -d
+```
+
 ## 보안 주의사항
 
 API 키, 토큰, 비밀번호, 실제 서버 식별 정보, 개인정보가 포함된 로그를 커밋하지 않습니다. 필요한 환경 변수는 실제 값이 없는 `.env.example`로만 공유합니다.
