@@ -4,6 +4,7 @@ networks:
 services:
   detection:
     image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/detection:${IMAGE_TAG:-latest}
+    container_name: detection
     ports:
       - "80:8081"
     environment:
@@ -16,6 +17,7 @@ services:
 
   policy:
     image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/policy:${IMAGE_TAG:-latest}
+    container_name: policy
     expose:
       - "8082"
     environment:
@@ -28,6 +30,7 @@ services:
 
   defense:
     image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/defense:${IMAGE_TAG:-latest}
+    container_name: defense
     expose:
       - "8080"
     environment:
