@@ -1,0 +1,68 @@
+name: ruby-local
+
+services:
+  detection:
+    build: ./detection
+    ports:
+      - "8081:8081"
+    environment:
+      NEXT_HOP_URL: http://policy:8082
+    volumes:
+      - ./detection/app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8081 --reload
+    depends_on:
+      policy:
+        condition: service_healthy
+    networks:
+      - ai-defense-net
+
+  policy:
+    build: ./policy
+    environment:
+      NEXT_HOP_URL: http://defense:8080
+    volumes:
+      - ./policy/app:/app/app
+      - ./policy/config.yaml:/app/config.yaml:ro
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8082 --reload
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/healthz')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    depends_on:
+      defense:
+        condition: service_healthy
+    networks:
+      - ai-defense-net
+
+  defense:
+    build: ./defense
+    environment:
+      BENCHMARK_TARGET_URL: http://benchmark-target:3000
+    volumes:
+      - ./defense/app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    depends_on:
+      benchmark-target:
+        condition: service_healthy
+    networks:
+      - ai-defense-net
+
+  benchmark-target:
+    image: ${BENCHMARK_IMAGE:-bkimminich/juice-shop:latest}
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "-e", "require('net').connect({port:3000,host:'127.0.0.1'}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 3s
+    networks:
+      - ai-defense-net
+
+networks:
+  ai-defense-net:
