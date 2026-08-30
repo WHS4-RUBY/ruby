@@ -58,6 +58,27 @@ docker compose pull
 docker compose up -d
 ```
 
+## 로컬 테스트
+
+Docker Desktop을 실행한 뒤, 아래 명령으로 로컬 소스를 빌드해 전체 요청 경로를 띄웁니다. 배포용 `docker-compose.yml`과 달리 레지스트리 설정이나 `.env` 파일이 필요 없습니다.
+
+```bash
+docker compose -f docker-compose.local.yml up --build
+```
+
+브라우저에서 `http://localhost:8081`로 접속하거나, 다음처럼 Detection → Policy → Defense → 벤치마크 대상의 전체 경로를 확인합니다.
+
+```bash
+curl http://localhost:8081/healthz
+curl -I http://localhost:8081
+```
+
+`detection/app`, `policy/app`, `policy/config.yaml`, `defense/app` 변경은 컨테이너가 자동으로 다시 불러옵니다. 종료 및 컨테이너 정리는 다음 명령을 사용합니다.
+
+```bash
+docker compose -f docker-compose.local.yml down
+```
+
 ## 보안 주의사항
 
 API 키, 토큰, 비밀번호, 실제 서버 식별 정보, 개인정보가 포함된 로그를 커밋하지 않습니다. 필요한 환경 변수는 실제 값이 없는 `.env.example`로만 공유합니다.
