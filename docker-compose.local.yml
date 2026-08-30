@@ -3,6 +3,7 @@ name: ruby-local
 services:
   detection:
     build: ./detection
+    container_name: detection
     ports:
       - "8081:8081"
     environment:
@@ -18,6 +19,7 @@ services:
 
   policy:
     build: ./policy
+    container_name: policy
     environment:
       NEXT_HOP_URL: http://defense:8080
     volumes:
@@ -37,6 +39,7 @@ services:
 
   defense:
     build: ./defense
+    container_name: defense
     environment:
       BENCHMARK_TARGET_URL: http://benchmark-target:3000
     volumes:
@@ -54,6 +57,7 @@ services:
       - ai-defense-net
 
   benchmark-target:
+    container_name: target
     image: ${BENCHMARK_IMAGE:-bkimminich/juice-shop:latest}
     healthcheck:
       test: ["CMD", "/nodejs/bin/node", "-e", "require('net').connect({port:3000,host:'127.0.0.1'}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
