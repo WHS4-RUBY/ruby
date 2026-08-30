@@ -1,11 +1,10 @@
 """
 Policy Engine - 스텁 버전.
-Detection Proxy가 붙인 위험도 헤더를 보고 방어 전략을 정하며, 정책은 config.yaml에서 로드.
-지연 방어는 아직 스텁: risk_score 0.1당 delay_ms_per_step만큼 응답을 늦춘다.
-
-TODO: risk_score/classification -> defense strategy 매핑 규칙을 구체화.
+Detection Proxy가 붙인 위험도 헤더를 보고 config.yaml의 rules에 따라
+방어 전략(들)을 순서대로 적용한다. 실제 실행은 defense/ 패키지에 위임하고,
+이 파일은 "어떤 전략을 어떤 순서로 적용할지" 결정 및 오케스트레이션만 담당한다.
 """
-import asyncio
+import json
 import os
 
 import httpx
@@ -35,6 +34,9 @@ _RESPONSE_SKIP = {
     "content-encoding",
     "content-length",
 }
+# 프록시는 압축을 풀어 다시 쓰는 역할을 하지 않는다. 지원하지 않는 압축 형식의
+# 본문과 Content-Encoding 헤더가 어긋나지 않도록 업스트림 압축을 비활성화한다.
+_REQUEST_SKIP = _HOP_BY_HOP | {"accept-encoding"}
 
 app = FastAPI(title="Policy Engine (stub)")
 
@@ -45,6 +47,16 @@ def load_config(path: str) -> dict:
 
 
 config = load_config(CONFIG_PATH)
+_RULES: list[dict] = config.get("defense", {}).get("rules") or []
+
+
+def select_strategies(risk_score: float) -> list[dict]:
+    # rules는 [min_score, max_score). 순서대로 훑어 첫 매칭 규칙을 쓴다.
+    # TODO: 겹치는 구간/구멍난 구간에 대한 config validation 추가.
+    for rule in _RULES:
+        if rule["min_score"] <= risk_score < rule["max_score"]:
+            return rule.get("strategies") or []
+    return []
 
 
 def parse_risk_score(raw: str | None) -> float:
@@ -54,24 +66,6 @@ def parse_risk_score(raw: str | None) -> float:
         return float(raw)
     except (TypeError, ValueError):
         return 0.0
-
-
-def compute_delay_seconds(risk_score: float) -> float:
-    step = float(config["delay"]["step"])
-    delay_ms_per_step = float(config["delay"]["delay_ms_per_step"])
-    if step <= 0:
-        return 0.0
-    steps = risk_score / step
-    return (steps * delay_ms_per_step) / 1000
-
-
-def select_strategy(risk_score: float) -> str:
-    strategies = config.get("strategies") or {}
-    if risk_score >= 0.7:
-        return str(strategies.get("likely_ai", "challenge"))
-    if risk_score >= 0.3:
-        return str(strategies.get("suspicious", "throttle"))
-    return str(strategies.get("human", "passthrough"))
 
 
 def _header_value(value) -> str:
@@ -85,9 +79,10 @@ def _header_value(value) -> str:
 def build_upstream_headers(request: Request, extra: dict) -> dict[str, str]:
     headers: dict[str, str] = {}
     for key, value in request.headers.items():
-        if key.lower() in _HOP_BY_HOP:
+        if key.lower() in _REQUEST_SKIP:
             continue
         headers[key] = _header_value(value)
+    headers["accept-encoding"] = "identity"
     for key, value in extra.items():
         if key.lower() in _HOP_BY_HOP:
             continue
@@ -119,17 +114,14 @@ async def healthz():
 )
 async def catch_all(request: Request, full_path: str):
     risk_score = parse_risk_score(request.headers.get("x-risk-score"))
-    strategy = select_strategy(risk_score)
-    delay_seconds = compute_delay_seconds(risk_score)
-
-    await asyncio.sleep(delay_seconds)
+    strategies = select_strategies(risk_score)
 
     body = await request.body()
     headers = build_upstream_headers(
         request,
         {
-            "X-Defense-Strategy": strategy,
-            "X-Defense-Delay-Ms": str(int(delay_seconds * 1000)),
+            "X-Defense-Plan": json.dumps(strategies, ensure_ascii=False),
+            "X-Risk-Score": str(risk_score),
         },
     )
 
