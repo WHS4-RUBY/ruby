@@ -1,15 +1,18 @@
 """
 Defense Proxy - 스텁 버전.
-Policy Engine이 정한 전략(X-Defense-Strategy)을 받아오지만, 아직 실제 방어
-동작(지연 주입, 허니팟 전환, 챌린지 삽입 등)은 구현하지 않고 그대로 통과시킴.
+Policy Engine이 X-Defense-Plan 헤더로 넘긴 방어 전략 계획을 실제로 실행하고
+(delay 재우기, rate_limit 차단 등), 이후 최종 백엔드로 요청을 전달한다.
 
 TODO: strategy별 실제 요청/응답 변형 로직 구현.
 """
+import json
 import os
 
 import httpx
 from fastapi import FastAPI, Request
 from starlette.responses import Response
+
+from .strategies.registry import STRATEGY_REGISTRY
 
 BENCHMARK_TARGET_URL = os.getenv("BENCHMARK_TARGET_URL", "http://localhost:9000")
 
@@ -32,13 +35,32 @@ _RESPONSE_SKIP = {
     "content-encoding",
     "content-length",
 }
+# Policy Engine이 내부 통신용으로 붙인 헤더는 여기서 소비하고, 실제 백엔드에는
+# 전달하지 않는다 (백엔드가 몰라도 되는 내부 파이프라인 정보이므로).
+_DEFENSE_INTERNAL_HEADERS = {"x-defense-plan"}
+_REQUEST_SKIP = _HOP_BY_HOP | {"accept-encoding"} | _DEFENSE_INTERNAL_HEADERS
 
 app = FastAPI(title="Defense Proxy (stub)")
 
 
-def apply_defense(strategy: str, request: Request, body: bytes) -> tuple[bytes, dict]:
-    # TODO: strategy(challenge/throttle/honeypot 등)에 따라 실제 요청/응답 변형
-    return body, {}
+def parse_plan(raw: str | None) -> list[dict]:
+    if not raw:
+        return []
+    try:
+        plan = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return plan if isinstance(plan, list) else []
+
+
+
+def parse_risk_score(raw: str | None) -> float:
+    if raw is None or raw == "":
+        return 0.0
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _header_value(value) -> str:
@@ -52,9 +74,10 @@ def _header_value(value) -> str:
 def build_upstream_headers(request: Request, extra: dict) -> dict[str, str]:
     headers: dict[str, str] = {}
     for key, value in request.headers.items():
-        if key.lower() in _HOP_BY_HOP:
+        if key.lower() in _REQUEST_SKIP:
             continue
         headers[key] = _header_value(value)
+    headers["accept-encoding"] = "identity"
     for key, value in extra.items():
         if key.lower() in _HOP_BY_HOP:
             continue
@@ -85,12 +108,51 @@ async def healthz():
     methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
 )
 async def catch_all(request: Request, full_path: str):
-    strategy = request.headers.get("x-defense-strategy", "passthrough")
-    body = await request.body()
-    body, extra_headers = apply_defense(strategy, request, body)
+    plan = parse_plan(request.headers.get("x-defense-plan"))
+    request.state.risk_score = parse_risk_score(request.headers.get("x-risk-score"))
 
+    applied_names: list[str] = []
+    extra_headers: dict[str, str] = {}
+
+
+    for step in plan:
+        name = step.get("name")
+        strategy_impl = STRATEGY_REGISTRY.get(name)
+        if strategy_impl is None:
+            # TODO: registry에 없는 전략 이름이 들어온 경우 처리 정책 확정 (지금은 skip)
+            continue
+
+        result = await strategy_impl.apply(request, step.get("params") or {})
+        applied_names.append(name)
+        extra_headers.update(result.extra_headers)
+
+        if result.short_circuit is not None:
+            # rate_limit(429) 등 백엔드까지 갈 필요 없이 여기서 응답 종료
+            for k, v in extra_headers.items():
+                result.short_circuit.headers[k] = v
+            result.short_circuit.headers["X-Defense-Applied"] = ",".join(applied_names)
+            return result.short_circuit
+
+    extra_headers["X-Defense-Applied"] = ",".join(applied_names) or "none"
+
+    body = await request.body()
     headers = build_upstream_headers(request, extra_headers)
 
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            upstream = await client.request(
+                method=request.method,
+                url=f"{BENCHMARK_TARGET_URL.rstrip('/')}/{full_path}",
+                headers=headers,
+                content=body,
+                params=list(request.query_params.multi_items()),
+            )
+    except httpx.RequestError as exc:
+        return Response(content=str(exc).encode(), status_code=502)
+
+    return proxy_response(upstream)
+        
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             upstream = await client.request(
