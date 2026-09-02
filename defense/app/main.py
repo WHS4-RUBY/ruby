@@ -152,17 +152,3 @@ async def catch_all(request: Request, full_path: str):
         return Response(content=str(exc).encode(), status_code=502)
 
     return proxy_response(upstream)
-        
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            upstream = await client.request(
-                method=request.method,
-                url=f"{BENCHMARK_TARGET_URL.rstrip('/')}/{full_path}",
-                headers=headers,
-                content=body,
-                params=list(request.query_params.multi_items()),
-            )
-    except httpx.RequestError as exc:
-        return Response(content=str(exc).encode(), status_code=502)
-
-    return proxy_response(upstream)
