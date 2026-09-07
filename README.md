@@ -2,6 +2,12 @@
 
 RUBY는 웹 요청의 공격 가능성을 탐지하고, 위험도와 정책에 따라 대응 전략을 선택해 방어 기법을 적용하며, 그 성능과 재현성을 검증하는 프로젝트입니다. 탐지, 정책 판단, 방어, 벤치마크에 필요한 코드와 문서를 함께 관리합니다.
 
+## 처음 실행해 볼 로컬 웹
+
+[`RUBY Market 취약점 웹`](benchmark/benchmarks/web-defense-benchmark/README.md)은 정상 쇼핑몰을 먼저 사용한 뒤 원하는 취약점만 켜서 결과를 비교하는 로컬 실습 환경입니다. README의 `처음 10분 사용 순서`부터 따르면 Docker 실행, 화면 체험, 개발 계정 로그인, SQL 주입 확인과 정리까지 진행할 수 있습니다.
+
+이 웹은 로컬 검증용으로 외부 업로드를 보류하고 있습니다. Honeyval 방어는 개발 중이며 역시 업로드하지 않습니다. 공인 주소나 외부 네트워크에 취약 웹을 공개하지 마십시오.
+
 ## 저장소 구조
 
 ```text
@@ -20,7 +26,7 @@ RUBY/
 
 ### `defense/`
 
-탐지 결과에 따라 요청을 차단·변환·지연·기만하는 방어 계층을 개발합니다. 방어 정책, 계층 간 인터페이스, 로그와 테스트를 관리합니다.
+탐지 결과에 따라 요청을 차단, 변환, 지연하거나 기만하는 방어 계층을 개발합니다. 방어 정책, 계층 간 인터페이스, 로그와 테스트를 관리합니다.
 
 자세한 내용은 [`defense/README.md`](defense/README.md)를 참고하세요.
 
@@ -50,11 +56,10 @@ Detection이 산정한 위험도 점수를 정책에 따라 해석하고, 정상
 
 ## 서버 배포
 
-서버에서는 [`.env.example`](.env.example)을 `.env`로 복사한 뒤 `IMAGE_PREFIX`에 배포 레지스트리 경로를, `IMAGE_TAG`에 배포할 태그를 설정합니다. `BENCHMARK_*` 변수는 기동할 벤치마크와 Defense의 내부 타깃 주소를 정합니다.
+서버 배포 운영자는 저장소 루트에 `.env`를 만들고 `IMAGE_PREFIX`에 배포 레지스트리 경로를, `IMAGE_TAG`에 배포할 태그를 설정합니다. `BENCHMARK_*` 변수는 기동할 벤치마크와 Defense의 내부 타깃 주소를 정합니다.
 
 ```bash
-cp .env.example .env
-# .env의 IMAGE_PREFIX와 IMAGE_TAG를 배포 값으로 수정
+# .env에 IMAGE_PREFIX와 IMAGE_TAG를 배포 값으로 설정
 docker network create ai-defense-net
 docker compose pull
 docker compose up -d

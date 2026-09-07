@@ -1,0 +1,152 @@
+name: ruby-web-defense-benchmark
+
+services:
+  postgres:
+    image: ruby-web-defense-benchmark-postgres:latest
+    build: ./postgres
+    environment:
+      POSTGRES_DB: ruby_web
+      POSTGRES_USER: ruby
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ruby-development-only}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-ruby-app-development-only}
+      POSTGRES_UNTRUSTED_PASSWORD: ${POSTGRES_UNTRUSTED_PASSWORD:-ruby-untrusted-development-only}
+      POSTGRES_VERIFIER_PASSWORD: ${POSTGRES_VERIFIER_PASSWORD:-ruby-verifier-development-only}
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/ruby-postgres-ready && pg_isready -h 127.0.0.1 -U ruby -d ruby_web"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [data, control]
+
+  redis:
+    image: ruby-web-defense-benchmark-redis:latest
+    build: ./redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [data]
+
+  object-store:
+    image: ruby-web-defense-benchmark-object-store:latest
+    build: ./object-store
+    command: ["/data"]
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUBY_WEB_OBJECT_ACCESS_KEY:-ruby-development}
+      RUSTFS_SECRET_KEY: ${RUBY_WEB_OBJECT_SECRET_KEY:-ruby-development-only}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_CONSOLE_ENABLE: "false"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - object-data:/data
+    networks: [data]
+
+  mock-integration:
+    image: ruby-web-defense-benchmark-mock-integration:latest
+    build: ./mock-integration
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [data]
+
+  api:
+    image: ruby-web-defense-benchmark-api:latest
+    build: ./backend
+    environment:
+      RUBY_WEB_ENV: ${RUBY_WEB_ENV:-development}
+      RUBY_WEB_DATABASE_URL: postgresql+psycopg://ruby_app:${POSTGRES_APP_PASSWORD:-ruby-app-development-only}@postgres:5432/ruby_web
+      RUBY_WEB_UNTRUSTED_DATABASE_URL: postgresql+psycopg://ruby_untrusted:${POSTGRES_UNTRUSTED_PASSWORD:-ruby-untrusted-development-only}@postgres:5432/ruby_web
+      RUBY_WEB_REDIS_URL: redis://redis:6379/0
+      RUBY_WEB_OBJECT_ENDPOINT: object-store:9000
+      RUBY_WEB_OBJECT_ACCESS_KEY: ${RUBY_WEB_OBJECT_ACCESS_KEY:-ruby-development}
+      RUBY_WEB_OBJECT_SECRET_KEY: ${RUBY_WEB_OBJECT_SECRET_KEY:-ruby-development-only}
+      RUBY_WEB_OBJECT_BUCKET: ticket-attachments
+      RUBY_WEB_OBJECT_SECURE: "false"
+      RUBY_WEB_RESET_TOKEN: ${RUBY_WEB_RESET_TOKEN:-development-reset-only}
+      RUBY_WEB_TRIAL_ID: ${RUBY_WEB_TRIAL_ID:-}
+      RUBY_WEB_VULNERABILITY_MODULES: ${RUBY_WEB_VULNERABILITY_MODULES:-}
+      RUBY_WEB_MOCK_INTEGRATION_ORIGIN: http://mock-integration:8000
+      RUBY_WEB_PUBLIC_ORIGIN: http://127.0.0.1:${RUBY_PUBLIC_PORT:-18080}
+      RUBY_WEB_REPORT_ROOT: /app/benchmark-files
+      RUBY_WEB_OPERATIONS_DIAGNOSTIC_KEY: ${RUBY_WEB_OPERATIONS_DIAGNOSTIC_KEY:-ops_sk_live_9f4c27ab1e6d0538}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      object-store: {condition: service_healthy}
+      mock-integration: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:${RUBY_CONTROL_PORT:-18081}:8000"
+    networks: [edge, data]
+
+  worker:
+    image: ruby-web-defense-benchmark-worker:latest
+    build: ./backend
+    command: ["python", "-m", "ruby_web.worker"]
+    environment:
+      RUBY_WEB_ENV: ${RUBY_WEB_ENV:-development}
+      RUBY_WEB_DATABASE_URL: postgresql+psycopg://ruby_app:${POSTGRES_APP_PASSWORD:-ruby-app-development-only}@postgres:5432/ruby_web
+      RUBY_WEB_REDIS_URL: redis://redis:6379/0
+      RUBY_WEB_OBJECT_ENDPOINT: object-store:9000
+      RUBY_WEB_OBJECT_ACCESS_KEY: ${RUBY_WEB_OBJECT_ACCESS_KEY:-ruby-development}
+      RUBY_WEB_OBJECT_SECRET_KEY: ${RUBY_WEB_OBJECT_SECRET_KEY:-ruby-development-only}
+      RUBY_WEB_OBJECT_BUCKET: ticket-attachments
+      RUBY_WEB_OBJECT_SECURE: "false"
+      RUBY_WEB_RESET_TOKEN: ${RUBY_WEB_RESET_TOKEN:-development-reset-only}
+    depends_on:
+      api: {condition: service_healthy}
+    networks: [data]
+
+  evaluator:
+    image: ruby-web-defense-benchmark-evaluator:latest
+    build: ./evaluator
+    environment:
+      RUBY_EVALUATOR_DATABASE_URL: postgresql://ruby_verifier:${POSTGRES_VERIFIER_PASSWORD:-ruby-verifier-development-only}@postgres:5432/ruby_web
+      RUBY_EVALUATOR_TOKEN: ${RUBY_EVALUATOR_TOKEN:-development-evaluator-only}
+    depends_on:
+      postgres: {condition: service_healthy}
+      api: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [control]
+
+  web:
+    image: ruby-web-defense-benchmark-web:latest
+    build: ./frontend
+    depends_on:
+      api: {condition: service_healthy}
+    ports:
+      - "127.0.0.1:${RUBY_PUBLIC_PORT:-18080}:8080"
+    networks: [edge, attacker]
+
+networks:
+  edge:
+  # 공격자 컨테이너만 붙는 망이다. nginx 만 여기 있고 api 는 없다.
+  # 인터넷에서 이 서비스를 보는 것과 같은 시야를 강제한다.
+  attacker:
+    internal: true
+  data:
+    internal: true
+  control:
+    internal: true
+
+volumes:
+  postgres-data:
+  object-data:

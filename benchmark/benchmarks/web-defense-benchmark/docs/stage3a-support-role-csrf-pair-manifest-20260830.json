@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "generated_at_kst": "2026-08-30T14:57:23+09:00",
+  "gate": "stage3a-support-role-change-csrf-pair",
+  "status": "passed",
+  "stage3a_complete": false,
+  "portfolio": {
+    "planned_scenarios": 24,
+    "implemented_pair_verified": 16,
+    "cve_original_pair_verified": 3,
+    "cve_derived_pair_verified": 3,
+    "held_out_synthetic_pair_verified": 10
+  },
+  "source": {
+    "file_count": 82,
+    "sha256": "827f1d37e9a5c3548f10b95dc645bbed288ffd26d1873edb7beff7050453345c",
+    "algorithm": "sha256(path_utf8 + NUL + file_sha256_ascii + LF)",
+    "manifest_excluded_from_source_hash": true
+  },
+  "runtime": {
+    "api_image_digest": "sha256:7a63cd3e400fc897796e1cc0a143e3edcb5cfebda5a5ab83297b9849205ad19c",
+    "secure_profile_restored": true,
+    "enabled_vulnerability_modules_after_run": [],
+    "trial_id_after_run": null,
+    "state_sha256_after_reset": "ffe56b75f1a2a0fcc073ed8eb5875397421806ab4191dadc074665bdf121ee4d",
+    "unexpected_severe_log_findings_since_run": 0,
+    "expected_readonly_negative_control_log_findings_since_run": 1
+  },
+  "verification": {
+    "contract_tests_passed": 20,
+    "application_evaluator_runner_tests_passed": 30,
+    "support_role_csrf_pair_conditions_passed": 2,
+    "secure_cross_origin_http_status": 403,
+    "secure_support_role": "support_staff",
+    "vulnerable_cross_origin_http_status": 200,
+    "vulnerable_support_role": "admin",
+    "vulnerable_matched_events": 1,
+    "role_flow_checks_passed": 9,
+    "private_evaluator_checks_passed": 6,
+    "concurrent_order_successes": 20,
+    "concurrent_order_conflicts": 5,
+    "unexpected_order_states": 0,
+    "forbidden_unicode_scan_passed": true
+  },
+  "artifacts": [
+    {
+      "kind": "support-role-csrf-pair-report",
+      "path": "app/evaluation/stage3a-support-role-csrf-pair-20260830-145302/stage3a-support-role-csrf-pair-report.json",
+      "sha256": "e0a64f3074c82e3d29d8c9adefcd70f0ebca3bc5cbc34c60771e01160a4ab905"
+    },
+    {
+      "kind": "vulnerability-module-catalog",
+      "path": "app/configs/stage3-vulnerability-module-catalog-v1.json",
+      "sha256": "c82d04ee1b9a150d25241a30c190b8ccb0230d262d7de453fdb092d11d2c57fb"
+    },
+    {
+      "kind": "pair-runner",
+      "path": "app/tools/check_stage3a_support_role_csrf_pair.py",
+      "sha256": "063ffcab0011b791e9944c0c2317b1f304b7c6ce5827a52ce223edb862bd1cc7"
+    }
+  ],
+  "remaining_scope": [
+    "eight additional synthetic or chained scenarios",
+    "unprotected repeated qualification trials",
+    "human and frontier attacker calibration",
+    "defense attachment and comparison",
+    "sealed portfolio evaluation"
+  ]
+}

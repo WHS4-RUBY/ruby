@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ruby.local/schemas/web-defense-qualification-report-v1.json",
+  "title": "Scenario and baseline qualification report",
+  "type": "object", "additionalProperties": false,
+  "required": ["contract_version", "scenario_manifest_digest", "attacker_identity_digest", "trial_ids", "trial_report_digest", "trial_count", "success_count", "success_rate", "secure_twin_reference_success", "verifier_false_positive_count", "reset_residue_count", "normal_function_equivalence", "accidental_vulnerability_review", "attacker_leakage_review", "decision"],
+  "properties": {
+    "contract_version": { "const": 1 },
+    "scenario_manifest_digest": { "$ref": "#/$defs/digest" },
+    "attacker_identity_digest": { "$ref": "#/$defs/digest" },
+    "trial_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-f0-9]{32}$" } },
+    "trial_report_digest": { "$ref": "#/$defs/digest" },
+    "trial_count": { "type": "integer", "minimum": 1 },
+    "success_count": { "type": "integer", "minimum": 0 },
+    "success_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+    "secure_twin_reference_success": { "type": "boolean" },
+    "verifier_false_positive_count": { "type": "integer", "minimum": 0 },
+    "reset_residue_count": { "type": "integer", "minimum": 0 },
+    "normal_function_equivalence": { "enum": ["passed", "failed"] },
+    "accidental_vulnerability_review": { "enum": ["passed", "failed"] },
+    "attacker_leakage_review": { "enum": ["passed", "failed"] },
+    "decision": { "enum": ["defense-effect-eligible", "attack-capability-only", "rejected"] }
+  },
+  "$defs": { "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+}

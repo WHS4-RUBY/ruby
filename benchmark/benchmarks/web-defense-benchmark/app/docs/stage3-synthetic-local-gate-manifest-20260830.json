@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-08-30",
+  "stage": "stage-3-synthetic-vulnerability-pairs-local-gate",
+  "status": "passed",
+  "overall_stage3_status": "incomplete",
+  "source": {
+    "algorithm": "sha256(path_utf8 + NUL + file_sha256_ascii + LF)",
+    "excluded_generated_directories": [
+      ".pytest_cache",
+      ".venv",
+      "__pycache__",
+      "dist",
+      "evaluation",
+      "node_modules"
+    ],
+    "excluded_manifests": [
+      "docs/stage1-baseline-manifest-20260830.json",
+      "docs/stage2-local-gate-manifest-20260830.json",
+      "docs/stage3-synthetic-local-gate-manifest-20260830.json"
+    ],
+    "file_count": 62,
+    "sha256": "dc52b597a38c7325577dfe96dd67a5baac32d94d55afa506ccc35b7fdefa3cb6"
+  },
+  "images": {
+    "api": "sha256:662e888968750e5446157ab2f0728c83965c61390a8bc91e45134eb6282df184",
+    "worker": "sha256:61647595c0ad0333e827b7745a8577d58ed48f65478c1988a9bb2bcca5b9cba8",
+    "mock_integration": "sha256:830292937e241f1a830593eb76c1e4e83bb700cce52eeaebe794a40da7e5d15c"
+  },
+  "verification": {
+    "synthetic_pairs": {
+      "module_count": 5,
+      "condition_count": 10,
+      "passed_conditions": 10,
+      "failed_conditions": 0,
+      "secure_effect_events": 0,
+      "vulnerable_effect_events": 5,
+      "report": "evaluation/stage3-vulnerability-pairs-final-20260830-014423/stage3-vulnerability-pair-report.json",
+      "report_sha256": "067e6596f7541758085154325abff0dd10c76f1fa2e3d38b60919072db1636fa",
+      "sealed_verifier_image_digest": "sha256:e5e453a6d7df7875e62155cf9f3c41275ca115461837fe5807bbf97e3de05679",
+      "sealed_event_schema_digest": "sha256:72e188a543aba8d60dc8317db78a37809e446e2c54cfa627e33c9a3260e7aa2d"
+    },
+    "pytest": {
+      "passed": 21,
+      "failed": 0
+    },
+    "contract_unittest": {
+      "passed": 14,
+      "failed": 0
+    },
+    "role_flow_checks": {
+      "passed": 9,
+      "failed": 0
+    },
+    "private_evaluator_checks": {
+      "passed": 6,
+      "failed": 0
+    },
+    "isolated_trial": {
+      "trial_id": "e96893364003442167386a04bbc646d6",
+      "status": "completed",
+      "containers_created": 8,
+      "networks_created": 3,
+      "volumes_created": 2,
+      "remaining_containers": 0,
+      "remaining_networks": 0,
+      "remaining_volumes": 0,
+      "artifact_manifest_sha256": "d63d83ef56e01f99ac0891b7efda953ea658bacd483f12afab3887037738fb0f"
+    },
+    "image_scan": {
+      "scanner": "Docker Scout 1.23.1",
+      "images_scanned": 3,
+      "critical_vulnerabilities": 0,
+      "high_vulnerabilities": 0
+    }
+  },
+  "status_document_sha256": "e07dfff8f46943148bd47332d04c783c955a0b41382b7305e8cb7e0e192cefca",
+  "limitations": [
+    "The original public CVE container required by Stage 3 has not been selected or implemented.",
+    "No autonomous attacker or defense adapter was executed.",
+    "The results establish secure and vulnerable pair behavior, not defense effectiveness.",
+    "The image scan cannot detect unpublished vulnerabilities or all application logic defects."
+  ]
+}

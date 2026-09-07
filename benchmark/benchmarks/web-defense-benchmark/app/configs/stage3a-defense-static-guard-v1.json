@@ -1,0 +1,44 @@
+{
+  "contract_version": 2,
+  "defense_id": "ruby-static-request-guard",
+  "defense_version": "1.0.0",
+  "source": {
+    "repository_url": "https://github.com/WHS4-RUBY/ruby",
+    "revision": "workspace-20260908",
+    "source_digest": "sha256:da4f64a2a558ea030f090360e0358e911f90811f2a3d2863f1b0c675ac5412b4",
+    "license": "Project-internal",
+    "paper": null
+  },
+  "implementation_fidelity": "native",
+  "attachment_contracts": [
+    {
+      "profile": "inline-http",
+      "lifecycle_contract_digest": "sha256:9fd122365e4e505d36f4e054a3ef86dc91df29be25e43caa3295f559c1e6cba1",
+      "executor_profile": "inline-enforcer"
+    }
+  ],
+  "capabilities": [
+    "attack-detection",
+    "block"
+  ],
+  "omitted_components": [],
+  "paper_claim_comparison": false,
+  "state": {
+    "scope": "stateless",
+    "persists_across_requests": false,
+    "reset_between_trials": true,
+    "required_handles": []
+  },
+  "deception": {
+    "enabled": false
+  },
+  "model_use": {
+    "enabled": false
+  },
+  "failure_handling": {
+    "timeout_ms": 200000,
+    "timeout_outcome": "invalid-defense-error",
+    "error_outcome": "invalid-defense-error",
+    "retry_count": 0
+  }
+}

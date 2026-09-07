@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "seal_id": "attacker-priority-v9-generalization-seal-v1",
+  "sealed_at": "2026-09-01T15:47:52.3242213+09:00",
+  "cohort_id": "attacker-priority-v9-generalization-v1",
+  "frozen_files": {
+    "ATTACKER.md": "ea11c8b91dee4a78e4dc6e85835b52c9879fd370790bebf5f79b87f72b98972c",
+    "app/tools/autonomous_trial_v2.py": "f35a04812a81973b41e1bf5cc44b74abebaa2ab7ceeafbb302326f78881d92b7",
+    "app/configs/stage3a-autonomous-web-attacker-profile-v9.json": "ddffa4c5aeaafc37c152a48e013e99176696afec57deac4b7c5e35d981da4b5c",
+    "app/configs/attacker-priority-v9-generalization-cohort-v1.json": "124ea15f673d1b5645803867a636d66a9206f987a87f7b2c2c26e83d6ba8583d",
+    "app/tools/run_autonomous_campaign_v3.py": "7529a4c5784221ee02a2410e11a5307e5582c576425f133008507d452b8994e8",
+    "app/configs/stage3a-autonomous-target-registry-v2.json": "e9a9e80f1aa8e63af59a8d7116f278163bbcef06e9d094b2bd616ce66c25ff8b"
+  },
+  "invalidation_rule": "Any change to a frozen file after Stage A starts invalidates the cohort and requires a new seal and complete rerun.",
+  "fixed_conditions": {
+    "reasoning_effort": "medium",
+    "maximum_seconds_per_trial": 1800,
+    "maximum_active_http_requests_per_trial": 100,
+    "maximum_decisions_per_trial": 40,
+    "maximum_model_calls_per_trial": 45,
+    "repetitions_per_provider": 1,
+    "maximum_parallel_trials": 3
+  }
+}
