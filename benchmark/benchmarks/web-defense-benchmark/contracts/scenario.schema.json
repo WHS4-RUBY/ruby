@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ruby.local/schemas/web-defense-scenario-v3.json",
+  "title": "RUBY web defense benchmark sealed scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scenario_id",
+    "title",
+    "dataset_split",
+    "deployment_manifest_digest",
+    "secure_twin_deployment_manifest_digest",
+    "public_brief_digest",
+    "verifier_manifest_digest",
+    "decoy_registry_digest",
+    "vulnerabilities",
+    "objective",
+    "chain",
+    "difficulty",
+    "qualification",
+    "budgets",
+    "reset"
+  ],
+  "properties": {
+    "schema_version": { "const": 3 },
+    "scenario_id": { "$ref": "#/$defs/id" },
+    "title": { "type": "string", "minLength": 3, "maxLength": 160 },
+    "dataset_split": { "enum": ["development", "tuning", "sealed-evaluation"] },
+    "deployment_manifest_digest": { "$ref": "#/$defs/digest" },
+    "secure_twin_deployment_manifest_digest": { "$ref": "#/$defs/digest" },
+    "public_brief_digest": { "$ref": "#/$defs/digest" },
+    "verifier_manifest_digest": { "$ref": "#/$defs/digest" },
+    "decoy_registry_digest": {
+      "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+    },
+    "vulnerabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/vulnerability" }
+    },
+    "objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect_type", "verifier_predicate_id"],
+      "properties": {
+        "effect_type": { "$ref": "#/$defs/effectType" },
+        "verifier_predicate_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{2,127}$"
+        }
+      }
+    },
+    "chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference_step_count",
+        "browser_required",
+        "required_principal_count",
+        "required_organization_count",
+        "required_service_count",
+        "state_preconditions"
+      ],
+      "properties": {
+        "reference_step_count": { "type": "integer", "minimum": 1 },
+        "browser_required": { "type": "boolean" },
+        "required_principal_count": { "type": "integer", "minimum": 0 },
+        "required_organization_count": { "type": "integer", "minimum": 0 },
+        "required_service_count": { "type": "integer", "minimum": 1 },
+        "state_preconditions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]{2,127}$"
+          }
+        }
+      }
+    },
+    "difficulty": { "$ref": "#/$defs/difficulty" },
+    "qualification": { "$ref": "#/$defs/qualification" },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wall_clock_seconds",
+        "http_requests",
+        "agent_steps",
+        "attacker_model_calls",
+        "attacker_input_tokens",
+        "attacker_output_tokens"
+      ],
+      "properties": {
+        "wall_clock_seconds": { "type": "integer", "minimum": 60 },
+        "http_requests": { "type": "integer", "minimum": 1 },
+        "agent_steps": { "type": "integer", "minimum": 1 },
+        "attacker_model_calls": { "type": "integer", "minimum": 1 },
+        "attacker_input_tokens": { "type": "integer", "minimum": 1 },
+        "attacker_output_tokens": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "reset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "reset_profile_digest", "attestation_required"],
+      "properties": {
+        "strategy": { "enum": ["recreate", "snapshot-restore"] },
+        "reset_profile_digest": { "$ref": "#/$defs/digest" },
+        "attestation_required": { "const": true }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "dataset_split": { "const": "sealed-evaluation" } } },
+      "then": {
+        "properties": {
+          "difficulty": {
+            "properties": {
+              "label": { "enum": ["easy", "medium", "hard"] },
+              "calibration_status": { "const": "calibrated" }
+            }
+          },
+          "qualification": { "properties": { "status": { "const": "qualified" } } }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "httpUri": { "type": "string", "pattern": "^https?://[^\\s/$.?#].[^\\s]*$" },
+    "effectType": {
+      "enum": [
+        "unauthorized-resource-read",
+        "unauthorized-resource-write",
+        "privilege-escalation",
+        "administrator-access",
+        "internal-service-access",
+        "controlled-outbound-callback",
+        "controlled-command-execution",
+        "browser-code-execution",
+        "persistent-denial-of-service"
+      ]
+    },
+    "vulnerability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vulnerability_id",
+        "family",
+        "source_type",
+        "cwe_ids",
+        "asvs_ids",
+        "module_id",
+        "prerequisite_vulnerability_ids",
+        "semantic_fingerprint",
+        "provenance"
+      ],
+      "properties": {
+        "vulnerability_id": { "$ref": "#/$defs/id" },
+        "family": {
+          "enum": [
+            "object-authorization", "function-authorization", "authentication-session",
+            "sql-injection", "command-code-injection", "unsafe-deserialization",
+            "path-traversal", "unsafe-file-upload", "cross-site-scripting",
+            "cross-site-request-forgery", "server-side-request-forgery",
+            "security-misconfiguration", "resource-exhaustion", "vulnerable-component",
+            "mass-assignment", "business-workflow", "race-condition",
+            "sensitive-data-exposure"
+          ]
+        },
+        "source_type": { "enum": ["cve-original", "cve-derived", "held-out-synthetic"] },
+        "cwe_ids": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^CWE-[0-9]+$" }
+        },
+        "asvs_ids": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^V[0-9]+\\.[0-9]+\\.[0-9]+$" }
+        },
+        "module_id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,127}$" },
+        "prerequisite_vulnerability_ids": {
+          "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" }
+        },
+        "semantic_fingerprint": { "$ref": "#/$defs/digest" },
+        "provenance": {
+          "oneOf": [
+            { "$ref": "#/$defs/cveOriginal" },
+            { "$ref": "#/$defs/cveDerived" },
+            { "$ref": "#/$defs/heldOutSynthetic" }
+          ]
+        }
+      }
+    },
+    "cveBase": {
+      "type": "object",
+      "required": ["cve_id", "product", "version", "advisory_uri", "source_revision", "source_digest", "license"],
+      "properties": {
+        "cve_id": { "type": "string", "pattern": "^CVE-[0-9]{4}-[0-9]{4,}$" },
+        "product": { "type": "string", "minLength": 2, "maxLength": 128 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "advisory_uri": { "$ref": "#/$defs/httpUri" },
+        "source_revision": { "type": "string", "minLength": 7, "maxLength": 128 },
+        "source_digest": { "$ref": "#/$defs/digest" },
+        "license": { "type": "string", "minLength": 2, "maxLength": 128 }
+      }
+    },
+    "cveOriginal": {
+      "allOf": [
+        { "$ref": "#/$defs/cveBase" },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "cve_id", "product", "version", "advisory_uri", "source_revision", "source_digest", "license"],
+          "properties": {
+            "kind": { "const": "cve-original" },
+            "cve_id": { "type": "string" }, "product": { "type": "string" }, "version": { "type": "string" },
+            "advisory_uri": { "type": "string" }, "source_revision": { "type": "string" },
+            "source_digest": { "type": "string" }, "license": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "cveDerived": {
+      "allOf": [
+        { "$ref": "#/$defs/cveBase" },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "cve_id", "product", "version", "advisory_uri", "source_revision", "source_digest", "license", "derivation_digest"],
+          "properties": {
+            "kind": { "const": "cve-derived" },
+            "cve_id": { "type": "string" }, "product": { "type": "string" }, "version": { "type": "string" },
+            "advisory_uri": { "type": "string" }, "source_revision": { "type": "string" },
+            "source_digest": { "type": "string" }, "license": { "type": "string" },
+            "derivation_digest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "heldOutSynthetic": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "design_digest", "authored_for_benchmark"],
+      "properties": {
+        "kind": { "const": "held-out-synthetic" },
+        "design_digest": { "$ref": "#/$defs/digest" },
+        "authored_for_benchmark": { "const": true }
+      }
+    },
+    "difficulty": {
+      "type": "object", "additionalProperties": false,
+      "required": ["label", "calibration_status", "cohort_manifest_digest", "runs"],
+      "properties": {
+        "label": { "enum": ["uncalibrated", "easy", "medium", "hard"] },
+        "calibration_status": { "enum": ["pending", "calibrated"] },
+        "cohort_manifest_digest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+        "runs": { "type": "array", "items": { "$ref": "#/$defs/calibrationRun" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "calibration_status": { "const": "pending" } } },
+          "then": { "properties": { "label": { "const": "uncalibrated" }, "cohort_manifest_digest": { "type": "null" }, "runs": { "maxItems": 0 } } },
+          "else": { "properties": { "label": { "enum": ["easy", "medium", "hard"] }, "cohort_manifest_digest": { "$ref": "#/$defs/digest" }, "runs": { "minItems": 3 } } }
+        }
+      ]
+    },
+    "calibrationRun": {
+      "type": "object", "additionalProperties": false,
+      "required": ["system_kind", "system_identity_digest", "trial_report_digest", "trial_count", "success_count", "median_http_requests", "median_wall_clock_seconds", "median_interaction_steps"],
+      "properties": {
+        "system_kind": { "enum": ["human", "frontier-agent"] },
+        "system_identity_digest": { "$ref": "#/$defs/digest" },
+        "trial_report_digest": { "$ref": "#/$defs/digest" },
+        "trial_count": { "type": "integer", "minimum": 3 },
+        "success_count": { "type": "integer", "minimum": 0 },
+        "median_http_requests": { "type": "number", "minimum": 0 },
+        "median_wall_clock_seconds": { "type": "number", "minimum": 0 },
+        "median_interaction_steps": { "type": "number", "minimum": 0 }
+      }
+    },
+    "qualification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["pending", "qualified"] }
+      }
+    }
+  }
+}

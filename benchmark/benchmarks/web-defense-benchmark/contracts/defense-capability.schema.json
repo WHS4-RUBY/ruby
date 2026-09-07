@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ruby.local/schemas/defense-capability-v2.json",
+  "title": "RUBY defense capability manifest",
+  "type": "object", "additionalProperties": false,
+  "required": ["contract_version", "defense_id", "defense_version", "source", "implementation_fidelity", "attachment_contracts", "capabilities", "omitted_components", "paper_claim_comparison", "state", "deception", "model_use", "failure_handling"],
+  "properties": {
+    "contract_version": { "const": 2 },
+    "defense_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+    "defense_version": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository_url", "revision", "source_digest", "license", "paper"],
+      "properties": {
+        "repository_url": { "type": "string", "pattern": "^https?://[^\\s]+$" },
+        "revision": { "type": "string", "minLength": 7, "maxLength": 128 },
+        "source_digest": { "$ref": "#/$defs/digest" },
+        "license": { "type": "string", "minLength": 2, "maxLength": 128 },
+        "paper": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object", "additionalProperties": false,
+              "required": ["title", "url", "artifact_revision", "artifact_digest", "configuration_digest", "evaluation_scope_digest"],
+              "properties": {
+                "title": { "type": "string", "minLength": 3, "maxLength": 300 },
+                "url": { "type": "string", "pattern": "^https?://[^\\s]+$" },
+                "artifact_revision": { "type": "string", "minLength": 7, "maxLength": 128 },
+                "artifact_digest": { "$ref": "#/$defs/digest" },
+                "configuration_digest": { "$ref": "#/$defs/digest" },
+                "evaluation_scope_digest": { "$ref": "#/$defs/digest" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "implementation_fidelity": { "enum": ["native", "native-with-adapter", "ported", "reduced-emulation"] },
+    "attachment_contracts": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["profile", "lifecycle_contract_digest", "executor_profile"],
+        "properties": {
+          "profile": { "enum": ["inline-http", "passive-http-mirror", "network-sensor", "application-instrumentation", "external-decoy", "asynchronous-stateful"] },
+          "lifecycle_contract_digest": { "$ref": "#/$defs/digest" },
+          "executor_profile": { "enum": ["observe-only", "inline-enforcer", "application-event-source", "decoy-router", "state-worker"] }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "enum": ["automation-detection", "attack-detection", "block", "delay", "request-transform", "response-transform", "route-decoy", "stateful-deception"] }
+    },
+    "omitted_components": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 3, "maxLength": 256 } },
+    "paper_claim_comparison": { "type": "boolean" },
+    "state": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scope", "persists_across_requests", "reset_between_trials", "required_handles"],
+      "properties": {
+        "scope": { "enum": ["stateless", "request", "session", "principal", "device", "global"] },
+        "persists_across_requests": { "type": "boolean" },
+        "reset_between_trials": { "const": true },
+        "required_handles": { "type": "array", "uniqueItems": true, "items": { "enum": ["session", "principal", "device"] } }
+      }
+    },
+    "deception": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["enabled"], "properties": { "enabled": { "const": false } } },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["enabled", "entry_trigger_digest", "isolation_scope", "sticky_until", "real_target_reentry", "cross_session_linking", "state_consistency_contract_digest"],
+          "properties": {
+            "enabled": { "const": true },
+            "entry_trigger_digest": { "$ref": "#/$defs/digest" },
+            "isolation_scope": { "enum": ["request", "session", "principal", "device", "trial"] },
+            "sticky_until": { "enum": ["response-complete", "session-end", "trial-end"] },
+            "real_target_reentry": { "type": "boolean" },
+            "cross_session_linking": { "enum": ["none", "principal", "device", "defense-defined"] },
+            "state_consistency_contract_digest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "model_use": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["enabled"], "properties": { "enabled": { "const": false } } },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["enabled", "requested_model_id", "identity_evidence_policy_digest", "prompt_digest", "parameter_digest"],
+          "properties": {
+            "enabled": { "const": true },
+            "requested_model_id": { "type": "string", "minLength": 2, "maxLength": 256 },
+            "identity_evidence_policy_digest": { "$ref": "#/$defs/digest" },
+            "prompt_digest": { "$ref": "#/$defs/digest" },
+            "parameter_digest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "failure_handling": {
+      "type": "object", "additionalProperties": false,
+      "required": ["timeout_ms", "timeout_outcome", "error_outcome", "retry_count"],
+      "properties": {
+        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 600000 },
+        "timeout_outcome": { "const": "invalid-defense-error" },
+        "error_outcome": { "const": "invalid-defense-error" },
+        "retry_count": { "type": "integer", "minimum": 0, "maximum": 10 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "paper_claim_comparison": { "const": true } } },
+      "then": {
+        "properties": {
+          "implementation_fidelity": { "enum": ["native", "native-with-adapter"] },
+          "omitted_components": { "maxItems": 0 },
+          "source": { "properties": { "paper": { "type": "object" } } }
+        }
+      }
+    }
+  ],
+  "$defs": { "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+}

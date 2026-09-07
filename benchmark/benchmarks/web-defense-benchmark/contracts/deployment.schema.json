@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ruby.local/schemas/web-defense-deployment-v1.json",
+  "title": "Sealed target deployment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "deployment_id", "scenario_id", "mode", "components", "networks", "volumes", "public_services", "initial_state_digest", "reset_profile_digest", "external_egress", "host_safety"],
+  "properties": {
+    "contract_version": { "const": 1 },
+    "deployment_id": { "$ref": "#/$defs/id" },
+    "scenario_id": { "$ref": "#/$defs/id" },
+    "mode": { "enum": ["vulnerable", "secure-twin", "decoy"] },
+    "components": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/component" } },
+    "networks": { "type": "array", "minItems": 3, "uniqueItems": true, "items": { "$ref": "#/$defs/network" } },
+    "volumes": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/volume" } },
+    "public_services": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/publicService" } },
+    "initial_state_digest": { "$ref": "#/$defs/digest" },
+    "reset_profile_digest": { "$ref": "#/$defs/digest" },
+    "external_egress": {
+      "type": "object", "additionalProperties": false,
+      "required": ["target", "attacker_runner", "defense", "control"],
+      "properties": {
+        "target": { "const": "denied" },
+        "attacker_runner": { "enum": ["denied", "model-provider-only"] },
+        "defense": { "enum": ["denied", "model-provider-only"] },
+        "control": { "const": "denied" }
+      }
+    },
+    "host_safety": {
+      "type": "object", "additionalProperties": false,
+      "required": ["docker_socket_mounted", "privileged_containers", "host_path_mounts", "watchdog_seconds"],
+      "properties": {
+        "docker_socket_mounted": { "const": false },
+        "privileged_containers": { "const": false },
+        "host_path_mounts": { "maxItems": 0, "type": "array" },
+        "watchdog_seconds": { "type": "integer", "minimum": 60, "maximum": 86400 }
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "component": {
+      "type": "object", "additionalProperties": false,
+      "required": ["component_id", "role", "image_digest", "config_digest", "network_ids", "resource_limits"],
+      "properties": {
+        "component_id": { "$ref": "#/$defs/id" },
+        "role": { "enum": ["web", "worker", "database", "cache", "object-store", "mock-integration", "cve-product", "verifier", "resetter", "decoy"] },
+        "image_digest": { "$ref": "#/$defs/digest" },
+        "config_digest": { "$ref": "#/$defs/digest" },
+        "network_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "resource_limits": {
+          "type": "object", "additionalProperties": false,
+          "required": ["cpus", "memory_bytes", "pids", "writable_bytes"],
+          "properties": {
+            "cpus": { "type": "number", "exclusiveMinimum": 0, "maximum": 64 },
+            "memory_bytes": { "type": "integer", "minimum": 67108864 },
+            "pids": { "type": "integer", "minimum": 16, "maximum": 65536 },
+            "writable_bytes": { "type": "integer", "minimum": 1048576 }
+          }
+        }
+      }
+    },
+    "network": {
+      "type": "object", "additionalProperties": false,
+      "required": ["network_id", "purpose", "internet_egress"],
+      "properties": {
+        "network_id": { "$ref": "#/$defs/id" },
+        "purpose": { "enum": ["attack", "app", "control", "telemetry"] },
+        "internet_egress": { "const": false }
+      }
+    },
+    "volume": {
+      "type": "object", "additionalProperties": false,
+      "required": ["volume_id", "state_class", "initial_digest", "reset_required"],
+      "properties": {
+        "volume_id": { "$ref": "#/$defs/id" },
+        "state_class": { "enum": ["database", "cache", "object", "queue", "decoy", "telemetry"] },
+        "initial_digest": { "$ref": "#/$defs/digest" },
+        "reset_required": { "const": true }
+      }
+    },
+    "publicService": {
+      "type": "object", "additionalProperties": false,
+      "required": ["service_id", "component_id", "base_url"],
+      "properties": {
+        "service_id": { "$ref": "#/$defs/id" },
+        "component_id": { "$ref": "#/$defs/id" },
+        "base_url": { "type": "string", "pattern": "^https?://[^\\s/$.?#].[^\\s]*$" }
+      }
+    }
+  }
+}

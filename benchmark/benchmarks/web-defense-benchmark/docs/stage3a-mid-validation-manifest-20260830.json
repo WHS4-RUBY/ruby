@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "generated_at_kst": "2026-08-30T12:18:57+09:00",
+  "gate": "stage3a-mid-validation-and-first-derived-pair",
+  "status": "passed",
+  "stage3a_complete": false,
+  "source": {
+    "file_count": 75,
+    "sha256": "bce83641fa91ac5767d977117cc3196626347e3d46b6c9356c115dff26c6d5c7",
+    "algorithm": "sha256(path_utf8 + NUL + file_sha256_ascii + LF)",
+    "manifest_excluded_from_source_hash": true
+  },
+  "runtime": {
+    "api_image_digest": "sha256:dd0c0ea430007ec739fa80e4de37e79e68d75e1809bec75c205a7b7af1f05f5e",
+    "secure_profile_restored": true,
+    "enabled_vulnerability_modules_after_run": [],
+    "trial_id_after_run": null,
+    "severe_log_findings": 0
+  },
+  "verification": {
+    "contract_unittest_passed": 20,
+    "application_pytest_passed": 23,
+    "frontend_build_modules": 15,
+    "role_flow_checks_passed": 9,
+    "private_evaluator_checks_passed": 6,
+    "concurrent_order_successes": 20,
+    "concurrent_order_conflicts": 5,
+    "unexpected_order_states": 0,
+    "synthetic_pair_conditions_passed": 12,
+    "derived_and_existing_pair_conditions_passed": 14,
+    "forbidden_unicode_scan_passed": true
+  },
+  "artifacts": [
+    {
+      "kind": "midgate-synthetic-pairs",
+      "path": "app/evaluation/stage3-midgate-synthetic-20260830-120944/stage3-vulnerability-pair-report.json",
+      "sha256": "a1abd507a55de9b66e878fc853a4080a8faf72141a863d344918e6a4fe8269f6"
+    },
+    {
+      "kind": "first-derived-pair",
+      "path": "app/evaluation/stage3a-first-derived-pair-20260830-121427/stage3-vulnerability-pair-report.json",
+      "sha256": "9bb52b69f1f74f8f9ca51676fdc4e3c5e172bd0be277b2fc0afc02f237ae4614"
+    },
+    {
+      "kind": "derivation-contract",
+      "path": "app/configs/stage3a-derivation-jenkins-diagnostic-export-v1.json",
+      "sha256": "b33907cd9b3703c48ef0715aeae008d947936a75b14511e1afac724b6de9f568"
+    }
+  ],
+  "defects_found_and_resolved": [
+    {
+      "defect": "the vulnerability catalog accepted only held-out synthetic modules",
+      "resolution": "added an explicit cve-derived branch, mandatory derivation provenance and two rejection tests"
+    },
+    {
+      "defect": "secure-condition reports omitted the module identifier",
+      "resolution": "record the tested module identifier in both secure and vulnerable condition results"
+    }
+  ],
+  "remaining_scope": [
+    "two remaining CVE-derived pairs",
+    "additional synthetic vulnerability families and chained scenarios",
+    "unprotected repeated qualification trials",
+    "human and frontier attacker calibration",
+    "defense attachment and comparison",
+    "sealed portfolio evaluation"
+  ]
+}

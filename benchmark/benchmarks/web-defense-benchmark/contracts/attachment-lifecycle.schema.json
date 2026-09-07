@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ruby.local/schemas/defense-attachment-lifecycle-v1.json",
+  "title": "Defense attachment lifecycle contract",
+  "type": "object", "additionalProperties": false,
+  "required": ["contract_version", "profile", "executor_profile", "transport", "input_contract_digest", "output_contract_digest", "readiness_contract_digest", "reset_contract_digest", "timeout_ms", "failure_outcome"],
+  "properties": {
+    "contract_version": { "const": 1 },
+    "profile": { "enum": ["inline-http", "passive-http-mirror", "network-sensor", "application-instrumentation", "external-decoy", "asynchronous-stateful"] },
+    "executor_profile": { "enum": ["observe-only", "inline-enforcer", "application-event-source", "decoy-router", "state-worker"] },
+    "transport": { "enum": ["openapi-http", "http-event-stream", "pcap-mirror", "application-event-api", "decoy-deployment", "state-job-api"] },
+    "input_contract_digest": { "$ref": "#/$defs/digest" },
+    "output_contract_digest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "readiness_contract_digest": { "$ref": "#/$defs/digest" },
+    "reset_contract_digest": { "$ref": "#/$defs/digest" },
+    "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 600000 },
+    "failure_outcome": { "const": "invalid-defense-error" }
+  },
+  "$defs": { "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+}

@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "generated_at_kst": "2026-08-30T13:28:30+09:00",
+  "gate": "stage3a-password-reset-and-operations-synthetic-pairs",
+  "status": "passed",
+  "stage3a_complete": false,
+  "portfolio": {
+    "planned_scenarios": 24,
+    "implemented_pair_verified": 14,
+    "cve_original_pair_verified": 3,
+    "cve_derived_pair_verified": 3,
+    "held_out_synthetic_pair_verified": 8
+  },
+  "source": {
+    "file_count": 80,
+    "sha256": "f04da8946b2d0ff65f4bc290b932ac618534fb7cdf9656ba740e0c2c9d6b177f",
+    "algorithm": "sha256(path_utf8 + NUL + file_sha256_ascii + LF)",
+    "manifest_excluded_from_source_hash": true
+  },
+  "runtime": {
+    "api_image_digest": "sha256:62b316b904e2d4cfb80db9ac01c7c375abcbab5aadf392f63f48e418ac79da04",
+    "secure_profile_restored": true,
+    "enabled_vulnerability_modules_after_run": [],
+    "trial_id_after_run": null,
+    "state_sha256_after_reset": "53a8578a88a942a8b54ec9ffeacfc2567274dce36d23871a867f0b45cf21dc4d",
+    "unexpected_severe_log_findings": 0,
+    "expected_readonly_negative_control_log_findings": 2
+  },
+  "verification": {
+    "contract_tests_passed": 20,
+    "application_evaluator_runner_tests_passed": 27,
+    "second_synthetic_pair_conditions_passed": 4,
+    "role_flow_checks_passed": 9,
+    "private_evaluator_checks_passed": 6,
+    "concurrent_order_successes": 20,
+    "concurrent_order_conflicts": 5,
+    "unexpected_order_states": 0,
+    "forbidden_unicode_scan_passed": true
+  },
+  "artifacts": [
+    {
+      "kind": "second-synthetic-pair-report",
+      "path": "app/evaluation/stage3a-second-synthetic-pairs-20260830-132440/stage3a-second-synthetic-pair-report.json",
+      "sha256": "8c69514a4eb0e7fb4b0c43dc9d0fd5d42e6001537dddc86fdc09a48be2e89f2b"
+    },
+    {
+      "kind": "vulnerability-module-catalog",
+      "path": "app/configs/stage3-vulnerability-module-catalog-v1.json",
+      "sha256": "6e1cd0c17744ef50621f6ee2b0039a4950b9d20922a20a3aabd4f1e679d94ebe"
+    },
+    {
+      "kind": "pair-runner",
+      "path": "app/tools/check_stage3a_second_synthetic_pairs.py",
+      "sha256": "49240c173de3dc88715cd2441c15074ee266c5a4e3ee812cc16352991702ee53"
+    }
+  ],
+  "defects_found_and_resolved": [
+    {
+      "defect": "existing catalog tests assumed that the last module was CVE-derived",
+      "resolution": "kept held-out synthetic modules together before the CVE-derived group so the existing provenance contract remains valid"
+    },
+    {
+      "defect": "the first focused application test command omitted the backend module path",
+      "resolution": "reran the unchanged code with app/backend on PYTHONPATH"
+    }
+  ],
+  "remaining_scope": [
+    "ten additional synthetic or chained scenarios",
+    "unprotected repeated qualification trials",
+    "human and frontier attacker calibration",
+    "defense attachment and comparison",
+    "sealed portfolio evaluation"
+  ]
+}

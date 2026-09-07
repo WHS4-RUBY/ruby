@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ruby.local/schemas/web-defense-telemetry-event-v1.json",
+  "title": "Normalized benchmark telemetry event",
+  "type": "object", "additionalProperties": false,
+  "required": ["contract_version", "event_id", "trial_id", "interaction_id", "sequence_number", "recorded_at", "source", "event_type", "payload_digest"],
+  "properties": {
+    "contract_version": { "const": 1 },
+    "event_id": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+    "trial_id": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+    "interaction_id": { "type": ["string", "null"], "pattern": "^[a-f0-9]{32}$" },
+    "sequence_number": { "type": "integer", "minimum": 0 },
+    "recorded_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$" },
+    "source": { "enum": ["gateway", "detection-proxy", "defense", "target", "verifier", "runner"] },
+    "event_type": { "enum": ["http-observation", "detection-score", "defense-decision", "target-internal", "verifier-decision", "runner-state"] },
+    "payload_digest": { "$ref": "#/$defs/digest" },
+    "automation_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "attack_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "feature_evidence_digest": { "$ref": "#/$defs/digest" },
+    "defense_action": { "enum": ["pass", "block", "delay", "rewrite-request", "replace-response", "route-decoy", "terminate-session"] },
+    "reason_code": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,127}$" },
+    "decision_latency_ms": { "type": "number", "minimum": 0 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "event_type": { "const": "detection-score" } } },
+      "then": { "required": ["automation_score", "attack_score", "feature_evidence_digest"] }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "defense-decision" } } },
+      "then": { "required": ["defense_action", "reason_code", "decision_latency_ms"] }
+    }
+  ],
+  "$defs": { "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+}

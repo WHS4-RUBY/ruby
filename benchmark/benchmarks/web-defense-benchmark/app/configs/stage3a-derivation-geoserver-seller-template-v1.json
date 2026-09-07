@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "derivation_id": "geoserver-seller-template-expression-v1",
+  "scenario_id": "seller-template-expression",
+  "module_id": "geoserver-derived.seller-template-expression",
+  "source_type": "cve-derived",
+  "status": "implemented-pair-verified",
+  "original": {
+    "cve_id": "CVE-2024-36401",
+    "product": "GeoServer",
+    "vulnerable_version": "2.24.3",
+    "fixed_version": "2.24.4",
+    "advisory_uri": "https://github.com/advisories/GHSA-6jj6-gm7p-fcvv",
+    "vendor_advisory_uri": "https://geoserver.org/vulnerability/2024/09/12/cve-2024-36401.html",
+    "vulnerable_source_revision": "17d6c88d9bb2be0b86e117308e254aa0696d060e",
+    "fixed_source_revision": "f46dbf7ec3e6e66f7ccacf1d612080609743a043",
+    "pair_config_sha256": "sha256:ba2e953cf8fa1dd4c9d277a8ca507381c57260e7147ab28322274ff007388e76",
+    "pair_report_sha256": "sha256:2509a0271b88caa449a72da2ebc973f38f08dc653fa5c09d2007e3453e9754eb"
+  },
+  "preserved": {
+    "mechanism": "attacker-controlled expression text resolves a callable function and produces a server-side effect",
+    "effect_type": "controlled-command-execution",
+    "secure_behavior": "field expressions work but the callable function registry is empty",
+    "comparison": "both conditions receive the same authenticated seller workflow and expression"
+  },
+  "changed": {
+    "product": "RUBY benchmark seller-template preview",
+    "interpreter": "bounded expression parser with an isolated artifact command",
+    "workflow": [
+      "seller authenticates",
+      "seller selects an owned product",
+      "seller previews a product expression"
+    ],
+    "effect_boundary": "object-store artifact under the sealed trial namespace"
+  },
+  "not_claimed": [
+    "GeoServer or GeoTools code is reused",
+    "the derived module can execute an arbitrary operating-system command",
+    "the derived module has the same exploitability or severity as GeoServer",
+    "the scenario is qualified or calibrated"
+  ]
+}

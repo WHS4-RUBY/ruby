@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-08-30",
+  "stage": "stage-1-normal-web-local-integration",
+  "status": "passed",
+  "source": {
+    "algorithm": "sha256(path_utf8 + NUL + file_sha256_ascii + LF)",
+    "excluded_generated_directories": [
+      ".pytest_cache",
+      ".venv",
+      "__pycache__",
+      "dist",
+      "node_modules"
+    ],
+    "excluded_self": "docs/stage1-baseline-manifest-20260830.json",
+    "file_count": 38,
+    "sha256": "3eeaabcb2d7a0104dce21a642de2d545382ecf6f8037c7039804d9714f712566"
+  },
+  "seed_state_sha256": "1f2e722dc7b7cde2e1542f5a02a8091aafa0f4f21417b12c39bb34f483048195",
+  "images": {
+    "api": "sha256:99791a4ec71d9ea07fb2ff88b386fba5de9061bb3e953d9814690f0499ac274d",
+    "worker": "sha256:a00ffbeca55d6d383d24e8abb9add4a9c97190737419173cb278e96987b17ba8",
+    "web": "sha256:66889ea09ece0963faa8d209e1e0d95e35818eacc213108b04dbdf865a506fe2",
+    "postgres": "sha256:5bfd92dac62759415b2e87b8d69d4a4aaeb373c26a2585cefdb67fa6cca8f22f",
+    "redis": "sha256:4d4415527018bbb10d2d9e4b835903cc62db94426b824483fb9e19e001e2f935",
+    "object_store": "sha256:9cdf7f3f67aa29b3729fe894621996c35dacfba00287a54ff6f79c8eeccf476d"
+  },
+  "base_images": {
+    "python": "python:3.13-alpine3.23@sha256:7ea3f82de8ea6d4fb7e5d2bbe3fe3c9d931700b7a529f1fe5769e42abe514ca1",
+    "node_build_only": "node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5",
+    "nginx": "nginx:alpine3.23@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa",
+    "alpine_postgres": "alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40",
+    "redis": "redis:8-alpine3.23@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576",
+    "rustfs": "rustfs/rustfs:latest@sha256:41fe89380f4120a337790c02af192c3fe7bb55c3edc2e6e9357b487b47c6ab21"
+  },
+  "verification": {
+    "backend_tests": {
+      "passed": 8,
+      "failed": 0
+    },
+    "contract_tests": {
+      "passed": 12,
+      "failed": 0
+    },
+    "role_flow_checks": {
+      "passed": 9,
+      "failed": 0
+    },
+    "concurrent_orders": {
+      "attempted": 25,
+      "created": 20,
+      "stock_conflicts": 5,
+      "final_stock": 0
+    },
+    "frontend_build_modules": 15,
+    "python_dependency_known_vulnerabilities": 0,
+    "npm_production_known_vulnerabilities": 0,
+    "runtime_image_critical_vulnerabilities": 0,
+    "runtime_image_high_vulnerabilities": 0,
+    "final_log_error_matches": 0
+  },
+  "object_store_provenance": {
+    "project": "RustFS",
+    "license": "Apache-2.0",
+    "repository": "https://github.com/rustfs/rustfs",
+    "compatibility_document": "https://github.com/rustfs/docs.rustfs.com/blob/main/content/en/reference/s3-compatibility.md"
+  },
+  "limitations": [
+    "The seller and support staff browser interfaces are not implemented; those role flows are verified through HTTP APIs.",
+    "Package and image scans do not prove the absence of unpublished vulnerabilities or application logic defects.",
+    "Remote server deployment, benchmark evaluator, vulnerability modules, defense adapters and attack execution are outside Stage 1."
+  ]
+}

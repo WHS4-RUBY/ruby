@@ -1,0 +1,410 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "actions",
+    "stop",
+    "summary",
+    "memory"
+  ],
+  "properties": {
+    "actions": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "session",
+          "method",
+          "path",
+          "headers",
+          "body_json",
+          "body_form",
+          "body_multipart",
+          "concurrency_group",
+          "browser_html",
+          "browser_wait_ms"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "http",
+              "browser"
+            ]
+          },
+          "session": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+          },
+          "method": {
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^/[^\\s]*$",
+            "maxLength": 2048
+          },
+          "body_json": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 16384
+          },
+          "body_form": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 16384
+          },
+          "body_multipart": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "fields",
+                  "files"
+                ],
+                "properties": {
+                  "fields": {
+                    "type": "array",
+                    "maxItems": 16,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "name",
+                        "value"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                        },
+                        "value": {
+                          "type": "string",
+                          "maxLength": 16384
+                        }
+                      }
+                    }
+                  },
+                  "files": {
+                    "type": "array",
+                    "maxItems": 4,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "field_name",
+                        "filename",
+                        "content_type",
+                        "content_text",
+                        "content_base64",
+                        "content_zip_entries"
+                      ],
+                      "properties": {
+                        "field_name": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9._-]{1,64}$"
+                        },
+                        "filename": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9._-]{1,128}$"
+                        },
+                        "content_type": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+$"
+                        },
+                        "content_text": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "maxLength": 65536
+                        },
+                        "content_base64": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "maxLength": 87384,
+                          "contentEncoding": "base64"
+                        },
+                        "content_zip_entries": {
+                          "type": [
+                            "array",
+                            "null"
+                          ],
+                          "maxItems": 16,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "path",
+                              "content_text",
+                              "content_base64"
+                            ],
+                            "properties": {
+                              "path": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 512
+                              },
+                              "content_text": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "maxLength": 65536
+                              },
+                              "content_base64": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "maxLength": 87384,
+                                "contentEncoding": "base64"
+                              }
+                            },
+                            "oneOf": [
+                              {
+                                "properties": {
+                                  "content_text": {
+                                    "type": "string"
+                                  },
+                                  "content_base64": {
+                                    "type": "null"
+                                  }
+                                }
+                              },
+                              {
+                                "properties": {
+                                  "content_text": {
+                                    "type": "null"
+                                  },
+                                  "content_base64": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "oneOf": [
+                        {
+                          "properties": {
+                            "content_text": {
+                              "type": "string"
+                            },
+                            "content_base64": {
+                              "type": "null"
+                            },
+                            "content_zip_entries": {
+                              "type": "null"
+                            }
+                          }
+                        },
+                        {
+                          "properties": {
+                            "content_text": {
+                              "type": "null"
+                            },
+                            "content_base64": {
+                              "type": "string"
+                            },
+                            "content_zip_entries": {
+                              "type": "null"
+                            }
+                          }
+                        },
+                        {
+                          "properties": {
+                            "content_text": {
+                              "type": "null"
+                            },
+                            "content_base64": {
+                              "type": "null"
+                            },
+                            "content_zip_entries": {
+                              "type": "array"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "concurrency_group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+          },
+          "browser_html": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 65536
+          },
+          "browser_wait_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5000
+          },
+          "headers": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "value"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z][A-Za-z0-9-]{0,63}$"
+                    },
+                    "value": {
+                      "type": "string",
+                      "maxLength": 4096
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "http"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "browser_html": {
+                  "type": "null"
+                },
+                "browser_wait_ms": {
+                  "const": 0
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "browser"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "method": {
+                  "const": "GET"
+                },
+                "body_json": {
+                  "type": "null"
+                },
+                "body_form": {
+                  "type": "null"
+                },
+                "body_multipart": {
+                  "type": "null"
+                },
+                "concurrency_group": {
+                  "type": "null"
+                },
+                "headers": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "stop": {
+      "type": "boolean"
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 1024
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observations",
+        "hypotheses",
+        "failed_attempts",
+        "next_steps"
+      ],
+      "properties": {
+        "observations": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "hypotheses": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "failed_attempts": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "next_steps": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        }
+      }
+    }
+  }
+}
