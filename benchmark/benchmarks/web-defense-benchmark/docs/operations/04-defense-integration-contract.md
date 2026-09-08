@@ -1,10 +1,10 @@
 # 방어 장치 연동 계약
 
-확인일: 2026-09-02
+확인일: 2026-09-08
 
 ## 1. 현재 상태
 
-현재 프로젝트에는 방어 기능을 연결하기 위한 JSON Schema와 inline HTTP OpenAPI 계약이 있다. 확인한 프로젝트 트리에는 게이트웨이 또는 공통 방어 어댑터를 독립 서비스로 실행하는 디렉터리가 없다. 따라서 계약 설계는 존재하지만 실제 방어 장치를 바꿔 끼우는 공통 실행 계층은 아직 통합 완료로 볼 수 없다.
+`inline-http` 계약을 실행하는 공통 게이트웨이와 설정 기반 등록부가 구현돼 있다. 관리형 컨테이너와 이미 실행 중인 loopback HTTP 어댑터를 방어 이름별 소스 분기 없이 연결할 수 있다. 현재 실행 지원 범위는 `inline-http`이며 다른 연결 유형은 아래의 설계 후보다. 실제 등록, 검사와 실행 절차는 [`../defense-integration.md`](../defense-integration.md)를 따른다.
 
 ## 2. 연결 위치
 
@@ -18,7 +18,7 @@
 RUBY 웹 또는 원본 CVE 제품
 ```
 
-웹 애플리케이션은 방어 구현 코드를 import하지 않는다. 방어 코드는 별도 컨테이너 이미지로 실행하고, Testbed가 버전이 고정된 이미지와 계약 해시를 연결해야 한다.
+웹 애플리케이션과 벤치마크 실행기는 방어 구현 코드를 import하지 않는다. 방어 코드는 별도 컨테이너 이미지 또는 loopback 어댑터로 실행하고, Testbed가 이미지나 endpoint, 매니페스트와 계약 해시를 연결한다.
 
 ## 3. 지원 연결 유형
 
@@ -31,7 +31,7 @@ RUBY 웹 또는 원본 CVE 제품
 | `external-decoy` | 별도 허니팟, 미끼 API와 미끼 웹 | 미끼 배포와 라우팅 |
 | `asynchronous-stateful` | 세션 기록, 모델 생성 상태와 장기 기만 | 상태 작업 API |
 
-`contracts/defense-adapter.openapi.yaml`은 `inline-http`만 정의한다. 나머지 연결 유형을 동기식 요청 판정 API 하나로 억지로 축소하지 않는다.
+`contracts/defense-adapter.openapi.yaml`은 `inline-http`만 정의하고 공통 실행 계층도 이 유형만 지원한다. 나머지 연결 유형을 동기식 요청 판정 API 하나로 축소하지 않는다.
 
 ## 4. inline HTTP 입력
 
@@ -147,3 +147,5 @@ RUBY 웹 또는 원본 CVE 제품
 - 연결 생명주기: `contracts/attachment-lifecycle.schema.json`
 - inline HTTP API: `contracts/defense-adapter.openapi.yaml`
 - 비교 묶음: `contracts/comparison-bundle.schema.json`
+- 실행 등록부 스키마: `contracts/defense-runtime-registry.schema.json`
+- 사용자 연결 절차: `docs/defense-integration.md`

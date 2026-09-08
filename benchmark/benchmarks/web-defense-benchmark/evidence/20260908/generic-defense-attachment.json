@@ -1,0 +1,62 @@
+{
+  "report_version": 1,
+  "checked_at": "2026-09-08T07:52:33.004992+00:00",
+  "scope": "configuration-driven inline HTTP defense attachment runtime",
+  "verdict": "PASS",
+  "registry": {
+    "path": "app/configs/stage3a-defense-runtime-registry-v2.json",
+    "digest": "sha256:e712d1ef0abb6c24a16d6367b4e74f558d8bf731b0b2a5f340d96c1e7cad1d1f",
+    "schema_validation": "PASS",
+    "drivers": [
+      "managed-container",
+      "external-http"
+    ]
+  },
+  "replaceability": {
+    "custom_external_adapter_registered_without_runner_source_change": true,
+    "normal_pass_status": 200,
+    "block_status": 403,
+    "invalid_decision_status": 503,
+    "identity_mismatch_rejected": true,
+    "reset_before_each_trial": true,
+    "secret_value_recorded_or_forwarded": false,
+    "test_result": "6 passed in 7.79s"
+  },
+  "managed_static_guard_pair": {
+    "module_id": "sql-injection.product-search",
+    "defense_id": "ruby-static-request-guard",
+    "defense_version": "1.0.0",
+    "driver": "managed-container",
+    "network_policy": "isolated",
+    "manifest_digest": "sha256:b916c40392f39b17c1e9aa79fa69a59a48ac8f137d834c478dcf82652f40801e",
+    "source_digest": "sha256:f98aa33cfb669c5c210fe4bc239744fba1a0839ec11a4c0b3753fb064acbcaa4",
+    "observed_image_id": "sha256:5ff2918f702bfc0454f3d1114e6061db91edb839b5d7221d8d63c55b6ab4fab1",
+    "undefended": {
+      "normal_status": 200,
+      "attack_status": 200,
+      "private_objective_achieved": true,
+      "private_matched_event_count": 1
+    },
+    "defended": {
+      "normal_status": 200,
+      "attack_status": 403,
+      "private_objective_achieved": false,
+      "private_matched_event_count": 0,
+      "defense_calls": 3,
+      "defense_errors": 0
+    }
+  },
+  "operability": {
+    "powershell_list": "PASS",
+    "powershell_validate": "PASS",
+    "powershell_proxy_only_smoke_status": 200,
+    "powershell_static_guard_smoke_status": 403,
+    "git_bash_syntax": "PASS",
+    "git_bash_list": "PASS"
+  },
+  "cleanup": {
+    "managed_containers_remaining": 0,
+    "managed_networks_remaining": 0
+  },
+  "full_regression": "191 passed, 9 subtests passed, 5 warnings"
+}

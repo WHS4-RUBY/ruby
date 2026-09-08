@@ -18,6 +18,7 @@ from autonomous_cli_policy_v2 import SubscriptionCLIPolicy
 from autonomous_cve_target_adapters_v3 import CVE_ACTION_SCHEMA, PREPARE_CVE_TARGETS
 from autonomous_target_adapters_v2 import prepare_isolated_ruby_target
 from defense_runtime_v1 import (
+    REGISTRY_PATH as DEFAULT_DEFENSE_REGISTRY_PATH,
     defense_front,
     registered_conditions,
     registered_defense_source_files,
@@ -76,11 +77,6 @@ BASE_SEALED_INPUTS = (
     APP_ROOT / "configs" / "stage3a-cve-roundcube-2024-42009-v1.json",
     APP_ROOT / "configs" / "stage3a-cve-langflow-2025-3248-v1.json",
     APP_ROOT / "configs" / "stage3a-cve-http-relay-v1.json",
-    APP_ROOT / "configs" / "stage3a-defense-runtime-registry-v1.json",
-    APP_ROOT / "configs" / "stage3a-inline-defense-lifecycle-v1.json",
-    APP_ROOT / "configs" / "stage3a-defense-honeyval-v1.json",
-    APP_ROOT / "configs" / "stage3a-defense-honeyval-model-v1.json",
-    APP_ROOT / "configs" / "stage3a-defense-static-guard-v1.json",
     APP_ROOT / "cve-jenkins" / "compose.yaml",
     APP_ROOT / "cve-geoserver" / "compose.yaml",
     APP_ROOT / "cve-roundcube" / "compose.yaml",
@@ -90,6 +86,7 @@ BASE_SEALED_INPUTS = (
     APP_ROOT.parent / "contracts" / "defense-adapter.openapi.yaml",
     APP_ROOT.parent / "contracts" / "defense-capability.schema.json",
     APP_ROOT.parent / "contracts" / "attachment-lifecycle.schema.json",
+    APP_ROOT.parent / "contracts" / "defense-runtime-registry.schema.json",
     APP_ROOT / "compose.yaml",
     Path(__file__).resolve(),
     APP_ROOT / "tools" / "autonomous_cli_policy_v2.py",
@@ -98,6 +95,10 @@ BASE_SEALED_INPUTS = (
     APP_ROOT / "tools" / "autonomous_trial_v2.py",
     APP_ROOT / "tools" / "attacker_strategy_v11.py",
     APP_ROOT / "tools" / "autonomous_experiment_v2.py",
+    APP_ROOT / "tools" / "defense_runtime_v1.py",
+    APP_ROOT / "tools" / "inline_defense_gateway_v2.py",
+    APP_ROOT / "defense-control-relay" / "Dockerfile",
+    APP_ROOT / "defense-control-relay" / "relay.py",
 )
 
 
@@ -345,9 +346,9 @@ def _available_memory_bytes() -> int:
     return int(page_size * available_pages)
 
 
-def _defense_front(condition: str):
+def _defense_front(condition: str, defense_registry: Path | None = None):
     """Load and validate the registered defense before attaching it."""
-    return defense_front(condition)
+    return defense_front(condition, defense_registry)
 
 def _validate_runtime_capacity(maximum_parallel_trials: int) -> dict[str, int]:
     available = _available_memory_bytes()
@@ -809,7 +810,9 @@ def _run_one(
     )
     report = run_autonomous_trial(
         condition=str(row.get("condition", "undefended")),
-        defense_front=_defense_front(str(row.get("condition", "undefended"))),
+        defense_front=_defense_front(
+            str(row.get("condition", "undefended")), args.defense_registry
+        ),
         target_id=target_id,
         target_kind=str(target["target_kind"]),
         prepare_target=prepare,
@@ -886,7 +889,16 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
         if not isinstance(variants, list):
             raise ValueError("variant manifest has no variants list")
     conditions = list(getattr(args, "conditions", None) or ["undefended"])
-    defense_source_inputs = registered_defense_source_files(conditions)
+    args.defense_registry = Path(
+        getattr(args, "defense_registry", DEFAULT_DEFENSE_REGISTRY_PATH)
+    ).resolve()
+    available_conditions = set(registered_conditions(args.defense_registry))
+    unknown_conditions = sorted(set(conditions) - available_conditions)
+    if unknown_conditions:
+        raise ValueError(f"unregistered defense conditions: {unknown_conditions}")
+    defense_source_inputs = registered_defense_source_files(
+        conditions, args.defense_registry
+    )
     schedule = _schedule(
         targets,
         registry,
@@ -902,6 +914,9 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
         "targets": targets,
         "providers": args.providers,
         "conditions": conditions,
+        "defense_registry": os.path.relpath(
+            Path(args.defense_registry).resolve(), APP_ROOT
+        ).replace("\\", "/"),
         "repetitions": args.repetitions,
         "schedule_seed": args.seed,
         "maximum_parallel_trials": args.max_parallel,
@@ -1096,6 +1111,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--attacker-profile", type=Path, default=PROFILE_PATH)
     parser.add_argument("--variant-manifest", type=Path)
+    parser.add_argument(
+        "--defense-registry",
+        type=Path,
+        default=DEFAULT_DEFENSE_REGISTRY_PATH,
+        help="version 2 defense runtime registry inside the repository",
+    )
     parser.add_argument("--targets", nargs="*")
     parser.add_argument(
         "--providers", nargs="+", choices=("codex", "claude"), default=["codex", "claude"]
@@ -1116,7 +1137,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--conditions",
         nargs="+",
-        choices=registered_conditions(),
         default=["undefended"],
         help=(
             "conditions to run. More than one makes this a comparison, and the "

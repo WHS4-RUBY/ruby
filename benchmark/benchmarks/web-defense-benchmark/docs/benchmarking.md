@@ -6,8 +6,8 @@
 
 - RUBY 웹 취약점 23개와 원본 CVE 4개가 실행기에 등록돼 있습니다.
 - 각 시험은 새 컨테이너, 데이터, 계정, 세션과 비공개 평가기를 사용합니다.
-- `undefended`와 `static-guard` 조건은 Honeyval 없이 실행할 수 있습니다.
-- `proxy-only`와 `honeyval` 조건은 별도 `defense/honeyval-defense` 소스가 있을 때만 실행됩니다.
+- `undefended`, `proxy-only`와 `static-guard` 조건은 Honeyval 없이 실행할 수 있습니다.
+- Honeyval은 별도 `inline-http` 어댑터를 실행하고 `RUBY_HONEYVAL_ADAPTER_URL`에 loopback origin을 설정한 경우에만 선택할 수 있습니다.
 - Honeyval은 개발 중이며 외부 업로드 대상이 아닙니다. 현재 공개 증거는 한 표적을 한 번 반복한 기능 확인이므로 전체 방어 효과를 나타내지 않습니다.
 - 2026년 원본 CVE 대상은 아직 없습니다. 취약점 범위와 최신성 판정은 [`benchmark-audit-20260908.md`](benchmark-audit-20260908.md)를 먼저 확인합니다.
 
@@ -92,7 +92,7 @@ output="app/evaluation/static-guard-sql-$(date +%Y%m%d-%H%M%S).json"
 
 - 무방어: 정상 요청 200, 공격 요청 200, 비공개 목표 달성 `true`
 - 정적 방어: 정상 요청 200, 공격 요청 403, 비공개 목표 달성 `false`
-- 정적 방어의 `defense_runtime_driver`가 `container-reverse-proxy`
+- 정적 방어의 `defense_runtime_driver`가 `managed-container`
 - 방어가 기록한 차단 요청이 1건
 
 이 검사는 연결과 판정 기능을 확인합니다. 정규식 정적 방어 하나의 결과를 AI 자동화 공격 전반에 대한 방어 효과로 해석하지 않습니다.
@@ -108,6 +108,7 @@ $outputDir = "app\evaluation\$runId"
 & $python app\tools\run_autonomous_campaign_v3.py `
   --run-id $runId `
   --output-dir $outputDir `
+  --defense-registry "app\configs\stage3a-defense-runtime-registry-v2.json" `
   --attacker-profile "app\configs\stage3a-autonomous-web-attacker-profile-v14-minimal.json" `
   --providers claude `
   --conditions undefended `
@@ -179,7 +180,7 @@ output_dir="app/evaluation/$run_id"
 
 ## 5. 무방어, 프록시와 Honeyval 비교
 
-Honeyval 비교는 내부 로컬 트리에 `defense/honeyval-defense/src/honeyval`이 있을 때만 실행합니다. 표준 저장소 구조에서는 실행기가 이 경로를 자동으로 찾습니다. 다른 위치를 쓰는 내부 환경에서는 `RUBY_DEFENSE_COMPONENT_ROOT`에 `honeyval-defense`를 바로 포함하는 상위 디렉터리의 절대 경로를 설정합니다.
+Honeyval 비교 전에 별도 컴포넌트의 `inline-http` 어댑터를 실행하고 `RUBY_HONEYVAL_ADAPTER_URL`에 `http://127.0.0.1:포트` 형식의 origin을 설정합니다. 실행기는 Honeyval 소스 디렉터리를 찾거나 import하지 않습니다. 다른 방어의 등록, 검증, smoke test와 수동 실행은 [`defense-integration.md`](defense-integration.md)를 따릅니다.
 
 기준선을 비교의 한 조건으로 재사용하지 않습니다. 새 실행에서 세 조건을 함께 지정해야 실행기가 조건 순서를 섞고 같은 `pair_id`, 계정 네임스페이스, 시드, 프로필과 예산을 적용합니다.
 
@@ -190,6 +191,7 @@ $outputDir = "app\evaluation\$runId"
 & $python app\tools\run_autonomous_campaign_v3.py `
   --run-id $runId `
   --output-dir $outputDir `
+  --defense-registry "app\configs\stage3a-defense-runtime-registry-v2.json" `
   --attacker-profile "app\configs\stage3a-autonomous-web-attacker-profile-v14-minimal.json" `
   --providers claude `
   --conditions undefended proxy-only honeyval `

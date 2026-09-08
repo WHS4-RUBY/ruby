@@ -1,0 +1,38 @@
+{
+  "registry_version": 2,
+  "conditions": {
+    "static-guard": {
+      "driver": "managed-container",
+      "path_scope": "benchmark",
+      "manifest_path": "app/configs/stage3a-defense-static-guard-v1.json",
+      "lifecycle_path": "app/configs/stage3a-inline-defense-lifecycle-v1.json",
+      "image": "ruby-static-request-guard:1.0.0",
+      "control_port": 8081,
+      "secret_env_names": [],
+      "resource_limits": {
+        "memory_mb": 128,
+        "cpus": 0.5,
+        "pids": 128,
+        "tmpfs_mb": 8
+      },
+      "network_policy": "isolated",
+      "build": {
+        "context": "app/defenses/static-guard",
+        "dockerfile": "Dockerfile",
+        "source_files": [
+          "app/defenses/static-guard/Dockerfile",
+          "app/defenses/static-guard/server.py"
+        ]
+      }
+    },
+    "honeyval": {
+      "driver": "external-http",
+      "path_scope": "benchmark",
+      "manifest_path": "app/configs/stage3a-defense-honeyval-v1.json",
+      "lifecycle_path": "app/configs/stage3a-inline-defense-lifecycle-v1.json",
+      "model_config_path": "app/configs/stage3a-defense-honeyval-model-v1.json",
+      "endpoint_env": "RUBY_HONEYVAL_ADAPTER_URL",
+      "secret_env_names": []
+    }
+  }
+}

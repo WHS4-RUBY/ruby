@@ -1559,6 +1559,7 @@ def run_autonomous_trial(
                 upstream_origin=str(target.executor.target_origin),
                 secrets=list(getattr(target, "secrets", ()) or ()),
                 accounts=list(getattr(target, "accounts", ()) or ()),
+                trial_id=runtime_identifier,
             )
             # 준비 단계에서 이미 열린 세션까지 옮긴다. 속성만 바꾸면 그
             # 세션의 요청은 방어를 지나지 않는다.

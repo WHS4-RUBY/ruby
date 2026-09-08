@@ -1856,23 +1856,29 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
         self.assertEqual(1, len({item["normal_traffic_seed"] for item in rows}))
 
     def test_undefended_campaign_does_not_require_honeyval_source(self) -> None:
-        with patch(
-            "defense_runtime_v1._defense_component_root",
-            side_effect=AssertionError("Honeyval source must not be inspected"),
-        ):
-            self.assertEqual((), registered_defense_source_files(["undefended"]))
-
-    def test_static_guard_campaign_does_not_require_honeyval_source(self) -> None:
-        with patch(
-            "defense_runtime_v1._defense_component_root",
-            side_effect=AssertionError("Honeyval source must not be inspected"),
-        ):
-            files = registered_defense_source_files(["undefended", "static-guard"])
+        files = registered_defense_source_files(["undefended"])
 
         self.assertEqual(
-            {"Dockerfile", "server.py"},
+            {
+                "defense-runtime-registry.schema.json",
+                "stage3a-defense-runtime-registry-v2.json",
+            },
             {path.name for path in files},
         )
+        self.assertFalse(any("honeyval-defense" in path.as_posix() for path in files))
+
+    def test_static_guard_campaign_does_not_require_honeyval_source(self) -> None:
+        files = registered_defense_source_files(["undefended", "static-guard"])
+
+        self.assertTrue(
+            {
+                "Dockerfile",
+                "server.py",
+                "stage3a-defense-static-guard-v1.json",
+                "stage3a-inline-defense-lifecycle-v1.json",
+            }.issubset({path.name for path in files})
+        )
+        self.assertFalse(any("honeyval-defense" in path.as_posix() for path in files))
 
     def test_original_cve_action_schema_accepts_all_safe_transport_kinds(self) -> None:
         schema = json.loads(CVE_ACTION_SCHEMA.read_text(encoding="utf-8"))
