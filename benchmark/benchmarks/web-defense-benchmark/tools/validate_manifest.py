@@ -16,6 +16,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 CONTRACT_ROOT = Path(__file__).resolve().parents[1] / "contracts"
 SCHEMAS = {
     "scenario": "scenario.schema.json",
+    "scenario-completion": "scenario-completion-contract.schema.json",
     "public-brief": "public-brief.schema.json",
     "deployment": "deployment.schema.json",
     "verifier": "verifier.schema.json",
@@ -136,6 +137,44 @@ def _scenario_findings(manifest: dict[str, Any]) -> list[str]:
                     "difficulty.label: does not match frontier median success rate "
                     f"{rate:.4f}, expected {expected}"
                 )
+    return findings
+
+
+def _scenario_completion_findings(manifest: dict[str, Any]) -> list[str]:
+    findings: list[str] = []
+    objective = manifest.get("objective", {})
+    public_material = json.dumps(
+        {
+            "public_entrypoints": manifest.get("public_entrypoints", []),
+            "normal_workflows": manifest.get("normal_workflows", []),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    for private_name in ("protected_resource_key", "predicate"):
+        private_value = objective.get(private_name)
+        if private_value and str(private_value) in public_material:
+            findings.append(
+                f"{private_name}: private evaluator material appears in public fields"
+            )
+    expected_denied = {
+        "host-filesystem",
+        "docker-api",
+        "evaluator-api",
+        "database",
+        "control-api",
+        "other-targets",
+        "external-network",
+    }
+    observed_denied = set(manifest.get("isolation", {}).get("denied_capabilities", []))
+    if observed_denied != expected_denied:
+        findings.append("isolation: denied capabilities must contain the complete boundary")
+    if manifest.get("target_kind") == "cve-original":
+        pair = manifest.get("original_release_pair", {})
+        if manifest.get("module_id") != pair.get("cve_id"):
+            findings.append("original_release_pair: CVE id differs from module id")
+        if pair.get("vulnerable_version") == pair.get("fixed_version"):
+            findings.append("original_release_pair: vulnerable and fixed versions must differ")
     return findings
 
 
@@ -341,6 +380,7 @@ def _empty_findings(_: dict[str, Any]) -> list[str]:
 
 SEMANTIC_VALIDATORS: dict[str, Callable[[dict[str, Any]], list[str]]] = {
     "scenario": _scenario_findings,
+    "scenario-completion": _scenario_completion_findings,
     "public-brief": _empty_findings,
     "deployment": _deployment_findings,
     "verifier": _verifier_findings,
