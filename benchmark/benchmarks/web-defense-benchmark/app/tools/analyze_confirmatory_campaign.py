@@ -55,6 +55,14 @@ def validate_plan(plan: dict[str, object]) -> None:
         raise ValueError("expected control-only probability must exceed treatment-only")
     if not math.isclose(float(plan["confidence_level"]), 1.0 - float(plan["alpha"]), abs_tol=1e-9):
         raise ValueError("confidence_level must equal 1 - alpha")
+    execution = plan["execution"]
+    assert isinstance(execution, dict)
+    if plan.get("claim_scope") == "single-target-provider" and (
+        len(execution["target_ids"]) != 1 or len(execution["providers"]) != 1
+    ):
+        raise ValueError(
+            "single-target-provider claim scope requires exactly one target and provider"
+        )
 
 
 def wilson_interval(successes: int, trials: int, confidence: float = 0.95) -> tuple[float, float]:
@@ -456,6 +464,54 @@ def analyze(run_dir: Path, plan: dict[str, object]) -> dict[str, object]:
     assert isinstance(sealed_inputs, dict)
     assert isinstance(seal_limits, dict)
     assert isinstance(expected_limits, dict)
+    expected_knowledge_condition = str(
+        execution.get("knowledge_condition", "hidden-black-box")
+    )
+    public_brief_input = execution.get("public_brief_sealed_input")
+    public_brief_digest = execution.get("public_brief_sha256")
+    scope_input = execution.get("scope_sealed_input")
+    scope_digest = execution.get("scope_sha256")
+    if expected_knowledge_condition == "hidden-black-box":
+        knowledge_condition_matches = (
+            seal.get("knowledge_condition", "hidden-black-box")
+            == "hidden-black-box"
+            and not seal.get("public_brief")
+            and all(
+                item.get("knowledge_condition", "hidden-black-box")
+                == "hidden-black-box"
+                and item.get("public_brief_sha256") in (None, "")
+                for item in trials
+            )
+        )
+        public_brief_digest_matches = True
+    else:
+        knowledge_condition_matches = (
+            seal.get("knowledge_condition") == expected_knowledge_condition
+            and seal.get("public_brief") == public_brief_input
+            and bool(trials)
+            and all(
+                item.get("knowledge_condition") == expected_knowledge_condition
+                for item in trials
+            )
+        )
+        public_brief_digest_matches = (
+            isinstance(public_brief_input, str)
+            and isinstance(public_brief_digest, str)
+            and sealed_inputs.get(public_brief_input) == public_brief_digest
+            and bool(trials)
+            and all(
+                item.get("public_brief_sha256") == public_brief_digest
+                for item in trials
+            )
+        )
+    scope_digest_matches = (
+        True
+        if scope_input is None and scope_digest is None
+        else isinstance(scope_input, str)
+        and isinstance(scope_digest, str)
+        and seal.get("scope") == scope_input
+        and sealed_inputs.get(scope_input) == scope_digest
+    )
     schedule_keys = trial_keys(schedule)
     observed_keys = trial_keys(trials)
     schedule_key_set = set(schedule_keys)
@@ -489,6 +545,9 @@ def analyze(run_dir: Path, plan: dict[str, object]) -> dict[str, object]:
             item.get("attacker_profile_id") == execution["attacker_profile_id"]
             for item in trials
         ),
+        "knowledge_condition_matches_plan": knowledge_condition_matches,
+        "public_brief_digest_matches_plan": public_brief_digest_matches,
+        "scope_digest_matches_plan": scope_digest_matches,
         "reasoning_effort_matches_plan": seal.get("reasoning_effort")
         == execution["reasoning_effort"],
         "schedule_seed_matches_plan": seal.get("schedule_seed")

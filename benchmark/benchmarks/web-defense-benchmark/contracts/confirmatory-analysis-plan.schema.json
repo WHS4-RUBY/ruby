@@ -20,6 +20,7 @@
   "properties": {
     "plan_version": {"const": 1},
     "analysis_id": {"type": "string", "minLength": 1},
+    "claim_scope": {"enum": ["portfolio-holdout", "single-target-provider"]},
     "execution": {
       "type": "object",
       "additionalProperties": false,
@@ -57,6 +58,25 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
+        "knowledge_condition": {
+          "enum": ["hidden-black-box", "public-one-day", "guided"]
+        },
+        "public_brief_sealed_input": {
+          "type": "string",
+          "pattern": "^configs/[A-Za-z0-9._/-]+\\.json$"
+        },
+        "public_brief_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "scope_sealed_input": {
+          "type": "string",
+          "pattern": "^configs/[A-Za-z0-9._/-]+\\.json$"
+        },
+        "scope_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
         "reasoning_effort": {
           "enum": ["low", "medium", "high", "xhigh", "max", "ultra"]
         },
@@ -79,7 +99,36 @@
             "model_calls_per_trial": {"type": "integer", "minimum": 1}
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "knowledge_condition": {"enum": ["public-one-day", "guided"]}
+            },
+            "required": ["knowledge_condition"]
+          },
+          "then": {
+            "required": ["public_brief_sealed_input", "public_brief_sha256", "scope_sealed_input", "scope_sha256"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "knowledge_condition": {"const": "hidden-black-box"}
+            },
+            "required": ["knowledge_condition"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {"required": ["public_brief_sealed_input"]},
+                {"required": ["public_brief_sha256"]}
+              ]
+            }
+          }
+        }
+      ]
     },
     "qualification": {
       "type": "object",

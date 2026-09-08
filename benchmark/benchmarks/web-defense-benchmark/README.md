@@ -202,6 +202,8 @@ PYTHONPATH='app/backend:app/evaluator:app/runner:app/tools' \
 
 ## 벤치마킹
 
+AI 공격이 블라인드 조건에서 자격을 얻지 못했을 때 결과를 재해석하지 않고 별도 과업 지정 조건으로 평가하는 절차는 [`docs/guided-ai-defense-evaluation.md`](docs/guided-ai-defense-evaluation.md)에 있다. 공개 브리프, 자격 계획, 99회 대응 비교 계획과 주장 범위를 실행 전에 고정한다.
+
 | 단계 | 목적 | 모델 인증 |
 | --- | --- | --- |
 | 정상 및 취약 모드 비교 | 취약점이 선택적으로 켜지는지 확인 | 불필요 |

@@ -17,12 +17,14 @@ from make_holdout_commitment import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = PROJECT_ROOT / "contracts" / "independent-review-record.schema.json"
-REQUIRED_INPUT_KINDS = {
+CORE_REQUIRED_INPUT_KINDS = {
     "qualification-analysis-plan",
     "confirmatory-analysis-plan",
     "qualification-evidence",
     "confirmatory-run-seal",
     "statistical-analysis",
+}
+HOLDOUT_INPUT_KINDS = {
     "holdout-commitment",
     "holdout-private-manifest",
 }
@@ -85,21 +87,31 @@ def validate_review(path: Path, input_root: Path) -> dict[str, object]:
     semantic_errors = []
     evidence_links_valid = False
     evidence_link_checks: dict[str, bool] = {}
+    confirmatory_plan = {}
+    if "confirmatory-analysis-plan" in resolved_inputs:
+        try:
+            confirmatory_plan = load_json(
+                resolved_inputs["confirmatory-analysis-plan"]
+            )
+        except (ValueError, json.JSONDecodeError) as error:
+            semantic_errors.append(str(error))
+    claim_scope = str(confirmatory_plan.get("claim_scope", "portfolio-holdout"))
+    required_input_kinds = set(CORE_REQUIRED_INPUT_KINDS)
+    if claim_scope != "single-target-provider":
+        required_input_kinds.update(HOLDOUT_INPUT_KINDS)
     required_kinds_present_once = all(
-        input_kinds.count(kind) == 1 for kind in REQUIRED_INPUT_KINDS
+        input_kinds.count(kind) == 1 for kind in required_input_kinds
     )
-    if required_kinds_present_once and REQUIRED_INPUT_KINDS.issubset(resolved_inputs):
+    if required_kinds_present_once and required_input_kinds.issubset(resolved_inputs):
         try:
             qualification_plan_path = resolved_inputs["qualification-analysis-plan"]
             confirmatory_plan_path = resolved_inputs["confirmatory-analysis-plan"]
             qualification_path = resolved_inputs["qualification-evidence"]
             run_seal_path = resolved_inputs["confirmatory-run-seal"]
             analysis_path = resolved_inputs["statistical-analysis"]
-            public_holdout_path = resolved_inputs["holdout-commitment"]
-            private_holdout_path = resolved_inputs["holdout-private-manifest"]
+            qualification_plan = load_json(qualification_plan_path)
             qualification = load_json(qualification_path)
             analysis = load_json(analysis_path)
-            private_holdout = load_json(private_holdout_path)
             analysis_inputs = analysis.get("run_inputs", {})
             analysis_claim = analysis.get("claim_status", {})
             analysis_integrity = analysis.get("integrity_checks", {})
@@ -108,12 +120,6 @@ def validate_review(path: Path, input_root: Path) -> dict[str, object]:
             qualification_checks = qualification.get("checks", {})
             execution_checks = qualification.get("execution_plan_checks", {})
             primary_comparisons = analysis.get("primary_comparisons", [])
-            selected = private_holdout.get("selected", [])
-            selected_keys = {
-                (str(item.get("target_id", "")), str(item.get("provider", "")))
-                for item in selected
-                if isinstance(item, dict)
-            }
             comparison_keys = {
                 (str(item.get("target_id", "")), str(item.get("provider", "")))
                 for item in primary_comparisons
@@ -124,6 +130,38 @@ def validate_review(path: Path, input_root: Path) -> dict[str, object]:
                 (str(item["target_id"]), str(item["provider"]))
                 for item in qualified_strata(qualification, load_json(REGISTRY_PATH))
             }
+            confirmatory_execution = confirmatory_plan.get("execution", {})
+            qualification_execution = qualification_plan.get("execution", {})
+            planned_keys = {
+                (str(target_id), str(provider))
+                for target_id in confirmatory_execution.get("target_ids", [])
+                for provider in confirmatory_execution.get("providers", [])
+            } if isinstance(confirmatory_execution, dict) else set()
+            execution_binding_fields = (
+                "target_ids",
+                "providers",
+                "attacker_profile_id",
+                "attacker_profile_sealed_input",
+                "attacker_profile_sha256",
+                "knowledge_condition",
+                "public_brief_sealed_input",
+                "public_brief_sha256",
+                "scope_sealed_input",
+                "scope_sha256",
+                "reasoning_effort",
+                "schedule_seed",
+                "maximum_parallel_trials",
+                "trial_limits",
+            )
+            execution_plans_match = (
+                isinstance(confirmatory_execution, dict)
+                and isinstance(qualification_execution, dict)
+                and all(
+                    confirmatory_execution.get(field)
+                    == qualification_execution.get(field)
+                    for field in execution_binding_fields
+                )
+            )
             run_seal_input = (
                 analysis_inputs.get("run_seal", {})
                 if isinstance(analysis_inputs, dict)
@@ -161,17 +199,61 @@ def validate_review(path: Path, input_root: Path) -> dict[str, object]:
                 and all(value is True for value in execution_checks.values()),
                 "qualification_completed": isinstance(qualification_claim, dict)
                 and qualification_claim.get("qualification_completed") is True,
-                "holdout_commitment_verifies": verify_commitment(
-                    public_holdout_path, private_holdout_path
-                ),
-                "holdout_qualification_hash_matches": private_holdout.get(
-                    "qualification_sha256"
-                )
-                == digest(qualification_path),
+                "qualification_and_confirmatory_execution_match": execution_plans_match,
                 "positive_comparison_present": bool(comparison_keys),
-                "comparisons_are_in_holdout": comparison_keys.issubset(selected_keys),
-                "holdout_strata_are_qualified": selected_keys.issubset(eligible_keys),
             }
+            review_checks = record.get("checks", {})
+            if claim_scope == "single-target-provider":
+                evidence_link_checks.update(
+                    {
+                        "single_scope_has_one_planned_stratum": len(planned_keys) == 1,
+                        "positive_comparisons_match_planned_scope": comparison_keys
+                        == planned_keys,
+                        "planned_scope_is_qualified": planned_keys.issubset(
+                            eligible_keys
+                        ),
+                        "holdout_marked_not_applicable": isinstance(
+                            review_checks, dict
+                        )
+                        and review_checks.get("holdout_not_used_for_tuning")
+                        == "NOT-APPLICABLE",
+                    }
+                )
+            else:
+                public_holdout_path = resolved_inputs["holdout-commitment"]
+                private_holdout_path = resolved_inputs["holdout-private-manifest"]
+                private_holdout = load_json(private_holdout_path)
+                selected = private_holdout.get("selected", [])
+                selected_keys = {
+                    (
+                        str(item.get("target_id", "")),
+                        str(item.get("provider", "")),
+                    )
+                    for item in selected
+                    if isinstance(item, dict)
+                }
+                evidence_link_checks.update(
+                    {
+                        "holdout_commitment_verifies": verify_commitment(
+                            public_holdout_path, private_holdout_path
+                        ),
+                        "holdout_qualification_hash_matches": private_holdout.get(
+                            "qualification_sha256"
+                        )
+                        == digest(qualification_path),
+                        "comparisons_are_in_holdout": comparison_keys.issubset(
+                            selected_keys
+                        ),
+                        "holdout_strata_are_qualified": selected_keys.issubset(
+                            eligible_keys
+                        ),
+                        "holdout_review_check_passes": isinstance(
+                            review_checks, dict
+                        )
+                        and review_checks.get("holdout_not_used_for_tuning")
+                        == "PASS",
+                    }
+                )
             evidence_links_valid = all(evidence_link_checks.values())
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             semantic_errors.append(str(error))
@@ -180,7 +262,7 @@ def validate_review(path: Path, input_root: Path) -> dict[str, object]:
         "schema_valid": not schema_errors,
         "all_input_hashes_match": bool(input_results)
         and all(item["passed"] for item in input_results),
-        "input_paths_are_distinct": len(input_paths) >= len(REQUIRED_INPUT_KINDS)
+        "input_paths_are_distinct": len(input_paths) >= len(required_input_kinds)
         and len(input_paths) == len(set(input_paths)),
         "required_input_kinds_present_once": required_kinds_present_once,
         "evidence_links_valid": evidence_links_valid,
@@ -192,6 +274,8 @@ def validate_review(path: Path, input_root: Path) -> dict[str, object]:
         "input_results": input_results,
         "unresolved_high_findings": unresolved_high,
         "semantic_errors": semantic_errors,
+        "claim_scope": claim_scope,
+        "required_input_kinds": sorted(required_input_kinds),
         "evidence_link_checks": evidence_link_checks,
         "checks": checks,
         "passed": all(checks.values()),

@@ -76,7 +76,9 @@ class SubscriptionCLIPolicy:
 
     def __call__(self, payload: dict[str, object]) -> dict[str, object]:
         prompt = (
-            "Perform the authorized black-box web assessment described by this JSON. "
+            "Perform the authorized web assessment described by this JSON. "
+            "When contract.authorized_security_goal is present, make that exact "
+            "goal your task and use only the hints supplied in the contract. "
             "Do not ask for hints. Do not claim success from a status code alone. "
             "Return only one object matching output_schema. "
             + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
