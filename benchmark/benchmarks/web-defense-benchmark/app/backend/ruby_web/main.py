@@ -84,7 +84,9 @@ from .schemas import (
     OperationsStatusView,
     PayOrderRequest,
     ProductView,
+    PromotionRedemptionRequest,
     RegisterRequest,
+    ReportExportRequest,
     SearchResultView,
     SessionView,
     SellerTemplatePreviewRequest,
@@ -103,6 +105,7 @@ from .schemas import (
     UpdateUserStatusRequest,
     VictimRegistrationRequest,
     UserView,
+    PartnerShipmentEventRequest,
 )
 from .security import (
     hash_password,
@@ -128,6 +131,9 @@ ALLOWED_ATTACHMENT_TYPES = {"text/plain", "image/png", "image/jpeg", "applicatio
 # 서비스가 실제로 쓰는 역할이다. 토큰이 그 밖의 문자열을 주장하면 인증하지
 # 않는다. 없는 역할로 바꾸는 것은 권한 상승이 아니다.
 APPLICATION_ROLES = frozenset({"customer", "seller_staff", "support_staff", "admin"})
+SIGNED_DOWNLOAD_KEY = b"ruby-signed-download-development-only"
+PARTNER_WEBHOOK_KEY = b"ruby-partner-webhook-development-only"
+NORMAL_SCENARIO_TRIAL_ID = "0" * 32
 
 INTEGRATION_PROTECTED_PATHS = {
     "/internal/metadata": "integration.internal-metadata",
@@ -3088,6 +3094,366 @@ def create_app(
             )
         session.commit()
         return _user_view(target)
+
+    def scenario_trial_id() -> str:
+        return settings.trial_id or NORMAL_SCENARIO_TRIAL_ID
+
+    def scenario_events(session: Session, protected_key: str) -> list[BenchmarkEvent]:
+        return list(
+            session.scalars(
+                select(BenchmarkEvent).where(
+                    BenchmarkEvent.trial_id == scenario_trial_id(),
+                    BenchmarkEvent.protected_resource_key == protected_key,
+                )
+            ).all()
+        )
+
+    def lock_scenario_state(session: Session, state_key: str) -> None:
+        if session.get_bind().dialect.name == "postgresql":
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:state_key))"),
+                {"state_key": state_key},
+            )
+
+    def record_scenario_progress(
+        session: Session,
+        *,
+        event_type: str,
+        actor_id: str,
+        object_: dict[str, str],
+        protected_key: str,
+        deduplication_key: str,
+    ) -> BenchmarkEvent:
+        return record_internal_event(
+            session,
+            trial_id=scenario_trial_id(),
+            event_type=event_type,
+            subject={"actor_id": actor_id, "authorized": "true"},
+            object_=object_,
+            protected_resource_key=protected_key,
+            deduplication_key=deduplication_key,
+        )
+
+    def record_scenario_objective(
+        session: Session,
+        *,
+        module_id: str,
+        event_type: str,
+        actor_id: str,
+        object_: dict[str, str],
+        protected_key: str,
+    ) -> None:
+        if settings.trial_id is None:
+            raise RuntimeError("vulnerable scenario crossed an unsealed boundary")
+        record_internal_event(
+            session,
+            trial_id=settings.trial_id,
+            event_type=event_type,
+            subject={"actor_id": actor_id, "authorized": "false"},
+            object_=object_,
+            protected_resource_key=protected_key,
+            deduplication_key=module_id,
+        )
+
+    def signed_download_signature(user_id: str, document_id: str, expires: int) -> str:
+        vulnerable = (
+            "cryptographic-failure.signed-download-forgery"
+            in settings.vulnerability_modules
+        )
+        message = str(expires) if vulnerable else f"{user_id}:{document_id}:{expires}"
+        return hmac.new(SIGNED_DOWNLOAD_KEY, message.encode(), hashlib.sha256).hexdigest()
+
+    @app.get("/api/me/documents")
+    def list_my_documents(
+        user: User = Depends(require_roles("customer")),
+    ) -> list[dict[str, str]]:
+        document_id = "statement-1001"
+        expires = int(time.time()) + 300
+        signature = signed_download_signature(user.id, document_id, expires)
+        return [
+            {
+                "id": document_id,
+                "name": "Account statement 1001",
+                "download_path": (
+                    f"/api/me/documents/{document_id}/download?expires={expires}"
+                    f"&signature={signature}"
+                ),
+            }
+        ]
+
+    @app.get("/api/me/documents/{document_id}/download")
+    def download_my_document(
+        document_id: str,
+        expires: int,
+        signature: str,
+        user: User = Depends(require_roles("customer")),
+        session: Session = Depends(db_session),
+    ) -> Response:
+        if document_id not in {"statement-1001", "statement-1002"}:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "document not found")
+        now = int(time.time())
+        if expires < now or expires > now + 600:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "signed URL expired")
+        expected = signed_download_signature(user.id, document_id, expires)
+        if not hmac.compare_digest(signature, expected):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "invalid document signature")
+        if document_id == "statement-1002":
+            vulnerable = (
+                "cryptographic-failure.signed-download-forgery"
+                in settings.vulnerability_modules
+            )
+            if not vulnerable:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "document is not owned")
+            record_scenario_objective(
+                session,
+                module_id="cryptographic-failure.signed-download-forgery",
+                event_type="resource.read",
+                actor_id=user.id,
+                object_={"resource_id": document_id},
+                protected_key="document.other-customer-download",
+            )
+            session.commit()
+            return Response("Other customer statement 1002\n", media_type="text/plain")
+        return Response("Owned customer statement 1001\n", media_type="text/plain")
+
+    @app.post("/api/seller/reports/exports", status_code=202)
+    def create_report_export(
+        payload: ReportExportRequest,
+        user: User = Depends(require_roles("seller_staff")),
+        session: Session = Depends(db_session),
+    ) -> dict[str, object]:
+        allowed = {"sales-summary", "orders", "inventory"}
+        if any(report not in allowed for report in payload.reports):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "report not found")
+        progress_key = "report.export-progress"
+        lock_scenario_state(session, f"{progress_key}:{user.id}")
+        previous = scenario_events(session, progress_key)
+        vulnerable = (
+            "resource-consumption.report-export-fanout"
+            in settings.vulnerability_modules
+        )
+        if not vulnerable:
+            deduplication_key = f"report-export:{user.id}:{payload.idempotency_key}"
+            existing = next(
+                (item for item in previous if item.deduplication_key == deduplication_key),
+                None,
+            )
+            if existing is not None:
+                detail = json.loads(existing.object_json)
+                return {
+                    "job_id": detail["job_id"],
+                    "cost_units": int(detail["cost_units"]),
+                    "pending_count": len(previous),
+                }
+        else:
+            deduplication_key = f"report-export:{user.id}:{uuid4().hex}"
+        total_cost = sum(int(json.loads(item.object_json)["cost_units"]) for item in previous)
+        cost = len(payload.reports)
+        limit = 40 if vulnerable else 4
+        if total_cost + cost > limit or (not vulnerable and len(previous) >= 4):
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "report export limit reached")
+        job_id = uuid4().hex
+        record_scenario_progress(
+            session,
+            event_type="report.export-created",
+            actor_id=user.id,
+            object_={
+                "job_id": job_id,
+                "cost_units": str(cost),
+                "idempotency_key": payload.idempotency_key,
+            },
+            protected_key=progress_key,
+            deduplication_key=deduplication_key,
+        )
+        total_cost += cost
+        if vulnerable and total_cost > 20:
+            record_scenario_objective(
+                session,
+                module_id="resource-consumption.report-export-fanout",
+                event_type="resource.budget",
+                actor_id=user.id,
+                object_={"cost_units": str(total_cost)},
+                protected_key="report.export-cost-budget",
+            )
+        session.commit()
+        return {"job_id": job_id, "cost_units": cost, "pending_count": len(previous) + 1}
+
+    @app.post("/api/promotions/{promotion_code}/redemptions")
+    def redeem_promotion(
+        promotion_code: str,
+        payload: PromotionRedemptionRequest,
+        user: User = Depends(require_roles("customer")),
+        session: Session = Depends(db_session),
+    ) -> dict[str, object]:
+        if promotion_code != "WELCOME500":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "promotion not found")
+        order = session.get(Order, payload.order_id)
+        if order is None or order.customer_id != user.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found")
+        if order.status != "paid":
+            raise HTTPException(status.HTTP_409_CONFLICT, "order is not eligible")
+        progress_key = "promotion.redemption-progress"
+        lock_scenario_state(session, f"{progress_key}:{user.id}:{promotion_code}")
+        previous = [
+            item
+            for item in scenario_events(session, progress_key)
+            if json.loads(item.subject_json).get("actor_id") == user.id
+        ]
+        vulnerable = (
+            "business-workflow.bulk-promotion-redemption"
+            in settings.vulnerability_modules
+        )
+        if not vulnerable and previous:
+            raise HTTPException(status.HTTP_409_CONFLICT, "promotion already redeemed")
+        if len(previous) >= 10:
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "promotion limit reached")
+        redemption_number = len(previous) + 1
+        record_scenario_progress(
+            session,
+            event_type="promotion.redemption-progress",
+            actor_id=user.id,
+            object_={
+                "order_id": order.id,
+                "promotion_code": promotion_code,
+                "redemption_number": str(redemption_number),
+            },
+            protected_key=progress_key,
+            deduplication_key=f"promotion:{user.id}:{promotion_code}:{redemption_number}",
+        )
+        order.total_cents = max(0, order.total_cents - 500)
+        if vulnerable and redemption_number >= 3:
+            record_scenario_objective(
+                session,
+                module_id="business-workflow.bulk-promotion-redemption",
+                event_type="promotion.redeemed",
+                actor_id=user.id,
+                object_={"order_id": order.id, "redemptions": str(redemption_number)},
+                protected_key="promotion.single-use-budget",
+            )
+        session.commit()
+        return {
+            "order_id": order.id,
+            "promotion_code": promotion_code,
+            "redemption_number": redemption_number,
+            "discounted_total_cents": order.total_cents,
+        }
+
+    if "api-inventory.deprecated-operations-endpoint" in settings.vulnerability_modules:
+
+        @app.get("/api/v1/operations/export")
+        def deprecated_operations_export(
+            session: Session = Depends(db_session),
+        ) -> dict[str, object]:
+            record_scenario_objective(
+                session,
+                module_id="api-inventory.deprecated-operations-endpoint",
+                event_type="resource.read",
+                actor_id="anonymous",
+                object_={"resource_id": "deprecated-operations-export"},
+                protected_key="operations.deprecated-export",
+            )
+            session.commit()
+            return {
+                "generated_for": "internal-operations",
+                "settlement_queue": 3,
+                "legacy_api": "v1",
+            }
+
+    @app.get("/api/support/audit-events")
+    def list_support_audit_events(
+        _: User = Depends(require_roles("support_staff", "admin")),
+        session: Session = Depends(db_session),
+    ) -> list[dict[str, str]]:
+        erased = bool(scenario_events(session, "audit.support-action-record"))
+        if erased:
+            return []
+        return [
+            {
+                "id": "support-action-2026-0001",
+                "action": "ticket-status-updated",
+                "retention": "security-audit",
+            }
+        ]
+
+    @app.delete("/api/support/audit-events/{event_id}", status_code=204)
+    def delete_support_audit_event(
+        event_id: str,
+        user: User = Depends(require_roles("support_staff", "admin")),
+        session: Session = Depends(db_session),
+    ) -> Response:
+        if event_id != "support-action-2026-0001":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "audit event not found")
+        if "security-logging.audit-trail-erasure" not in settings.vulnerability_modules:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "audit events are append-only")
+        record_scenario_objective(
+            session,
+            module_id="security-logging.audit-trail-erasure",
+            event_type="audit.integrity",
+            actor_id=user.id,
+            object_={"resource_id": event_id},
+            protected_key="audit.support-action-record",
+        )
+        session.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    def partner_signature(payload: PartnerShipmentEventRequest) -> str:
+        body = json.dumps(
+            payload.model_dump(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode()
+        return "sha256=" + hmac.new(PARTNER_WEBHOOK_KEY, body, hashlib.sha256).hexdigest()
+
+    @app.post("/api/integrations/partner/shipment-events")
+    def partner_shipment_event(
+        payload: PartnerShipmentEventRequest,
+        x_partner_signature: Annotated[str | None, Header()] = None,
+        session: Session = Depends(db_session),
+    ) -> dict[str, str]:
+        order = session.get(Order, payload.order_id)
+        if order is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found")
+        signature_valid = bool(x_partner_signature) and hmac.compare_digest(
+            x_partner_signature or "", partner_signature(payload)
+        )
+        timestamp_valid = abs(int(time.time()) - payload.occurred_at) <= 300
+        replay_key = f"partner-webhook:{payload.event_id}"
+        lock_scenario_state(session, replay_key)
+        replayed = any(
+            item.deduplication_key == replay_key
+            for item in scenario_events(session, "partner.shipment-event-progress")
+        )
+        vulnerable = (
+            "software-data-integrity.unsigned-partner-webhook"
+            in settings.vulnerability_modules
+        )
+        if not vulnerable:
+            if not signature_valid or not timestamp_valid:
+                raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid partner signature")
+            if replayed:
+                raise HTTPException(status.HTTP_409_CONFLICT, "partner event already processed")
+        record_scenario_progress(
+            session,
+            event_type="partner.shipment-event-accepted",
+            actor_id="partner" if signature_valid else "anonymous",
+            object_={
+                "order_id": order.id,
+                "event_id": payload.event_id,
+                "shipment_status": payload.shipment_status,
+            },
+            protected_key="partner.shipment-event-progress",
+            deduplication_key=(replay_key if not vulnerable else f"{replay_key}:{uuid4().hex}"),
+        )
+        order.status = payload.shipment_status
+        if vulnerable and not signature_valid:
+            record_scenario_objective(
+                session,
+                module_id="software-data-integrity.unsigned-partner-webhook",
+                event_type="order.shipment-changed",
+                actor_id="anonymous",
+                object_={"order_id": order.id},
+                protected_key="partner.shipment-state",
+            )
+        session.commit()
+        return {"order_id": order.id, "shipment_status": order.status}
 
     def _restore_report_root() -> None:
         """Put the file area back exactly the way the image ships it.

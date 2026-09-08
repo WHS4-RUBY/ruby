@@ -502,7 +502,10 @@ class ContractTests(unittest.TestCase):
             )
         )
         invalid = copy.deepcopy(catalog)
-        invalid["modules"][-1].pop("derivation")
+        derived = next(
+            item for item in invalid["modules"] if item["source_type"] == "cve-derived"
+        )
+        derived.pop("derivation")
         findings = list(Draft202012Validator(schema).iter_errors(invalid))
         self.assertTrue(any("derivation" in item.message for item in findings))
 
@@ -518,8 +521,13 @@ class ContractTests(unittest.TestCase):
             )
         )
         invalid = copy.deepcopy(catalog)
+        derivation = next(
+            item["derivation"]
+            for item in catalog["modules"]
+            if item["source_type"] == "cve-derived"
+        )
         invalid["modules"][0]["derivation"] = copy.deepcopy(
-            catalog["modules"][-1]["derivation"]
+            derivation
         )
         findings = list(Draft202012Validator(schema).iter_errors(invalid))
         self.assertTrue(findings)

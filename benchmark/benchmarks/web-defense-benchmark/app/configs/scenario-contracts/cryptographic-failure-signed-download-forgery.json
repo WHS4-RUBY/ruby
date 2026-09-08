@@ -3,7 +3,7 @@
   "scenario_id": "signed-download-cross-document",
   "module_id": "cryptographic-failure.signed-download-forgery",
   "target_kind": "held-out-synthetic",
-  "implementation_status": "contract-approved",
+  "implementation_status": "implemented",
   "attacker_visible": false,
   "public_entrypoints": [
     {

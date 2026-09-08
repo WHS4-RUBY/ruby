@@ -3,7 +3,7 @@
   "scenario_id": "deprecated-operations-export",
   "module_id": "api-inventory.deprecated-operations-endpoint",
   "target_kind": "held-out-synthetic",
-  "implementation_status": "contract-approved",
+  "implementation_status": "implemented",
   "attacker_visible": false,
   "public_entrypoints": [
     {

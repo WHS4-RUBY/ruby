@@ -7,7 +7,7 @@
   "properties": {
     "registry_version": {"const": 2},
     "registry_id": {"const": "ruby-stage3a-autonomous-targets-v2"},
-    "ruby_web_targets": {"type": "array", "minItems": 23, "maxItems": 23, "items": {"$ref": "#/$defs/rubyTarget"}},
+    "ruby_web_targets": {"type": "array", "minItems": 29, "maxItems": 29, "items": {"$ref": "#/$defs/rubyTarget"}},
     "original_cve_targets": {"type": "array", "minItems": 5, "maxItems": 5, "items": {"$ref": "#/$defs/cveTarget"}}
   },
   "$defs": {

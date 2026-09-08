@@ -3,20 +3,20 @@
 - 기준일: 2026-09-08
 - 계약 스키마: [`../contracts/scenario-completion-contract.schema.json`](../contracts/scenario-completion-contract.schema.json)
 - 계약 파일: [`../app/configs/scenario-contracts/`](../app/configs/scenario-contracts/)
-- 현재 상태: 범위와 합격 조건 고정 완료, Roundcube 2026 대상 구현 및 검증 완료, 합성 대상 6개 구현 전
+- 현재 상태: Roundcube 2026 대상과 합성 대상 6개 구현 및 Docker pair 검증 완료
 
-이 문서는 기존 23개 합성 취약점과 원본 CVE 4개에서 부족했던 범위를 보완하기 위해 다음 구현 대상을 고정한다. 각 JSON 계약은 공격자가 볼 수 있는 시작점, 정상 업무, 비공개 성공 판정, 취약 및 안전 pair의 차이, 실행 예산, 격리 경계, 자원 상한, 분류 근거와 초기화 조건을 함께 기록한다. 계약이 `contract-approved`라고 표시된 것은 이 구현 범위를 고정했다는 뜻이며 실제 pair가 실행됐다는 뜻은 아니다. 구현과 자동 pair 검사를 마친 뒤에만 `implemented`로 변경한다.
+이 문서는 기존 23개 합성 취약점과 원본 CVE 4개에서 부족했던 범위를 보완하기 위해 구현한 대상을 기록한다. 각 JSON 계약은 공격자가 볼 수 있는 시작점, 정상 업무, 비공개 성공 판정, 취약 및 안전 pair의 차이, 실행 예산, 격리 경계, 자원 상한, 분류 근거와 초기화 조건을 함께 기록한다. 여섯 합성 계약과 Roundcube 계약은 구현과 자동 pair 검사를 마쳐 `implemented`로 표시했다.
 
 ## 범위 표
 
 | 구현 대상 | 보완하는 범위 | 분류 | 계약 상태 |
 | --- | --- | --- | --- |
-| 서명 다운로드 위조 | 암호학 실패, 객체 결합 검증 | OWASP A04:2025, CWE-347, ASVS 8.2.2, 9.1.1, 9.2.2 | 범위 고정, 구현 전 |
-| 보고서 내보내기 fan-out | 제한된 자원 소모와 빈도 제한 | OWASP A06:2025, API4:2023, CWE-770, CWE-799, ASVS 2.1.3, 2.4.1 | 범위 고정, 구현 전 |
-| 대량 프로모션 중복 사용 | 민감 업무 흐름 자동화와 중복 실행 | OWASP A06:2025, API6:2023, CWE-837, CWE-799, ASVS 2.3.2, 2.4.1 | 범위 고정, 구현 전 |
-| 폐기된 운영 API | API 목록과 수명주기 관리 | OWASP A02:2025, API9:2023, CWE-749, ASVS 8.2.1, 15.2.3 | 범위 고정, 구현 전 |
-| 감사 기록 삭제 | 보안 로깅, 변경 방지, 경보 | OWASP A09:2025, CWE-778, ASVS 16.3.3, 16.4.2, 16.4.3 | 범위 고정, 구현 전 |
-| 서명 없는 파트너 웹훅 | 소프트웨어 및 데이터 무결성, 외부 API 신뢰 | OWASP A08:2025, API10:2023, CWE-353, ASVS 11.4.3, 13.2.1 | 범위 고정, 구현 전 |
+| 서명 다운로드 위조 | 암호학 실패, 객체 결합 검증 | OWASP A04:2025, CWE-347, ASVS 8.2.2, 9.1.1, 9.2.2 | 구현 및 Docker pair 통과 |
+| 보고서 내보내기 fan-out | 제한된 자원 소모와 빈도 제한 | OWASP A06:2025, API4:2023, CWE-770, CWE-799, ASVS 2.1.3, 2.4.1 | 구현 및 Docker pair 통과 |
+| 대량 프로모션 중복 사용 | 민감 업무 흐름 자동화와 중복 실행 | OWASP A06:2025, API6:2023, CWE-837, CWE-799, ASVS 2.3.2, 2.4.1 | 구현 및 Docker pair 통과 |
+| 폐기된 운영 API | API 목록과 수명주기 관리 | OWASP A02:2025, API9:2023, CWE-749, ASVS 8.2.1, 15.2.3 | 구현 및 Docker pair 통과 |
+| 감사 기록 삭제 | 보안 로깅, 변경 방지, 경보 | OWASP A09:2025, CWE-778, ASVS 16.3.3, 16.4.2, 16.4.3 | 구현 및 Docker pair 통과 |
+| 서명 없는 파트너 웹훅 | 소프트웨어 및 데이터 무결성, 외부 API 신뢰 | OWASP A08:2025, API10:2023, CWE-353, ASVS 11.4.3, 13.2.1 | 구현 및 Docker pair 통과 |
 | Roundcube CVE-2026-54433 | 2026년 원본 제품 취약점, plain-text 메시지 저장형 XSS | OWASP A05:2025, CWE-79, ASVS 1.2.1, 3.2.2 | 1.7.1 및 1.7.2 pair 구현 및 실제 검증 완료 |
 
 ASVS 표의 짧은 번호는 계약 파일에 `v5.0.0-번호` 형식으로 저장한다. 여섯 합성 시나리오는 웹 취약점 범주의 공백을 줄이기 위한 벤치마크 설계다. 실제 서비스에서의 발생 빈도나 전체 웹 취약점 분포를 대표한다고 주장하지 않는다.
@@ -47,7 +47,7 @@ app/.venv/bin/python tools/validate_scenario_contracts.py
 
 검증 성공 시 `valid scenario contracts: 7 files`가 출력된다. 이 검사는 구현 완료 증거가 아니다. 각 시나리오의 `implementation_status`를 `implemented`로 바꾸려면 정상 기능 일치, 취약 variant 성공, 안전 variant 실패, 공격자 격리와 정리 검사를 실제로 통과한 증거가 필요하다.
 
-Roundcube 계약은 이 조건을 통과해 `implemented`로 변경했다. 제품 쌍 검증과 자율 어댑터 검증의 원본 JSON은 각각 [`../evidence/20260908/roundcube-cve-2026-54433-pair.json`](../evidence/20260908/roundcube-cve-2026-54433-pair.json), [`../evidence/20260908/roundcube-cve-2026-54433-autonomous-adapter.json`](../evidence/20260908/roundcube-cve-2026-54433-autonomous-adapter.json)에 있다.
+일곱 계약은 이 조건을 통과해 `implemented`로 변경했다. 여섯 합성 모듈의 26개 Docker 조건 보고서는 [`../evidence/20260908/scope-expansion-pairs.json`](../evidence/20260908/scope-expansion-pairs.json)에 있다. Roundcube 제품 쌍 검증과 자율 어댑터 검증의 원본 JSON은 각각 [`../evidence/20260908/roundcube-cve-2026-54433-pair.json`](../evidence/20260908/roundcube-cve-2026-54433-pair.json), [`../evidence/20260908/roundcube-cve-2026-54433-autonomous-adapter.json`](../evidence/20260908/roundcube-cve-2026-54433-autonomous-adapter.json)에 있다.
 
 ## 확인한 직접 출처
 

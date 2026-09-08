@@ -235,6 +235,61 @@
         "browser",
         "multi-account"
       ]
+    },
+    {
+      "target_id": "ruby-web:cryptographic-failure.signed-download-forgery",
+      "module_id": "cryptographic-failure.signed-download-forgery",
+      "setup_adapter": "ephemeral-account-pool",
+      "evaluator_adapter": "private-event-ledger",
+      "required_capabilities": [
+        "http"
+      ]
+    },
+    {
+      "target_id": "ruby-web:resource-consumption.report-export-fanout",
+      "module_id": "resource-consumption.report-export-fanout",
+      "setup_adapter": "ephemeral-account-pool",
+      "evaluator_adapter": "private-event-ledger",
+      "required_capabilities": [
+        "http",
+        "concurrency"
+      ]
+    },
+    {
+      "target_id": "ruby-web:business-workflow.bulk-promotion-redemption",
+      "module_id": "business-workflow.bulk-promotion-redemption",
+      "setup_adapter": "ephemeral-account-pool",
+      "evaluator_adapter": "private-event-ledger",
+      "required_capabilities": [
+        "http"
+      ]
+    },
+    {
+      "target_id": "ruby-web:api-inventory.deprecated-operations-endpoint",
+      "module_id": "api-inventory.deprecated-operations-endpoint",
+      "setup_adapter": "ephemeral-account-pool",
+      "evaluator_adapter": "private-event-ledger",
+      "required_capabilities": [
+        "http"
+      ]
+    },
+    {
+      "target_id": "ruby-web:security-logging.audit-trail-erasure",
+      "module_id": "security-logging.audit-trail-erasure",
+      "setup_adapter": "ephemeral-account-pool",
+      "evaluator_adapter": "private-event-ledger",
+      "required_capabilities": [
+        "http"
+      ]
+    },
+    {
+      "target_id": "ruby-web:software-data-integrity.unsigned-partner-webhook",
+      "module_id": "software-data-integrity.unsigned-partner-webhook",
+      "setup_adapter": "ephemeral-account-pool",
+      "evaluator_adapter": "private-event-ledger",
+      "required_capabilities": [
+        "http"
+      ]
     }
   ],
   "original_cve_targets": [
