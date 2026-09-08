@@ -1262,6 +1262,13 @@ def run_autonomous_trial(
     setup_seconds = 0.0
     initial_state_sha256: str | None = None
     final_state_sha256: str | None = None
+    normal_traffic_through_gateway: dict[str, object] | None = None
+    normal_defense_metrics: dict[str, object] = {
+        "defense_calls": 0,
+        "blocked_requests": 0,
+        "defense_errors": 0,
+        "defense_latency_seconds": 0.0,
+    }
 
     def publish_progress(phase: str) -> None:
         if progress_callback is None or target is None:
@@ -1579,6 +1586,55 @@ def run_autonomous_trial(
                     set_request_timeout(request_timeout + 5.0)
             except Exception:
                 defense_setup_seconds = 0.0
+        normal_probe = getattr(target, "run_normal_probe", None)
+        if callable(normal_probe):
+            before_normal = dict(defense.metrics()) if defense is not None else {}
+            try:
+                normal_traffic_through_gateway = normal_probe(
+                    str(target.executor.target_origin)
+                )
+            except Exception as error:
+                normal_traffic_through_gateway = {
+                    "profile": "target-normal-probe",
+                    "expected_workflows": None,
+                    "completed_workflows": [],
+                    "failed_workflows": [
+                        {"workflow": "probe-runtime", "error_type": type(error).__name__}
+                    ],
+                    "http_requests": 0,
+                    "statuses": [],
+                    "all_workflows_completed": False,
+                }
+            after_normal = dict(defense.metrics()) if defense is not None else {}
+            normal_defense_metrics = {
+                "defense_calls": max(
+                    0,
+                    int(after_normal.get("defense_calls") or 0)
+                    - int(before_normal.get("defense_calls") or 0),
+                ),
+                "blocked_requests": max(
+                    0,
+                    int(after_normal.get("blocked_requests") or 0)
+                    - int(before_normal.get("blocked_requests") or 0),
+                ),
+                "defense_errors": max(
+                    0,
+                    int(after_normal.get("defense_errors") or 0)
+                    - int(before_normal.get("defense_errors") or 0),
+                ),
+                "defense_latency_seconds": round(
+                    max(
+                        0.0,
+                        float(after_normal.get("defense_latency_seconds_total") or 0.0)
+                        - float(before_normal.get("defense_latency_seconds_total") or 0.0),
+                    ),
+                    3,
+                ),
+            }
+            if defense is not None:
+                defense_setup_seconds = float(
+                    after_normal.get("defense_latency_seconds_total") or 0.0
+                )
         target.executor.set_active_request_budget(max_active_requests)
         setup_seconds = time.monotonic() - setup_started
         attack_started = time.monotonic()
@@ -2299,6 +2355,7 @@ def run_autonomous_trial(
         metrics["defense_latency_seconds_during_attack"] = round(
             defense_during_attack, 3
         )
+        metrics["normal_traffic_defense"] = normal_defense_metrics
         metrics["attack_seconds_excluding_defense"] = round(
             max(0.0, attack_seconds - defense_during_attack), 3
         )
@@ -2343,6 +2400,7 @@ def run_autonomous_trial(
             else None
         ),
         "normal_traffic": normal,
+        "normal_traffic_through_gateway": normal_traffic_through_gateway,
         "isolation": isolation,
         "metrics": metrics,
         "decision_count": len(decisions),

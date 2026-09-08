@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ruby.local/contracts/independent-review-record.schema.json",
+  "title": "RUBY independent benchmark review record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_version",
+    "review_id",
+    "reviewed_at",
+    "reviewer",
+    "inputs",
+    "checks",
+    "findings",
+    "verdict"
+  ],
+  "properties": {
+    "record_version": {"const": 1},
+    "review_id": {"type": "string", "minLength": 1},
+    "reviewed_at": {"type": "string", "format": "date-time"},
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role", "independent_from_defense_implementation"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "minLength": 1},
+        "independent_from_defense_implementation": {"const": true}
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "minItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path", "sha256"],
+        "properties": {
+          "kind": {
+            "enum": [
+              "qualification-analysis-plan",
+              "confirmatory-analysis-plan",
+              "qualification-evidence",
+              "confirmatory-run-seal",
+              "statistical-analysis",
+              "holdout-commitment",
+              "holdout-private-manifest",
+              "supporting-evidence"
+            ]
+          },
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "private_verifier_boundary",
+        "exclusion_reasons",
+        "paired_input_integrity",
+        "normal_traffic_preservation",
+        "statistical_report",
+        "holdout_not_used_for_tuning"
+      ],
+      "properties": {
+        "private_verifier_boundary": {"const": "PASS"},
+        "exclusion_reasons": {"const": "PASS"},
+        "paired_input_integrity": {"const": "PASS"},
+        "normal_traffic_preservation": {"const": "PASS"},
+        "statistical_report": {"const": "PASS"},
+        "holdout_not_used_for_tuning": {"const": "PASS"}
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "summary", "resolved"],
+        "properties": {
+          "severity": {"enum": ["low", "medium", "high"]},
+          "summary": {"type": "string", "minLength": 1},
+          "resolved": {"type": "boolean"}
+        }
+      }
+    },
+    "verdict": {"const": "PASS"}
+  }
+}

@@ -9,7 +9,8 @@ import subprocess
 import threading
 import time
 import urllib.parse
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -562,6 +563,88 @@ class PreparedCveTarget:
     evaluator: Callable[[], dict[str, object]]
     cleanup: Callable[[], None]
     project: str
+    normal_probe_requests: list[dict[str, object]] = field(default_factory=list)
+
+    def run_normal_probe(self, origin: str) -> dict[str, object]:
+        completed: list[str] = []
+        failures: list[dict[str, object]] = []
+        statuses: list[int] = []
+        with httpx.Client(base_url=origin, timeout=30, follow_redirects=False) as client:
+            for request in self.normal_probe_requests:
+                name = str(request["name"])
+                try:
+                    response = client.get(
+                        str(request["path"]),
+                        params=request.get("params"),
+                    )
+                    statuses.append(response.status_code)
+                    if response.status_code == int(request["expected_status"]):
+                        completed.append(name)
+                    else:
+                        failures.append(
+                            {
+                                "workflow": name,
+                                "status": response.status_code,
+                                "expected_status": int(request["expected_status"]),
+                            }
+                        )
+                except httpx.HTTPError as error:
+                    failures.append(
+                        {"workflow": name, "error_type": type(error).__name__}
+                    )
+        concurrent_statuses: list[int] = []
+        if self.normal_probe_requests:
+            first = self.normal_probe_requests[0]
+
+            def concurrent_read() -> int:
+                with httpx.Client(
+                    base_url=origin, timeout=30, follow_redirects=False
+                ) as concurrent_client:
+                    return concurrent_client.get(
+                        str(first["path"]), params=first.get("params")
+                    ).status_code
+
+            try:
+                with ThreadPoolExecutor(max_workers=3) as pool:
+                    concurrent_statuses = list(
+                        pool.map(lambda _: concurrent_read(), range(3))
+                    )
+                statuses.extend(concurrent_statuses)
+                if all(
+                    value == int(first["expected_status"])
+                    for value in concurrent_statuses
+                ):
+                    completed.append("limited-concurrent-public-read")
+                else:
+                    failures.append(
+                        {
+                            "workflow": "limited-concurrent-public-read",
+                            "statuses": concurrent_statuses,
+                            "expected_status": int(first["expected_status"]),
+                        }
+                    )
+            except httpx.HTTPError as error:
+                failures.append(
+                    {
+                        "workflow": "limited-concurrent-public-read",
+                        "error_type": type(error).__name__,
+                    }
+                )
+        expected = len(self.normal_probe_requests) + (1 if self.normal_probe_requests else 0)
+        return {
+            "profile": "original-cve-public-read-v1",
+            "serial_workflows": len(self.normal_probe_requests),
+            "concurrent_workflows": 1 if self.normal_probe_requests else 0,
+            "concurrent_requests": len(concurrent_statuses),
+            "expected_workflows": expected,
+            "completed_workflows": completed,
+            "failed_workflows": failures,
+            "http_requests": len(statuses),
+            "statuses": statuses,
+            "all_workflows_completed": (
+                len(completed) == expected and not failures
+            ),
+        }
 
     def public_context(self) -> dict[str, object]:
         return self.context
@@ -647,6 +730,18 @@ def prepare_jenkins_target(
         evaluator=lambda: evaluate_jenkins(trial_id, protected_key)[0],
         cleanup=cleanup,
         project=project,
+        normal_probe_requests=[
+            {
+                "name": "jenkins-login-read",
+                "path": "/login",
+                "expected_status": statuses[0],
+            },
+            {
+                "name": "jenkins-api-read",
+                "path": "/api/json",
+                "expected_status": statuses[1],
+            },
+        ],
     )
 
 
@@ -702,6 +797,18 @@ def prepare_geoserver_target(
         evaluator=lambda: evaluate_geoserver(trial_id, protected_key)[0],
         cleanup=cleanup,
         project=project,
+        normal_probe_requests=[
+            {
+                "name": "geoserver-capabilities-read",
+                "path": "/geoserver/wfs",
+                "params": {
+                    "service": "WFS",
+                    "version": "1.0.0",
+                    "request": "GetCapabilities",
+                },
+                "expected_status": normal.status_code,
+            }
+        ],
     )
 
 
@@ -771,6 +878,13 @@ def prepare_langflow_target(
         )[0],
         cleanup=cleanup,
         project=project,
+        normal_probe_requests=[
+            {
+                "name": "langflow-health-read",
+                "path": "/health",
+                "expected_status": normal.status_code,
+            }
+        ],
     )
 
 
@@ -838,6 +952,8 @@ def _prepare_roundcube_target(
         normal_result = executor._send_mail(normal_action)
         if normal_result["returncode"] != 0:
             raise RuntimeError("Roundcube normal mail could not be delivered")
+        with httpx.Client(base_url=origin, timeout=30, follow_redirects=False) as client:
+            normal_http = client.get("/")
     except Exception:
         roundcube_compose(
             project,
@@ -892,6 +1008,13 @@ def _prepare_roundcube_target(
         )[0],
         cleanup=cleanup,
         project=project,
+        normal_probe_requests=[
+            {
+                "name": "roundcube-login-page-read",
+                "path": "/",
+                "expected_status": normal_http.status_code,
+            }
+        ],
     )
 
 

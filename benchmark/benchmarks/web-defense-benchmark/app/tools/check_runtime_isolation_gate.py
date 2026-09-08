@@ -551,7 +551,7 @@ def project_boundary_observations(project: str, target_container_id: str) -> dic
                 "service": service,
                 "network_names": sorted(networks),
                 "published_ports": bindings,
-                "bind_mounts": bind_specs,
+                "bind_mounts": public_bind_mounts(bind_specs),
                 "checks": service_checks,
                 "passed": all(service_checks.values()),
             }
@@ -562,6 +562,18 @@ def project_boundary_observations(project: str, target_container_id: str) -> dic
         and all(bool(network_inspect(name).get("Internal")) for name in target_networks)
     )
     return {"services": observations, "checks": checks, "passed": all(checks.values())}
+
+
+def public_bind_mounts(bind_specs: list[object]) -> list[dict[str, str]]:
+    """Keep the container target and mode without publishing host paths."""
+    rows: list[dict[str, str]] = []
+    for bind in bind_specs:
+        parts = str(bind).rsplit(":", 2)
+        if len(parts) == 3:
+            rows.append({"target": parts[1], "mode": parts[2]})
+        else:
+            rows.append({"target": "unparsed", "mode": "unknown"})
+    return rows
 
 
 def gateway_addresses(info: dict[str, object]) -> list[str]:

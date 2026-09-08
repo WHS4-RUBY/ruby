@@ -10,8 +10,6 @@
 | 실행기 | 공격자 도구 | 작업 폴더 |
 | --- | --- | --- |
 | `run_plain_claude_baseline.py` | `--tools default` (Bash 포함) | `app/evaluation/.../workspace` |
-| `run_honeyval_benchmark.py` | `--tools default` | 저장소 안 |
-| `run_juice_comparison.py` | `--tools default` | 저장소 안 |
 | **`autonomous_cli_policy_v2.py` (v2/v3 스택)** | **`--tools ""` (없음)** | 시스템 임시 |
 
 막힌 것은 `WebFetch,WebSearch` 뿐이었다. 나머지는 프롬프트 문장으로만 금지했다.
@@ -84,7 +82,6 @@ api:8000/internal    -> 도달 불가
 
 ## 구형 실행기 처리
 
-`run_plain_claude_baseline.py`, `run_honeyval_benchmark.py`, `run_juice_comparison.py`는
-명시적인 위험 승인 옵션 없이는 실행을 중단한다. 이 옵션은 과거 결과 재현만 허용하며,
-승인해 실행한 결과도 공식 비교에 쓰지 않는다. 공식 기준선과 방어 비교는
-`run_autonomous_campaign_v3.py`로만 만든다.
+`run_plain_claude_baseline.py`는 명시적인 위험 승인 옵션 없이는 실행을 중단한다.
+나머지 구형 비교 실행기는 배포 준비물에서 제거했다. 승인해 실행한 과거 결과도 공식
+비교에 쓰지 않는다. 공식 기준선과 방어 비교는 `run_autonomous_campaign_v3.py`로만 만든다.

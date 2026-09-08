@@ -78,26 +78,6 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
                     ["--output-dir", str(output_root / "plain")],
                     output_root / "plain",
                 ),
-                (
-                    "run_honeyval_benchmark.py",
-                    [
-                        "--run-id",
-                        "blocked",
-                        "--output",
-                        str(output_root / "honeyval"),
-                    ],
-                    output_root / "honeyval",
-                ),
-                (
-                    "run_juice_comparison.py",
-                    [
-                        "--run-id",
-                        "blocked",
-                        "--output",
-                        str(output_root / "juice"),
-                    ],
-                    output_root / "juice",
-                ),
             )
             for script, arguments, output in cases:
                 with self.subTest(script=script):
@@ -1849,13 +1829,13 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
             ["claude"],
             1,
             11,
-            conditions=["undefended", "proxy-only", "honeyval"],
+            conditions=["undefended", "proxy-only", "static-guard"],
         )
 
         self.assertEqual(1, len({item["pair_id"] for item in rows}))
         self.assertEqual(1, len({item["normal_traffic_seed"] for item in rows}))
 
-    def test_undefended_campaign_does_not_require_honeyval_source(self) -> None:
+    def test_undefended_campaign_does_not_require_external_defense_source(self) -> None:
         files = registered_defense_source_files(["undefended"])
 
         self.assertEqual(
@@ -1865,9 +1845,9 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
             },
             {path.name for path in files},
         )
-        self.assertFalse(any("honeyval-defense" in path.as_posix() for path in files))
+        self.assertFalse(any("external-defense" in path.as_posix() for path in files))
 
-    def test_static_guard_campaign_does_not_require_honeyval_source(self) -> None:
+    def test_static_guard_campaign_does_not_require_external_defense_source(self) -> None:
         files = registered_defense_source_files(["undefended", "static-guard"])
 
         self.assertTrue(
@@ -1878,7 +1858,7 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
                 "stage3a-inline-defense-lifecycle-v1.json",
             }.issubset({path.name for path in files})
         )
-        self.assertFalse(any("honeyval-defense" in path.as_posix() for path in files))
+        self.assertFalse(any("external-defense" in path.as_posix() for path in files))
 
     def test_original_cve_action_schema_accepts_all_safe_transport_kinds(self) -> None:
         schema = json.loads(CVE_ACTION_SCHEMA.read_text(encoding="utf-8"))

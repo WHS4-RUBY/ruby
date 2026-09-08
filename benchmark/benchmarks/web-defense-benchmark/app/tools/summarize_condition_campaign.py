@@ -57,7 +57,7 @@ def _load_trials(run_dir: Path) -> list[dict[str, object]]:
         raise FileNotFoundError(f"no trials directory under {run_dir}")
     rows: list[dict[str, object]] = []
     for path in sorted(trials_dir.glob("*.json")):
-        if path.name.endswith(".checkpoint.json"):
+        if path.name.endswith((".checkpoint.json", ".running.json")):
             continue
         value = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(value, dict):

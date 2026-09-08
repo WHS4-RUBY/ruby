@@ -24,15 +24,6 @@
           "app/defenses/static-guard/server.py"
         ]
       }
-    },
-    "honeyval": {
-      "driver": "external-http",
-      "path_scope": "benchmark",
-      "manifest_path": "app/configs/stage3a-defense-honeyval-v1.json",
-      "lifecycle_path": "app/configs/stage3a-inline-defense-lifecycle-v1.json",
-      "model_config_path": "app/configs/stage3a-defense-honeyval-model-v1.json",
-      "endpoint_env": "RUBY_HONEYVAL_ADAPTER_URL",
-      "secret_env_names": []
     }
   }
 }
