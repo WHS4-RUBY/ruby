@@ -20,6 +20,7 @@ OBSERVED_BYPASS_PAYLOADS = (
     "%')OR(TRUE)-- ",
     "%') OR/**/1=1 -- ",
     "%')OR(1=1)-- ",
+    "%') IS NULL\nOR\n1=1 AND ('x' LIKE '",
 )
 BENIGN_SEARCHES = ("coffee", "O'Reilly", "orchestra")
 

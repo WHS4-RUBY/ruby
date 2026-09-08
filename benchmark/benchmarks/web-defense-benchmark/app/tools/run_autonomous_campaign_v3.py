@@ -21,6 +21,7 @@ from autonomous_cve_target_adapters_v3 import CVE_ACTION_SCHEMA, PREPARE_CVE_TAR
 from autonomous_target_adapters_v2 import prepare_isolated_ruby_target
 from defense_runtime_v1 import (
     REGISTRY_PATH as DEFAULT_DEFENSE_REGISTRY_PATH,
+    cleanup_managed_defense_resources,
     defense_front,
     registered_conditions,
     registered_defense_source_files,
@@ -28,6 +29,7 @@ from defense_runtime_v1 import (
 from autonomous_trial_v2 import (
     ACTION_SCHEMA,
     ModelCallBudgetExceeded,
+    _runtime_trial_id,
     run_autonomous_trial,
 )
 
@@ -715,6 +717,9 @@ def _recover_running_trials(
         trial_key = str(value.get("trial_key", ""))
         if trial_key not in rows:
             raise ValueError(f"running trial is not in sealed schedule: {running_path}")
+        cleanup_managed_defense_resources(
+            _runtime_trial_id(f"{run_id}:{trial_key}")
+        )
         _remove_abandoned_project(_project_for_row(run_id, rows[trial_key]))
         attempts_dir.mkdir(exist_ok=True)
         archive_key = hashlib.sha256(trial_key.encode("utf-8")).hexdigest()[:16]

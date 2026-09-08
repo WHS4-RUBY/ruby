@@ -14,7 +14,7 @@ from rules import decision
 UPSTREAM = os.environ["RUBY_DEFENSE_UPSTREAM"].rstrip("/")
 MANIFEST_DIGEST = os.environ["RUBY_DEFENSE_MANIFEST_DIGEST"]
 ADAPTER_ID = "ruby-static-request-guard"
-VERSION = "2.0.0"
+VERSION = "3.0.0"
 LOCK = threading.Lock()
 METRICS = {
     "observed_requests": 0,

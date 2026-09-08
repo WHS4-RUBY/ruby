@@ -11,6 +11,8 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +21,7 @@ sys.path.insert(0, str(APP_ROOT / "tools"))
 
 from defense_runtime_v1 import (  # noqa: E402
     DefenseRuntimeError,
+    cleanup_managed_defense_resources,
     defense_front,
     registered_conditions,
     registered_defense_source_files,
@@ -90,7 +93,7 @@ class DefenseRuntimeV2Tests(unittest.TestCase):
                                 if state["bad_identity"]
                                 else "ruby-static-request-guard"
                             ),
-                            "version": "2.0.0",
+                            "version": "3.0.0",
                             "manifest_digest": manifest_digest,
                         },
                     )
@@ -264,6 +267,34 @@ class DefenseRuntimeV2Tests(unittest.TestCase):
         self.registry_path.write_text(json.dumps(value), encoding="utf-8")
         with self.assertRaisesRegex(DefenseRuntimeError, "reserved"):
             registered_conditions(self.registry_path)
+
+    def test_interrupted_trial_cleanup_targets_exact_managed_labels(self) -> None:
+        responses = [
+            SimpleNamespace(stdout="adapter\nrelay\n"),
+            SimpleNamespace(stdout=""),
+            SimpleNamespace(stdout=""),
+            SimpleNamespace(stdout="network\n"),
+            SimpleNamespace(stdout=""),
+            SimpleNamespace(stdout=""),
+        ]
+        with patch("defense_runtime_v1.subprocess.run", side_effect=responses) as run:
+            removed = cleanup_managed_defense_resources("run-1:trial-2")
+
+        commands = [entry.args[0] for entry in run.call_args_list]
+        expected_filters = [
+            "--filter",
+            "label=ruby.benchmark.managed=true",
+            "--filter",
+            "label=ruby.benchmark.trial=run-1:trial-2",
+        ]
+        self.assertEqual({"containers": 2, "networks": 1}, removed)
+        self.assertEqual(["docker", "ps", "-a", "-q"] + expected_filters, commands[0])
+        self.assertEqual(["docker", "rm", "-f", "adapter", "relay"], commands[1])
+        self.assertEqual(
+            ["docker", "network", "ls", "-q"] + expected_filters,
+            commands[3],
+        )
+        self.assertEqual(["docker", "network", "rm", "network"], commands[4])
 
 
 if __name__ == "__main__":

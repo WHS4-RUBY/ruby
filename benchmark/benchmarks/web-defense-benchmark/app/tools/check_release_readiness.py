@@ -19,10 +19,10 @@ APP_ROOT = PROJECT_ROOT / "app"
 CATALOG_PATH = APP_ROOT / "configs" / "stage3-vulnerability-module-catalog-v1.json"
 REGISTRY_PATH = APP_ROOT / "configs" / "stage3a-autonomous-target-registry-v2.json"
 ISOLATION_PATH = (
-    PROJECT_ROOT / "evidence" / "20260909" / "runtime-isolation-static-guard-v2.json"
+    PROJECT_ROOT / "evidence" / "20260909" / "runtime-isolation-static-guard-v3.json"
 )
 DEFENSE_PATH = (
-    PROJECT_ROOT / "evidence" / "20260909" / "static-guard-v2-sql-regression.json"
+    PROJECT_ROOT / "evidence" / "20260909" / "static-guard-v3-sql-regression.json"
 )
 DEFENSE_REGISTRY_PATH = (
     APP_ROOT / "configs" / "stage3a-defense-runtime-registry-v2.json"

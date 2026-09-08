@@ -245,6 +245,59 @@ def _remove_containers_and_network(
         raise DefenseRuntimeError("; ".join(errors))
 
 
+def cleanup_managed_defense_resources(trial_id: str) -> dict[str, int]:
+    """Remove managed defense resources owned by one interrupted trial."""
+    if not trial_id:
+        raise ValueError("trial_id is required for managed defense cleanup")
+
+    filters = [
+        "--filter",
+        "label=ruby.benchmark.managed=true",
+        "--filter",
+        f"label=ruby.benchmark.trial={trial_id}",
+    ]
+    resources = (
+        ("containers", ["docker", "ps", "-a", "-q"], ["docker", "rm", "-f"]),
+        ("networks", ["docker", "network", "ls", "-q"], ["docker", "network", "rm"]),
+    )
+    removed: dict[str, int] = {}
+    for resource, query, remove in resources:
+        values = subprocess.run(
+            query + filters,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        ).stdout.splitlines()
+        if values:
+            subprocess.run(
+                remove + values,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+            )
+        remaining = subprocess.run(
+            query + filters,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        ).stdout.splitlines()
+        if remaining:
+            raise DefenseRuntimeError(
+                f"managed defense {resource} remain for trial {trial_id}: {remaining}"
+            )
+        removed[resource] = len(values)
+    return removed
+
+
 def _build_control_relay() -> None:
     context = APP_ROOT / "defense-control-relay"
     files = (context / "Dockerfile", context / "relay.py")
@@ -272,6 +325,8 @@ def _build_control_relay() -> None:
 
 def _start_managed_adapter(
     registration: dict[str, object],
+    *,
+    trial_id: str,
 ) -> tuple[HttpDefenseAdapter, dict[str, object]]:
     root = _scope_root(registration)
     image = str(registration["image"])
@@ -309,6 +364,10 @@ def _start_managed_adapter(
                     "--internal",
                     "--label",
                     "ruby.benchmark.managed=true",
+                    "--label",
+                    "ruby.benchmark.kind=defense-network",
+                    "--label",
+                    f"ruby.benchmark.trial={trial_id}",
                     network,
                 ],
                 check=True,
@@ -325,6 +384,8 @@ def _start_managed_adapter(
             "ruby.benchmark.managed=true",
             "--label",
             "ruby.benchmark.kind=defense-adapter",
+            "--label",
+            f"ruby.benchmark.trial={trial_id}",
             "--read-only",
             "--tmpfs",
             f"/tmp:rw,noexec,nosuid,size={int(limits['tmpfs_mb'])}m",
@@ -384,6 +445,8 @@ def _start_managed_adapter(
                     "ruby.benchmark.managed=true",
                     "--label",
                     "ruby.benchmark.kind=defense-control-relay",
+                    "--label",
+                    f"ruby.benchmark.trial={trial_id}",
                     "--read-only",
                     "--tmpfs",
                     "/tmp:rw,noexec,nosuid,size=4m",
@@ -543,10 +606,13 @@ def defense_front(
     ) -> InlineDefenseGateway:
         del secrets, accounts
         adapter: HttpDefenseAdapter | None = None
+        resolved_trial_id = trial_id or uuid4().hex
         try:
             runtime_identity: dict[str, object] = {}
             if registration["driver"] == "managed-container":
-                adapter, runtime_identity = _start_managed_adapter(registration)
+                adapter, runtime_identity = _start_managed_adapter(
+                    registration, trial_id=resolved_trial_id
+                )
             elif registration["driver"] == "external-http":
                 adapter = _external_adapter(registration)
             else:
@@ -557,7 +623,7 @@ def defense_front(
             model_use = registration["manifest"]["model_use"]
             return InlineDefenseGateway(
                 upstream_origin=upstream_origin,
-                trial_id=trial_id or uuid4().hex,
+                trial_id=resolved_trial_id,
                 adapter=adapter,
                 identity={
                     "defense_id": registration["manifest"]["defense_id"],

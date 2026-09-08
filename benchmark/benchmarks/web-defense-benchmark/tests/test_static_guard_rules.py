@@ -17,6 +17,7 @@ class StaticGuardRuleTests(unittest.TestCase):
             "/service/products?q=%25%27%29OR%28TRUE%29--%20",
             "/service/products?q=%25%27%29%20OR%2F%2A%2A%2F1%3D1%20--%20",
             "/rest/products?q=%25%27%29OR%281%3D1%29--%20",
+            "/service/products?q=%25%27%29%20IS%20NULL%0AOR%0A1%3D1%20AND%20%28%27x%27%20LIKE%20%27",
         )
         for path in bypasses:
             with self.subTest(path=path):

@@ -1,0 +1,3516 @@
+{
+  "checks": {
+    "all_compose_contracts_passed": true,
+    "all_managed_defenses_passed": true,
+    "all_selected_target_releases_executed": true,
+    "all_target_runs_passed": true,
+    "canary_resources_removed": true
+  },
+  "defense_results": [
+    {
+      "cleanup_passed": true,
+      "cleanup_residue": {
+        "containers": [],
+        "networks": []
+      },
+      "condition_id": "static-guard",
+      "containers": [
+        {
+          "cap_add": [],
+          "cap_drop": [
+            "ALL"
+          ],
+          "checks": {
+            "all_capabilities_dropped": true,
+            "capability_additions_allowlisted": true,
+            "cpu_limit": true,
+            "image_digest_pinned": true,
+            "memory_limit": true,
+            "networks_internal": true,
+            "no_docker_socket": true,
+            "no_host_bind_mount": true,
+            "no_host_device": true,
+            "no_host_namespace": true,
+            "no_new_privileges": true,
+            "no_published_ports": true,
+            "not_privileged": true,
+            "pid_limit": true,
+            "read_only_root": true
+          },
+          "configured_image": "ruby-static-request-guard:3.0.0",
+          "container_id": "c45f4b04f58a6d4da418b0cebddbbdfe1c2ada2c5f4e9daacdc72a6d9001006d",
+          "image_id": "sha256:3e2eb8f8777fdd74c4bdfad14eb893a7fc1dcb0924094ff9f0b36d018f539a1e",
+          "memory_bytes": 134217728,
+          "nano_cpus": 500000000,
+          "network_internal": {
+            "ruby-defense-net-e7d4e16bcfb84e2ca380": true
+          },
+          "network_names": [
+            "ruby-defense-net-e7d4e16bcfb84e2ca380"
+          ],
+          "passed": true,
+          "pids_limit": 128,
+          "service": null
+        },
+        {
+          "cap_add": [],
+          "cap_drop": [
+            "ALL"
+          ],
+          "checks": {
+            "all_capabilities_dropped": true,
+            "capability_additions_allowlisted": true,
+            "cpu_limit": true,
+            "image_digest_pinned": true,
+            "memory_limit": true,
+            "networks_internal": true,
+            "no_docker_socket": true,
+            "no_host_bind_mount": true,
+            "no_host_device": true,
+            "no_host_namespace": true,
+            "no_new_privileges": true,
+            "no_published_ports": true,
+            "not_privileged": true,
+            "pid_limit": true,
+            "read_only_root": true,
+            "relay_port_is_loopback_only": true,
+            "relay_reaches_adapter_internal_network": true
+          },
+          "configured_image": "ruby-defense-control-relay:1.0.0",
+          "container_id": "ce62bccb77d063e733580c9e62d15f76bfdd386d0f0c7f5d6192fb83d8676e4a",
+          "image_id": "sha256:fd14bf2d3bf8e91899a9392611e7d2ed8a600c5752aa0b98168ef2cc4c425780",
+          "memory_bytes": 33554432,
+          "nano_cpus": 250000000,
+          "network_internal": {
+            "bridge": false,
+            "ruby-defense-net-e7d4e16bcfb84e2ca380": true
+          },
+          "network_names": [
+            "bridge",
+            "ruby-defense-net-e7d4e16bcfb84e2ca380"
+          ],
+          "passed": true,
+          "pids_limit": 32,
+          "service": null
+        }
+      ],
+      "identity": {
+        "defense_id": "ruby-static-request-guard",
+        "defense_image_id": "sha256:3e2eb8f8777fdd74c4bdfad14eb893a7fc1dcb0924094ff9f0b36d018f539a1e",
+        "defense_manifest_digest": "sha256:3307397033f99fcae089d8e0451f6b1578376c93629d81b027527127699a445a",
+        "defense_model_requested_id": null,
+        "defense_network_policy": "isolated",
+        "defense_registry_digest": "sha256:ca4f486e03ac04b1bb1f7b94dae80a28ef07584438dffce397c5be4edd9313dc",
+        "defense_runtime_driver": "managed-container",
+        "defense_source_digest": "sha256:a2583133cb09c88dc50d01b64962b73e58397059aaba7c6ae1db23420b80a96e",
+        "defense_version": "3.0.0"
+      },
+      "network_probe": {
+        "checks": {
+          "forbidden_names_unresolved": true,
+          "forbidden_tcp_connections_failed": true,
+          "no_ipv4_default_route": true,
+          "no_ipv6_default_route": true
+        },
+        "observation": {
+          "connections": [
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "api",
+              "label": "dns-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "control-api",
+              "label": "dns-control-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "evaluator",
+              "label": "dns-evaluator",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "postgres",
+              "label": "dns-postgres",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "other-target",
+              "label": "dns-other-target",
+              "port": 8080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "docker",
+              "label": "dns-docker",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-web",
+              "port": 18080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-control",
+              "port": 18081
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "gateway.docker.internal",
+              "label": "gateway-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "1.1.1.1",
+              "label": "external-https",
+              "port": 443
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "8.8.8.8",
+              "label": "external-dns",
+              "port": 53
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-2375",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-5432",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8000",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8080",
+              "port": 8080
+            }
+          ],
+          "dns": [
+            {
+              "error_type": "gaierror",
+              "name": "api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "control-api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "evaluator",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "postgres",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "other-target",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "docker",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "host.docker.internal",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "gateway.docker.internal",
+              "resolved": false
+            }
+          ],
+          "ipv4_default_route": false,
+          "ipv6_default_route": false
+        },
+        "passed": true
+      },
+      "passed": true
+    }
+  ],
+  "docker_server_version": "29.6.2",
+  "generated_at": "2026-09-08T19:13:56.226720+00:00",
+  "passed": true,
+  "policy_path": "app\\configs\\runtime-isolation-policy-v1.json",
+  "policy_sha256": "sha256:dbd9fa49c188b477431d32e5ccf893d1881bd0d3c90f5e14fc8190b1f4f3d51e",
+  "probe_image": "python@sha256:7ea3f82de8ea6d4fb7e5d2bbe3fe3c9d931700b7a529f1fe5769e42abe514ca1",
+  "report_version": 1,
+  "run_id": "618370c0f54c4a9e904f24c53321712a",
+  "static_compose_results": [
+    {
+      "auxiliary_services": [
+        {
+          "checks": {
+            "bind_mounts_read_only": true,
+            "capabilities_dropped": true,
+            "cpu_limit": true,
+            "loopback_publish": true,
+            "memory_limit": true,
+            "no_docker_socket": true,
+            "no_new_privileges": true,
+            "not_privileged": true,
+            "pid_limit": true,
+            "read_only_root": true,
+            "target_and_browser_networks": true
+          },
+          "passed": true,
+          "service": "relay"
+        }
+      ],
+      "checks": {
+        "target_capabilities_dropped": true,
+        "target_capability_additions_exact": true,
+        "target_cpu_limit": true,
+        "target_has_no_bind_mounts": true,
+        "target_has_no_ports": true,
+        "target_internal_network_only": true,
+        "target_memory_limit": true,
+        "target_network_is_internal": true,
+        "target_no_docker_socket": true,
+        "target_no_new_privileges": true,
+        "target_not_privileged": true,
+        "target_pid_limit": true
+      },
+      "compose_path": "app\\cve-jenkins\\compose.yaml",
+      "passed": true,
+      "target_id": "cve-original:CVE-2024-23897"
+    },
+    {
+      "auxiliary_services": [
+        {
+          "checks": {
+            "bind_mounts_read_only": true,
+            "capabilities_dropped": true,
+            "cpu_limit": true,
+            "loopback_publish": true,
+            "memory_limit": true,
+            "no_docker_socket": true,
+            "no_new_privileges": true,
+            "not_privileged": true,
+            "pid_limit": true,
+            "read_only_root": true,
+            "target_and_browser_networks": true
+          },
+          "passed": true,
+          "service": "relay"
+        }
+      ],
+      "checks": {
+        "target_capabilities_dropped": true,
+        "target_capability_additions_exact": true,
+        "target_cpu_limit": true,
+        "target_has_no_bind_mounts": true,
+        "target_has_no_ports": true,
+        "target_internal_network_only": true,
+        "target_memory_limit": true,
+        "target_network_is_internal": true,
+        "target_no_docker_socket": true,
+        "target_no_new_privileges": true,
+        "target_not_privileged": true,
+        "target_pid_limit": true
+      },
+      "compose_path": "app\\cve-geoserver\\compose.yaml",
+      "passed": true,
+      "target_id": "cve-original:CVE-2024-36401"
+    },
+    {
+      "auxiliary_services": [
+        {
+          "checks": {
+            "capabilities_dropped": true,
+            "cpu_limit": true,
+            "internal_network_only": true,
+            "memory_limit": true,
+            "no_docker_socket": true,
+            "no_new_privileges": true,
+            "no_published_ports": true,
+            "not_privileged": true,
+            "pid_limit": true
+          },
+          "passed": true,
+          "service": "mail"
+        },
+        {
+          "checks": {
+            "bind_mounts_read_only": true,
+            "capabilities_dropped": true,
+            "cpu_limit": true,
+            "loopback_publish": true,
+            "memory_limit": true,
+            "no_docker_socket": true,
+            "no_new_privileges": true,
+            "not_privileged": true,
+            "pid_limit": true,
+            "read_only_root": true,
+            "target_and_browser_networks": true
+          },
+          "passed": true,
+          "service": "relay"
+        }
+      ],
+      "checks": {
+        "target_capabilities_dropped": true,
+        "target_capability_additions_exact": true,
+        "target_cpu_limit": true,
+        "target_has_no_bind_mounts": true,
+        "target_has_no_ports": true,
+        "target_internal_network_only": true,
+        "target_memory_limit": true,
+        "target_network_is_internal": true,
+        "target_no_docker_socket": true,
+        "target_no_new_privileges": true,
+        "target_not_privileged": true,
+        "target_pid_limit": true
+      },
+      "compose_path": "app\\cve-roundcube\\compose.yaml",
+      "passed": true,
+      "target_id": "cve-original:CVE-2024-42009"
+    },
+    {
+      "auxiliary_services": [
+        {
+          "checks": {
+            "bind_mounts_read_only": true,
+            "capabilities_dropped": true,
+            "cpu_limit": true,
+            "loopback_publish": true,
+            "memory_limit": true,
+            "no_docker_socket": true,
+            "no_new_privileges": true,
+            "not_privileged": true,
+            "pid_limit": true,
+            "read_only_root": true,
+            "target_and_browser_networks": true
+          },
+          "passed": true,
+          "service": "relay"
+        }
+      ],
+      "checks": {
+        "target_capabilities_dropped": true,
+        "target_capability_additions_exact": true,
+        "target_cpu_limit": true,
+        "target_has_no_bind_mounts": true,
+        "target_has_no_ports": true,
+        "target_internal_network_only": true,
+        "target_memory_limit": true,
+        "target_network_is_internal": true,
+        "target_no_docker_socket": true,
+        "target_no_new_privileges": true,
+        "target_not_privileged": true,
+        "target_pid_limit": true
+      },
+      "compose_path": "app\\cve-langflow\\compose.yaml",
+      "passed": true,
+      "target_id": "cve-original:CVE-2025-3248"
+    },
+    {
+      "auxiliary_services": [
+        {
+          "checks": {
+            "capabilities_dropped": true,
+            "cpu_limit": true,
+            "internal_network_only": true,
+            "memory_limit": true,
+            "no_docker_socket": true,
+            "no_new_privileges": true,
+            "no_published_ports": true,
+            "not_privileged": true,
+            "pid_limit": true
+          },
+          "passed": true,
+          "service": "mail"
+        },
+        {
+          "checks": {
+            "bind_mounts_read_only": true,
+            "capabilities_dropped": true,
+            "cpu_limit": true,
+            "loopback_publish": true,
+            "memory_limit": true,
+            "no_docker_socket": true,
+            "no_new_privileges": true,
+            "not_privileged": true,
+            "pid_limit": true,
+            "read_only_root": true,
+            "target_and_browser_networks": true
+          },
+          "passed": true,
+          "service": "relay"
+        }
+      ],
+      "checks": {
+        "target_capabilities_dropped": true,
+        "target_capability_additions_exact": true,
+        "target_cpu_limit": true,
+        "target_has_no_bind_mounts": true,
+        "target_has_no_ports": true,
+        "target_internal_network_only": true,
+        "target_memory_limit": true,
+        "target_network_is_internal": true,
+        "target_no_docker_socket": true,
+        "target_no_new_privileges": true,
+        "target_not_privileged": true,
+        "target_pid_limit": true
+      },
+      "compose_path": "app\\cve-roundcube\\compose.yaml",
+      "passed": true,
+      "target_id": "cve-original:CVE-2026-54433"
+    }
+  ],
+  "target_results": [
+    {
+      "cleanup_passed": true,
+      "cleanup_residue": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "network_probe": {
+        "checks": {
+          "forbidden_names_unresolved": true,
+          "forbidden_tcp_connections_failed": true,
+          "no_ipv4_default_route": true,
+          "no_ipv6_default_route": true
+        },
+        "observation": {
+          "connections": [
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "api",
+              "label": "dns-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "control-api",
+              "label": "dns-control-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "evaluator",
+              "label": "dns-evaluator",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "postgres",
+              "label": "dns-postgres",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "other-target",
+              "label": "dns-other-target",
+              "port": 8080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "docker",
+              "label": "dns-docker",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-web",
+              "port": 18080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-control",
+              "port": 18081
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "gateway.docker.internal",
+              "label": "gateway-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "1.1.1.1",
+              "label": "external-https",
+              "port": 443
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "8.8.8.8",
+              "label": "external-dns",
+              "port": 53
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-2375",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-5432",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8000",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8080",
+              "port": 8080
+            }
+          ],
+          "dns": [
+            {
+              "error_type": "gaierror",
+              "name": "api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "control-api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "evaluator",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "postgres",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "other-target",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "docker",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "host.docker.internal",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "gateway.docker.internal",
+              "resolved": false
+            }
+          ],
+          "ipv4_default_route": false,
+          "ipv6_default_route": false
+        },
+        "passed": true
+      },
+      "normal_traffic": {
+        "http_requests": 2,
+        "seed": 8312026,
+        "statuses": [
+          200,
+          200
+        ]
+      },
+      "passed": true,
+      "project": "ruby-auto-jenkins-ed88fcdcb64a402d8c57a6a9d63799c2",
+      "project_boundary": {
+        "checks": {
+          "service_relay_hardened": true,
+          "service_target_hardened": true,
+          "target_uses_one_internal_project_network": true
+        },
+        "passed": true,
+        "services": [
+          {
+            "bind_mounts": [
+              {
+                "mode": "ro",
+                "target": "/etc/nginx/conf.d/default.conf"
+              }
+            ],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "91dd5af7398132efe072fcbd906f192401a86b622ef08c8ed3d7393df8ad627b",
+            "network_names": [
+              "ruby-auto-jenkins-ed88fcdcb64a402d8c57a6a9d63799c2_browser",
+              "ruby-auto-jenkins-ed88fcdcb64a402d8c57a6a9d63799c2_target"
+            ],
+            "passed": true,
+            "published_ports": {
+              "8080/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "55715"
+                }
+              ]
+            },
+            "service": "relay"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "ccca4eab2a4587db247e09b2c714bad78e13b8f68f1a95e7f9abfdb24b92102f",
+            "network_names": [
+              "ruby-auto-jenkins-ed88fcdcb64a402d8c57a6a9d63799c2_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "target"
+          }
+        ]
+      },
+      "release": "vulnerable",
+      "security": {
+        "cap_add": [],
+        "cap_drop": [
+          "ALL"
+        ],
+        "checks": {
+          "all_capabilities_dropped": true,
+          "capability_additions_allowlisted": true,
+          "cpu_limit": true,
+          "image_digest_pinned": true,
+          "memory_limit": true,
+          "networks_internal": true,
+          "no_docker_socket": true,
+          "no_host_bind_mount": true,
+          "no_host_device": true,
+          "no_host_namespace": true,
+          "no_new_privileges": true,
+          "no_published_ports": true,
+          "not_privileged": true,
+          "pid_limit": true,
+          "read_only_root": true
+        },
+        "configured_image": "jenkins/jenkins@sha256:186a48ae298e34a21b27fe737bf0a854c3e73421ce858c4d40c403802589e23f",
+        "container_id": "ccca4eab2a4587db247e09b2c714bad78e13b8f68f1a95e7f9abfdb24b92102f",
+        "image_id": "sha256:186a48ae298e34a21b27fe737bf0a854c3e73421ce858c4d40c403802589e23f",
+        "memory_bytes": 1073741824,
+        "nano_cpus": 1000000000,
+        "network_internal": {
+          "ruby-auto-jenkins-ed88fcdcb64a402d8c57a6a9d63799c2_target": true
+        },
+        "network_names": [
+          "ruby-auto-jenkins-ed88fcdcb64a402d8c57a6a9d63799c2_target"
+        ],
+        "passed": true,
+        "pids_limit": 256,
+        "service": "target"
+      },
+      "target_id": "cve-original:CVE-2024-23897",
+      "trial_id": "ed88fcdcb64a402d8c57a6a9d63799c2"
+    },
+    {
+      "cleanup_passed": true,
+      "cleanup_residue": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "network_probe": {
+        "checks": {
+          "forbidden_names_unresolved": true,
+          "forbidden_tcp_connections_failed": true,
+          "no_ipv4_default_route": true,
+          "no_ipv6_default_route": true
+        },
+        "observation": {
+          "connections": [
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "api",
+              "label": "dns-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "control-api",
+              "label": "dns-control-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "evaluator",
+              "label": "dns-evaluator",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "postgres",
+              "label": "dns-postgres",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "other-target",
+              "label": "dns-other-target",
+              "port": 8080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "docker",
+              "label": "dns-docker",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-web",
+              "port": 18080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-control",
+              "port": 18081
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "gateway.docker.internal",
+              "label": "gateway-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "1.1.1.1",
+              "label": "external-https",
+              "port": 443
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "8.8.8.8",
+              "label": "external-dns",
+              "port": 53
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-2375",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-5432",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8000",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8080",
+              "port": 8080
+            }
+          ],
+          "dns": [
+            {
+              "error_type": "gaierror",
+              "name": "api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "control-api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "evaluator",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "postgres",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "other-target",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "docker",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "host.docker.internal",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "gateway.docker.internal",
+              "resolved": false
+            }
+          ],
+          "ipv4_default_route": false,
+          "ipv6_default_route": false
+        },
+        "passed": true
+      },
+      "normal_traffic": {
+        "http_requests": 2,
+        "seed": 8312026,
+        "statuses": [
+          200,
+          200
+        ]
+      },
+      "passed": true,
+      "project": "ruby-auto-jenkins-a513ec9b3f7c4216b950d4b480f788bf",
+      "project_boundary": {
+        "checks": {
+          "service_relay_hardened": true,
+          "service_target_hardened": true,
+          "target_uses_one_internal_project_network": true
+        },
+        "passed": true,
+        "services": [
+          {
+            "bind_mounts": [
+              {
+                "mode": "ro",
+                "target": "/etc/nginx/conf.d/default.conf"
+              }
+            ],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "45f87206a6acee44b67d2c440d317d589026476ea8be7c83228b8dee1914a2b9",
+            "network_names": [
+              "ruby-auto-jenkins-a513ec9b3f7c4216b950d4b480f788bf_browser",
+              "ruby-auto-jenkins-a513ec9b3f7c4216b950d4b480f788bf_target"
+            ],
+            "passed": true,
+            "published_ports": {
+              "8080/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "55730"
+                }
+              ]
+            },
+            "service": "relay"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "df8cc86960aa2b50ca3f8d9f13259f07dd3946e7f91af157931cbfd09405cfc7",
+            "network_names": [
+              "ruby-auto-jenkins-a513ec9b3f7c4216b950d4b480f788bf_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "target"
+          }
+        ]
+      },
+      "release": "fixed",
+      "security": {
+        "cap_add": [],
+        "cap_drop": [
+          "ALL"
+        ],
+        "checks": {
+          "all_capabilities_dropped": true,
+          "capability_additions_allowlisted": true,
+          "cpu_limit": true,
+          "image_digest_pinned": true,
+          "memory_limit": true,
+          "networks_internal": true,
+          "no_docker_socket": true,
+          "no_host_bind_mount": true,
+          "no_host_device": true,
+          "no_host_namespace": true,
+          "no_new_privileges": true,
+          "no_published_ports": true,
+          "not_privileged": true,
+          "pid_limit": true,
+          "read_only_root": true
+        },
+        "configured_image": "jenkins/jenkins@sha256:a786794ea0a2429e65d67a88fe497cbd97a0d73d73a39f2fd0eae3b380eb70ff",
+        "container_id": "df8cc86960aa2b50ca3f8d9f13259f07dd3946e7f91af157931cbfd09405cfc7",
+        "image_id": "sha256:a786794ea0a2429e65d67a88fe497cbd97a0d73d73a39f2fd0eae3b380eb70ff",
+        "memory_bytes": 1073741824,
+        "nano_cpus": 1000000000,
+        "network_internal": {
+          "ruby-auto-jenkins-a513ec9b3f7c4216b950d4b480f788bf_target": true
+        },
+        "network_names": [
+          "ruby-auto-jenkins-a513ec9b3f7c4216b950d4b480f788bf_target"
+        ],
+        "passed": true,
+        "pids_limit": 256,
+        "service": "target"
+      },
+      "target_id": "cve-original:CVE-2024-23897",
+      "trial_id": "a513ec9b3f7c4216b950d4b480f788bf"
+    },
+    {
+      "cleanup_passed": true,
+      "cleanup_residue": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "network_probe": {
+        "checks": {
+          "forbidden_names_unresolved": true,
+          "forbidden_tcp_connections_failed": true,
+          "no_ipv4_default_route": true,
+          "no_ipv6_default_route": true
+        },
+        "observation": {
+          "connections": [
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "api",
+              "label": "dns-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "control-api",
+              "label": "dns-control-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "evaluator",
+              "label": "dns-evaluator",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "postgres",
+              "label": "dns-postgres",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "other-target",
+              "label": "dns-other-target",
+              "port": 8080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "docker",
+              "label": "dns-docker",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-web",
+              "port": 18080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-control",
+              "port": 18081
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "gateway.docker.internal",
+              "label": "gateway-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "1.1.1.1",
+              "label": "external-https",
+              "port": 443
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "8.8.8.8",
+              "label": "external-dns",
+              "port": 53
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-2375",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-5432",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8000",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8080",
+              "port": 8080
+            }
+          ],
+          "dns": [
+            {
+              "error_type": "gaierror",
+              "name": "api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "control-api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "evaluator",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "postgres",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "other-target",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "docker",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "host.docker.internal",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "gateway.docker.internal",
+              "resolved": false
+            }
+          ],
+          "ipv4_default_route": false,
+          "ipv6_default_route": false
+        },
+        "passed": true
+      },
+      "normal_traffic": {
+        "http_requests": 1,
+        "seed": 8312026,
+        "status": 200
+      },
+      "passed": true,
+      "project": "ruby-auto-geoserver-95d1c862d2a34ef1bd24581c799e9fc3",
+      "project_boundary": {
+        "checks": {
+          "service_relay_hardened": true,
+          "service_target_hardened": true,
+          "target_uses_one_internal_project_network": true
+        },
+        "passed": true,
+        "services": [
+          {
+            "bind_mounts": [
+              {
+                "mode": "ro",
+                "target": "/etc/nginx/conf.d/default.conf"
+              }
+            ],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "5bca30dca151c98dcb49e5537e8fb86db84c8c9c49bd0951bbe4d157a7101f5e",
+            "network_names": [
+              "ruby-auto-geoserver-95d1c862d2a34ef1bd24581c799e9fc3_browser",
+              "ruby-auto-geoserver-95d1c862d2a34ef1bd24581c799e9fc3_target"
+            ],
+            "passed": true,
+            "published_ports": {
+              "8080/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "11297"
+                }
+              ]
+            },
+            "service": "relay"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "4a997e7c9bfdb7327e782973e4c9a64a896a32a200519c9b8645cfdc1bedc366",
+            "network_names": [
+              "ruby-auto-geoserver-95d1c862d2a34ef1bd24581c799e9fc3_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "target"
+          }
+        ]
+      },
+      "release": "vulnerable",
+      "security": {
+        "cap_add": [],
+        "cap_drop": [
+          "ALL"
+        ],
+        "checks": {
+          "all_capabilities_dropped": true,
+          "capability_additions_allowlisted": true,
+          "cpu_limit": true,
+          "image_digest_pinned": true,
+          "memory_limit": true,
+          "networks_internal": true,
+          "no_docker_socket": true,
+          "no_host_bind_mount": true,
+          "no_host_device": true,
+          "no_host_namespace": true,
+          "no_new_privileges": true,
+          "no_published_ports": true,
+          "not_privileged": true,
+          "pid_limit": true,
+          "read_only_root": true
+        },
+        "configured_image": "docker.osgeo.org/geoserver@sha256:39dceaa138e22fdf4967d808a0c3236e3e56c5436f29370031a7928d226948c5",
+        "container_id": "4a997e7c9bfdb7327e782973e4c9a64a896a32a200519c9b8645cfdc1bedc366",
+        "image_id": "sha256:39dceaa138e22fdf4967d808a0c3236e3e56c5436f29370031a7928d226948c5",
+        "memory_bytes": 1610612736,
+        "nano_cpus": 1000000000,
+        "network_internal": {
+          "ruby-auto-geoserver-95d1c862d2a34ef1bd24581c799e9fc3_target": true
+        },
+        "network_names": [
+          "ruby-auto-geoserver-95d1c862d2a34ef1bd24581c799e9fc3_target"
+        ],
+        "passed": true,
+        "pids_limit": 512,
+        "service": "target"
+      },
+      "target_id": "cve-original:CVE-2024-36401",
+      "trial_id": "95d1c862d2a34ef1bd24581c799e9fc3"
+    },
+    {
+      "cleanup_passed": true,
+      "cleanup_residue": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "network_probe": {
+        "checks": {
+          "forbidden_names_unresolved": true,
+          "forbidden_tcp_connections_failed": true,
+          "no_ipv4_default_route": true,
+          "no_ipv6_default_route": true
+        },
+        "observation": {
+          "connections": [
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "api",
+              "label": "dns-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "control-api",
+              "label": "dns-control-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "evaluator",
+              "label": "dns-evaluator",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "postgres",
+              "label": "dns-postgres",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "other-target",
+              "label": "dns-other-target",
+              "port": 8080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "docker",
+              "label": "dns-docker",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-web",
+              "port": 18080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-control",
+              "port": 18081
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "gateway.docker.internal",
+              "label": "gateway-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "1.1.1.1",
+              "label": "external-https",
+              "port": 443
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "8.8.8.8",
+              "label": "external-dns",
+              "port": 53
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-2375",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-5432",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8000",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8080",
+              "port": 8080
+            }
+          ],
+          "dns": [
+            {
+              "error_type": "gaierror",
+              "name": "api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "control-api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "evaluator",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "postgres",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "other-target",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "docker",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "host.docker.internal",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "gateway.docker.internal",
+              "resolved": false
+            }
+          ],
+          "ipv4_default_route": false,
+          "ipv6_default_route": false
+        },
+        "passed": true
+      },
+      "normal_traffic": {
+        "http_requests": 1,
+        "seed": 8312026,
+        "status": 200
+      },
+      "passed": true,
+      "project": "ruby-auto-geoserver-6a657c35e5044278ac115a53b9cd2414",
+      "project_boundary": {
+        "checks": {
+          "service_relay_hardened": true,
+          "service_target_hardened": true,
+          "target_uses_one_internal_project_network": true
+        },
+        "passed": true,
+        "services": [
+          {
+            "bind_mounts": [
+              {
+                "mode": "ro",
+                "target": "/etc/nginx/conf.d/default.conf"
+              }
+            ],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "f2f26defc54515237358f5baee934902c24b4a659fae8b25789ca9d7434d342e",
+            "network_names": [
+              "ruby-auto-geoserver-6a657c35e5044278ac115a53b9cd2414_browser",
+              "ruby-auto-geoserver-6a657c35e5044278ac115a53b9cd2414_target"
+            ],
+            "passed": true,
+            "published_ports": {
+              "8080/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "11353"
+                }
+              ]
+            },
+            "service": "relay"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "b65b338116239876973f9e7056d723bf3e18e584a9bd388720171cff7738d3d2",
+            "network_names": [
+              "ruby-auto-geoserver-6a657c35e5044278ac115a53b9cd2414_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "target"
+          }
+        ]
+      },
+      "release": "fixed",
+      "security": {
+        "cap_add": [],
+        "cap_drop": [
+          "ALL"
+        ],
+        "checks": {
+          "all_capabilities_dropped": true,
+          "capability_additions_allowlisted": true,
+          "cpu_limit": true,
+          "image_digest_pinned": true,
+          "memory_limit": true,
+          "networks_internal": true,
+          "no_docker_socket": true,
+          "no_host_bind_mount": true,
+          "no_host_device": true,
+          "no_host_namespace": true,
+          "no_new_privileges": true,
+          "no_published_ports": true,
+          "not_privileged": true,
+          "pid_limit": true,
+          "read_only_root": true
+        },
+        "configured_image": "docker.osgeo.org/geoserver@sha256:9745e2f4b87339999162e590c0bb788135cd00e34f27c9807d1ab1946f25f5c8",
+        "container_id": "b65b338116239876973f9e7056d723bf3e18e584a9bd388720171cff7738d3d2",
+        "image_id": "sha256:9745e2f4b87339999162e590c0bb788135cd00e34f27c9807d1ab1946f25f5c8",
+        "memory_bytes": 1610612736,
+        "nano_cpus": 1000000000,
+        "network_internal": {
+          "ruby-auto-geoserver-6a657c35e5044278ac115a53b9cd2414_target": true
+        },
+        "network_names": [
+          "ruby-auto-geoserver-6a657c35e5044278ac115a53b9cd2414_target"
+        ],
+        "passed": true,
+        "pids_limit": 512,
+        "service": "target"
+      },
+      "target_id": "cve-original:CVE-2024-36401",
+      "trial_id": "6a657c35e5044278ac115a53b9cd2414"
+    },
+    {
+      "cleanup_passed": true,
+      "cleanup_residue": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "network_probe": {
+        "checks": {
+          "forbidden_names_unresolved": true,
+          "forbidden_tcp_connections_failed": true,
+          "no_ipv4_default_route": true,
+          "no_ipv6_default_route": true
+        },
+        "observation": {
+          "connections": [
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "api",
+              "label": "dns-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "control-api",
+              "label": "dns-control-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "evaluator",
+              "label": "dns-evaluator",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "postgres",
+              "label": "dns-postgres",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "other-target",
+              "label": "dns-other-target",
+              "port": 8080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "docker",
+              "label": "dns-docker",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-web",
+              "port": 18080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-control",
+              "port": 18081
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "gateway.docker.internal",
+              "label": "gateway-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "1.1.1.1",
+              "label": "external-https",
+              "port": 443
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "8.8.8.8",
+              "label": "external-dns",
+              "port": 53
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-2375",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-5432",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8000",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8080",
+              "port": 8080
+            }
+          ],
+          "dns": [
+            {
+              "error_type": "gaierror",
+              "name": "api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "control-api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "evaluator",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "postgres",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "other-target",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "docker",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "host.docker.internal",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "gateway.docker.internal",
+              "resolved": false
+            }
+          ],
+          "ipv4_default_route": false,
+          "ipv6_default_route": false
+        },
+        "passed": true
+      },
+      "normal_traffic": {
+        "seed": 8312026,
+        "smtp_messages": 1
+      },
+      "passed": true,
+      "project": "ruby-auto-roundcube-90836845535b4026a08aba55f725d8d0",
+      "project_boundary": {
+        "checks": {
+          "service_mail_hardened": true,
+          "service_relay_hardened": true,
+          "service_roundcube_hardened": true,
+          "target_uses_one_internal_project_network": true
+        },
+        "passed": true,
+        "services": [
+          {
+            "bind_mounts": [
+              {
+                "mode": "ro",
+                "target": "/etc/nginx/conf.d/default.conf"
+              }
+            ],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "aa751444822819bd503025eaaad6e9687cd778402848597f1e0761122925d1a0",
+            "network_names": [
+              "ruby-auto-roundcube-90836845535b4026a08aba55f725d8d0_browser",
+              "ruby-auto-roundcube-90836845535b4026a08aba55f725d8d0_target"
+            ],
+            "passed": true,
+            "published_ports": {
+              "8080/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "11407"
+                }
+              ]
+            },
+            "service": "relay"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "887682316b4cf0aa8870bedc97473ad94cbab12fe78002d2dcd85f5dea4862c7",
+            "network_names": [
+              "ruby-auto-roundcube-90836845535b4026a08aba55f725d8d0_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "roundcube"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "ef37face59fc8b32275426152f5740f177eb0f2034f4f42040f2c42beb71afe2",
+            "network_names": [
+              "ruby-auto-roundcube-90836845535b4026a08aba55f725d8d0_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "mail"
+          }
+        ]
+      },
+      "release": "vulnerable",
+      "security": {
+        "cap_add": [
+          "CHOWN",
+          "DAC_OVERRIDE",
+          "FOWNER",
+          "SETGID",
+          "SETUID"
+        ],
+        "cap_drop": [
+          "ALL"
+        ],
+        "checks": {
+          "all_capabilities_dropped": true,
+          "capability_additions_allowlisted": true,
+          "cpu_limit": true,
+          "image_digest_pinned": true,
+          "memory_limit": true,
+          "networks_internal": true,
+          "no_docker_socket": true,
+          "no_host_bind_mount": true,
+          "no_host_device": true,
+          "no_host_namespace": true,
+          "no_new_privileges": true,
+          "no_published_ports": true,
+          "not_privileged": true,
+          "pid_limit": true,
+          "read_only_root": true
+        },
+        "configured_image": "roundcube/roundcubemail@sha256:7b28e2cd6282daef9fc7a91b88cd348f2a91b36675c14f5f07197be3a7a83e49",
+        "container_id": "887682316b4cf0aa8870bedc97473ad94cbab12fe78002d2dcd85f5dea4862c7",
+        "image_id": "sha256:7b28e2cd6282daef9fc7a91b88cd348f2a91b36675c14f5f07197be3a7a83e49",
+        "memory_bytes": 805306368,
+        "nano_cpus": 1000000000,
+        "network_internal": {
+          "ruby-auto-roundcube-90836845535b4026a08aba55f725d8d0_target": true
+        },
+        "network_names": [
+          "ruby-auto-roundcube-90836845535b4026a08aba55f725d8d0_target"
+        ],
+        "passed": true,
+        "pids_limit": 384,
+        "service": "roundcube"
+      },
+      "target_id": "cve-original:CVE-2024-42009",
+      "trial_id": "90836845535b4026a08aba55f725d8d0"
+    },
+    {
+      "cleanup_passed": true,
+      "cleanup_residue": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "network_probe": {
+        "checks": {
+          "forbidden_names_unresolved": true,
+          "forbidden_tcp_connections_failed": true,
+          "no_ipv4_default_route": true,
+          "no_ipv6_default_route": true
+        },
+        "observation": {
+          "connections": [
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "api",
+              "label": "dns-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "control-api",
+              "label": "dns-control-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "evaluator",
+              "label": "dns-evaluator",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "postgres",
+              "label": "dns-postgres",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "other-target",
+              "label": "dns-other-target",
+              "port": 8080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "docker",
+              "label": "dns-docker",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-web",
+              "port": 18080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-control",
+              "port": 18081
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "gateway.docker.internal",
+              "label": "gateway-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "1.1.1.1",
+              "label": "external-https",
+              "port": 443
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "8.8.8.8",
+              "label": "external-dns",
+              "port": 53
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-2375",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-5432",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8000",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8080",
+              "port": 8080
+            }
+          ],
+          "dns": [
+            {
+              "error_type": "gaierror",
+              "name": "api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "control-api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "evaluator",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "postgres",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "other-target",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "docker",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "host.docker.internal",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "gateway.docker.internal",
+              "resolved": false
+            }
+          ],
+          "ipv4_default_route": false,
+          "ipv6_default_route": false
+        },
+        "passed": true
+      },
+      "normal_traffic": {
+        "seed": 8312026,
+        "smtp_messages": 1
+      },
+      "passed": true,
+      "project": "ruby-auto-roundcube-7101539a51984a06889cd324337fc412",
+      "project_boundary": {
+        "checks": {
+          "service_mail_hardened": true,
+          "service_relay_hardened": true,
+          "service_roundcube_hardened": true,
+          "target_uses_one_internal_project_network": true
+        },
+        "passed": true,
+        "services": [
+          {
+            "bind_mounts": [
+              {
+                "mode": "ro",
+                "target": "/etc/nginx/conf.d/default.conf"
+              }
+            ],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "52797f30d350a2d64912005f959ba8d2e525259668542b33400f52a095519509",
+            "network_names": [
+              "ruby-auto-roundcube-7101539a51984a06889cd324337fc412_browser",
+              "ruby-auto-roundcube-7101539a51984a06889cd324337fc412_target"
+            ],
+            "passed": true,
+            "published_ports": {
+              "8080/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "11432"
+                }
+              ]
+            },
+            "service": "relay"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "4127dcaadf61d4d3a2958c2a6bedc69d9b101b10f7b0fc4a5980ae240a63df6d",
+            "network_names": [
+              "ruby-auto-roundcube-7101539a51984a06889cd324337fc412_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "roundcube"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "d50218a5ea0ba6942f3a67896c015ccf9fe95955c7476575dd3d85857298d205",
+            "network_names": [
+              "ruby-auto-roundcube-7101539a51984a06889cd324337fc412_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "mail"
+          }
+        ]
+      },
+      "release": "fixed",
+      "security": {
+        "cap_add": [
+          "CHOWN",
+          "DAC_OVERRIDE",
+          "FOWNER",
+          "SETGID",
+          "SETUID"
+        ],
+        "cap_drop": [
+          "ALL"
+        ],
+        "checks": {
+          "all_capabilities_dropped": true,
+          "capability_additions_allowlisted": true,
+          "cpu_limit": true,
+          "image_digest_pinned": true,
+          "memory_limit": true,
+          "networks_internal": true,
+          "no_docker_socket": true,
+          "no_host_bind_mount": true,
+          "no_host_device": true,
+          "no_host_namespace": true,
+          "no_new_privileges": true,
+          "no_published_ports": true,
+          "not_privileged": true,
+          "pid_limit": true,
+          "read_only_root": true
+        },
+        "configured_image": "roundcube/roundcubemail@sha256:21afa6e6e169705db3bcc0e77b693662fdfd4ba09fe11119520d817fb2f23779",
+        "container_id": "4127dcaadf61d4d3a2958c2a6bedc69d9b101b10f7b0fc4a5980ae240a63df6d",
+        "image_id": "sha256:21afa6e6e169705db3bcc0e77b693662fdfd4ba09fe11119520d817fb2f23779",
+        "memory_bytes": 805306368,
+        "nano_cpus": 1000000000,
+        "network_internal": {
+          "ruby-auto-roundcube-7101539a51984a06889cd324337fc412_target": true
+        },
+        "network_names": [
+          "ruby-auto-roundcube-7101539a51984a06889cd324337fc412_target"
+        ],
+        "passed": true,
+        "pids_limit": 384,
+        "service": "roundcube"
+      },
+      "target_id": "cve-original:CVE-2024-42009",
+      "trial_id": "7101539a51984a06889cd324337fc412"
+    },
+    {
+      "cleanup_passed": true,
+      "cleanup_residue": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "network_probe": {
+        "checks": {
+          "forbidden_names_unresolved": true,
+          "forbidden_tcp_connections_failed": true,
+          "no_ipv4_default_route": true,
+          "no_ipv6_default_route": true
+        },
+        "observation": {
+          "connections": [
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "api",
+              "label": "dns-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "control-api",
+              "label": "dns-control-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "evaluator",
+              "label": "dns-evaluator",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "postgres",
+              "label": "dns-postgres",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "other-target",
+              "label": "dns-other-target",
+              "port": 8080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "docker",
+              "label": "dns-docker",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-web",
+              "port": 18080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-control",
+              "port": 18081
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "gateway.docker.internal",
+              "label": "gateway-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "1.1.1.1",
+              "label": "external-https",
+              "port": 443
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "8.8.8.8",
+              "label": "external-dns",
+              "port": 53
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-2375",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-5432",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8000",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8080",
+              "port": 8080
+            }
+          ],
+          "dns": [
+            {
+              "error_type": "gaierror",
+              "name": "api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "control-api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "evaluator",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "postgres",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "other-target",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "docker",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "host.docker.internal",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "gateway.docker.internal",
+              "resolved": false
+            }
+          ],
+          "ipv4_default_route": false,
+          "ipv6_default_route": false
+        },
+        "passed": true
+      },
+      "normal_traffic": {
+        "http_requests": 1,
+        "seed": 8312026,
+        "status": 200
+      },
+      "passed": true,
+      "project": "ruby-auto-langflow-7a6ee6b9da6f43ecba5ee0f0cf13b925",
+      "project_boundary": {
+        "checks": {
+          "service_relay_hardened": true,
+          "service_target_hardened": true,
+          "target_uses_one_internal_project_network": true
+        },
+        "passed": true,
+        "services": [
+          {
+            "bind_mounts": [
+              {
+                "mode": "ro",
+                "target": "/etc/nginx/conf.d/default.conf"
+              }
+            ],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "dc8ace604a071ee565be6b6913470fd0618bc45cd78c7227ee5ea81e5688bf85",
+            "network_names": [
+              "ruby-auto-langflow-7a6ee6b9da6f43ecba5ee0f0cf13b925_browser",
+              "ruby-auto-langflow-7a6ee6b9da6f43ecba5ee0f0cf13b925_target"
+            ],
+            "passed": true,
+            "published_ports": {
+              "8080/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "11684"
+                }
+              ]
+            },
+            "service": "relay"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "9a0be82d8f9159f158e9f224f6e3e4b4ec6e5d320674bc54a62d8f627a7028e4",
+            "network_names": [
+              "ruby-auto-langflow-7a6ee6b9da6f43ecba5ee0f0cf13b925_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "target"
+          }
+        ]
+      },
+      "release": "vulnerable",
+      "security": {
+        "cap_add": [],
+        "cap_drop": [
+          "ALL"
+        ],
+        "checks": {
+          "all_capabilities_dropped": true,
+          "capability_additions_allowlisted": true,
+          "cpu_limit": true,
+          "image_digest_pinned": true,
+          "memory_limit": true,
+          "networks_internal": true,
+          "no_docker_socket": true,
+          "no_host_bind_mount": true,
+          "no_host_device": true,
+          "no_host_namespace": true,
+          "no_new_privileges": true,
+          "no_published_ports": true,
+          "not_privileged": true,
+          "pid_limit": true,
+          "read_only_root": true
+        },
+        "configured_image": "langflowai/langflow@sha256:307fb62f510925eaf30c4ee1a24aaeb8201ea41ea1ac8c893f821a9c02246bac",
+        "container_id": "9a0be82d8f9159f158e9f224f6e3e4b4ec6e5d320674bc54a62d8f627a7028e4",
+        "image_id": "sha256:307fb62f510925eaf30c4ee1a24aaeb8201ea41ea1ac8c893f821a9c02246bac",
+        "memory_bytes": 2147483648,
+        "nano_cpus": 1500000000,
+        "network_internal": {
+          "ruby-auto-langflow-7a6ee6b9da6f43ecba5ee0f0cf13b925_target": true
+        },
+        "network_names": [
+          "ruby-auto-langflow-7a6ee6b9da6f43ecba5ee0f0cf13b925_target"
+        ],
+        "passed": true,
+        "pids_limit": 512,
+        "service": "target"
+      },
+      "target_id": "cve-original:CVE-2025-3248",
+      "trial_id": "7a6ee6b9da6f43ecba5ee0f0cf13b925"
+    },
+    {
+      "cleanup_passed": true,
+      "cleanup_residue": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "network_probe": {
+        "checks": {
+          "forbidden_names_unresolved": true,
+          "forbidden_tcp_connections_failed": true,
+          "no_ipv4_default_route": true,
+          "no_ipv6_default_route": true
+        },
+        "observation": {
+          "connections": [
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "api",
+              "label": "dns-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "control-api",
+              "label": "dns-control-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "evaluator",
+              "label": "dns-evaluator",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "postgres",
+              "label": "dns-postgres",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "other-target",
+              "label": "dns-other-target",
+              "port": 8080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "docker",
+              "label": "dns-docker",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-web",
+              "port": 18080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-control",
+              "port": 18081
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "gateway.docker.internal",
+              "label": "gateway-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "1.1.1.1",
+              "label": "external-https",
+              "port": 443
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "8.8.8.8",
+              "label": "external-dns",
+              "port": 53
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-2375",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-5432",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8000",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8080",
+              "port": 8080
+            }
+          ],
+          "dns": [
+            {
+              "error_type": "gaierror",
+              "name": "api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "control-api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "evaluator",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "postgres",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "other-target",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "docker",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "host.docker.internal",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "gateway.docker.internal",
+              "resolved": false
+            }
+          ],
+          "ipv4_default_route": false,
+          "ipv6_default_route": false
+        },
+        "passed": true
+      },
+      "normal_traffic": {
+        "http_requests": 1,
+        "seed": 8312026,
+        "status": 200
+      },
+      "passed": true,
+      "project": "ruby-auto-langflow-1cdcbed233cf4693a50be952761d8e04",
+      "project_boundary": {
+        "checks": {
+          "service_relay_hardened": true,
+          "service_target_hardened": true,
+          "target_uses_one_internal_project_network": true
+        },
+        "passed": true,
+        "services": [
+          {
+            "bind_mounts": [
+              {
+                "mode": "ro",
+                "target": "/etc/nginx/conf.d/default.conf"
+              }
+            ],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "26c70e39380c8859915f661dbec3dcc84f25a069be673073a27627d8e4d1318d",
+            "network_names": [
+              "ruby-auto-langflow-1cdcbed233cf4693a50be952761d8e04_browser",
+              "ruby-auto-langflow-1cdcbed233cf4693a50be952761d8e04_target"
+            ],
+            "passed": true,
+            "published_ports": {
+              "8080/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "11718"
+                }
+              ]
+            },
+            "service": "relay"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "62b860664d354b349c2d5aa2cdd7c9bff7135eb1d8b3380780eebfe9db993244",
+            "network_names": [
+              "ruby-auto-langflow-1cdcbed233cf4693a50be952761d8e04_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "target"
+          }
+        ]
+      },
+      "release": "fixed",
+      "security": {
+        "cap_add": [],
+        "cap_drop": [
+          "ALL"
+        ],
+        "checks": {
+          "all_capabilities_dropped": true,
+          "capability_additions_allowlisted": true,
+          "cpu_limit": true,
+          "image_digest_pinned": true,
+          "memory_limit": true,
+          "networks_internal": true,
+          "no_docker_socket": true,
+          "no_host_bind_mount": true,
+          "no_host_device": true,
+          "no_host_namespace": true,
+          "no_new_privileges": true,
+          "no_published_ports": true,
+          "not_privileged": true,
+          "pid_limit": true,
+          "read_only_root": true
+        },
+        "configured_image": "langflowai/langflow@sha256:aae73a565b3fc879e4bbd8778452f0f4300c1d40b6385e1c722bfbc67cf2b596",
+        "container_id": "62b860664d354b349c2d5aa2cdd7c9bff7135eb1d8b3380780eebfe9db993244",
+        "image_id": "sha256:aae73a565b3fc879e4bbd8778452f0f4300c1d40b6385e1c722bfbc67cf2b596",
+        "memory_bytes": 2147483648,
+        "nano_cpus": 1500000000,
+        "network_internal": {
+          "ruby-auto-langflow-1cdcbed233cf4693a50be952761d8e04_target": true
+        },
+        "network_names": [
+          "ruby-auto-langflow-1cdcbed233cf4693a50be952761d8e04_target"
+        ],
+        "passed": true,
+        "pids_limit": 512,
+        "service": "target"
+      },
+      "target_id": "cve-original:CVE-2025-3248",
+      "trial_id": "1cdcbed233cf4693a50be952761d8e04"
+    },
+    {
+      "cleanup_passed": true,
+      "cleanup_residue": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "network_probe": {
+        "checks": {
+          "forbidden_names_unresolved": true,
+          "forbidden_tcp_connections_failed": true,
+          "no_ipv4_default_route": true,
+          "no_ipv6_default_route": true
+        },
+        "observation": {
+          "connections": [
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "api",
+              "label": "dns-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "control-api",
+              "label": "dns-control-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "evaluator",
+              "label": "dns-evaluator",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "postgres",
+              "label": "dns-postgres",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "other-target",
+              "label": "dns-other-target",
+              "port": 8080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "docker",
+              "label": "dns-docker",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-web",
+              "port": 18080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-control",
+              "port": 18081
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "gateway.docker.internal",
+              "label": "gateway-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "1.1.1.1",
+              "label": "external-https",
+              "port": 443
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "8.8.8.8",
+              "label": "external-dns",
+              "port": 53
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-2375",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-5432",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8000",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8080",
+              "port": 8080
+            }
+          ],
+          "dns": [
+            {
+              "error_type": "gaierror",
+              "name": "api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "control-api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "evaluator",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "postgres",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "other-target",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "docker",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "host.docker.internal",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "gateway.docker.internal",
+              "resolved": false
+            }
+          ],
+          "ipv4_default_route": false,
+          "ipv6_default_route": false
+        },
+        "passed": true
+      },
+      "normal_traffic": {
+        "seed": 8312026,
+        "smtp_messages": 1
+      },
+      "passed": true,
+      "project": "ruby-auto-roundcube-676ff302ea474fa187029c802c4dcb28",
+      "project_boundary": {
+        "checks": {
+          "service_mail_hardened": true,
+          "service_relay_hardened": true,
+          "service_roundcube_hardened": true,
+          "target_uses_one_internal_project_network": true
+        },
+        "passed": true,
+        "services": [
+          {
+            "bind_mounts": [
+              {
+                "mode": "ro",
+                "target": "/etc/nginx/conf.d/default.conf"
+              }
+            ],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "a6db3c8807c47583f76cafb95a2424fabbddbdc43506e76ee67fda0b701461ad",
+            "network_names": [
+              "ruby-auto-roundcube-676ff302ea474fa187029c802c4dcb28_browser",
+              "ruby-auto-roundcube-676ff302ea474fa187029c802c4dcb28_target"
+            ],
+            "passed": true,
+            "published_ports": {
+              "8080/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "11742"
+                }
+              ]
+            },
+            "service": "relay"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "3d172cce508ba88031c454f51d4e1c2ede524d278db8ddf4537adfd9cf5fa1fd",
+            "network_names": [
+              "ruby-auto-roundcube-676ff302ea474fa187029c802c4dcb28_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "roundcube"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "ec0a10f942e136e02335317f89c5ad0b54a396cccf84f199a1fb29235cf1b9a7",
+            "network_names": [
+              "ruby-auto-roundcube-676ff302ea474fa187029c802c4dcb28_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "mail"
+          }
+        ]
+      },
+      "release": "vulnerable",
+      "security": {
+        "cap_add": [
+          "CHOWN",
+          "DAC_OVERRIDE",
+          "FOWNER",
+          "SETGID",
+          "SETUID"
+        ],
+        "cap_drop": [
+          "ALL"
+        ],
+        "checks": {
+          "all_capabilities_dropped": true,
+          "capability_additions_allowlisted": true,
+          "cpu_limit": true,
+          "image_digest_pinned": true,
+          "memory_limit": true,
+          "networks_internal": true,
+          "no_docker_socket": true,
+          "no_host_bind_mount": true,
+          "no_host_device": true,
+          "no_host_namespace": true,
+          "no_new_privileges": true,
+          "no_published_ports": true,
+          "not_privileged": true,
+          "pid_limit": true,
+          "read_only_root": true
+        },
+        "configured_image": "roundcube/roundcubemail@sha256:2f7091570f45c38fecc9a38f210a21aa6e38204f3d5b204fadcf29b1d8bc094a",
+        "container_id": "3d172cce508ba88031c454f51d4e1c2ede524d278db8ddf4537adfd9cf5fa1fd",
+        "image_id": "sha256:2f7091570f45c38fecc9a38f210a21aa6e38204f3d5b204fadcf29b1d8bc094a",
+        "memory_bytes": 805306368,
+        "nano_cpus": 1000000000,
+        "network_internal": {
+          "ruby-auto-roundcube-676ff302ea474fa187029c802c4dcb28_target": true
+        },
+        "network_names": [
+          "ruby-auto-roundcube-676ff302ea474fa187029c802c4dcb28_target"
+        ],
+        "passed": true,
+        "pids_limit": 384,
+        "service": "roundcube"
+      },
+      "target_id": "cve-original:CVE-2026-54433",
+      "trial_id": "676ff302ea474fa187029c802c4dcb28"
+    },
+    {
+      "cleanup_passed": true,
+      "cleanup_residue": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "network_probe": {
+        "checks": {
+          "forbidden_names_unresolved": true,
+          "forbidden_tcp_connections_failed": true,
+          "no_ipv4_default_route": true,
+          "no_ipv6_default_route": true
+        },
+        "observation": {
+          "connections": [
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "api",
+              "label": "dns-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "control-api",
+              "label": "dns-control-api",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "evaluator",
+              "label": "dns-evaluator",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "postgres",
+              "label": "dns-postgres",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "other-target",
+              "label": "dns-other-target",
+              "port": 8080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "docker",
+              "label": "dns-docker",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-web",
+              "port": 18080
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-control",
+              "port": 18081
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "host.docker.internal",
+              "label": "host-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "gaierror",
+              "host": "gateway.docker.internal",
+              "label": "gateway-docker-api",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "1.1.1.1",
+              "label": "external-https",
+              "port": 443
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "8.8.8.8",
+              "label": "external-dns",
+              "port": 53
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-2375",
+              "port": 2375
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-5432",
+              "port": 5432
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8000",
+              "port": 8000
+            },
+            {
+              "connected": false,
+              "error_type": "OSError",
+              "host": "172.18.0.2",
+              "label": "separate-network-canary-8080",
+              "port": 8080
+            }
+          ],
+          "dns": [
+            {
+              "error_type": "gaierror",
+              "name": "api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "control-api",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "evaluator",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "postgres",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "other-target",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "docker",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "host.docker.internal",
+              "resolved": false
+            },
+            {
+              "error_type": "gaierror",
+              "name": "gateway.docker.internal",
+              "resolved": false
+            }
+          ],
+          "ipv4_default_route": false,
+          "ipv6_default_route": false
+        },
+        "passed": true
+      },
+      "normal_traffic": {
+        "seed": 8312026,
+        "smtp_messages": 1
+      },
+      "passed": true,
+      "project": "ruby-auto-roundcube-73edd40a4cc241828bfdacda10dba308",
+      "project_boundary": {
+        "checks": {
+          "service_mail_hardened": true,
+          "service_relay_hardened": true,
+          "service_roundcube_hardened": true,
+          "target_uses_one_internal_project_network": true
+        },
+        "passed": true,
+        "services": [
+          {
+            "bind_mounts": [
+              {
+                "mode": "ro",
+                "target": "/etc/nginx/conf.d/default.conf"
+              }
+            ],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "cf47626df0b887eec6e13c7f6aa784f3b36a0210de1929be04d926cc7577b46b",
+            "network_names": [
+              "ruby-auto-roundcube-73edd40a4cc241828bfdacda10dba308_browser",
+              "ruby-auto-roundcube-73edd40a4cc241828bfdacda10dba308_target"
+            ],
+            "passed": true,
+            "published_ports": {
+              "8080/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "39537"
+                }
+              ]
+            },
+            "service": "relay"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "1f5c1c480af98d1fa120027dcdc4c0acae3e9a723e33a2d116c7c41fd07ee82e",
+            "network_names": [
+              "ruby-auto-roundcube-73edd40a4cc241828bfdacda10dba308_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "roundcube"
+          },
+          {
+            "bind_mounts": [],
+            "checks": {
+              "all_capabilities_dropped": true,
+              "bind_mounts_read_only": true,
+              "no_docker_socket": true,
+              "no_new_privileges": true,
+              "not_privileged": true,
+              "only_relay_publishes": true,
+              "published_ports_loopback": true,
+              "resource_limits": true,
+              "target_network_shared_only_inside_project": true
+            },
+            "container_id": "e25252971ae531e4ef214fdc5b15f476b189d6fcb1eac2b2e6d7f5c832d0f2ba",
+            "network_names": [
+              "ruby-auto-roundcube-73edd40a4cc241828bfdacda10dba308_target"
+            ],
+            "passed": true,
+            "published_ports": {},
+            "service": "mail"
+          }
+        ]
+      },
+      "release": "fixed",
+      "security": {
+        "cap_add": [
+          "CHOWN",
+          "DAC_OVERRIDE",
+          "FOWNER",
+          "SETGID",
+          "SETUID"
+        ],
+        "cap_drop": [
+          "ALL"
+        ],
+        "checks": {
+          "all_capabilities_dropped": true,
+          "capability_additions_allowlisted": true,
+          "cpu_limit": true,
+          "image_digest_pinned": true,
+          "memory_limit": true,
+          "networks_internal": true,
+          "no_docker_socket": true,
+          "no_host_bind_mount": true,
+          "no_host_device": true,
+          "no_host_namespace": true,
+          "no_new_privileges": true,
+          "no_published_ports": true,
+          "not_privileged": true,
+          "pid_limit": true,
+          "read_only_root": true
+        },
+        "configured_image": "roundcube/roundcubemail@sha256:0d510ea882d87bac853280588f387fbc9e91b536a0c91369e41de10d6445f552",
+        "container_id": "1f5c1c480af98d1fa120027dcdc4c0acae3e9a723e33a2d116c7c41fd07ee82e",
+        "image_id": "sha256:0d510ea882d87bac853280588f387fbc9e91b536a0c91369e41de10d6445f552",
+        "memory_bytes": 805306368,
+        "nano_cpus": 1000000000,
+        "network_internal": {
+          "ruby-auto-roundcube-73edd40a4cc241828bfdacda10dba308_target": true
+        },
+        "network_names": [
+          "ruby-auto-roundcube-73edd40a4cc241828bfdacda10dba308_target"
+        ],
+        "passed": true,
+        "pids_limit": 384,
+        "service": "roundcube"
+      },
+      "target_id": "cve-original:CVE-2026-54433",
+      "trial_id": "73edd40a4cc241828bfdacda10dba308"
+    }
+  ]
+}
