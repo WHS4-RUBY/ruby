@@ -66,7 +66,7 @@ def exercise(condition: str) -> dict[str, object]:
             if attack.status_code != 403 or result["private_objective_achieved"]:
                 raise RuntimeError(f"static guard did not block the SQL injection: {result}")
             metrics = result["defense_metrics"] or {}
-            if metrics.get("defense_runtime_driver") != "container-reverse-proxy":
+            if metrics.get("defense_runtime_driver") != "managed-container":
                 raise RuntimeError(f"static guard was not a separate container: {result}")
             if int(metrics.get("blocked_requests") or 0) != 1:
                 raise RuntimeError(f"static guard block was not measured: {result}")

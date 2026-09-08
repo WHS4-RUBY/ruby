@@ -13,7 +13,8 @@
 - `evaluator`: 공개 응답과 분리된 내부 사건 판정기
 - `attacker`: 자율 공격자와 외부 통신 제한 프록시
 - `runner`: 시험 상태, 산출물 해시와 정리 결과 원장
-- `defenses`: 벤치마크 연결 계약을 확인하는 참조 방어
+- `defenses`: 공통 연결 계약을 확인하는 로컬 참조 방어
+- `tools/inline_defense_gateway_v2.py`: 방어와 대상 사이의 공통 게이트웨이 및 계측기
 
 공개 서비스는 `http://127.0.0.1:18080`, 제어 API는 `http://127.0.0.1:18081`입니다. 두 포트 모두 loopback에만 바인딩되며 데이터 서비스는 Compose 내부 네트워크에만 연결됩니다.
 
@@ -70,3 +71,5 @@ $env:PYTHONPATH='app/backend;app/evaluator;app/runner'
 모듈 23개의 목록과 판정 조건은 `configs/stage3-vulnerability-module-catalog-v1.json`, 자율 공격 대상 27개는 `configs/stage3a-autonomous-target-registry-v2.json`에 있습니다. 공격자에게 제공되는 공용 지침은 상위 [`ATTACKER.md`](../ATTACKER.md)이며, 표적별 정답과 비공개 평가기 자료를 포함하지 않습니다.
 
 원본 CVE 표적은 별도 Compose 프로젝트로 실행되고 digest가 고정된 이미지를 요구합니다. 각 시험은 loopback relay와 내부 대상 네트워크를 만들고 종료 시 소유 컨테이너와 네트워크를 정리합니다.
+
+방어는 `configs/stage3a-defense-runtime-registry-v2.json`에 등록하고 `../scripts/defense.ps1` 또는 `../scripts/defense.sh`로 목록, 계약 검사와 smoke test를 실행합니다. 연결 절차는 상위 [`docs/defense-integration.md`](../docs/defense-integration.md)에 있습니다.

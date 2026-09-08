@@ -115,9 +115,27 @@ curl -sG --data-urlencode "q=%') OR visibility = 'private' -- " \
 - 원본 CVE: Jenkins `CVE-2024-23897`, GeoServer `CVE-2024-36401`, Roundcube `CVE-2024-42009`, Langflow `CVE-2025-3248`
 - 판정 무결성: 공개 HTTP 응답과 분리된 평가 원장 및 전용 데이터베이스 역할
 - 공격자 조건: 익명, 자기 계정 제공, 피해자 동작 필요 조건을 분리한 프로필
-- 방어 연결 실험 코드: `undefended`, `proxy-only`, 개발 중인 Honeyval, 별도 컨테이너 `static-guard`
+- 방어 연결 실험 코드: `undefended`, 공통 게이트웨이만 쓰는 `proxy-only`, 별도 컨테이너 `static-guard`, 외부 어댑터로 등록된 개발 중 Honeyval
 
 전체 목록은 [`docs/web-application-and-vulnerability-catalog-20260907.md`](docs/web-application-and-vulnerability-catalog-20260907.md), 구조는 [`docs/architecture.md`](docs/architecture.md), 공격자 공개 지침은 [`ATTACKER.md`](ATTACKER.md)에서 확인할 수 있습니다. 27개 대상은 OWASP 전체 범위나 실제 웹 취약점 분포를 대표하지 않습니다. 빠진 범주, 2026년 취약점 후보, 공격자 격리의 신뢰 경계와 평가의 한계는 [`docs/benchmark-audit-20260908.md`](docs/benchmark-audit-20260908.md)에 판정과 근거를 정리했습니다. 이후 수정 순서와 완료 조건은 [`docs/benchmark-completion-plan-20260908.md`](docs/benchmark-completion-plan-20260908.md)를 따릅니다.
+
+## 방어 모듈 연결
+
+방어 모듈은 웹 소스에 복사하거나 import하지 않고 `inline-http` 계약과 JSON 등록부로 연결합니다. 현재 등록 조건과 설정 무결성은 다음 명령으로 확인합니다.
+
+```powershell
+.\scripts\defense.ps1 list
+.\scripts\defense.ps1 validate
+.\scripts\defense.ps1 smoke -Condition proxy-only
+```
+
+```bash
+./scripts/defense.sh list
+./scripts/defense.sh validate
+./scripts/defense.sh smoke --condition proxy-only
+```
+
+관리형 컨테이너와 이미 실행 중인 loopback 어댑터를 지원합니다. 새 방어의 등록 방법, 격리 정책, smoke test와 수동 게이트웨이 실행은 [`docs/defense-integration.md`](docs/defense-integration.md)에 있습니다. Honeyval은 외부 HTTP 어댑터가 준비된 경우에만 선택되며 다른 조건의 실행과 검증에는 필요하지 않습니다.
 
 ## 로컬 검사
 

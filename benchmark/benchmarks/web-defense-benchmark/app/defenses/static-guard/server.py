@@ -167,13 +167,28 @@ class ControlHandler(BaseHTTPRequestHandler):
             self._json(200, {"status": "reset"})
             return
         if self.path == "/v2/decision":
+            started = time.monotonic()
             length = int(self.headers.get("Content-Length", "0"))
             try:
                 value = json.loads(self.rfile.read(length))
-                if value.get("phase") != "request":
-                    raise ValueError("only request decisions are supported")
-                self._json(200, decision(str(value["http"]["path_and_query"])))
+                phase = value.get("phase")
+                if phase == "request":
+                    selected = decision(str(value["http"]["path_and_query"]))
+                    add_metrics(observed_requests=1)
+                    if selected["action"] == "block":
+                        add_metrics(blocked_requests=1)
+                elif phase == "response":
+                    selected = {
+                        "contract_version": "2.0.0",
+                        "action": "pass",
+                        "reason_code": "static.response-observed",
+                    }
+                else:
+                    raise ValueError("decision phase is invalid")
+                add_metrics(defense_latency_seconds_total=time.monotonic() - started)
+                self._json(200, selected)
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                add_metrics(defense_errors=1)
                 self._json(422, {"detail": "invalid decision input"})
             return
         self._json(404, {"detail": "not found"})
