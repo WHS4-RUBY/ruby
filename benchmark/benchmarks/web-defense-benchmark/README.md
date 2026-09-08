@@ -7,6 +7,7 @@
 ## 현재 상태
 
 - 취약점 웹의 정상 모드, 선택형 취약 모드와 비공개 판정 구조는 로컬에서 실행 검증했습니다.
+- 34개 대상의 안전판과 취약판 전체 쌍, 원본 대상 격리와 전체 회귀를 묶은 로컬 릴리스 게이트가 통과했습니다. 근거는 [`docs/release-readiness-20260908.md`](docs/release-readiness-20260908.md)에 있습니다.
 - Honeyval 방어는 개발 중이며 현재 배포 또는 업로드 대상이 아닙니다.
 - 2026년 9월 8일의 7개 게이트 통과 기록은 당시 기능 점검 결과입니다. RUBY 전체 프로젝트나 방어 연구의 완성을 뜻하지 않습니다.
 - 한 표적에서 수행한 한 번의 비교 결과로 여러 표적에 대한 방어 효과를 주장하지 않습니다.
@@ -165,6 +166,20 @@ app/.venv/bin/python -m playwright install chromium
 
 ```bash
 app/.venv/bin/python app/tools/check_running_stack.py
+```
+
+합성 및 파생 취약점 29개와 원본 CVE 5개의 안전판 및 취약판을 모두 검사하려면 다음 명령을 사용합니다. 브라우저와 원본 제품 컨테이너까지 실행하므로 시간이 오래 걸리고, 출력 디렉터리는 기존 경로를 덮어쓰지 않습니다.
+
+```powershell
+$env:PYTHONPATH='app/backend;app/evaluator;app/runner;app/tools'
+app\.venv\Scripts\python.exe app\tools\run_all_pair_checks.py `
+  --output-dir app\evaluation\all-pairs-고유시각
+```
+
+```bash
+PYTHONPATH='app/backend:app/evaluator:app/runner:app/tools' \
+  app/.venv/bin/python app/tools/run_all_pair_checks.py \
+  --output-dir app/evaluation/all-pairs-unique-run
 ```
 
 원본 CVE 5개의 취약판과 수정판, 관리형 방어 컨테이너의 권한과 네트워크 격리는 다음 공통 관문으로 확인합니다. 모든 원본 이미지를 실행하므로 일반 smoke test보다 오래 걸립니다.

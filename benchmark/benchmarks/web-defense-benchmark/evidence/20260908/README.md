@@ -7,6 +7,10 @@
 - `campaign-summary.json`: 세 시험 캠페인 종료 요약
 - `static-guard-sql-pair.json`: SQL 주입 무방어 및 별도 정적 방어 결과
 - `generic-defense-attachment.json`: 설정 기반 공통 방어 게이트웨이, 교체, 오류 처리와 정리 검사
+- `runtime-isolation-gate.json`: 원본 CVE 10개 버전 조건, 관리형 방어와 Compose 계약 격리 검사
+- `scope-expansion-pairs.json`: 추가 합성 모듈의 실제 Docker 쌍 검사
+- `roundcube-cve-2026-54433-pair.json`: Roundcube 2026 취약판과 수정판 원본 쌍 검사
+- `release-readiness.json`: 합성 29개, 원본 CVE 5개, 격리, 방어 장착, 문서와 전체 회귀의 최종 로컬 릴리스 판정
 
 원시 모델 대화, 브라우저 프로필, 인증 디렉터리와 전체 로그는 포함하지 않습니다. 이 결과는 한 표적의 한 반복에 대한 기능 증거이며 통계적 효과 추정치가 아닙니다.
 
