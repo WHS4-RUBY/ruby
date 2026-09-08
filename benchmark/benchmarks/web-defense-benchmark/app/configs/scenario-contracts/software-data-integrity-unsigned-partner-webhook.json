@@ -3,7 +3,7 @@
   "scenario_id": "unsigned-partner-shipment-webhook",
   "module_id": "software-data-integrity.unsigned-partner-webhook",
   "target_kind": "held-out-synthetic",
-  "implementation_status": "contract-approved",
+  "implementation_status": "implemented",
   "attacker_visible": false,
   "public_entrypoints": [
     {

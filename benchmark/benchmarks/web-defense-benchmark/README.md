@@ -2,7 +2,7 @@
 
 `web-defense-benchmark`는 로컬에서만 실행하는 쇼핑몰형 보안 실습 웹입니다. 사용자는 먼저 정상 쇼핑몰을 이용하고, 원하는 취약점만 켠 다음 같은 요청의 결과가 어떻게 달라지는지 비교할 수 있습니다. 공격 성공은 화면이나 공격자의 주장에 의존하지 않고 별도 평가기가 확인합니다.
 
-현재 웹에는 고객, 판매자, 고객상담, 운영자 업무와 선택형 RUBY 취약점 23개가 등록돼 있습니다. Jenkins, GeoServer, Roundcube 2개 버전 쌍, Langflow로 구성된 원본 CVE 대상 5개는 별도 실험용 컨테이너입니다.
+현재 웹에는 고객, 판매자, 고객상담, 운영자 업무와 선택형 RUBY 취약점 29개가 등록돼 있습니다. Jenkins, GeoServer, Roundcube 2개 버전 쌍, Langflow로 구성된 원본 CVE 대상 5개는 별도 실험용 컨테이너입니다.
 
 ## 현재 상태
 
@@ -111,13 +111,13 @@ curl -sG --data-urlencode "q=%') OR visibility = 'private' -- " \
 ## 제공 기능
 
 - 정상 웹: 고객, 판매자, 고객지원, 관리자 역할의 실제 업무 흐름
-- 취약점 모듈: 접근 통제, SQL 주입, SSRF, 경로 이탈, 인증 및 세션, CSRF, 파일 업로드, 경쟁 조건, 다단계 공격 등 23개
+- 취약점 모듈: 접근 통제, SQL 주입, SSRF, 경로 이탈, 인증 및 세션, CSRF, 파일 업로드, 경쟁 조건, 암호 검증, 자원 제한, 업무 자동화, API 수명주기, 감사 무결성, 웹훅 검증 등 29개
 - 원본 CVE: Jenkins `CVE-2024-23897`, GeoServer `CVE-2024-36401`, Roundcube `CVE-2024-42009`와 `CVE-2026-54433`, Langflow `CVE-2025-3248`
 - 판정 무결성: 공개 HTTP 응답과 분리된 평가 원장 및 전용 데이터베이스 역할
 - 공격자 조건: 익명, 자기 계정 제공, 피해자 동작 필요 조건을 분리한 프로필
 - 방어 연결 실험 코드: `undefended`, 공통 게이트웨이만 쓰는 `proxy-only`, 별도 컨테이너 `static-guard`, 외부 어댑터로 등록된 개발 중 Honeyval
 
-전체 목록은 [`docs/web-application-and-vulnerability-catalog-20260907.md`](docs/web-application-and-vulnerability-catalog-20260907.md), 구조는 [`docs/architecture.md`](docs/architecture.md), 공격자 공개 지침은 [`ATTACKER.md`](ATTACKER.md)에서 확인할 수 있습니다. 28개 대상은 OWASP 전체 범위나 실제 웹 취약점 분포를 대표하지 않습니다. 빠진 범주, 공격자 격리의 신뢰 경계와 평가의 한계는 [`docs/benchmark-audit-20260908.md`](docs/benchmark-audit-20260908.md)에 판정과 근거를 정리했습니다. 구현할 여섯 합성 시나리오와 구현한 Roundcube 2026 원본 CVE pair의 범위는 [`docs/scenario-scope-contracts-20260908.md`](docs/scenario-scope-contracts-20260908.md), 실제 재현 절차와 결과는 [`docs/roundcube-cve-2026-54433-reproduction-20260908.md`](docs/roundcube-cve-2026-54433-reproduction-20260908.md)에 있습니다. 이후 수정 순서와 전체 완료 조건은 [`docs/benchmark-completion-plan-20260908.md`](docs/benchmark-completion-plan-20260908.md)를 따릅니다.
+전체 목록은 [`docs/web-application-and-vulnerability-catalog-20260907.md`](docs/web-application-and-vulnerability-catalog-20260907.md), 구조는 [`docs/architecture.md`](docs/architecture.md), 공격자 공개 지침은 [`ATTACKER.md`](ATTACKER.md)에서 확인할 수 있습니다. 34개 대상은 OWASP 전체 범위나 실제 웹 취약점 분포를 대표하지 않습니다. 빠진 범주, 공격자 격리의 신뢰 경계와 평가의 한계는 [`docs/benchmark-audit-20260908.md`](docs/benchmark-audit-20260908.md)에 판정과 근거를 정리했습니다. 추가한 여섯 합성 시나리오와 Roundcube 2026 원본 CVE pair의 범위는 [`docs/scenario-scope-contracts-20260908.md`](docs/scenario-scope-contracts-20260908.md), 실제 재현 절차와 결과는 [`docs/scope-expansion-reproduction-20260908.md`](docs/scope-expansion-reproduction-20260908.md)와 [`docs/roundcube-cve-2026-54433-reproduction-20260908.md`](docs/roundcube-cve-2026-54433-reproduction-20260908.md)에 있습니다. 이후 수정 순서와 전체 완료 조건은 [`docs/benchmark-completion-plan-20260908.md`](docs/benchmark-completion-plan-20260908.md)를 따릅니다.
 
 ## 방어 모듈 연결
 

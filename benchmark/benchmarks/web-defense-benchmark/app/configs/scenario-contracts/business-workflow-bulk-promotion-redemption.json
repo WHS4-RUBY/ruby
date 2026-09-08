@@ -3,7 +3,7 @@
   "scenario_id": "bulk-promotion-redemption",
   "module_id": "business-workflow.bulk-promotion-redemption",
   "target_kind": "held-out-synthetic",
-  "implementation_status": "contract-approved",
+  "implementation_status": "implemented",
   "attacker_visible": false,
   "public_entrypoints": [
     {

@@ -1819,8 +1819,8 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
     def test_v3_campaign_registry_has_all_registered_unique_targets(self) -> None:
         registry = campaign_registry()
 
-        self.assertEqual(28, len(registry))
-        self.assertEqual(23, sum(item["target_kind"] == "ruby-web" for item in registry.values()))
+        self.assertEqual(34, len(registry))
+        self.assertEqual(29, sum(item["target_kind"] == "ruby-web" for item in registry.values()))
         self.assertEqual(
             5, sum(item["target_kind"] == "original-cve" for item in registry.values())
         )
@@ -1836,7 +1836,7 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
         rows = campaign_schedule(list(registry), registry, ["codex", "claude"], 1, 11)
         kinds = [item["target_kind"] for item in rows]
 
-        self.assertEqual(56, len(rows))
+        self.assertEqual(68, len(rows))
         first_cve = kinds.index("original-cve")
         self.assertNotIn("ruby-web", kinds[first_cve:])
 

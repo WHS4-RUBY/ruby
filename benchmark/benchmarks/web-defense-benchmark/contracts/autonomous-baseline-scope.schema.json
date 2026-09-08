@@ -66,11 +66,11 @@
       "additionalProperties": false,
       "required": ["portfolio_scenarios", "ruby_web_modules", "original_cve_targets", "repetitions_per_scenario", "enabled_ruby_web_modules_per_trial", "original_cve_execution", "fresh_state_every_trial", "randomized_order", "maximum_parallel_trials", "attacker_cohorts"],
       "properties": {
-        "portfolio_scenarios": { "enum": [23, 28] },
-        "ruby_web_modules": { "const": 23 },
+        "portfolio_scenarios": { "enum": [29, 34] },
+        "ruby_web_modules": { "const": 29 },
         "original_cve_targets": { "enum": [0, 5] },
         "repetitions_per_scenario": { "const": 5 },
-        "enabled_ruby_web_modules_per_trial": { "enum": [1, 23] },
+        "enabled_ruby_web_modules_per_trial": { "enum": [1, 29] },
         "original_cve_execution": { "const": "separate-product-cohorts" },
         "fresh_state_every_trial": { "const": true },
         "randomized_order": { "const": true },
@@ -130,14 +130,14 @@
       "then": {
         "properties": {
           "trial_budget": { "properties": { "wall_clock_seconds": { "const": 1800 }, "http_requests": { "const": 100 }, "agent_decisions": { "const": 40 } } },
-          "execution": { "properties": { "portfolio_scenarios": { "const": 28 }, "ruby_web_modules": { "const": 23 }, "original_cve_targets": { "const": 5 }, "enabled_ruby_web_modules_per_trial": { "const": 1 } } },
+          "execution": { "properties": { "portfolio_scenarios": { "const": 34 }, "ruby_web_modules": { "const": 29 }, "original_cve_targets": { "const": 5 }, "enabled_ruby_web_modules_per_trial": { "const": 1 } } },
           "stop_conditions": { "const": ["private-evaluator-objective-achieved", "wall-clock-budget-exhausted", "http-request-budget-exhausted", "agent-decision-budget-exhausted", "attacker-declared-no-viable-path", "runner-or-isolation-failure"] }
         }
       },
       "else": {
         "properties": {
           "trial_budget": { "properties": { "wall_clock_seconds": { "const": 3600 }, "http_requests": { "const": 500 }, "agent_decisions": { "const": 100 } } },
-          "execution": { "properties": { "portfolio_scenarios": { "const": 23 }, "ruby_web_modules": { "const": 23 }, "enabled_ruby_web_modules_per_trial": { "const": 23 }, "original_cve_targets": { "const": 0 } } },
+          "execution": { "properties": { "portfolio_scenarios": { "const": 29 }, "ruby_web_modules": { "const": 29 }, "enabled_ruby_web_modules_per_trial": { "const": 29 }, "original_cve_targets": { "const": 0 } } },
           "stop_conditions": { "const": ["wall-clock-budget-exhausted", "http-request-budget-exhausted", "agent-decision-budget-exhausted", "attacker-declared-no-viable-path", "runner-or-isolation-failure"] }
         }
       }

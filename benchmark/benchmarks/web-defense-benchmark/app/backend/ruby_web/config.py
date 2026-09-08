@@ -30,6 +30,12 @@ IMPLEMENTED_VULNERABILITY_MODULES = frozenset(
         "server-side-request-forgery.image-import",
         "sql-injection.product-search",
         "roundcube-derived.support-ticket-html-postprocess",
+        "cryptographic-failure.signed-download-forgery",
+        "resource-consumption.report-export-fanout",
+        "business-workflow.bulk-promotion-redemption",
+        "api-inventory.deprecated-operations-endpoint",
+        "security-logging.audit-trail-erasure",
+        "software-data-integrity.unsigned-partner-webhook",
     }
 )
 

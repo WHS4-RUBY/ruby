@@ -117,6 +117,24 @@ class SellerReportCatalogView(ApiModel):
     available_reports: list[SellerReportCatalogEntry]
 
 
+class ReportExportRequest(ApiModel):
+    reports: list[Annotated[str, Field(min_length=2, max_length=64)]] = Field(
+        min_length=1, max_length=5
+    )
+    idempotency_key: str = Field(min_length=8, max_length=80, pattern=r"^[A-Za-z0-9._-]+$")
+
+
+class PromotionRedemptionRequest(ApiModel):
+    order_id: str = Field(min_length=8, max_length=64)
+
+
+class PartnerShipmentEventRequest(ApiModel):
+    order_id: str = Field(min_length=8, max_length=64)
+    shipment_status: str = Field(pattern=r"^(packed|shipped)$")
+    event_id: str = Field(min_length=8, max_length=80, pattern=r"^[A-Za-z0-9._-]+$")
+    occurred_at: int = Field(ge=1_700_000_000, le=4_102_444_800)
+
+
 class IntegrationFlagRequest(ApiModel):
     credential: str = Field(min_length=16, max_length=256)
     flag: str = Field(pattern=r"^(standard|restricted)$")

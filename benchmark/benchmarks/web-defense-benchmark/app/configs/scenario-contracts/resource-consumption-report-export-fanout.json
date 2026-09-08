@@ -3,7 +3,7 @@
   "scenario_id": "seller-report-export-fanout",
   "module_id": "resource-consumption.report-export-fanout",
   "target_kind": "held-out-synthetic",
-  "implementation_status": "contract-approved",
+  "implementation_status": "implemented",
   "attacker_visible": false,
   "public_entrypoints": [
     {
