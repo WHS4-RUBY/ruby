@@ -6,22 +6,22 @@
 
 | 질문 | 판정 | 근거와 의미 |
 | --- | --- | --- |
-| 취약점 범위가 충분한가 | 부분 충족 | 27개 실행 대상이 주요 웹 공격 흐름을 다루지만 OWASP 전체 범위나 실제 웹의 분포를 대표하지 않는다. |
-| 최신 취약점이 있는가 | 미충족 | 구현된 최신 원본 CVE는 2025년 사례다. 2026년 공개 취약점은 아직 없다. |
-| 공격자가 저장소나 평가기에 접근할 수 없는가 | 공식 v3 실행기에 한해 충족 | 모델 도구를 제거하고 임시 작업 폴더, 대상 상대 경로, 비공개 평가기, 분리된 Docker 망을 사용한다. 구형 실행기는 기본 차단해야 한다. |
+| 취약점 범위가 충분한가 | 부분 충족 | 34개 실행 대상이 암호 검증, 자원 제한, 업무 자동화, API 수명주기, 감사와 웹훅까지 다루지만 실제 웹의 취약점 분포를 대표하지 않는다. |
+| 최신 취약점이 있는가 | 충족 | Roundcube CVE-2026-54433의 취약 1.7.1과 수정 1.7.2를 원본 제품 쌍으로 재현했다. 최신 취약점 전체를 대표한다는 뜻은 아니다. |
+| 공격자가 저장소나 평가기에 접근할 수 없는가 | 공식 v3 실행기와 검사된 컨테이너에 한해 충족 | 모델 행동을 대상 상대 경로로 제한하고, 원본 제품 10개 버전 조건과 관리형 방어에서 금지 DNS 및 TCP 접근 0건과 완전 정리를 실제 확인했다. |
 | 평가 결과가 객관적인가 | 기능 판정은 충족, 방어 효과 주장은 미충족 | 비공개 상태 판정과 실행 봉인은 갖췄다. 현재 공개 가능한 비교는 표적 하나를 한 번씩 실행한 결과여서 일반적인 방어 효과를 입증하지 못한다. |
 
 따라서 현재 결과는 벤치마크 실행 구조와 단일 표적 기능을 검증하는 근거로 사용할 수 있다. 취약점 포트폴리오의 완성이나 Honeyval의 전반적인 방어 효과를 주장하는 근거로는 사용할 수 없다.
 
 ## 1. 실제 취약점 범위
 
-실행기에 등록된 대상은 27개다.
+실행기에 등록된 대상은 34개다.
 
-- RUBY Market 합성 취약점 20개
+- RUBY Market 합성 취약점 26개
 - 실제 CVE에서 공격 흐름을 가져와 RUBY Market에 다시 만든 파생 대상 3개
-- 공개된 취약 버전의 원본 제품을 별도 컨테이너로 실행하는 대상 4개
+- 공개된 취약 버전의 원본 제품을 별도 컨테이너로 실행하는 대상 5개
 
-원본 제품 대상은 Jenkins `CVE-2024-23897`, GeoServer `CVE-2024-36401`, Roundcube `CVE-2024-42009`, Langflow `CVE-2025-3248`이다. 파생 대상은 원본 제품 재현과 구분해야 한다. 파생 대상 3개를 다시 원본 CVE 수에 더하면 같은 공격 개념을 중복 계산하게 된다.
+원본 제품 대상은 Jenkins `CVE-2024-23897`, GeoServer `CVE-2024-36401`, Roundcube `CVE-2024-42009`와 `CVE-2026-54433`, Langflow `CVE-2025-3248`이다. 파생 대상은 원본 제품 재현과 구분해야 한다. 파생 대상 3개를 다시 원본 CVE 수에 더하면 같은 공격 개념을 중복 계산하게 된다.
 
 현재 범위의 장점은 다음과 같다.
 
@@ -30,7 +30,7 @@
 - 정상 모드와 취약 모드의 내부 효과를 분리해 같은 요청이 선택한 모듈에서만 성공하는지 검사한다.
 - CWE 4.20과 OWASP ASVS 5.0.0 식별자를 각 RUBY 모듈에 기록한다.
 
-다만 개수만으로 범위의 대표성을 주장할 수 없다. 27개 중 20개가 프로젝트에서 만든 합성 대상이고, 실제 배포 제품은 네 종류다. 공격 난이도, 기술 스택, 인증 방식, 트래픽 형태의 표본 추출 기준도 아직 정의하지 않았다.
+다만 개수만으로 범위의 대표성을 주장할 수 없다. 34개 중 26개가 프로젝트에서 만든 합성 대상이고, 원본 제품은 네 종류에서 가져온 다섯 CVE다. 공격 난이도, 기술 스택, 인증 방식, 트래픽 형태의 표본 추출 기준도 아직 정의하지 않았다.
 
 ### OWASP Top 10:2025 대응
 
@@ -41,12 +41,12 @@
 | A01 Broken Access Control | 객체 및 기능 권한, 경로 이탈, CSRF, 다단계 권한 상승 | 충족 |
 | A02 Security Misconfiguration | 운영 상태 비밀 노출, 신뢰한 전달 헤더 | 충족 |
 | A03 Software Supply Chain Failures | 공개 취약 버전의 원본 제품 실행 | 부분 충족, 의존성 오염이나 업데이트 경로는 없음 |
-| A04 Cryptographic Failures | 전용 대상 없음 | 누락 |
+| A04 Cryptographic Failures | 자원과 사용자를 묶지 않은 다운로드 서명 | 충족 |
 | A05 Injection | SQL, 표현식 및 코드 주입, XSS | 충족 |
 | A06 Insecure Design | 환불 순서, 재고 경쟁 조건, 여러 단계 업무 공격 | 충족 |
 | A07 Authentication Failures | 비밀번호 재설정 교환, 서명 없는 세션 토큰 | 충족 |
-| A08 Software or Data Integrity Failures | 서명 없는 세션 토큰 | 부분 충족, 소프트웨어 업데이트와 직렬화 무결성은 없음 |
-| A09 Security Logging and Alerting Failures | 전용 대상 없음 | 누락 |
+| A08 Software or Data Integrity Failures | 서명 없는 세션 토큰과 파트너 웹훅 | 부분 충족, 소프트웨어 업데이트 무결성은 없음 |
+| A09 Security Logging and Alerting Failures | 지원 업무 감사 기록 삭제 | 충족 |
 | A10 Mishandling of Exceptional Conditions | 고객지원 오류 진단 정보 노출 | 부분 충족 |
 
 ### OWASP API Security Top 10:2023 대응
@@ -58,19 +58,19 @@
 | API1 Broken Object Level Authorization | 고객 프로필, 교차 상점 환불 | 충족 |
 | API2 Broken Authentication | 비밀번호 재설정, 세션 토큰 | 충족 |
 | API3 Broken Object Property Level Authorization | 대량 할당, 민감 정보 노출 | 충족 |
-| API4 Unrestricted Resource Consumption | 전용 대상 없음 | 누락 |
+| API4 Unrestricted Resource Consumption | 동시 보고서 내보내기와 사용자별 비용 상한 | 충족 |
 | API5 Broken Function Level Authorization | 사용자 목록, 역할 변경 | 충족 |
-| API6 Unrestricted Access to Sensitive Business Flows | 환불과 재고 흐름 | 부분 충족, 대량 자동화 악용과 속도 제한 비교는 없음 |
+| API6 Unrestricted Access to Sensitive Business Flows | 환불, 재고와 단일 사용 프로모션의 반복 자동화 | 충족 |
 | API7 Server Side Request Forgery | 이미지 가져오기와 다단계 내부 서비스 접근 | 충족 |
 | API8 Security Misconfiguration | 운영 비밀과 전달 헤더 | 충족 |
-| API9 Improper Inventory Management | 전용 대상 없음 | 누락 |
-| API10 Unsafe Consumption of APIs | 외부 이미지 및 연동 서비스 흐름 | 부분 충족, 제3자 응답 신뢰 문제는 없음 |
+| API9 Improper Inventory Management | 인증 없이 남은 폐기 운영 API | 충족 |
+| API10 Unsafe Consumption of APIs | 외부 이미지, 연동 서비스와 서명 없는 파트너 웹훅 | 충족 |
 
-AI 자동화 공격이 주제라면 API4와 API6의 누락이 특히 크다. 단일 요청 취약점만으로는 계정 생성, 쿠폰 및 환불 반복, 재고 선점, 비용이 드는 API 호출과 같은 자동화의 속도와 규모를 평가할 수 없다.
+API4와 API6 전용 모듈은 실제 호스트 자원을 고갈시키지 않는 합성 비용 상한과 단일 사용 업무 정책으로 구현했다. 이 두 모듈은 자동 요청의 속도와 반복을 측정하지만 실제 클라우드 비용이나 사용자 집단의 경제적 피해를 재현하지는 않는다.
 
 ## 2. 최신 취약점 여부
 
-현재 원본 제품 대상의 최신 연도는 2025년이다. 따라서 "최신 취약점까지 포함한다"고 설명하면 사실과 다르다.
+Roundcube `CVE-2026-54433`은 취약 1.7.1과 수정 1.7.2 원본 이미지를 사용해 정상 메일, 악성 평문 메일, 피해자 브라우저 실행과 비공개 판정을 재현했다. 제품 쌍과 자율 어댑터 검증은 모두 취약판 성공과 수정판 실패로 갈렸다.
 
 공식 제품 공지를 확인하면 다음 2026년 후보가 있다.
 
@@ -78,12 +78,12 @@ AI 자동화 공격이 주제라면 API4와 API6의 누락이 특히 크다. 단
 | --- | --- | --- |
 | Langflow `GHSA-vwmf-pq79-vjvx` | 2026-03-16 공개, 공개 flow build 경로에서 인증 없는 원격 코드 실행, 영향 버전 `<= 1.8.2`, 수정 버전 `>= 1.9.0` | 미구현 |
 | Roundcube `CVE-2026-54432` | 2026-07-05 공지, 첨부 MIME 유형을 통한 저장형 XSS | 미구현 |
-| Roundcube `CVE-2026-54433` | 2026-07-05 공지, 평문 렌더링의 사용자 동작 없는 저장형 XSS | 미구현 |
+| Roundcube `CVE-2026-54433` | 2026-07-05 공지, 평문 렌더링의 사용자 동작 없는 저장형 XSS | 1.7.1 및 1.7.2 원본 쌍 구현 및 검증 완료 |
 | Roundcube 2026-09 보안 수정 | 사용자 동작 없는 저장형 XSS, 사용자 간 주소록 접근, SSRF 우회 등을 공식 공지 | CVE 식별자가 공지에 없는 항목은 후보 조사만 가능 |
 
 근거는 [Langflow 2026년 공개 flow RCE 공지](https://github.com/langflow-ai/langflow/security/advisories/GHSA-vwmf-pq79-vjvx), [현재 구현된 Langflow CVE-2025-3248 공지](https://github.com/langflow-ai/langflow/security/advisories/GHSA-rvqx-wpfh-mfx7), [Roundcube 2026-07-05 공지](https://roundcube.net/news/2026/07/05/security-updates-1.6.17-and-1.7.2), [Roundcube 2026-09-06 공지](https://roundcube.net/news/2026/09/06/security-updates-1.6.19-and-1.7.4)다.
 
-우선순위는 Langflow `GHSA-vwmf-pq79-vjvx`가 높다. 기존 `CVE-2025-3248`과 다른 경로이고, 공개 flow를 전제로 한 AI 응용 프로그램의 인증 없는 코드 실행이라 프로젝트 주제와 가깝다. 추가할 때는 취약 버전을 고정하고 정상 버전과 취약 버전의 결과, 이미지 다이제스트, 공식 공지, 라이선스를 함께 봉인해야 한다.
+추가 후보 중 Langflow `GHSA-vwmf-pq79-vjvx`는 기존 `CVE-2025-3248`과 다른 공개 flow 경로의 인증 없는 코드 실행이라 프로젝트 주제와 가깝다. 현재 공식 CVE 대상 계약은 CVE ID를 요구하므로 GHSA만 확인된 후보를 원본 CVE 수에 넣지 않는다.
 
 ## 3. 공격자가 구축 환경으로 우회하는가
 
@@ -101,9 +101,9 @@ AI 자동화 공격이 주제라면 API4와 API6의 누락이 특히 크다. 단
 
 이 구조에서는 모델이 저장소 파일, Docker 소켓, 제어 API, 평가기, 데이터베이스를 요청하는 행동을 표현할 수 없다. 대상이 외부 주소로 30x 응답을 보내더라도 HTTP 클라이언트는 자동으로 따라가지 않고 브라우저 경로는 출처 검사를 거친다.
 
-2026-09-08에는 원격 코드 실행이 가능한 Langflow 1.2.0 원본 CVE 컨테이너를 실제로 띄워 대상 내부에서 탈출 경로를 다시 검사했다. 대상은 `cap_drop: ALL`, `no-new-privileges`, 비특권 모드, PID 제한 512, 호스트 마운트 0개였고 일회성 내부 망 하나에만 연결됐다. 내부 망에는 기본 경로가 없었다. `api`, `evaluator`, `postgres`, `docker`, `host.docker.internal`, `gateway.docker.internal`은 이름 해석이 되지 않았다. 내부 망 게이트웨이와 Docker Desktop에서 흔히 쓰는 호스트 주소에 대해 호스트 canary, RUBY 공개 및 제어 포트, Docker API 포트 연결을 시도했으나 모두 실패했다. 검사 후 컨테이너와 두 네트워크가 제거된 것도 확인했다.
+2026-09-08 공통 격리 관문은 원본 CVE 5개의 취약판과 수정판 10개를 실제로 실행했다. 모든 주 대상은 전용 내부망 하나, `no-new-privileges`, 자원 및 PID 상한, host mount와 공개 포트 0개를 사용했다. Roundcube만 초기화에 필요한 `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`, `SETUID`를 허용하고 정확한 집합을 검사했으며 나머지는 capability를 전부 제거했다.
 
-원본 CVE Compose 네 개도 같은 원칙을 사용한다. 취약 제품은 시행별 `internal` 대상 망에만 연결하고, loopback에 공개되는 읽기 전용 relay만 별도 브라우저 망에 연결한다. 제품 컨테이너에는 저장소나 Docker 소켓을 마운트하지 않고 모든 Linux capability를 제거한다. 따라서 취약점의 코드 실행은 해당 일회성 제품 컨테이너와 의도한 같은 시행의 서비스 범위 안에 머문다.
+각 네트워크에서 `api`, `control-api`, `evaluator`, `postgres`, `other-target`, `docker`, `host.docker.internal`, `gateway.docker.internal`을 확인했고 해석 성공은 0건이었다. 별도 내부망 canary가 2375, 5432, 8000과 8080을 실제로 연 상태에서 직접 IP로도 연결했으며, 외부 주소와 bridge gateway의 RUBY 및 Docker API 후보 포트까지 포함해 연결 성공은 0건이었다. 10개 실행 모두 종료 뒤 프로젝트 자원이 남지 않았다. 관리형 `static-guard` adapter도 같은 네트워크 검사를 통과했다. 상세 보고서는 [`runtime-isolation-gate-20260908.md`](runtime-isolation-gate-20260908.md)에 있다.
 
 ### 남은 신뢰 경계
 
@@ -136,7 +136,7 @@ AI 자동화 공격이 주제라면 API4와 API6의 누락이 특히 크다. 단
 객관적인 방어 효과 평가에 남은 위협은 다음과 같다.
 
 - 현재 보관된 결과는 단일 반복이라 신뢰구간을 해석할 표본 수가 없고 효과 크기와 통계 검정 결과도 없다.
-- 27개 대상의 20개가 합성이라 실제 취약점 분포를 대표하지 않는다.
+- 34개 대상의 26개가 합성이라 실제 취약점 분포를 대표하지 않는다.
 - 구독형 모델은 같은 이름이어도 서버 측 구현이 바뀔 수 있다. 관측 모델 ID와 CLI 버전은 기록하지만 모델 가중치를 고정하지 못한다.
 - 정상 트래픽은 다섯 개 스크립트 흐름이어서 실제 사용자 집단의 오탐률과 지연 분포를 대신하지 못한다.
 - 취약점, 공격 지침, 평가기를 같은 팀이 작성해 평가 기준에 맞춘 과적합 가능성이 있다.
