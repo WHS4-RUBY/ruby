@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "generated_at": "2026-09-08T14:05:31.799812+00:00",
+  "generated_at": "2026-09-08T15:45:04.097824+00:00",
   "scope": {
     "ruby_web_modules": 29,
     "original_cve_targets": 5,
@@ -427,7 +427,7 @@
   "tests": {
     "command": "python -m pytest -q",
     "returncode": 0,
-    "passed_tests": 267,
+    "passed_tests": 270,
     "warnings": 5,
     "passed_subtests": 32,
     "summary_found": true,

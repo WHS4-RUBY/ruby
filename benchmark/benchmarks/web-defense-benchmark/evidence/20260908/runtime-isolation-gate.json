@@ -704,7 +704,10 @@
         "services": [
           {
             "bind_mounts": [
-              "C:\\WhiteHat_mp4\\2단계_팀프로젝트_RUBY\\.tmp\\github-ruby-prep\\benchmark\\benchmarks\\web-defense-benchmark\\app\\cve-http-relay.nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+              {
+                "target": "/etc/nginx/conf.d/default.conf",
+                "mode": "ro"
+              }
             ],
             "checks": {
               "all_capabilities_dropped": true,
@@ -993,7 +996,10 @@
         "services": [
           {
             "bind_mounts": [
-              "C:\\WhiteHat_mp4\\2단계_팀프로젝트_RUBY\\.tmp\\github-ruby-prep\\benchmark\\benchmarks\\web-defense-benchmark\\app\\cve-http-relay.nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+              {
+                "target": "/etc/nginx/conf.d/default.conf",
+                "mode": "ro"
+              }
             ],
             "checks": {
               "all_capabilities_dropped": true,
@@ -1279,7 +1285,10 @@
         "services": [
           {
             "bind_mounts": [
-              "C:\\WhiteHat_mp4\\2단계_팀프로젝트_RUBY\\.tmp\\github-ruby-prep\\benchmark\\benchmarks\\web-defense-benchmark\\app\\cve-http-relay.nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+              {
+                "target": "/etc/nginx/conf.d/default.conf",
+                "mode": "ro"
+              }
             ],
             "checks": {
               "all_capabilities_dropped": true,
@@ -1565,7 +1574,10 @@
         "services": [
           {
             "bind_mounts": [
-              "C:\\WhiteHat_mp4\\2단계_팀프로젝트_RUBY\\.tmp\\github-ruby-prep\\benchmark\\benchmarks\\web-defense-benchmark\\app\\cve-http-relay.nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+              {
+                "target": "/etc/nginx/conf.d/default.conf",
+                "mode": "ro"
+              }
             ],
             "checks": {
               "all_capabilities_dropped": true,
@@ -1851,7 +1863,10 @@
         "services": [
           {
             "bind_mounts": [
-              "C:\\WhiteHat_mp4\\2단계_팀프로젝트_RUBY\\.tmp\\github-ruby-prep\\benchmark\\benchmarks\\web-defense-benchmark\\app\\cve-roundcube\\browser-relay.nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+              {
+                "target": "/etc/nginx/conf.d/default.conf",
+                "mode": "ro"
+              }
             ],
             "checks": {
               "all_capabilities_dropped": true,
@@ -2164,7 +2179,10 @@
         "services": [
           {
             "bind_mounts": [
-              "C:\\WhiteHat_mp4\\2단계_팀프로젝트_RUBY\\.tmp\\github-ruby-prep\\benchmark\\benchmarks\\web-defense-benchmark\\app\\cve-roundcube\\browser-relay.nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+              {
+                "target": "/etc/nginx/conf.d/default.conf",
+                "mode": "ro"
+              }
             ],
             "checks": {
               "all_capabilities_dropped": true,
@@ -2477,7 +2495,10 @@
         "services": [
           {
             "bind_mounts": [
-              "C:\\WhiteHat_mp4\\2단계_팀프로젝트_RUBY\\.tmp\\github-ruby-prep\\benchmark\\benchmarks\\web-defense-benchmark\\app\\cve-langflow-relay.nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+              {
+                "target": "/etc/nginx/conf.d/default.conf",
+                "mode": "ro"
+              }
             ],
             "checks": {
               "all_capabilities_dropped": true,
@@ -2763,7 +2784,10 @@
         "services": [
           {
             "bind_mounts": [
-              "C:\\WhiteHat_mp4\\2단계_팀프로젝트_RUBY\\.tmp\\github-ruby-prep\\benchmark\\benchmarks\\web-defense-benchmark\\app\\cve-langflow-relay.nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+              {
+                "target": "/etc/nginx/conf.d/default.conf",
+                "mode": "ro"
+              }
             ],
             "checks": {
               "all_capabilities_dropped": true,
@@ -3049,7 +3073,10 @@
         "services": [
           {
             "bind_mounts": [
-              "C:\\WhiteHat_mp4\\2단계_팀프로젝트_RUBY\\.tmp\\github-ruby-prep\\benchmark\\benchmarks\\web-defense-benchmark\\app\\cve-roundcube\\browser-relay.nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+              {
+                "target": "/etc/nginx/conf.d/default.conf",
+                "mode": "ro"
+              }
             ],
             "checks": {
               "all_capabilities_dropped": true,
@@ -3362,7 +3389,10 @@
         "services": [
           {
             "bind_mounts": [
-              "C:\\WhiteHat_mp4\\2단계_팀프로젝트_RUBY\\.tmp\\github-ruby-prep\\benchmark\\benchmarks\\web-defense-benchmark\\app\\cve-roundcube\\browser-relay.nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+              {
+                "target": "/etc/nginx/conf.d/default.conf",
+                "mode": "ro"
+              }
             ],
             "checks": {
               "all_capabilities_dropped": true,

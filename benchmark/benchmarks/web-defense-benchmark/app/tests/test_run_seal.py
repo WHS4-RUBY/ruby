@@ -37,14 +37,22 @@ class SealStabilityTests(unittest.TestCase):
         self.run_dir = Path(self.temp.name) / "run"
         self.run_dir.mkdir()
         self.package = Path(self.temp.name) / "package"
-        (self.package / "src" / "honeyval").mkdir(parents=True)
-        self.module = self.package / "src" / "honeyval" / "gateway.py"
+        (self.package / "src" / "defense_adapter").mkdir(parents=True)
+        self.module = self.package / "src" / "defense_adapter" / "gateway.py"
         self.module.write_text("VERSION = 1\n", encoding="utf-8")
 
     def test_a_first_seal_records_the_source(self) -> None:
         manifest = snapshot(self.run_dir, self.package)
         self.assertIn("combined_sha256", manifest)
-        self.assertTrue((self.run_dir / "defense-source" / "gateway.py").is_file())
+        self.assertTrue(
+            (
+                self.run_dir
+                / "defense-source"
+                / "src"
+                / "defense_adapter"
+                / "gateway.py"
+            ).is_file()
+        )
 
     def test_sealing_again_with_the_same_source_is_the_same_seal(self) -> None:
         first = snapshot(self.run_dir, self.package)
@@ -59,7 +67,13 @@ class SealStabilityTests(unittest.TestCase):
         second = snapshot(self.run_dir, self.package)
         self.assertEqual(second["combined_sha256"], first["combined_sha256"])
         self.assertEqual(
-            (self.run_dir / "defense-source" / "gateway.py").read_text(encoding="utf-8"),
+            (
+                self.run_dir
+                / "defense-source"
+                / "src"
+                / "defense_adapter"
+                / "gateway.py"
+            ).read_text(encoding="utf-8"),
             "VERSION = 1\n",
         )
 

@@ -13,6 +13,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "app" / "tools"))
 from check_runtime_isolation_gate import (  # noqa: E402
     POLICY_PATH,
     load_policy,
+    public_bind_mounts,
     security_observation,
     static_compose_contracts,
 )
@@ -51,6 +52,16 @@ def hardened_inspect() -> dict[str, object]:
 
 
 class RuntimeIsolationGateTests(unittest.TestCase):
+    def test_public_bind_mounts_remove_host_paths(self) -> None:
+        result = public_bind_mounts(
+            [r"C:\private\workspace\relay.conf:/etc/nginx/conf.d/default.conf:ro"]
+        )
+        self.assertEqual(
+            [{"target": "/etc/nginx/conf.d/default.conf", "mode": "ro"}],
+            result,
+        )
+        self.assertNotIn("private", str(result))
+
     def test_policy_covers_every_registered_original_target_and_both_releases(self) -> None:
         policy = load_policy(POLICY_PATH)
         self.assertEqual(5, len(policy["original_cve_targets"]))

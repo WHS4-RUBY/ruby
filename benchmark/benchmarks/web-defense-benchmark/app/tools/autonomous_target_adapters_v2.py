@@ -8,6 +8,7 @@ import socket
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,6 +52,145 @@ _PUBLIC_API_PREFIXES = ("/service", "/gateway", "/rest")
 
 def _public_api_prefix(normal_traffic_seed: int) -> str:
     return _PUBLIC_API_PREFIXES[normal_traffic_seed % len(_PUBLIC_API_PREFIXES)]
+
+
+def run_ruby_gateway_normal_probe(
+    origin: str, accounts: list[dict[str, str]]
+) -> dict[str, object]:
+    """Exercise read-only normal workflows through the selected gateway."""
+    by_role = {item["role"]: item for item in accounts}
+    completed: list[str] = []
+    failures: list[dict[str, object]] = []
+    statuses: list[int] = []
+
+    def request(client: httpx.Client, method: str, path: str, **kwargs: object) -> httpx.Response:
+        response = client.request(method, path, **kwargs)
+        statuses.append(response.status_code)
+        return response
+
+    def authenticated_read(
+        client: httpx.Client,
+        workflow: str,
+        email: str,
+        password: str,
+        path: str,
+    ) -> None:
+        login_response = request(
+            client,
+            "POST",
+            "/api/auth/login",
+            json={"email": email, "password": password},
+        )
+        if login_response.status_code != 200:
+            failures.append(
+                {"workflow": workflow, "stage": "login", "status": login_response.status_code}
+            )
+            return
+        token = login_response.json().get("token")
+        response = request(
+            client,
+            "GET",
+            path,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if response.status_code == 200:
+            completed.append(workflow)
+        else:
+            failures.append(
+                {"workflow": workflow, "stage": "read", "status": response.status_code}
+            )
+
+    with httpx.Client(base_url=origin, timeout=30, follow_redirects=False) as client:
+        try:
+            public = request(client, "GET", "/api/products")
+            if public.status_code == 200:
+                completed.append("anonymous-catalog-read")
+            else:
+                failures.append(
+                    {
+                        "workflow": "anonymous-catalog-read",
+                        "stage": "read",
+                        "status": public.status_code,
+                    }
+                )
+            customer = by_role["customer"]
+            authenticated_read(
+                client,
+                "customer-account-read",
+                customer["email"],
+                customer["password"],
+                "/api/me",
+            )
+            seller = by_role["seller_staff"]
+            authenticated_read(
+                client,
+                "seller-catalog-read",
+                seller["email"],
+                seller["password"],
+                "/api/seller/products",
+            )
+            support = by_role["support_staff"]
+            authenticated_read(
+                client,
+                "support-inquiry-read",
+                support["email"],
+                support["password"],
+                "/api/support/guest-inquiries",
+            )
+            authenticated_read(
+                client,
+                "administrator-metrics-read",
+                "admin@ruby.local",
+                SEED_ADMIN_PASSWORD,
+                "/api/operations/metrics",
+            )
+        except (httpx.HTTPError, KeyError, ValueError) as error:
+            failures.append(
+                {"workflow": "probe-runtime", "error_type": type(error).__name__}
+            )
+
+    def concurrent_catalog_read() -> int:
+        with httpx.Client(
+            base_url=origin, timeout=30, follow_redirects=False
+        ) as concurrent_client:
+            return concurrent_client.get("/api/products").status_code
+
+    concurrent_statuses: list[int] = []
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            concurrent_statuses = list(pool.map(lambda _: concurrent_catalog_read(), range(4)))
+        statuses.extend(concurrent_statuses)
+        if concurrent_statuses == [200, 200, 200, 200]:
+            completed.append("limited-concurrent-catalog-read")
+        else:
+            failures.append(
+                {
+                    "workflow": "limited-concurrent-catalog-read",
+                    "stage": "concurrent-read",
+                    "statuses": concurrent_statuses,
+                }
+            )
+    except httpx.HTTPError as error:
+        failures.append(
+            {
+                "workflow": "limited-concurrent-catalog-read",
+                "error_type": type(error).__name__,
+            }
+        )
+
+    expected = 6
+    return {
+        "profile": "ruby-gateway-read-only-v1",
+        "serial_workflows": 5,
+        "concurrent_workflows": 1,
+        "concurrent_requests": len(concurrent_statuses),
+        "expected_workflows": expected,
+        "completed_workflows": completed,
+        "failed_workflows": failures,
+        "http_requests": len(statuses),
+        "statuses": statuses,
+        "all_workflows_completed": len(completed) == expected and not failures,
+    }
 
 
 def _reserve_port() -> int:
@@ -256,6 +396,9 @@ class PreparedRubyTarget:
     initial_state_sha256: str | None = None
     account_namespace_sha256: str | None = None
     victim_browser: object | None = None
+
+    def run_normal_probe(self, origin: str) -> dict[str, object]:
+        return run_ruby_gateway_normal_probe(origin, self.accounts)
 
     def close_victim_browser(self) -> dict[str, object] | None:
         """Stop the victim loop and report what it opened.
@@ -588,7 +731,7 @@ def _prepare_ruby_target(
             trial_id=trial_id,
             module_id=module_id,
             accounts=accounts,
-            secrets=list(generated_secrets),
+            secrets=[*generated_secrets, SEED_ADMIN_PASSWORD],
             normal_traffic=normal,
             predicate_id=predicate_id,
             verifier=verifier,

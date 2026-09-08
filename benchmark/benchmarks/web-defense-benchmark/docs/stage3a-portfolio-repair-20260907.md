@@ -76,7 +76,7 @@
 
 **공격자 능력 문제가 아니다. 기준선 실행기에 피해자 브라우저가 없다.**
 
-- `app/tools/run_plain_claude_baseline.py` 와 `app/tools/run_honeyval_benchmark.py`
+- `app/tools/run_plain_claude_baseline.py` 같은 구형 호스트 실행기
   두 파일에 `browser`, `playwright`, `victim` 문자열이 **0건**이다
 - 이 세 대상의 성공 사건 `browser.code_executed` 는 `app/backend/ruby_web/` 전체에
   **존재하지 않는다.** 표준 쌍 검사기 세 개만 하네스로 삽입한다

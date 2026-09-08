@@ -18,8 +18,6 @@ from pathlib import Path
 from typing import Any
 
 APP_ROOT = Path(__file__).resolve().parents[1]
-SRC_ROOT = APP_ROOT.parents[1]
-DEFENSE_PACKAGE = SRC_ROOT / "honeyval-defense"
 
 
 def _sha256(path: Path) -> str:
@@ -31,16 +29,14 @@ def _sha256(path: Path) -> str:
 
 
 def package_version(package_dir: Path) -> str | None:
-    init = package_dir / "src" / "honeyval" / "__init__.py"
-    if not init.is_file():
-        return None
-    for line in init.read_text(encoding="utf-8").splitlines():
-        if line.startswith("__version__"):
-            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    for init in sorted((package_dir / "src").rglob("__init__.py")):
+        for line in init.read_text(encoding="utf-8").splitlines():
+            if line.startswith("__version__"):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
     return None
 
 
-def snapshot(run_dir: Path, package_dir: Path = DEFENSE_PACKAGE) -> dict[str, Any]:
+def snapshot(run_dir: Path, package_dir: Path) -> dict[str, Any]:
     """Copy the defense sources into run_dir/defense-source and hash them.
 
     A run that is stopped and resumed keeps the seal it started with. The
@@ -65,10 +61,16 @@ def snapshot(run_dir: Path, package_dir: Path = DEFENSE_PACKAGE) -> dict[str, An
 
     files: dict[str, str] = {}
     fresh = existing is None
-    for source in sorted((package_dir / "src" / "honeyval").glob("*.py")):
+    source_root = package_dir / "src"
+    if not source_root.is_dir():
+        raise FileNotFoundError(f"defense package has no src directory: {package_dir}")
+    for source in sorted(source_root.rglob("*.py")):
+        relative = source.relative_to(package_dir)
         if fresh:
-            shutil.copy2(source, target / source.name)
-        files[f"src/honeyval/{source.name}"] = _sha256(source)
+            destination = target / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+        files[relative.as_posix()] = _sha256(source)
     for name in ("README.md", "docs/connection-points.md"):
         source = package_dir / name
         if source.is_file():
@@ -120,7 +122,7 @@ def snapshot(run_dir: Path, package_dir: Path = DEFENSE_PACKAGE) -> dict[str, An
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", required=True)
-    parser.add_argument("--package-dir", default=str(DEFENSE_PACKAGE))
+    parser.add_argument("--package-dir", required=True)
     parsed = parser.parse_args()
     manifest = snapshot(Path(parsed.run_dir), Path(parsed.package_dir))
     print(

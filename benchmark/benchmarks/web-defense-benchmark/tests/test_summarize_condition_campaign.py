@@ -39,6 +39,19 @@ class SummarizeConditionCampaignTests(unittest.TestCase):
             (trials_dir / "trial-setup-error.json").write_text(
                 json.dumps(setup_failure), encoding="utf-8"
             )
+            (trials_dir / "trial-live.running.json").write_text(
+                json.dumps(
+                    {
+                        "target_id": "ruby-web:test-target",
+                        "provider": "claude",
+                        "condition": "undefended",
+                        "status": "running",
+                        "objective_achieved": True,
+                        "attack_seconds": 10.0,
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             report = summarize(run_dir)
 

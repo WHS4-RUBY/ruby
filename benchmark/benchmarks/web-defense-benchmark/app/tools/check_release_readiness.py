@@ -10,6 +10,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from defense_runtime_v1 import validate_defense_registry
 from run_all_pair_checks import CHECKERS
 
 
@@ -18,7 +19,13 @@ APP_ROOT = PROJECT_ROOT / "app"
 CATALOG_PATH = APP_ROOT / "configs" / "stage3-vulnerability-module-catalog-v1.json"
 REGISTRY_PATH = APP_ROOT / "configs" / "stage3a-autonomous-target-registry-v2.json"
 ISOLATION_PATH = PROJECT_ROOT / "evidence" / "20260908" / "runtime-isolation-gate.json"
-DEFENSE_PATH = PROJECT_ROOT / "evidence" / "20260908" / "generic-defense-attachment.json"
+DEFENSE_PATH = PROJECT_ROOT / "evidence" / "20260908" / "static-guard-sql-pair.json"
+DEFENSE_REGISTRY_PATH = (
+    APP_ROOT / "configs" / "stage3a-defense-runtime-registry-v2.json"
+)
+DEFENSE_REGISTRY_SCHEMA_PATH = (
+    PROJECT_ROOT / "contracts" / "defense-runtime-registry.schema.json"
+)
 RUBY_CHECKERS = tuple(item for item in CHECKERS if item[0].startswith("ruby-"))
 CVE_CHECKERS = tuple(item for item in CHECKERS if item[0].startswith("cve-"))
 PAIR_REPORT_GLOB = "*report.json"
@@ -183,14 +190,13 @@ def pytest_result() -> dict[str, object]:
     match = re.search(r"(?P<passed>\d+) passed(?:, (?P<warnings>\d+) warnings)?", output)
     subtests = re.search(r"(?P<subtests>\d+) subtests passed", output)
     return {
-        "command": f"{sys.executable} -m pytest -q",
+        "command": "python -m pytest -q",
         "returncode": completed.returncode,
         "passed_tests": int(match.group("passed")) if match else None,
         "warnings": int(match.group("warnings") or 0) if match else None,
         "passed_subtests": int(subtests.group("subtests")) if subtests else 0,
         "summary_found": match is not None,
         "passed": completed.returncode == 0 and match is not None,
-        "output_tail": output.strip()[-2000:],
     }
 
 
@@ -237,32 +243,106 @@ def check_isolation(registry_cves: set[str], path: Path) -> dict[str, object]:
     }
 
 
-def check_defense_attachment(path: Path) -> dict[str, object]:
+def docker_managed_resources() -> tuple[list[str], list[str]]:
+    containers = subprocess.run(
+        ["docker", "ps", "-aq", "--filter", "label=ruby.benchmark.managed=true"],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+    ).stdout.splitlines()
+    networks = subprocess.run(
+        [
+            "docker",
+            "network",
+            "ls",
+            "-q",
+            "--filter",
+            "label=ruby.benchmark.managed=true",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+    ).stdout.splitlines()
+    return containers, networks
+
+
+def check_defense_attachment(
+    path: Path, registry_path: Path, regression_passed: bool
+) -> dict[str, object]:
     report = load_json(path)
-    replaceability = report.get("replaceability", {})
-    pair = report.get("managed_static_guard_pair", {})
-    cleanup = report.get("cleanup", {})
+    rows = report.get("results", [])
+    if not isinstance(rows, list):
+        rows = []
+    undefended = next(
+        (
+            item
+            for item in rows
+            if isinstance(item, dict) and item.get("condition") == "undefended"
+        ),
+        {},
+    )
+    defended = next(
+        (
+            item
+            for item in rows
+            if isinstance(item, dict) and item.get("condition") == "static-guard"
+        ),
+        {},
+    )
+    validated_registry = validate_defense_registry(registry_path)
+    schema = load_json(DEFENSE_REGISTRY_SCHEMA_PATH)
+    definitions = schema.get("$defs", {})
+    supports_external = isinstance(definitions, dict) and "externalHttp" in definitions
+    supports_managed = isinstance(definitions, dict) and "managedContainer" in definitions
+    defense_metrics = defended.get("defense_metrics", {}) if isinstance(defended, dict) else {}
+    normal_probe = (
+        defended.get("normal_traffic_through_gateway", {})
+        if isinstance(defended, dict)
+        else {}
+    )
+    normal_metrics = (
+        defended.get("normal_traffic_defense", {})
+        if isinstance(defended, dict)
+        else {}
+    )
+    containers, networks = docker_managed_resources()
     checks = {
-        "overall_passed": report.get("verdict") == "PASS",
-        "source_independent_registration": isinstance(replaceability, dict)
-        and replaceability.get("custom_external_adapter_registered_without_runner_source_change") is True,
-        "identity_and_reset_checked": isinstance(replaceability, dict)
-        and replaceability.get("identity_mismatch_rejected") is True
-        and replaceability.get("reset_before_each_trial") is True,
-        "normal_request_preserved": isinstance(pair, dict)
-        and isinstance(pair.get("defended"), dict)
-        and pair["defended"].get("normal_status") == 200,
-        "reference_attack_blocked": isinstance(pair, dict)
-        and isinstance(pair.get("defended"), dict)
-        and pair["defended"].get("attack_status") == 403
-        and pair["defended"].get("private_objective_achieved") is False,
-        "runtime_cleaned": isinstance(cleanup, dict)
-        and cleanup.get("managed_containers_remaining") == 0
-        and cleanup.get("managed_networks_remaining") == 0,
+        "current_registry_valid": validated_registry.get("registry_digest")
+        == sha256(registry_path),
+        "managed_and_external_drivers_supported": supports_external
+        and supports_managed
+        and regression_passed,
+        "undefended_reference_attack_reproduced": undefended.get("attack_status")
+        == 200
+        and undefended.get("private_objective_achieved") is True,
+        "normal_request_preserved": defended.get("normal_status") == 200
+        and isinstance(normal_probe, dict)
+        and normal_probe.get("all_workflows_completed") is True
+        and int(normal_metrics.get("blocked_requests") or 0) == 0
+        and int(normal_metrics.get("defense_errors") or 0) == 0,
+        "reference_attack_blocked": defended.get("attack_status") == 403
+        and defended.get("private_objective_achieved") is False,
+        "pair_uses_current_registry": isinstance(defense_metrics, dict)
+        and defense_metrics.get("defense_registry_digest")
+        == validated_registry.get("registry_digest"),
+        "managed_runtime_used": isinstance(defense_metrics, dict)
+        and defense_metrics.get("defense_runtime_driver") == "managed-container",
+        "runtime_cleaned": not containers and not networks,
     }
     return {
         "report": path.relative_to(PROJECT_ROOT).as_posix(),
         "sha256": sha256(path),
+        "registry": registry_path.relative_to(PROJECT_ROOT).as_posix(),
+        "registry_sha256": sha256(registry_path),
+        "supported_drivers": ["managed-container", "external-http"],
+        "remaining_managed_containers": containers,
+        "remaining_managed_networks": networks,
         "checks": checks,
         "passed": all(checks.values()),
     }
@@ -275,6 +355,8 @@ def check_documentation() -> dict[str, object]:
         PROJECT_ROOT / "docs" / "defense-integration.md",
         PROJECT_ROOT / "docs" / "runtime-isolation-gate-20260908.md",
         PROJECT_ROOT / "docs" / "benchmark-audit-20260908.md",
+        PROJECT_ROOT / "docs" / "statistical-evaluation-readiness-20260908.md",
+        PROJECT_ROOT / "docs" / "holdout-and-independent-review.md",
     )
     readme = required[0].read_text(encoding="utf-8") if required[0].is_file() else ""
     checks = {
@@ -287,7 +369,11 @@ def check_documentation() -> dict[str, object]:
         "defense_registration_documented": "defense-integration.md" in readme
         and "defense.ps1" in readme
         and "defense.sh" in readme,
-        "honeyval_not_claimed_complete": "Honeyval 방어는 개발 중" in readme,
+        "incomplete_defense_excluded": "미완성 방어 컴포넌트" in readme,
+        "statistical_evaluation_documented": "statistical-evaluation-readiness-20260908.md"
+        in readme,
+        "holdout_and_review_documented": "holdout-and-independent-review.md"
+        in readme,
     }
     return {
         "files": [path.relative_to(PROJECT_ROOT).as_posix() for path in required],
@@ -372,12 +458,14 @@ def main() -> int:
     isolation_path = args.isolation_report.resolve()
     defense_path = args.defense_report.resolve()
     isolation = check_isolation(registry_cves, isolation_path)
-    defense = check_defense_attachment(defense_path)
     documentation = check_documentation()
     tests = (
         {"skipped": True, "passed": False}
         if args.skip_tests
         else pytest_result()
+    )
+    defense = check_defense_attachment(
+        defense_path, DEFENSE_REGISTRY_PATH, tests["passed"] is True
     )
     checks = {
         "catalog_and_registry": all(catalog_checks.values()),
@@ -398,7 +486,7 @@ def main() -> int:
             "ruby_web_modules": len(catalog_ids),
             "original_cve_targets": len(registry_cves),
             "total_targets": len(catalog_ids) + len(registry_cves),
-            "honeyval_efficacy_in_scope": False,
+            "defense_efficacy_in_scope": False,
         },
         "verdict": "PASS" if all(checks.values()) else "FAIL",
         "checks": checks,
@@ -417,7 +505,7 @@ def main() -> int:
         "limitations": [
             "Pair checks prove the intended vulnerable and secure behaviors; they do not estimate autonomous attacker success rates.",
             "The 29 RUBY modules are synthetic or derived and do not represent the prevalence of vulnerabilities on the public web.",
-            "Honeyval efficacy is excluded because the defense is incomplete and was excluded from this release decision.",
+            "Defense efficacy is excluded because no confirmatory autonomous-attack campaign or independent review is included in this release decision.",
         ],
     }
     output.parent.mkdir(parents=True, exist_ok=True)

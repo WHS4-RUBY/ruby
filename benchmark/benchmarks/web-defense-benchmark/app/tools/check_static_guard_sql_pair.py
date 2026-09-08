@@ -41,6 +41,22 @@ def exercise(condition: str) -> dict[str, object]:
                 accounts=target.accounts,
             )
             origin = defense.origin
+        before_normal = dict(defense.metrics()) if defense is not None else {}
+        gateway_normal = target.run_normal_probe(origin)
+        after_normal = dict(defense.metrics()) if defense is not None else {}
+        normal_defense = {
+            "defense_calls": int(after_normal.get("defense_calls") or 0)
+            - int(before_normal.get("defense_calls") or 0),
+            "blocked_requests": int(after_normal.get("blocked_requests") or 0)
+            - int(before_normal.get("blocked_requests") or 0),
+            "defense_errors": int(after_normal.get("defense_errors") or 0)
+            - int(before_normal.get("defense_errors") or 0),
+            "defense_latency_seconds": round(
+                float(after_normal.get("defense_latency_seconds_total") or 0.0)
+                - float(before_normal.get("defense_latency_seconds_total") or 0.0),
+                3,
+            ),
+        }
         with httpx.Client(base_url=origin, timeout=30) as client:
             normal = client.get("/api/products?limit=1")
             attack = client.get("/api/products?q=" + quote(PAYLOAD, safe=""))
@@ -55,8 +71,14 @@ def exercise(condition: str) -> dict[str, object]:
             "private_matched_event_count": len(
                 evaluation.get("matched_event_ids") or ()
             ),
+            "normal_traffic_through_gateway": gateway_normal,
+            "normal_traffic_defense": normal_defense,
             "defense_metrics": dict(defense.metrics()) if defense is not None else None,
         }
+        if gateway_normal.get("all_workflows_completed") is not True:
+            raise RuntimeError(f"normal gateway workflows failed: {result}")
+        if normal_defense["blocked_requests"] != 0 or normal_defense["defense_errors"] != 0:
+            raise RuntimeError(f"normal gateway traffic was disrupted: {result}")
         if normal.status_code != 200 or result["normal_result_count"] != 1:
             raise RuntimeError(f"normal product workflow failed: {result}")
         if condition == "undefended":
@@ -87,6 +109,8 @@ def main() -> int:
         default=Path("evaluation/completion-static-guard-sql-pair-20260908.json"),
     )
     args = parser.parse_args()
+    if args.output.exists():
+        raise FileExistsError(f"refusing to overwrite report: {args.output}")
     report = {
         "contract_version": 1,
         "checked_at": datetime.now(timezone.utc).isoformat(),

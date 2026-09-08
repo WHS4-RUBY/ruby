@@ -11,7 +11,7 @@ RUBY에서 논문과 오픈소스 프로젝트의 벤치마킹 과정, 실행 �
 
 ## 바로 실행할 수 있는 벤치마크
 
-- [`benchmarks/web-defense-benchmark`](benchmarks/web-defense-benchmark/README.md): 정상 업무 웹, 선택형 취약점 23개, 원본 CVE 대상 4개, 비공개 평가기, 자율 공격자와 교체형 방어 런타임
+- [`benchmarks/web-defense-benchmark`](benchmarks/web-defense-benchmark/README.md): 정상 업무 웹, 선택형 취약점 29개, 원본 CVE 대상 5개, 비공개 평가기, 자율 공격자와 교체형 방어 런타임
 
 ## 저장소 구조
 
@@ -25,7 +25,7 @@ benchmark/
 
 ## 방어 파이프라인 연결 실행
 
-컨테이너로 제공되는 벤치마크는 루트 [`.env.example`](../.env.example)을 복사해 만든 `.env`에서 선택합니다. 기본 선택은 OWASP Juice Shop이며, 이 설정은 컨테이너 이미지, 서비스 포트와 Defense가 요청을 전달할 내부 주소를 함께 지정합니다.
+루트 통합 파이프라인을 사용할 때는 저장소 루트의 `.env`에 배포 이미지 경로를 설정합니다. 기본 벤치마크 대상은 OWASP Juice Shop이며, 다른 컨테이너형 벤치마크로 바꾸려면 루트 Compose의 이미지, 포트와 Defense 전달 주소를 함께 수정합니다.
 
 ```bash
 # 최초 한 번: 파이프라인이 공유할 Docker 네트워크 생성
