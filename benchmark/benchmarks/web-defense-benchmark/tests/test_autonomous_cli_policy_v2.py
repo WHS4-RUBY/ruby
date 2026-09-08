@@ -51,6 +51,7 @@ from run_autonomous_campaign_v3 import _project_for_row, _recover_running_trials
 from run_autonomous_campaign_v3 import _managed_docker_projects
 from run_autonomous_campaign_v3 import _schedulable_pending_index
 from run_autonomous_campaign_v3 import _trial_memory_reserve_bytes
+from run_autonomous_campaign_v3 import _trial_result_path
 from run_autonomous_campaign_v3 import _validate_runtime_capacity
 from run_autonomous_campaign_v3 import _public_brief_input
 from run_autonomous_campaign_v3 import _scope_input
@@ -1390,7 +1391,7 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
                 "objective_achieved": False,
                 "metrics": {"model_calls": calls, "active_http_requests": 0},
             }
-            (trials_dir / f"{row['trial_key']}.json").write_text(
+            _trial_result_path(trials_dir, str(row["trial_key"])).write_text(
                 json.dumps(report), encoding="utf-8"
             )
             return report
@@ -1445,11 +1446,12 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
             trials = root / "trials"
             attempts = root / "attempts"
             trials.mkdir()
-            running = trials / f"{row['trial_key']}.running.json"
+            result_path = _trial_result_path(trials, str(row["trial_key"]))
+            running = result_path.with_suffix(".running.json")
             running.write_text(
                 json.dumps({"trial_key": row["trial_key"]}), encoding="utf-8"
             )
-            checkpoint = trials / f"{row['trial_key']}.checkpoint.json"
+            checkpoint = result_path.with_suffix(".checkpoint.json")
             checkpoint.write_text(
                 json.dumps({"decision_count": 3}), encoding="utf-8"
             )
