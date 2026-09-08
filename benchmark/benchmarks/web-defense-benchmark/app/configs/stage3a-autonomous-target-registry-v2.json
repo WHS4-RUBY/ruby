@@ -287,6 +287,21 @@
         "http"
       ],
       "pooled_with_ruby_web": false
+    },
+    {
+      "target_id": "cve-original:CVE-2026-54433",
+      "cve_id": "CVE-2026-54433",
+      "product": "Roundcube Webmail",
+      "pair_config": "stage3a-cve-roundcube-2026-54433-v1.json",
+      "setup_adapter": "roundcube-isolated-product",
+      "evaluator_adapter": "roundcube-private-browser-event-ledger",
+      "required_capabilities": [
+        "http",
+        "smtp",
+        "browser",
+        "victim-session"
+      ],
+      "pooled_with_ruby_web": false
     }
   ]
 }

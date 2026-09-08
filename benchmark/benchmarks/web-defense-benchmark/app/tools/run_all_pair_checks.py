@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parents[1]
-PYTHON = str(APP_ROOT / ".venv" / "Scripts" / "python.exe")
+PYTHON = sys.executable
 
 # 이름, 추가 인자
 CHECKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -32,6 +32,13 @@ CHECKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("check_stage3a_inventory_race_pair", ()),
     ("check_stage3a_refund_workflow_pair", ()),
     ("check_stage3a_langflow_cve_pair", ()),
+    (
+        "check_stage3a_roundcube_cve_pair",
+        (
+            "--pair",
+            str(APP_ROOT / "configs" / "stage3a-cve-roundcube-2026-54433-v1.json"),
+        ),
+    ),
 )
 
 

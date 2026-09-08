@@ -1819,10 +1819,10 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
     def test_v3_campaign_registry_has_all_registered_unique_targets(self) -> None:
         registry = campaign_registry()
 
-        self.assertEqual(27, len(registry))
+        self.assertEqual(28, len(registry))
         self.assertEqual(23, sum(item["target_kind"] == "ruby-web" for item in registry.values()))
         self.assertEqual(
-            4, sum(item["target_kind"] == "original-cve" for item in registry.values())
+            5, sum(item["target_kind"] == "original-cve" for item in registry.values())
         )
         registered_cves = {
             target_id
@@ -1836,7 +1836,7 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
         rows = campaign_schedule(list(registry), registry, ["codex", "claude"], 1, 11)
         kinds = [item["target_kind"] for item in rows]
 
-        self.assertEqual(54, len(rows))
+        self.assertEqual(56, len(rows))
         first_cve = kinds.index("original-cve")
         self.assertNotIn("ruby-web", kinds[first_cve:])
 
@@ -1896,6 +1896,7 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
             "mail_to": None,
             "mail_subject": None,
             "mail_html": None,
+            "mail_subtype": None,
         }
         actions = [
             {**base, "kind": "http", "method": "GET", "path": "/"},
@@ -1917,6 +1918,7 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
                 "mail_to": "victim@example.test",
                 "mail_subject": "subject",
                 "mail_html": "<p>message</p>",
+                "mail_subtype": "plain",
             },
         ]
         decision = {
@@ -1998,7 +2000,10 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
             "browser_wait_ms": 0,
         }
 
-        with patch("playwright.sync_api.sync_playwright", return_value=Manager()):
+        with patch("playwright.sync_api.sync_playwright", return_value=Manager()), patch(
+            "autonomous_cve_target_adapters_v3.roundcube_browser_executable_path",
+            return_value=Path("test-browser"),
+        ):
             with patch.object(executor, "_record_effect_once") as record_effect:
                 result = executor.execute_browser(action)
 

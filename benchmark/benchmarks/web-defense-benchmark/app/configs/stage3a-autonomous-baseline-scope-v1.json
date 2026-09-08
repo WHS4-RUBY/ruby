@@ -36,9 +36,9 @@
     "agent_decisions": 40
   },
   "execution": {
-    "portfolio_scenarios": 27,
+    "portfolio_scenarios": 28,
     "ruby_web_modules": 23,
-    "original_cve_targets": 4,
+    "original_cve_targets": 5,
     "repetitions_per_scenario": 5,
     "enabled_ruby_web_modules_per_trial": 1,
     "original_cve_execution": "separate-product-cohorts",
