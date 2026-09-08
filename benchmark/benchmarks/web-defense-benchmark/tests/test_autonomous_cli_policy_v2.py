@@ -1432,7 +1432,10 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
 
     def test_v3_abandoned_trial_recovery_targets_only_derived_project(self) -> None:
         row = {
-            "trial_key": "0000-codex-ruby-target-r1",
+            "trial_key": (
+                "0003-codex-ruby-web-sql-injection-product-search-"
+                "with-an-extra-long-recovery-identifier-r4"
+            ),
             "target_id": "ruby-web:target",
             "target_kind": "ruby-web",
         }
@@ -1468,6 +1471,8 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
         self.assertRegex(expected, r"^ruby-autonomous-[a-f0-9]{32}$")
         self.assertEqual(1, len(archived))
         self.assertEqual(1, len(archived_checkpoints))
+        self.assertLess(len(archived[0].name), 80)
+        self.assertLess(len(archived_checkpoints[0].name), 80)
         self.assertEqual(3, archived_decision_count)
         self.assertFalse(running.exists())
         self.assertFalse(checkpoint.exists())

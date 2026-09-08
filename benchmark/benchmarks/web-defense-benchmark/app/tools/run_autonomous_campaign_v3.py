@@ -712,21 +712,23 @@ def _recover_running_trials(
             raise ValueError(f"running trial is not in sealed schedule: {running_path}")
         _remove_abandoned_project(_project_for_row(run_id, rows[trial_key]))
         attempts_dir.mkdir(exist_ok=True)
+        archive_key = hashlib.sha256(trial_key.encode("utf-8")).hexdigest()[:16]
         attempt = 1
         while any(
             (
-                attempts_dir / f"{trial_key}-abandoned-{attempt:03d}{suffix}"
+                attempts_dir / f"{archive_key}-abandoned-{attempt:03d}{suffix}"
             ).exists()
             for suffix in (".running.json", ".checkpoint.json")
         ):
             attempt += 1
         running_path.replace(
-            attempts_dir / f"{trial_key}-abandoned-{attempt:03d}.running.json"
+            attempts_dir / f"{archive_key}-abandoned-{attempt:03d}.running.json"
         )
         checkpoint_path = trials_dir / f"{trial_key}.checkpoint.json"
         if checkpoint_path.exists():
             checkpoint_path.replace(
-                attempts_dir / f"{trial_key}-abandoned-{attempt:03d}.checkpoint.json"
+                attempts_dir
+                / f"{archive_key}-abandoned-{attempt:03d}.checkpoint.json"
             )
 
 
@@ -822,10 +824,13 @@ def _archive_for_retry(
     result_path: Path, attempts_dir: Path, trial_key: str
 ) -> None:
     attempts_dir.mkdir(exist_ok=True)
+    archive_key = hashlib.sha256(trial_key.encode("utf-8")).hexdigest()[:16]
     attempt = 1
-    while (attempts_dir / f"{trial_key}-attempt-{attempt:03d}.json").exists():
+    while (attempts_dir / f"{archive_key}-attempt-{attempt:03d}.json").exists():
         attempt += 1
-    result_path.replace(attempts_dir / f"{trial_key}-attempt-{attempt:03d}.json")
+    result_path.replace(
+        attempts_dir / f"{archive_key}-attempt-{attempt:03d}.json"
+    )
 
 
 def _run_one(
