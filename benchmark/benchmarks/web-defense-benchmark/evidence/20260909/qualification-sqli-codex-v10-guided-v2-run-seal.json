@@ -1,0 +1,123 @@
+{
+  "cli_versions": {
+    "codex": "codex-cli 0.153.2"
+  },
+  "conditions": [
+    "undefended"
+  ],
+  "defense_registry": "configs/stage3a-defense-runtime-registry-v2.json",
+  "knowledge_condition": "guided",
+  "limits": {
+    "active_http_requests": 100,
+    "agent_decisions": 40,
+    "campaign_model_calls": 225,
+    "model_calls_per_trial": 45,
+    "wall_clock_seconds": 1800
+  },
+  "maximum_parallel_trials": 3,
+  "parallel_policy": "isolated target-weighted memory reservations, provider concurrency at most 4, total at most max_parallel",
+  "providers": [
+    "codex"
+  ],
+  "public_brief": "configs/public-briefs/sql-product-catalog-guided-v1.json",
+  "reasoning_effort": "medium",
+  "repetitions": 5,
+  "ruby_image_ids": {
+    "ruby-web-defense-benchmark-api:latest": {
+      "id": "sha256:63cd3bf1ea32e4c564940be16073704bc3a9aff28ae7a361e496c1ebf8f3aecc",
+      "repo_digests": [
+        "ruby-web-defense-benchmark-api@sha256:63cd3bf1ea32e4c564940be16073704bc3a9aff28ae7a361e496c1ebf8f3aecc"
+      ]
+    },
+    "ruby-web-defense-benchmark-evaluator:latest": {
+      "id": "sha256:10a40a54a14bc2dbe69ebd3417da77197cb3442e76e19f0e7ce5e42cc4aeaa7f",
+      "repo_digests": [
+        "ruby-web-defense-benchmark-evaluator@sha256:10a40a54a14bc2dbe69ebd3417da77197cb3442e76e19f0e7ce5e42cc4aeaa7f"
+      ]
+    },
+    "ruby-web-defense-benchmark-mock-integration:latest": {
+      "id": "sha256:511277db4b98a74025d2ca3447997f76b7767bd30e4f9e4fd11fba107d4fcf79",
+      "repo_digests": [
+        "ruby-web-defense-benchmark-mock-integration@sha256:511277db4b98a74025d2ca3447997f76b7767bd30e4f9e4fd11fba107d4fcf79"
+      ]
+    },
+    "ruby-web-defense-benchmark-object-store:latest": {
+      "id": "sha256:e02ad68358be5932be9c0da9bc7a216be650814e7ade786a6dd135fe60cf53b1",
+      "repo_digests": [
+        "ruby-web-defense-benchmark-object-store@sha256:e02ad68358be5932be9c0da9bc7a216be650814e7ade786a6dd135fe60cf53b1"
+      ]
+    },
+    "ruby-web-defense-benchmark-postgres:latest": {
+      "id": "sha256:600c29ef71a65dc11702586df12c85488864ab1ef4ec42d414c2d927f4c59572",
+      "repo_digests": [
+        "ruby-web-defense-benchmark-postgres@sha256:600c29ef71a65dc11702586df12c85488864ab1ef4ec42d414c2d927f4c59572"
+      ]
+    },
+    "ruby-web-defense-benchmark-redis:latest": {
+      "id": "sha256:62d9a41baec0e522615ed3f5aba0891691a6926545761694e84663710959fdd5",
+      "repo_digests": [
+        "ruby-web-defense-benchmark-redis@sha256:62d9a41baec0e522615ed3f5aba0891691a6926545761694e84663710959fdd5"
+      ]
+    },
+    "ruby-web-defense-benchmark-web:latest": {
+      "id": "sha256:8b0c6dde91ddfa8e60a062c44cecc5dc4b0c9cce551cfa586ea629ae32c462b7",
+      "repo_digests": [
+        "ruby-web-defense-benchmark-web@sha256:8b0c6dde91ddfa8e60a062c44cecc5dc4b0c9cce551cfa586ea629ae32c462b7"
+      ]
+    },
+    "ruby-web-defense-benchmark-worker:latest": {
+      "id": "sha256:7333132aa3e6b24ffb92a374f375dea87a827d53379d400b6d32a9e6c51c967e",
+      "repo_digests": [
+        "ruby-web-defense-benchmark-worker@sha256:7333132aa3e6b24ffb92a374f375dea87a827d53379d400b6d32a9e6c51c967e"
+      ]
+    }
+  },
+  "run_id": "qualification-sqli-codex-v10-guided-v2-final-20260909-031000",
+  "schedule_seed": 8313028,
+  "scope": "configs/stage3a-autonomous-guided-sqli-scope-v1.json",
+  "seal_version": 1,
+  "sealed_inputs": {
+    "../ATTACKER.md": "f9009d284851171eb6b728ecb2e2a00e78c07fe7b5b0e09df97f82a33c49922f",
+    "../contracts/attachment-lifecycle.schema.json": "b23bd1cfa440600ae50d6ff8da07109cee8f29d345319186a876907d78ebe017",
+    "../contracts/defense-adapter.openapi.yaml": "00e24681f0f7d187a77708c4d846256db4f3f9930bc8123d8d3b6220a9eed4f7",
+    "../contracts/defense-capability.schema.json": "7fcd952c65d839608477da02949a21487aaf26cb111297028038da9360c945b7",
+    "../contracts/defense-runtime-registry.schema.json": "391f2e84ed195f7cc9b4601d90795c0f37d2cde5d8bc76ecc052b1c4519df76f",
+    "compose.yaml": "a8c5af0f0216bf22db786b9702328d00c12ae41faf5711042d8268e94518e7e8",
+    "configs/public-briefs/sql-product-catalog-guided-v1.json": "31eff666983d6f1ac31db0fbfac38dc8923db2c2a955ac5cbdb30960b9ae7fe0",
+    "configs/stage3-cve-jenkins-2024-23897-v1.json": "4ce405f6d42ee701c06709153f3fb079cb808415c86f658c5557184c313dd284",
+    "configs/stage3-vulnerability-module-catalog-v1.json": "de7c28cda183471f48658168bef7b0973905120b1de3b4631a9e63d5317541da",
+    "configs/stage3a-attacker-action-v2.schema.json": "a671c27fe167135ce68ede27f881f5b60c1bcdf1f578bc443c57c7b31621949d",
+    "configs/stage3a-autonomous-guided-sqli-scope-v1.json": "da89409e49296d814903172da14ad1aca57ad358594267b8ad9b8037b8290d66",
+    "configs/stage3a-autonomous-target-registry-v2.json": "082db0bb191c99d4aa8db111943292d7ed16047ee447866c045fdf3aa5043210",
+    "configs/stage3a-autonomous-web-attacker-profile-v10.json": "8068ccb4fafd62c5cab20e7fd6e85086ee4de2938ed7d2bf9fc05c0eefe69ac6",
+    "configs/stage3a-cve-geoserver-2024-36401-v1.json": "c9645a7d5889d85aa3173ea514ae90d2b1de7f31103f506ae4a82fd871321476",
+    "configs/stage3a-cve-http-relay-v1.json": "b315dbbb62078673d6cab630d7a8e9bf83541b091e75b5e0a3a36414cc8c08b5",
+    "configs/stage3a-cve-langflow-2025-3248-v1.json": "e73e7cd2a3fdd4ff9924d56a817a3b2756cdd1bc464b6f8c03a57fd4e5a2ae75",
+    "configs/stage3a-cve-roundcube-2024-42009-v1.json": "a4c9340b2317908b4cc6cd26ce534c0128461c957ff00ec6a37e3c881c3bef9e",
+    "configs/stage3a-cve-roundcube-2026-54433-v1.json": "a64ab7211ecd2fcd74d3346d4e9f334fa03b1a9008102ecdddc776807de5433e",
+    "configs/stage3a-defense-runtime-registry-v2.json": "83e859b3377f49063c092a373ec623ca52ee8c238cf78c9bb4a80fa16fc0dbd2",
+    "configs/stage3a-normal-traffic-v1.json": "7d6ce9d61292e75d4a1e41752d57e9ca49ebe0112767c22723811ed193cbc752",
+    "configs/stage3a-original-cve-action-v1.schema.json": "fd42a75cafb0e57acbaff69aebb83ffb6c75d67bea957f178688cdbf2d350de2",
+    "cve-geoserver/compose.yaml": "5476175428f327417020738491bc69123699e4bdb9dddf806a1691361ca98684",
+    "cve-http-relay.nginx.conf": "d154d72cdc3bc287eb924fa1b459f4a105324215ce5ab809cf85a246f3c6d488",
+    "cve-jenkins/compose.yaml": "e2ea4403b62550cb5444f51d7039b691020f5da8f4187b3a34876965ef88bcf7",
+    "cve-langflow-relay.nginx.conf": "d4d88d3e84957449c9f1f09950eb2dbf9acfe47e34575394a6791e47d6c68133",
+    "cve-langflow/compose.yaml": "b811ace4cb1193b224eff8dee3de977074915aa71285fa5ad11debe27e79385b",
+    "cve-roundcube/compose.yaml": "c119e1efe053cf7488685ae8c66027c1ed878c91748d104da16c9e9a3143381d",
+    "defense-control-relay/Dockerfile": "7560a450537fcee0ea85d60bbb1db6573d2694ef068e95e9e2278bb5a3a95fb8",
+    "defense-control-relay/relay.py": "291df369dd701e44eb748feaeb4fc0d7064cb379f1d29d83129698acad95dbd0",
+    "tools/attacker_strategy_v11.py": "d4ae54efb52a6123676e125f9496b698497af1d4db8e99948eb6e4938390d670",
+    "tools/autonomous_cli_policy_v2.py": "d70b7e37d4e8496e933a656cd8ac863193aac872e088fa8573d9955e3749933c",
+    "tools/autonomous_cve_target_adapters_v3.py": "65d0bef7a18f18c6787f5cc51d0b090ff9fbe86b0616400e2bb89302678f619f",
+    "tools/autonomous_experiment_v2.py": "a7172e068c9cdad67a4e069cf2deaec02c5d57ba4c78f50490cbd8908fc15c09",
+    "tools/autonomous_target_adapters_v2.py": "d193413ddbf8e23c6e770d7f66832434fae347d8af9eb881fab16cd930f009c5",
+    "tools/autonomous_trial_v2.py": "661c17ecf2f1b8bb0e228cfa8879a436f9aa164e7ddcda6070ab7d33d90f25e8",
+    "tools/defense_runtime_v1.py": "63e32c92187ae038f52097356ab7c517c93020097c45ad94b10b2b23808cd79a",
+    "tools/inline_defense_gateway_v2.py": "1b11b0b84f8c453cc95e206b4447939b315d6c7aee8db460ab06d1320227961d",
+    "tools/run_autonomous_campaign_v3.py": "458b6e4cd0c7bad266ed0787c0c3492234960cdc4ee6975d1c8735d9232cd5e2",
+    "tools/victim_browser.py": "d4fa706a350f19e59fe7bb82d22ceae303d65afb4390458a0b19ff6253d80502"
+  },
+  "targets": [
+    "ruby-web:sql-injection.product-search"
+  ]
+}
