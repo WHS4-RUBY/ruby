@@ -1,1 +1,2 @@
 * text=auto eol=lf
+evidence/20260909/*guided*.json -text whitespace=cr-at-eol
