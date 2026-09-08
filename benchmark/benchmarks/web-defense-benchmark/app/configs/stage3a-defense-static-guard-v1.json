@@ -1,11 +1,11 @@
 {
   "contract_version": 2,
   "defense_id": "ruby-static-request-guard",
-  "defense_version": "2.0.0",
+  "defense_version": "3.0.0",
   "source": {
     "repository_url": "https://github.com/WHS4-RUBY/ruby",
     "revision": "workspace-20260909",
-    "source_digest": "sha256:bc812da5fc08326070c12033dc3d46df64235060f6b38528d8be5fec9c9428db",
+    "source_digest": "sha256:a2583133cb09c88dc50d01b64962b73e58397059aaba7c6ae1db23420b80a96e",
     "license": "Project-internal",
     "paper": null
   },

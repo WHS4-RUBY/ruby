@@ -6,7 +6,7 @@
       "path_scope": "benchmark",
       "manifest_path": "app/configs/stage3a-defense-static-guard-v1.json",
       "lifecycle_path": "app/configs/stage3a-inline-defense-lifecycle-v1.json",
-      "image": "ruby-static-request-guard:2.0.0",
+      "image": "ruby-static-request-guard:3.0.0",
       "control_port": 8081,
       "secret_env_names": [],
       "resource_limits": {

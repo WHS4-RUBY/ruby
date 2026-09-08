@@ -29,6 +29,8 @@ def _sql_injection_in_query(path: str) -> bool:
         value = _decode_repeated(raw_value).lower()
         if "'" not in value:
             continue
+        if value.count("'") >= 2:
+            return True
         suffix = value.split("'", 1)[1]
         without_block_comments = re.sub(r"/\*.*?\*/", "", suffix)
         lexical = re.sub(r"[^a-z0-9_]+", "", without_block_comments)
@@ -47,6 +49,18 @@ def _sql_injection_in_query(path: str) -> bool:
                 "alter",
                 "copy",
                 "orderby",
+                "is",
+                "in",
+                "like",
+                "between",
+                "exists",
+                "case",
+                "when",
+                "cast",
+                "coalesce",
+                "null",
+                "true",
+                "false",
                 "query_to_xml",
                 "set_config",
             )

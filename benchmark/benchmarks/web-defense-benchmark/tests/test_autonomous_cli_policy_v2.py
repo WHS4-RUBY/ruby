@@ -1455,7 +1455,11 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
             checkpoint.write_text(
                 json.dumps({"decision_count": 3}), encoding="utf-8"
             )
-            with patch("run_autonomous_campaign_v3._remove_abandoned_project") as cleanup:
+            with patch(
+                "run_autonomous_campaign_v3.cleanup_managed_defense_resources"
+            ) as defense_cleanup, patch(
+                "run_autonomous_campaign_v3._remove_abandoned_project"
+            ) as cleanup:
                 _recover_running_trials(
                     run_id="recovery-run",
                     schedule=[row],
@@ -1469,6 +1473,9 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
                 archived_checkpoints[0].read_text(encoding="utf-8")
             )["decision_count"]
 
+        defense_cleanup.assert_called_once_with(
+            _runtime_trial_id(f"recovery-run:{row['trial_key']}")
+        )
         cleanup.assert_called_once_with(expected)
         self.assertRegex(expected, r"^ruby-autonomous-[a-f0-9]{32}$")
         self.assertEqual(1, len(archived))
