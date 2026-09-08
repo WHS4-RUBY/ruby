@@ -1,0 +1,196 @@
+{
+  "report_version": 1,
+  "evidence_type": "static-guard-v2-sql-regression",
+  "checked_at": "2026-09-08T17:45:02.095581+00:00",
+  "module_id": "sql-injection.product-search",
+  "normal_traffic_seed": 8312026,
+  "source_artifact_sha256": "sha256:8ec8005d104b4a5b0e1fce89b5c7d58e1a2533011ad5bf45bc8b31bcb4bd5a91",
+  "checks": {
+    "undefended_attack_reproduced": true,
+    "four_attack_variants_blocked": true,
+    "defended_objective_not_achieved": true,
+    "normal_workflows_preserved": true,
+    "normal_requests_not_blocked": true,
+    "defense_errors_zero": true,
+    "managed_isolated_container_used": true
+  },
+  "results": [
+    {
+      "condition": "undefended",
+      "normal_status": 200,
+      "normal_result_count": 1,
+      "attack_status": 200,
+      "benign_searches": [
+        {
+          "query": "coffee",
+          "status": 200
+        },
+        {
+          "query": "O'Reilly",
+          "status": 500
+        },
+        {
+          "query": "orchestra",
+          "status": 200
+        }
+      ],
+      "attack_cases": [
+        {
+          "payload_sha256": "sha256:d73f85d18ffe2158bb72efebf3d16b614b038db35e176e5357d066256e2b9fd3",
+          "status": 200
+        }
+      ],
+      "private_objective_achieved": true,
+      "private_matched_event_count": 1,
+      "normal_traffic_through_gateway": {
+        "profile": "ruby-gateway-read-only-v1",
+        "serial_workflows": 5,
+        "concurrent_workflows": 1,
+        "concurrent_requests": 4,
+        "expected_workflows": 6,
+        "completed_workflows": [
+          "anonymous-catalog-read",
+          "customer-account-read",
+          "seller-catalog-read",
+          "support-inquiry-read",
+          "administrator-metrics-read",
+          "limited-concurrent-catalog-read"
+        ],
+        "failed_workflows": [],
+        "http_requests": 13,
+        "statuses": [
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200
+        ],
+        "all_workflows_completed": true
+      },
+      "normal_traffic_defense": {
+        "defense_calls": 0,
+        "blocked_requests": 0,
+        "defense_errors": 0,
+        "defense_latency_seconds": 0.0
+      },
+      "defense_identity": null,
+      "defense_counts": null
+    },
+    {
+      "condition": "static-guard",
+      "normal_status": 200,
+      "normal_result_count": 1,
+      "attack_status": 403,
+      "benign_searches": [
+        {
+          "query": "coffee",
+          "status": 200
+        },
+        {
+          "query": "O'Reilly",
+          "status": 500
+        },
+        {
+          "query": "orchestra",
+          "status": 200
+        }
+      ],
+      "attack_cases": [
+        {
+          "payload_sha256": "sha256:d73f85d18ffe2158bb72efebf3d16b614b038db35e176e5357d066256e2b9fd3",
+          "status": 403
+        },
+        {
+          "payload_sha256": "sha256:ad6ecc537eb925fa52a4dbd57f1fef45f73c8af3417a118e94bacbcd13b67346",
+          "status": 403
+        },
+        {
+          "payload_sha256": "sha256:e09f213ef48d9ace177340f0254c58f24559f7e1420662bcbddd4fac5607193b",
+          "status": 403
+        },
+        {
+          "payload_sha256": "sha256:bd294e424e925e694b85842ca3824358b252263b50958be07e95b6e519dff31e",
+          "status": 403
+        }
+      ],
+      "private_objective_achieved": false,
+      "private_matched_event_count": 0,
+      "normal_traffic_through_gateway": {
+        "profile": "ruby-gateway-read-only-v1",
+        "serial_workflows": 5,
+        "concurrent_workflows": 1,
+        "concurrent_requests": 4,
+        "expected_workflows": 6,
+        "completed_workflows": [
+          "anonymous-catalog-read",
+          "customer-account-read",
+          "seller-catalog-read",
+          "support-inquiry-read",
+          "administrator-metrics-read",
+          "limited-concurrent-catalog-read"
+        ],
+        "failed_workflows": [],
+        "http_requests": 13,
+        "statuses": [
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200
+        ],
+        "all_workflows_completed": true
+      },
+      "normal_traffic_defense": {
+        "defense_calls": 26,
+        "blocked_requests": 0,
+        "defense_errors": 0,
+        "defense_latency_seconds": 0.742
+      },
+      "defense_identity": {
+        "defense_id": "ruby-static-request-guard",
+        "defense_version": "2.0.0",
+        "defense_manifest_digest": "sha256:9d9881c5f586f63e9ee12f903069b80211a4b483960a9ff2c5e3788dabe7fa47",
+        "defense_source_digest": "sha256:bc812da5fc08326070c12033dc3d46df64235060f6b38528d8be5fec9c9428db",
+        "defense_runtime_driver": "managed-container",
+        "defense_image_id": "sha256:ef102c7d0dd8915b6e4c1bb8598a5bfd67fcdb012dc4a8b8f930da3b9e976ae3",
+        "defense_network_policy": "isolated"
+      },
+      "defense_counts": {
+        "blocked_requests": 4,
+        "defense_errors": 0,
+        "observed_requests": 21,
+        "upstream_requests": 17
+      },
+      "defense_metrics": {
+        "defense_id": "ruby-static-request-guard",
+        "defense_version": "2.0.0",
+        "defense_manifest_digest": "sha256:9d9881c5f586f63e9ee12f903069b80211a4b483960a9ff2c5e3788dabe7fa47",
+        "defense_source_digest": "sha256:bc812da5fc08326070c12033dc3d46df64235060f6b38528d8be5fec9c9428db",
+        "defense_registry_digest": "sha256:83e859b3377f49063c092a373ec623ca52ee8c238cf78c9bb4a80fa16fc0dbd2",
+        "defense_runtime_driver": "managed-container",
+        "defense_image_id": "sha256:ef102c7d0dd8915b6e4c1bb8598a5bfd67fcdb012dc4a8b8f930da3b9e976ae3",
+        "defense_network_policy": "isolated",
+        "blocked_requests": 4,
+        "defense_errors": 0,
+        "observed_requests": 21,
+        "upstream_requests": 17
+      }
+    }
+  ]
+}

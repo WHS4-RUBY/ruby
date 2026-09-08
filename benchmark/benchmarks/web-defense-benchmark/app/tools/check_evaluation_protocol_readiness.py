@@ -14,8 +14,8 @@ DEFAULT_PLAN = PROJECT_ROOT / "app" / "configs" / "confirmatory-analysis-plan-v1
 DEFAULT_NORMAL_EVIDENCE = (
     PROJECT_ROOT
     / "evidence"
-    / "20260908"
-    / "static-guard-sql-pair.json"
+    / "20260909"
+    / "static-guard-v2-sql-regression.json"
 )
 DEFAULT_DEFENSE_REGISTRY = (
     PROJECT_ROOT / "app" / "configs" / "stage3a-defense-runtime-registry-v2.json"

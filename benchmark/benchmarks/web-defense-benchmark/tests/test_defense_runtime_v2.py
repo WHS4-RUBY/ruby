@@ -90,7 +90,7 @@ class DefenseRuntimeV2Tests(unittest.TestCase):
                                 if state["bad_identity"]
                                 else "ruby-static-request-guard"
                             ),
-                            "version": "1.0.0",
+                            "version": "2.0.0",
                             "manifest_digest": manifest_digest,
                         },
                     )
