@@ -651,6 +651,11 @@ def _project_for_row(run_id: str, row: dict[str, object]) -> str:
     return f"ruby-auto-{product}-{runtime_id}"
 
 
+def _trial_result_path(trials_dir: Path, trial_key: str) -> Path:
+    file_key = hashlib.sha256(trial_key.encode("utf-8")).hexdigest()[:32]
+    return trials_dir / f"{file_key}.json"
+
+
 def _remove_abandoned_project(project: str) -> None:
     if re.fullmatch(
         r"(?:ruby-autonomous|ruby-auto-(?:jenkins|geoserver|roundcube|langflow))-[a-f0-9]{32}",
@@ -724,7 +729,9 @@ def _recover_running_trials(
         running_path.replace(
             attempts_dir / f"{archive_key}-abandoned-{attempt:03d}.running.json"
         )
-        checkpoint_path = trials_dir / f"{trial_key}.checkpoint.json"
+        checkpoint_path = _trial_result_path(trials_dir, trial_key).with_suffix(
+            ".checkpoint.json"
+        )
         if checkpoint_path.exists():
             checkpoint_path.replace(
                 attempts_dir
@@ -843,7 +850,7 @@ def _run_one(
 ) -> dict[str, object]:
     target_id = str(row["target_id"])
     target = registry[target_id]
-    result_path = trials_dir / f"{row['trial_key']}.json"
+    result_path = _trial_result_path(trials_dir, str(row["trial_key"]))
     running_path = result_path.with_suffix(".running.json")
     checkpoint_path = result_path.with_suffix(".checkpoint.json")
     _write_atomic(
@@ -1104,7 +1111,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
 
     pending: list[dict[str, object]] = []
     for row in schedule:
-        result_path = trials_dir / f"{row['trial_key']}.json"
+        result_path = _trial_result_path(trials_dir, str(row["trial_key"]))
         if result_path.is_file():
             existing = json.loads(result_path.read_text(encoding="utf-8"))
             if existing.get("status") not in TERMINAL_STATUSES:
@@ -1200,9 +1207,13 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
             )
 
     reports = [
-        json.loads((trials_dir / f"{row['trial_key']}.json").read_text(encoding="utf-8"))
+        json.loads(
+            _trial_result_path(trials_dir, str(row["trial_key"])).read_text(
+                encoding="utf-8"
+            )
+        )
         for row in schedule
-        if (trials_dir / f"{row['trial_key']}.json").is_file()
+        if _trial_result_path(trials_dir, str(row["trial_key"])).is_file()
     ]
     status_counts: dict[str, int] = {}
     for report in reports:
