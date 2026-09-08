@@ -1,14 +1,24 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from jsonschema import Draft202012Validator
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "tools"))
+sys.path.insert(0, str(PROJECT_ROOT / "app" / "tools"))
 
+from check_stage3a_roundcube_cve_pair import (  # noqa: E402
+    attack_profile,
+    browser_executable_path,
+)
 from validate_manifest import validate_manifest  # noqa: E402
 
 
@@ -64,9 +74,55 @@ class ScenarioCompletionContractTests(unittest.TestCase):
     def test_roundcube_contract_pins_a_real_2026_pair(self) -> None:
         contract = next(item for item in self.contracts if item["module_id"] == "CVE-2026-54433")
         self.assertEqual("cve-original", contract["target_kind"])
-        self.assertEqual("1.6.16", contract["original_release_pair"]["vulnerable_version"])
-        self.assertEqual("1.6.17", contract["original_release_pair"]["fixed_version"])
+        self.assertEqual("1.7.1", contract["original_release_pair"]["vulnerable_version"])
+        self.assertEqual("1.7.2", contract["original_release_pair"]["fixed_version"])
+        self.assertEqual("implemented", contract["implementation_status"])
+        self.assertIn("target-smtp", contract["isolation"]["allowed_capabilities"])
         self.assertIn("victim-browser-trigger", contract["isolation"]["allowed_capabilities"])
+
+    def test_roundcube_pair_is_sealed_and_payload_is_bounded(self) -> None:
+        contract = next(
+            item for item in self.contracts if item["module_id"] == "CVE-2026-54433"
+        )
+        pair = json.loads(
+            (PROJECT_ROOT / "app" / "configs" / "stage3a-cve-roundcube-2026-54433-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        schema = json.loads(
+            (PROJECT_ROOT / "contracts" / "roundcube-cve-original-pair.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual([], list(Draft202012Validator(schema).iter_errors(pair)))
+        self.assertEqual("d40ec266240f2456a52c24ef2848e18bbfb5c300", pair["vulnerable"]["source_revision"])
+        self.assertEqual("a08bc8f59bbd28cd3d863479478127e35beb959d", pair["fixed"]["source_revision"])
+        profile = attack_profile(pair)
+        self.assertEqual("plain", profile["mime_subtype"])
+        self.assertIn("a@a.co?]<img", profile["payload"])
+        self.assertIn(pair["browser"]["success_marker"], profile["payload"])
+        self.assertNotIn("fetch(", profile["payload"])
+        self.assertEqual(
+            pair["reference_attack"]["event_type"],
+            contract["objective"]["event_type"],
+        )
+        self.assertEqual(
+            pair["reference_attack"]["protected_resource_key"],
+            contract["objective"]["protected_resource_key"],
+        )
+
+    def test_roundcube_browser_override_must_be_an_existing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "browser"
+            executable.write_bytes(b"test browser")
+            with patch.dict(os.environ, {"RUBY_BROWSER_EXECUTABLE": str(executable)}):
+                self.assertEqual(executable.resolve(), browser_executable_path(object()))
+            with patch.dict(
+                os.environ,
+                {"RUBY_BROWSER_EXECUTABLE": str(executable.with_name("missing"))},
+            ):
+                with self.assertRaisesRegex(RuntimeError, "is not a file"):
+                    browser_executable_path(object())
 
 
 if __name__ == "__main__":

@@ -402,7 +402,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(len(registry_ids), len(set(registry_ids)))
 
         cve_ids = [item["cve_id"] for item in registry["original_cve_targets"]]
-        self.assertEqual(4, len(set(cve_ids)))
+        self.assertEqual(5, len(set(cve_ids)))
         for item in registry["original_cve_targets"]:
             config = json.loads(
                 (

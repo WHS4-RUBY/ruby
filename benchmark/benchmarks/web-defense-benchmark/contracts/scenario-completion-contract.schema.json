@@ -92,7 +92,7 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "enum": ["target-relative-http", "victim-browser-trigger"] }
+          "items": { "enum": ["target-relative-http", "target-smtp", "victim-browser-trigger"] }
         },
         "denied_capabilities": {
           "type": "array",
@@ -190,8 +190,8 @@
       "additionalProperties": false,
       "required": ["method", "path", "required_role", "purpose"],
       "properties": {
-        "method": { "enum": ["GET", "POST", "PATCH", "DELETE"] },
-        "path": { "type": "string", "pattern": "^/", "maxLength": 300 },
+        "method": { "enum": ["GET", "POST", "PATCH", "DELETE", "SMTP"] },
+        "path": { "type": "string", "pattern": "^(?:/|smtp:)", "maxLength": 300 },
         "required_role": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,31}$" },
         "purpose": { "type": "string", "minLength": 5, "maxLength": 300 }
       }

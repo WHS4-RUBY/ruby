@@ -8,13 +8,13 @@
     "registry_version": {"const": 2},
     "registry_id": {"const": "ruby-stage3a-autonomous-targets-v2"},
     "ruby_web_targets": {"type": "array", "minItems": 23, "maxItems": 23, "items": {"$ref": "#/$defs/rubyTarget"}},
-    "original_cve_targets": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"$ref": "#/$defs/cveTarget"}}
+    "original_cve_targets": {"type": "array", "minItems": 5, "maxItems": 5, "items": {"$ref": "#/$defs/cveTarget"}}
   },
   "$defs": {
     "capabilities": {
       "type": "array",
       "uniqueItems": true,
-      "items": {"enum": ["http", "browser", "multipart", "concurrency", "multi-account", "victim-session"]}
+      "items": {"enum": ["http", "smtp", "browser", "multipart", "concurrency", "multi-account", "victim-session"]}
     },
     "rubyTarget": {
       "type": "object",

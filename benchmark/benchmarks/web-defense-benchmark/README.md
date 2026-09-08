@@ -2,7 +2,7 @@
 
 `web-defense-benchmark`는 로컬에서만 실행하는 쇼핑몰형 보안 실습 웹입니다. 사용자는 먼저 정상 쇼핑몰을 이용하고, 원하는 취약점만 켠 다음 같은 요청의 결과가 어떻게 달라지는지 비교할 수 있습니다. 공격 성공은 화면이나 공격자의 주장에 의존하지 않고 별도 평가기가 확인합니다.
 
-현재 웹에는 고객, 판매자, 고객상담, 운영자 업무와 선택형 RUBY 취약점 23개가 등록돼 있습니다. Jenkins, GeoServer, Roundcube, Langflow 원본 CVE 대상 4개는 별도 실험용 컨테이너입니다.
+현재 웹에는 고객, 판매자, 고객상담, 운영자 업무와 선택형 RUBY 취약점 23개가 등록돼 있습니다. Jenkins, GeoServer, Roundcube 2개 버전 쌍, Langflow로 구성된 원본 CVE 대상 5개는 별도 실험용 컨테이너입니다.
 
 ## 현재 상태
 
@@ -112,12 +112,12 @@ curl -sG --data-urlencode "q=%') OR visibility = 'private' -- " \
 
 - 정상 웹: 고객, 판매자, 고객지원, 관리자 역할의 실제 업무 흐름
 - 취약점 모듈: 접근 통제, SQL 주입, SSRF, 경로 이탈, 인증 및 세션, CSRF, 파일 업로드, 경쟁 조건, 다단계 공격 등 23개
-- 원본 CVE: Jenkins `CVE-2024-23897`, GeoServer `CVE-2024-36401`, Roundcube `CVE-2024-42009`, Langflow `CVE-2025-3248`
+- 원본 CVE: Jenkins `CVE-2024-23897`, GeoServer `CVE-2024-36401`, Roundcube `CVE-2024-42009`와 `CVE-2026-54433`, Langflow `CVE-2025-3248`
 - 판정 무결성: 공개 HTTP 응답과 분리된 평가 원장 및 전용 데이터베이스 역할
 - 공격자 조건: 익명, 자기 계정 제공, 피해자 동작 필요 조건을 분리한 프로필
 - 방어 연결 실험 코드: `undefended`, 공통 게이트웨이만 쓰는 `proxy-only`, 별도 컨테이너 `static-guard`, 외부 어댑터로 등록된 개발 중 Honeyval
 
-전체 목록은 [`docs/web-application-and-vulnerability-catalog-20260907.md`](docs/web-application-and-vulnerability-catalog-20260907.md), 구조는 [`docs/architecture.md`](docs/architecture.md), 공격자 공개 지침은 [`ATTACKER.md`](ATTACKER.md)에서 확인할 수 있습니다. 27개 대상은 OWASP 전체 범위나 실제 웹 취약점 분포를 대표하지 않습니다. 빠진 범주, 2026년 취약점 후보, 공격자 격리의 신뢰 경계와 평가의 한계는 [`docs/benchmark-audit-20260908.md`](docs/benchmark-audit-20260908.md)에 판정과 근거를 정리했습니다. 구현할 여섯 합성 시나리오와 Roundcube 2026 원본 CVE pair의 범위와 합격 조건은 [`docs/scenario-scope-contracts-20260908.md`](docs/scenario-scope-contracts-20260908.md)에 있습니다. 이후 수정 순서와 전체 완료 조건은 [`docs/benchmark-completion-plan-20260908.md`](docs/benchmark-completion-plan-20260908.md)를 따릅니다.
+전체 목록은 [`docs/web-application-and-vulnerability-catalog-20260907.md`](docs/web-application-and-vulnerability-catalog-20260907.md), 구조는 [`docs/architecture.md`](docs/architecture.md), 공격자 공개 지침은 [`ATTACKER.md`](ATTACKER.md)에서 확인할 수 있습니다. 28개 대상은 OWASP 전체 범위나 실제 웹 취약점 분포를 대표하지 않습니다. 빠진 범주, 공격자 격리의 신뢰 경계와 평가의 한계는 [`docs/benchmark-audit-20260908.md`](docs/benchmark-audit-20260908.md)에 판정과 근거를 정리했습니다. 구현할 여섯 합성 시나리오와 구현한 Roundcube 2026 원본 CVE pair의 범위는 [`docs/scenario-scope-contracts-20260908.md`](docs/scenario-scope-contracts-20260908.md), 실제 재현 절차와 결과는 [`docs/roundcube-cve-2026-54433-reproduction-20260908.md`](docs/roundcube-cve-2026-54433-reproduction-20260908.md)에 있습니다. 이후 수정 순서와 전체 완료 조건은 [`docs/benchmark-completion-plan-20260908.md`](docs/benchmark-completion-plan-20260908.md)를 따릅니다.
 
 ## 방어 모듈 연결
 
@@ -155,7 +155,7 @@ PYTHONPATH='app/backend:app/evaluator:app/runner:app/tools' app/.venv/bin/python
   tests app/backend/tests app/evaluator/tests app/runner/tests
 ```
 
-브라우저 기반 CVE 검사를 실행할 때는 가상환경에 Chromium을 한 번 설치합니다.
+브라우저 기반 CVE 검사를 실행할 때는 가상환경에 Chromium을 한 번 설치합니다. Windows 시스템 Chrome이 있으면 자동으로 사용하고, 다른 실행 파일을 쓰려면 `RUBY_BROWSER_EXECUTABLE`에 절대 경로를 지정합니다.
 
 ```bash
 app/.venv/bin/python -m playwright install chromium
@@ -181,6 +181,20 @@ app/.venv/bin/python app/tools/check_running_stack.py
 ```bash
 app/.venv/bin/python app/tools/check_static_guard_sql_pair.py \
   --output app/evaluation/local-static-guard.json
+```
+
+Roundcube `CVE-2026-54433`은 정상 스택을 실행한 상태에서 취약 1.7.1과 수정 1.7.2를 같은 평문 메일과 피해자 브라우저 동작으로 비교합니다. 출력 디렉터리는 기존 경로를 덮어쓰지 않으므로 실행할 때마다 새 이름을 사용합니다.
+
+```powershell
+app\.venv\Scripts\python.exe app\tools\check_stage3a_roundcube_cve_pair.py `
+  --pair app\configs\stage3a-cve-roundcube-2026-54433-v1.json `
+  --output-dir app\evaluation\local-roundcube-2026
+```
+
+```bash
+app/.venv/bin/python app/tools/check_stage3a_roundcube_cve_pair.py \
+  --pair app/configs/stage3a-cve-roundcube-2026-54433-v1.json \
+  --output-dir app/evaluation/local-roundcube-2026
 ```
 
 Windows PowerShell에서는 `app\.venv\Scripts\python.exe`를 사용합니다. AI 공격 단일 시험, 최소 5회 무방어 자격 확인, 조건 순서를 섞은 반복 비교, 산출물과 합격 기준은 [`docs/benchmarking.md`](docs/benchmarking.md)에 한 절차로 정리했습니다. 세부 운영 원칙과 과거 기준선 기록은 [`docs/operations/README.md`](docs/operations/README.md)에서 확인할 수 있습니다.
