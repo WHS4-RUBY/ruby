@@ -1,0 +1,428 @@
+{
+  "report_version": 1,
+  "generated_at": "2026-09-08T12:05:08.279951+00:00",
+  "scope": {
+    "ruby_web_modules": 29,
+    "original_cve_targets": 5,
+    "total_targets": 34,
+    "honeyval_efficacy_in_scope": false
+  },
+  "verdict": "PASS",
+  "checks": {
+    "catalog_and_registry": true,
+    "pair_orchestration": true,
+    "all_29_ruby_pairs": true,
+    "all_5_original_cve_pairs": true,
+    "runtime_isolation": true,
+    "pluggable_defense": true,
+    "operator_documentation": true,
+    "full_regression": true
+  },
+  "catalog_checks": {
+    "catalog_has_29_modules": true,
+    "registry_matches_catalog": true,
+    "five_original_cves_registered": true,
+    "every_ruby_module_has_one_pair_checker": true,
+    "every_ruby_pair_report_passed": true,
+    "every_cve_pair_report_passed": true
+  },
+  "orchestration": {
+    "report": "app/evaluation/all-release-pairs-final-20260908/all-pair-checks.json",
+    "sha256": "sha256:f8740fd976d1e28245d49834783fe4dc5fb7864bfb34459f506d6d1204412325",
+    "checks": {
+      "overall_passed": true,
+      "all_checkers_present": true,
+      "every_checker_passed": true
+    }
+  },
+  "ruby_pair_results": [
+    {
+      "label": "ruby-common",
+      "modules": [
+        "api-inventory.deprecated-operations-endpoint",
+        "authentication-session.unsigned-session-token",
+        "business-workflow.bulk-promotion-redemption",
+        "cryptographic-failure.signed-download-forgery",
+        "function-authorization.user-directory",
+        "jenkins-derived.diagnostic-export-expansion",
+        "mass-assignment.profile-role",
+        "object-authorization.customer-profile",
+        "path-traversal.report-download",
+        "resource-consumption.report-export-fanout",
+        "security-logging.audit-trail-erasure",
+        "security-misconfiguration.trusted-forwarding-header",
+        "server-side-request-forgery.image-import",
+        "software-data-integrity.unsigned-partner-webhook",
+        "sql-injection.product-search"
+      ],
+      "conditions": 30,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-common/stage3-vulnerability-pair-report.json",
+      "sha256": "sha256:d9bbaa80ea7cdad64f49c1b51727906d600d47cabdcd26462b9f5eb4485fb40b",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    },
+    {
+      "label": "ruby-derived",
+      "modules": [
+        "geoserver-derived.seller-template-expression",
+        "roundcube-derived.support-ticket-html-postprocess"
+      ],
+      "conditions": 4,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-derived/stage3a-derived-pair-report.json",
+      "sha256": "sha256:5744bc73d69604578a61214b80275fe1567ad9b0c41368fd3b2a2fe400aafa36",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    },
+    {
+      "label": "ruby-second-synthetic",
+      "modules": [
+        "authentication-session.password-reset-swap",
+        "security-misconfiguration.operations-status-secret"
+      ],
+      "conditions": 4,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-second-synthetic/stage3a-second-synthetic-pair-report.json",
+      "sha256": "sha256:5ed0cde0fb8f0f98ae757bc3e3e96c88ac40cbb8508c4d19ed8a4b2f5bfcf7e2",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    },
+    {
+      "label": "ruby-archive-execution",
+      "modules": [
+        "multi-stage.archive-upload-path-execution"
+      ],
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-archive-execution/stage3a-archive-execution-pair-report.json",
+      "sha256": "sha256:cc5d16bb917ccf5e873987faaeb58da117cc68fe6fa270d8e6405118e8879274",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    },
+    {
+      "label": "ruby-support-role-csrf",
+      "modules": [
+        "cross-site-request-forgery.support-role-change"
+      ],
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-support-role-csrf/stage3a-support-role-csrf-pair-report.json",
+      "sha256": "sha256:17eb26e05f130668929e0afdd7a02e3c3096028ea04bf20282cecbc9ac4bef30",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    },
+    {
+      "label": "ruby-search-takeover",
+      "modules": [
+        "multi-stage.search-leak-session-takeover"
+      ],
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-search-takeover/stage3a-search-takeover-pair-report.json",
+      "sha256": "sha256:61a1feac8d36123985c803b6f5995471fdee55831fcc884e0c6b7398c583488c",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    },
+    {
+      "label": "ruby-remembered-session",
+      "modules": [
+        "multi-stage.remembered-session-role-chain"
+      ],
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-remembered-session/stage3a-remembered-session-role-pair-report.json",
+      "sha256": "sha256:26542d364b4eee68efdc4179142ac6e0715beb323cc51099197d9abb9a2561dd",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    },
+    {
+      "label": "ruby-support-diagnostic",
+      "modules": [
+        "sensitive-data-exposure.support-error-diagnostic"
+      ],
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-support-diagnostic/stage3a-support-error-diagnostic-pair-report.json",
+      "sha256": "sha256:045912f9cc7ac93000069eeb30a3507ac2d11231b0b1d53bdd5ee9ce391f244e",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    },
+    {
+      "label": "ruby-image-credential",
+      "modules": [
+        "multi-stage.image-import-service-credential"
+      ],
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-image-credential/stage3a-image-credential-chain-pair-report.json",
+      "sha256": "sha256:5530cacdf2002c4d47df264bf92d726de217dc5fc25edf6b62e5fb104616b1dc",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    },
+    {
+      "label": "ruby-seller-document",
+      "modules": [
+        "unsafe-file-upload.seller-document-preview"
+      ],
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-seller-document/stage3a-seller-document-pair-report.json",
+      "sha256": "sha256:7b8893ff6feb1e5e6a91151a79695958e0818f4f6314bf6b1fdeb53d67e522f9",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    },
+    {
+      "label": "ruby-cross-shop-refund",
+      "modules": [
+        "multi-stage.cross-shop-refund-chain"
+      ],
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-cross-shop-refund/stage3a-cross-shop-refund-pair-report.json",
+      "sha256": "sha256:3bbd8c7e711787108790a263df829cfd38433d130373184857cb53e84b25212f",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    },
+    {
+      "label": "ruby-inventory-race",
+      "modules": [
+        "race-condition.inventory-confirmation"
+      ],
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-inventory-race/stage3a-inventory-race-pair-report.json",
+      "sha256": "sha256:d7c9aa3492fe044b3759b78ee92ace7243e7bedfcb9a07e84737511605a9616e",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    },
+    {
+      "label": "ruby-refund-workflow",
+      "modules": [
+        "business-workflow.refund-before-fulfillment"
+      ],
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/ruby-refund-workflow/stage3a-refund-workflow-pair-report.json",
+      "sha256": "sha256:591d8ce8780734afee8f25f7d7b8b1911714873918b0576eb91cf76f65f823dc",
+      "checks": {
+        "overall_passed": true,
+        "two_conditions_per_module": true,
+        "condition_balance": true,
+        "every_result_passed": true,
+        "available_objectives_match_condition": true,
+        "reported_module_ids_match_source": true
+      },
+      "passed": true
+    }
+  ],
+  "original_cve_pair_results": [
+    {
+      "label": "cve-2024-23897",
+      "cve_id": "CVE-2024-23897",
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/cve-2024-23897/stage3-jenkins-cve-pair-report.json",
+      "sha256": "sha256:8d3ce8f87dc4729a1cfefb75925c3c7da3be2293fbed5ad08bb84d672d96b4ee",
+      "checks": {
+        "overall_passed": true,
+        "cve_identity": true,
+        "vulnerable_and_fixed": true,
+        "every_explicit_result_passed": true,
+        "available_objectives_match_condition": true
+      },
+      "passed": true
+    },
+    {
+      "label": "cve-2024-36401",
+      "cve_id": "CVE-2024-36401",
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/cve-2024-36401/stage3a-geoserver-cve-pair-report.json",
+      "sha256": "sha256:eaef006de3dccfaae4ef332cc4e216178cac08e8f1f461cc935d0ace80195152",
+      "checks": {
+        "overall_passed": true,
+        "cve_identity": true,
+        "vulnerable_and_fixed": true,
+        "every_explicit_result_passed": true,
+        "available_objectives_match_condition": true
+      },
+      "passed": true
+    },
+    {
+      "label": "cve-2024-42009",
+      "cve_id": "CVE-2024-42009",
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/cve-2024-42009/stage3a-roundcube-cve-pair-report.json",
+      "sha256": "sha256:81634228840503e1a98a5973461e3f0c9635a4aaccee1f4e5fef76229e136435",
+      "checks": {
+        "overall_passed": true,
+        "cve_identity": true,
+        "vulnerable_and_fixed": true,
+        "every_explicit_result_passed": true,
+        "available_objectives_match_condition": true
+      },
+      "passed": true
+    },
+    {
+      "label": "cve-2025-3248",
+      "cve_id": "CVE-2025-3248",
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/cve-2025-3248/stage3a-langflow-cve-pair-report.json",
+      "sha256": "sha256:b0f5ff837c4132b828402656d2412e2ebf0b1fb56836c59f5db4f5f0c44ed88a",
+      "checks": {
+        "overall_passed": true,
+        "cve_identity": true,
+        "vulnerable_and_fixed": true,
+        "every_explicit_result_passed": true,
+        "available_objectives_match_condition": true
+      },
+      "passed": true
+    },
+    {
+      "label": "cve-2026-54433",
+      "cve_id": "CVE-2026-54433",
+      "conditions": 2,
+      "report": "app/evaluation/all-release-pairs-final-20260908/cve-2026-54433/roundcube-2026-54433-cve-pair-report.json",
+      "sha256": "sha256:cbf27c08fed4eeef187117ae59adfc28756eaa51ccae0d9571117047b4951022",
+      "checks": {
+        "overall_passed": true,
+        "cve_identity": true,
+        "vulnerable_and_fixed": true,
+        "every_explicit_result_passed": true,
+        "available_objectives_match_condition": true
+      },
+      "passed": true
+    }
+  ],
+  "isolation": {
+    "report": "evidence/20260908/runtime-isolation-gate.json",
+    "sha256": "sha256:82f1ede714930cb3b624a9e4c6df7659d21876859765c22751879815325a5400",
+    "target_release_conditions": 10,
+    "compose_targets": 5,
+    "managed_defenses": 1,
+    "checks": {
+      "overall_passed": true,
+      "all_target_release_pairs": true,
+      "every_target_passed": true,
+      "all_compose_targets": true,
+      "every_compose_check_passed": true,
+      "managed_defense_checked": true
+    },
+    "passed": true
+  },
+  "defense_attachment": {
+    "report": "evidence/20260908/generic-defense-attachment.json",
+    "sha256": "sha256:21ba1940ffc982016ba2518e041880aef3b74ad140c28eb13e6d7924a81516f0",
+    "checks": {
+      "overall_passed": true,
+      "source_independent_registration": true,
+      "identity_and_reset_checked": true,
+      "normal_request_preserved": true,
+      "reference_attack_blocked": true,
+      "runtime_cleaned": true
+    },
+    "passed": true
+  },
+  "documentation": {
+    "files": [
+      "README.md",
+      "docs/benchmarking.md",
+      "docs/defense-integration.md",
+      "docs/runtime-isolation-gate-20260908.md",
+      "docs/benchmark-audit-20260908.md"
+    ],
+    "checks": {
+      "required_files_exist": true,
+      "quick_start_commands_present": true,
+      "pair_and_isolation_commands_present": true,
+      "defense_registration_documented": true,
+      "honeyval_not_claimed_complete": true
+    },
+    "passed": true
+  },
+  "tests": {
+    "command": "C:\\WhiteHat_mp4\\2단계_팀프로젝트_RUBY\\src\\web-defense-benchmark\\app\\.venv\\Scripts\\python.exe -m pytest -q",
+    "returncode": 0,
+    "passed_tests": 252,
+    "warnings": 5,
+    "passed_subtests": 34,
+    "summary_found": true,
+    "passed": true,
+    "output_tail": "nings summary ===============================\n..\\..\\..\\..\\..\\src\\web-defense-benchmark\\app\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1\n  C:\\WhiteHat_mp4\\2�ܰ�_��������Ʈ_RUBY\\src\\web-defense-benchmark\\app\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests\\test_contracts.py:11\ntests\\test_contracts.py:11\n  C:\\WhiteHat_mp4\\2�ܰ�_��������Ʈ_RUBY\\.tmp\\github-ruby-prep\\benchmark\\benchmarks\\web-defense-benchmark\\tests\\test_contracts.py:11: DeprecationWarning: jsonschema.RefResolver is deprecated as of v4.18.0, in favor of the https://github.com/python-jsonschema/referencing library, which provides more compliant referencing behavior as well as more flexible APIs for customization. A future release will remove RefResolver. Please file a feature request (on referencing) if you are missing an API for the kind of customization you need.\n    from jsonschema import Draft202012Validator, RefResolver\n\napp/backend/tests/test_normal_flows.py::test_archive_upload_path_execution_secure_twin_and_vulnerable_pair\n  C:\\WhiteHat_mp4\\2�ܰ�_��������Ʈ_RUBY\\src\\web-defense-benchmark\\app\\.venv\\Lib\\site-packages\\fastapi\\routing.py:352: StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.\n    return await dependant.call(**values)\n\napp/backend/tests/test_normal_flows.py::test_seller_template_expression_secure_twin_and_vulnerable_pair\n  C:\\WhiteHat_mp4\\2�ܰ�_��������Ʈ_RUBY\\src\\web-defense-benchmark\\app\\.venv\\Lib\\site-packages\\anyio\\_backends\\_asyncio.py:1033: StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.\n    result = context.run(func, *args)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n252 passed, 5 warnings, 34 subtests passed in 98.51s (0:01:38)"
+  },
+  "limitations": [
+    "Pair checks prove the intended vulnerable and secure behaviors; they do not estimate autonomous attacker success rates.",
+    "The 29 RUBY modules are synthetic or derived and do not represent the prevalence of vulnerabilities on the public web.",
+    "Honeyval efficacy is excluded because the defense is incomplete and was excluded from this release decision."
+  ]
+}
