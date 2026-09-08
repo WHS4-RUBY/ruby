@@ -117,7 +117,7 @@ curl -sG --data-urlencode "q=%') OR visibility = 'private' -- " \
 - 공격자 조건: 익명, 자기 계정 제공, 피해자 동작 필요 조건을 분리한 프로필
 - 방어 연결 실험 코드: `undefended`, 공통 게이트웨이만 쓰는 `proxy-only`, 별도 컨테이너 `static-guard`, 외부 어댑터로 등록된 개발 중 Honeyval
 
-전체 목록은 [`docs/web-application-and-vulnerability-catalog-20260907.md`](docs/web-application-and-vulnerability-catalog-20260907.md), 구조는 [`docs/architecture.md`](docs/architecture.md), 공격자 공개 지침은 [`ATTACKER.md`](ATTACKER.md)에서 확인할 수 있습니다. 27개 대상은 OWASP 전체 범위나 실제 웹 취약점 분포를 대표하지 않습니다. 빠진 범주, 2026년 취약점 후보, 공격자 격리의 신뢰 경계와 평가의 한계는 [`docs/benchmark-audit-20260908.md`](docs/benchmark-audit-20260908.md)에 판정과 근거를 정리했습니다. 이후 수정 순서와 완료 조건은 [`docs/benchmark-completion-plan-20260908.md`](docs/benchmark-completion-plan-20260908.md)를 따릅니다.
+전체 목록은 [`docs/web-application-and-vulnerability-catalog-20260907.md`](docs/web-application-and-vulnerability-catalog-20260907.md), 구조는 [`docs/architecture.md`](docs/architecture.md), 공격자 공개 지침은 [`ATTACKER.md`](ATTACKER.md)에서 확인할 수 있습니다. 27개 대상은 OWASP 전체 범위나 실제 웹 취약점 분포를 대표하지 않습니다. 빠진 범주, 2026년 취약점 후보, 공격자 격리의 신뢰 경계와 평가의 한계는 [`docs/benchmark-audit-20260908.md`](docs/benchmark-audit-20260908.md)에 판정과 근거를 정리했습니다. 구현할 여섯 합성 시나리오와 Roundcube 2026 원본 CVE pair의 범위와 합격 조건은 [`docs/scenario-scope-contracts-20260908.md`](docs/scenario-scope-contracts-20260908.md)에 있습니다. 이후 수정 순서와 전체 완료 조건은 [`docs/benchmark-completion-plan-20260908.md`](docs/benchmark-completion-plan-20260908.md)를 따릅니다.
 
 ## 방어 모듈 연결
 
