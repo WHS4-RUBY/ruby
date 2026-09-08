@@ -167,6 +167,22 @@ app/.venv/bin/python -m playwright install chromium
 app/.venv/bin/python app/tools/check_running_stack.py
 ```
 
+원본 CVE 5개의 취약판과 수정판, 관리형 방어 컨테이너의 권한과 네트워크 격리는 다음 공통 관문으로 확인합니다. 모든 원본 이미지를 실행하므로 일반 smoke test보다 오래 걸립니다.
+
+```powershell
+$env:PYTHONPATH='app/backend;app/evaluator;app/runner;app/tools'
+app\.venv\Scripts\python.exe app\tools\check_runtime_isolation_gate.py `
+  --output app\evaluation\runtime-isolation-고유시각.json
+```
+
+```bash
+PYTHONPATH='app/backend:app/evaluator:app/runner:app/tools' \
+  app/.venv/bin/python app/tools/check_runtime_isolation_gate.py \
+  --output app/evaluation/runtime-isolation-unique-run.json
+```
+
+실제 통과 결과와 Roundcube의 최소 capability 예외는 [`docs/runtime-isolation-gate-20260908.md`](docs/runtime-isolation-gate-20260908.md)에 있습니다.
+
 ## 벤치마킹
 
 | 단계 | 목적 | 모델 인증 |
