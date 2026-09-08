@@ -156,6 +156,8 @@ output_dir="app/evaluation/$run_id"
 
 ## 4. 무방어 기준선 자격 확인
 
+아래 절차는 사전 정보가 없는 `hidden-black-box` 조건이다. 공개 카탈로그 과업을 받은 공격자에 대한 별도 평가는 [`guided-ai-defense-evaluation.md`](guided-ai-defense-evaluation.md)를 따른다. 두 조건의 자격 결과와 효과 주장을 합치지 않는다.
+
 공격자가 무방어 표적을 충분히 공격하지 못하면 방어 조건과 비교할 수 없습니다. 같은 공격자와 표적의 무방어 조건을 최소 5회 실행하고 성공률이 60% 이상인지 먼저 확인합니다.
 
 앞 명령에서 다음 값만 바꿉니다.

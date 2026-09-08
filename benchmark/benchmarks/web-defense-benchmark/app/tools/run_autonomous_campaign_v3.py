@@ -14,6 +14,8 @@ from concurrent.futures import FIRST_COMPLETED, wait
 from datetime import UTC, datetime
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
+
 from autonomous_cli_policy_v2 import SubscriptionCLIPolicy
 from autonomous_cve_target_adapters_v3 import CVE_ACTION_SCHEMA, PREPARE_CVE_TARGETS
 from autonomous_target_adapters_v2 import prepare_isolated_ruby_target
@@ -36,6 +38,8 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = APP_ROOT / "configs" / "stage3a-autonomous-target-registry-v2.json"
 SCOPE_PATH = APP_ROOT / "configs" / "stage3a-autonomous-baseline-scope-v1.json"
 PROFILE_PATH = APP_ROOT / "configs" / "stage3a-autonomous-web-attacker-profile-v10.json"
+PUBLIC_BRIEF_SCHEMA_PATH = APP_ROOT.parent / "contracts" / "public-brief.schema.json"
+SCOPE_SCHEMA_PATH = APP_ROOT.parent / "contracts" / "autonomous-baseline-scope.schema.json"
 CAMPAIGN_LOCK_PATH = APP_ROOT / "evaluation" / ".autonomous-campaign.lock"
 ORPHAN_MARKER_PATH = APP_ROOT / "evaluation" / "last-orphan-termination.json"
 # Measured isolated stacks peaked at about 349 MiB for RUBY and 769 MiB for
@@ -67,7 +71,6 @@ BASE_SEALED_INPUTS = (
     # 바뀌어도 재개 검사를 통과하고, 한 실행 묶음에 다른 피해자 동작이나
     # 다른 방어 판본의 결과가 섞인다.
     APP_ROOT / "tools" / "victim_browser.py",
-    SCOPE_PATH,
     ACTION_SCHEMA,
     CVE_ACTION_SCHEMA,
     APP_ROOT / "configs" / "stage3-vulnerability-module-catalog-v1.json",
@@ -113,6 +116,70 @@ def _profile_inputs(profile_path: Path) -> tuple[Path, Path]:
     if not guide.is_file():
         raise FileNotFoundError(f"attacker instruction document is missing: {guide}")
     return resolved, guide
+
+
+def _public_brief_input(
+    public_brief_path: Path | None, targets: list[str]
+) -> tuple[Path | None, dict[str, object] | None]:
+    if public_brief_path is None:
+        return None, None
+    resolved = public_brief_path.resolve()
+    repository_root = APP_ROOT.parent.resolve()
+    if repository_root not in resolved.parents or not resolved.is_file():
+        raise ValueError("public brief must be a file inside the repository")
+    brief = json.loads(resolved.read_text(encoding="utf-8"))
+    schema = json.loads(PUBLIC_BRIEF_SCHEMA_PATH.read_text(encoding="utf-8"))
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(brief),
+        key=lambda item: list(item.path),
+    )
+    if errors:
+        raise ValueError("invalid public brief: " + "; ".join(error.message for error in errors))
+    if brief.get("knowledge_condition") == "hidden-black-box":
+        raise ValueError("hidden-black-box campaigns must not attach a public brief")
+    if targets != [brief.get("autonomous_target_id")]:
+        raise ValueError("public brief autonomous_target_id must match the only campaign target")
+    return resolved, brief
+
+
+def _scope_input(
+    scope_path: Path,
+    public_brief_path: Path | None,
+    public_brief: dict[str, object] | None,
+) -> tuple[Path, dict[str, object]]:
+    resolved = scope_path.resolve()
+    repository_root = APP_ROOT.parent.resolve()
+    if repository_root not in resolved.parents or not resolved.is_file():
+        raise ValueError("campaign scope must be a file inside the repository")
+    scope = json.loads(resolved.read_text(encoding="utf-8"))
+    schema = json.loads(SCOPE_SCHEMA_PATH.read_text(encoding="utf-8"))
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(scope),
+        key=lambda item: list(item.path),
+    )
+    if errors:
+        raise ValueError(
+            "invalid campaign scope: "
+            + "; ".join(error.message for error in errors)
+        )
+    knowledge = scope["knowledge"]
+    assert isinstance(knowledge, dict)
+    expected_condition = (
+        str(public_brief["knowledge_condition"])
+        if public_brief is not None
+        else "hidden-black-box"
+    )
+    if knowledge.get("mode") != expected_condition:
+        raise ValueError("campaign scope knowledge mode does not match public brief")
+    if public_brief is not None:
+        assert public_brief_path is not None
+        expected_path = os.path.relpath(public_brief_path, APP_ROOT).replace("\\", "/")
+        if (
+            knowledge.get("public_brief_sealed_input") != expected_path
+            or knowledge.get("public_brief_sha256") != _digest(public_brief_path)
+        ):
+            raise ValueError("campaign scope public brief binding does not match")
+    return resolved, scope
 RUBY_IMAGE_REFERENCES = (
     "ruby-web-defense-benchmark-api:latest",
     "ruby-web-defense-benchmark-postgres:latest",
@@ -837,6 +904,8 @@ def _run_one(
                 "checkpointed_at": datetime.now(UTC).isoformat(),
             },
         ),
+        public_brief=getattr(args, "public_brief_document", None),
+        public_brief_sha256=getattr(args, "public_brief_sha256", None),
     )
     report.update(
         {
@@ -868,6 +937,47 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError(f"unregistered targets: {unknown}")
     if len(targets) != len(set(targets)):
         raise ValueError("target list contains duplicates")
+    public_brief_path, public_brief = _public_brief_input(
+        getattr(args, "public_brief", None), targets
+    )
+    args.public_brief = public_brief_path
+    args.public_brief_document = public_brief
+    args.public_brief_sha256 = (
+        _digest(public_brief_path) if public_brief_path is not None else None
+    )
+    scope_path, scope = _scope_input(
+        Path(getattr(args, "scope", SCOPE_PATH)), public_brief_path, public_brief
+    )
+    args.scope = scope_path
+    scope_execution = scope["execution"]
+    scope_budget = scope["trial_budget"]
+    scope_knowledge = scope["knowledge"]
+    assert isinstance(scope_execution, dict)
+    assert isinstance(scope_budget, dict)
+    assert isinstance(scope_knowledge, dict)
+    expected_cohorts = {
+        "codex": "codex-cli-subscription",
+        "claude": "claude-cli-subscription",
+    }
+    observed_cohorts = {
+        str(item.get("provider"))
+        for item in scope_execution.get("attacker_cohorts", [])
+        if isinstance(item, dict)
+    }
+    if public_brief is not None:
+        if observed_cohorts != {expected_cohorts[item] for item in args.providers}:
+            raise ValueError("campaign scope attacker cohorts do not match providers")
+        if (
+            int(scope_execution["portfolio_scenarios"]) != len(targets)
+            or int(scope_execution["maximum_parallel_trials"]) != args.max_parallel
+            or scope_knowledge.get("generic_method_profile") != profile_path.name
+            or int(scope_budget["wall_clock_seconds"]) != args.max_seconds
+            or int(scope_budget["http_requests"]) != args.max_requests
+            or int(scope_budget["agent_decisions"]) != args.max_decisions
+        ):
+            raise ValueError(
+                "campaign scope does not match targets, profile, parallelism, or budgets"
+            )
     # 준비 함수가 없는 표적이 일정에 들어가면 그 순서에 닿았을 때 캠페인 전체가
     # 죽는다. 등록부에 이름만 있고 어댑터가 없는 경우가 실제로 있었다. 시작할 때
     # 걸러 몇 시간 뒤가 아니라 지금 알게 한다.
@@ -940,10 +1050,17 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
             os.path.relpath(path, APP_ROOT).replace("\\", "/"): _digest(path)
             for path in BASE_SEALED_INPUTS
             + defense_source_inputs
-            + (profile_path, guide_path)
+            + (profile_path, guide_path, scope_path)
             + ((variant_manifest_path,) if variant_manifest_path is not None else ())
+            + ((public_brief_path,) if public_brief_path is not None else ())
         },
     }
+    if public_brief is not None:
+        seal["knowledge_condition"] = public_brief["knowledge_condition"]
+        seal["public_brief"] = os.path.relpath(
+            public_brief_path, APP_ROOT
+        ).replace("\\", "/")
+    seal["scope"] = os.path.relpath(scope_path, APP_ROOT).replace("\\", "/")
     output_dir: Path = args.output_dir
     trials_dir = output_dir / "trials"
     attempts_dir = output_dir / "attempts"
@@ -1112,6 +1229,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--attacker-profile", type=Path, default=PROFILE_PATH)
+    parser.add_argument("--scope", type=Path, default=SCOPE_PATH)
+    parser.add_argument("--public-brief", type=Path)
     parser.add_argument("--variant-manifest", type=Path)
     parser.add_argument(
         "--defense-registry",

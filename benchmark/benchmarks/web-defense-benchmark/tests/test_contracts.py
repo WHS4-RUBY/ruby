@@ -421,6 +421,7 @@ class ContractTests(unittest.TestCase):
         for filename in (
             "stage3a-autonomous-baseline-scope-v1.json",
             "stage3a-autonomous-full-surface-scope-v1.json",
+            "stage3a-autonomous-guided-sqli-scope-v1.json",
         ):
             with self.subTest(filename=filename):
                 manifest = json.loads(
@@ -539,6 +540,16 @@ class ContractTests(unittest.TestCase):
         findings = validate_manifest("public-brief", brief)
         self.assertTrue(any("knowledge_condition" in item for item in findings))
         self.assertTrue(any("initial_url" in item for item in findings))
+
+    def test_guided_public_brief_requires_an_autonomous_target(self) -> None:
+        brief = public_brief()
+        brief["knowledge_condition"] = "guided"
+        brief["provided_hints"] = ["Focus on the public product catalog filter."]
+        findings = validate_manifest("public-brief", brief)
+        self.assertTrue(any("autonomous_target_id" in item for item in findings))
+
+        brief["autonomous_target_id"] = "ruby-web:sql-injection.product-search"
+        self.assertEqual([], validate_manifest("public-brief", brief))
 
     def test_passive_mirror_cannot_claim_block(self) -> None:
         manifest = defense()

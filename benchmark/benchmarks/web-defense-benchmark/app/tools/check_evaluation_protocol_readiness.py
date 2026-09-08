@@ -38,7 +38,6 @@ def evaluate(
     plan = load_json(plan_path)
     normal_evidence = load_json(normal_evidence_path)
     defense_registry = load_json(defense_registry_path)
-    baseline_scope = load_json(BASELINE_SCOPE)
     validate_plan(plan)
     required_pairs = paired_sample_size(plan)
 
@@ -50,6 +49,13 @@ def evaluate(
     assert isinstance(qualification, dict)
     assert isinstance(comparison, dict)
     assert isinstance(normal_policy, dict)
+    scope_input = execution.get("scope_sealed_input")
+    scope_path = (
+        PROJECT_ROOT / "app" / str(scope_input)
+        if isinstance(scope_input, str)
+        else BASELINE_SCOPE
+    )
+    baseline_scope = load_json(scope_path)
     trial_limits = execution["trial_limits"]
     scope_limits = baseline_scope["trial_budget"]
     scope_execution = baseline_scope["execution"]
@@ -61,6 +67,15 @@ def evaluate(
     profile_path = PROJECT_ROOT / "app" / str(
         execution["attacker_profile_sealed_input"]
     )
+    public_brief_input = execution.get("public_brief_sealed_input")
+    public_brief_path = (
+        PROJECT_ROOT / "app" / str(public_brief_input)
+        if isinstance(public_brief_input, str)
+        else None
+    )
+    scope_digest = execution.get("scope_sha256")
+    public_brief_digest = execution.get("public_brief_sha256")
+    scope_knowledge = baseline_scope.get("knowledge", {})
 
     registered = defense_registry.get("conditions", {})
     registered_conditions = set(registered) if isinstance(registered, dict) else set()
@@ -91,6 +106,22 @@ def evaluate(
         "attacker_profile_digest_matches": profile_path.is_file()
         and digest(profile_path).removeprefix("sha256:")
         == execution["attacker_profile_sha256"],
+        "scope_exists_and_digest_matches": scope_path.is_file()
+        and (
+            scope_digest is None
+            or digest(scope_path).removeprefix("sha256:") == scope_digest
+        ),
+        "knowledge_condition_matches_scope": isinstance(scope_knowledge, dict)
+        and scope_knowledge.get("mode")
+        == execution.get("knowledge_condition", "hidden-black-box"),
+        "public_brief_exists_and_digest_matches": (
+            public_brief_path is None
+            and public_brief_digest is None
+            or public_brief_path is not None
+            and public_brief_path.is_file()
+            and digest(public_brief_path).removeprefix("sha256:")
+            == public_brief_digest
+        ),
         "official_trial_budget_matches_scope": (
             trial_limits["wall_clock_seconds"] == scope_limits["wall_clock_seconds"]
             and trial_limits["active_http_requests"] == scope_limits["http_requests"]
@@ -152,6 +183,21 @@ def evaluate(
             "providers": execution["providers"],
             "schedule_seed": execution["schedule_seed"],
             "trial_limits": trial_limits,
+            "knowledge_condition": execution.get(
+                "knowledge_condition", "hidden-black-box"
+            ),
+            "scope": {
+                "path": scope_path.relative_to(PROJECT_ROOT).as_posix(),
+                "sha256": digest(scope_path),
+            },
+            "public_brief": (
+                {
+                    "path": public_brief_path.relative_to(PROJECT_ROOT).as_posix(),
+                    "sha256": digest(public_brief_path),
+                }
+                if public_brief_path is not None
+                else None
+            ),
         },
         "normal_traffic_evidence": {
             "path": normal_evidence_path.relative_to(PROJECT_ROOT).as_posix(),

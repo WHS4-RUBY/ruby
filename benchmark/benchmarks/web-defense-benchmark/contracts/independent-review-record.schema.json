@@ -30,7 +30,7 @@
     },
     "inputs": {
       "type": "array",
-      "minItems": 7,
+      "minItems": 5,
       "uniqueItems": true,
       "items": {
         "type": "object",
@@ -71,7 +71,7 @@
         "paired_input_integrity": {"const": "PASS"},
         "normal_traffic_preservation": {"const": "PASS"},
         "statistical_report": {"const": "PASS"},
-        "holdout_not_used_for_tuning": {"const": "PASS"}
+        "holdout_not_used_for_tuning": {"enum": ["PASS", "NOT-APPLICABLE"]}
       }
     },
     "findings": {

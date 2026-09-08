@@ -82,9 +82,16 @@ def make_evidence(
     schedule = json.loads(schedule_path.read_text(encoding="utf-8"))
     summary = load_json(summary_path)
     plan = load_json(analysis_plan_path.resolve())
-    baseline_scope = load_json(BASELINE_SCOPE)
-    validate_plan(plan)
     execution = plan["execution"]
+    assert isinstance(execution, dict)
+    scope_input = execution.get("scope_sealed_input")
+    scope_path = (
+        PROJECT_ROOT / "app" / str(scope_input)
+        if isinstance(scope_input, str)
+        else BASELINE_SCOPE
+    )
+    baseline_scope = load_json(scope_path)
+    validate_plan(plan)
     qualification = plan["qualification"]
     assert isinstance(execution, dict)
     assert isinstance(qualification, dict)
@@ -139,6 +146,10 @@ def make_evidence(
                 "status": trial.get("status"),
                 "objective_achieved": trial.get("objective_achieved"),
                 "observed_model_id": trial.get("observed_model_id"),
+                "knowledge_condition": trial.get(
+                    "knowledge_condition", "hidden-black-box"
+                ),
+                "public_brief_sha256": trial.get("public_brief_sha256"),
                 "attack_seconds": trial.get("attack_seconds"),
                 "active_http_requests": metrics.get("active_http_requests")
                 if isinstance(metrics, dict)
@@ -216,6 +227,45 @@ def make_evidence(
     assert isinstance(scope_limits, dict)
     assert isinstance(scope_execution, dict)
     assert isinstance(scope_comparison, dict)
+    expected_knowledge_condition = str(
+        execution.get("knowledge_condition", "hidden-black-box")
+    )
+    public_brief_input = execution.get("public_brief_sealed_input")
+    public_brief_digest = execution.get("public_brief_sha256")
+    scope_digest = execution.get("scope_sha256")
+    if expected_knowledge_condition == "hidden-black-box":
+        knowledge_condition_matches = (
+            seal.get("knowledge_condition", "hidden-black-box")
+            == "hidden-black-box"
+            and not seal.get("public_brief")
+            and all(
+                item["knowledge_condition"] == "hidden-black-box"
+                and item["public_brief_sha256"] in (None, "")
+                for item in trial_rows
+            )
+        )
+        public_brief_digest_matches = True
+    else:
+        knowledge_condition_matches = (
+            seal.get("knowledge_condition") == expected_knowledge_condition
+            and seal.get("public_brief") == public_brief_input
+            and bool(trial_rows)
+            and all(
+                item["knowledge_condition"] == expected_knowledge_condition
+                for item in trial_rows
+            )
+        )
+        public_brief_digest_matches = (
+            isinstance(public_brief_input, str)
+            and isinstance(public_brief_digest, str)
+            and isinstance(sealed_inputs, dict)
+            and sealed_inputs.get(public_brief_input) == public_brief_digest
+            and bool(trial_rows)
+            and all(
+                item["public_brief_sha256"] == public_brief_digest
+                for item in trial_rows
+            )
+        )
     execution_plan_checks = {
         "target_ids": seal.get("targets") == execution["target_ids"],
         "providers": seal.get("providers") == execution["providers"],
@@ -226,6 +276,18 @@ def make_evidence(
         and all(
             trial.get("attacker_profile_id") == execution["attacker_profile_id"]
             for trial in trials
+        ),
+        "knowledge_condition": knowledge_condition_matches,
+        "public_brief_digest": public_brief_digest_matches,
+        "scope_digest": (
+            True
+            if scope_input is None and scope_digest is None
+            else isinstance(scope_input, str)
+            and isinstance(scope_digest, str)
+            and seal.get("scope") == scope_input
+            and isinstance(sealed_inputs, dict)
+            and sealed_inputs.get(scope_input) == scope_digest
+            and digest(scope_path) == "sha256:" + scope_digest
         ),
         "reasoning_effort": seal.get("reasoning_effort")
         == execution["reasoning_effort"],

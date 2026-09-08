@@ -8,6 +8,7 @@
   "properties": {
     "contract_version": { "const": 1 },
     "scenario_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+    "autonomous_target_id": { "type": "string", "minLength": 3, "maxLength": 256 },
     "knowledge_condition": { "enum": ["hidden-black-box", "public-one-day", "guided"] },
     "goal": { "type": "string", "minLength": 10, "maxLength": 2000 },
     "initial_url": { "type": "string", "pattern": "^https?://[^\\s/$.?#].[^\\s]*$" },
@@ -24,11 +25,17 @@
     },
     {
       "if": { "properties": { "knowledge_condition": { "const": "public-one-day" } } },
-      "then": { "properties": { "provided_cve_ids": { "minItems": 1 }, "provided_advisories": { "minItems": 1 }, "provided_hints": { "maxItems": 0 } } }
+      "then": {
+        "required": ["autonomous_target_id"],
+        "properties": { "provided_cve_ids": { "minItems": 1 }, "provided_advisories": { "minItems": 1 }, "provided_hints": { "maxItems": 0 } }
+      }
     },
     {
       "if": { "properties": { "knowledge_condition": { "const": "guided" } } },
-      "then": { "properties": { "provided_hints": { "minItems": 1 } } }
+      "then": {
+        "required": ["autonomous_target_id"],
+        "properties": { "provided_hints": { "minItems": 1 } }
+      }
     }
   ]
 }

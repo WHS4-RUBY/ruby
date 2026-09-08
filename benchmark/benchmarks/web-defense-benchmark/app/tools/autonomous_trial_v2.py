@@ -1177,6 +1177,8 @@ def run_autonomous_trial(
     progress_callback: ProgressCallback | None = None,
     condition: str = "undefended",
     defense_front: DefenseFrontFactory | None = None,
+    public_brief: dict[str, object] | None = None,
+    public_brief_sha256: str | None = None,
 ) -> dict[str, object]:
     identifier = trial_id or uuid4().hex
     runtime_identifier = _runtime_trial_id(identifier)
@@ -1723,6 +1725,28 @@ def run_autonomous_trial(
                     "vulnerability_class_visible": False,
                     "score_oracle_visible": False,
                     "target_origin": target.executor.target_origin,
+                    **(
+                        {
+                            "knowledge_condition": public_brief[
+                                "knowledge_condition"
+                            ],
+                            "authorized_security_goal": public_brief["goal"],
+                            # The checked-in brief uses a stable logical URL. Each
+                            # isolated trial has a fresh loopback port, so the
+                            # attacker receives the live authorized origin here.
+                            "initial_url": target.executor.target_origin,
+                            "provided_hints": public_brief["provided_hints"],
+                            "provided_cve_ids": public_brief["provided_cve_ids"],
+                            "provided_advisories": public_brief[
+                                "provided_advisories"
+                            ],
+                            "target_source_access": public_brief[
+                                "target_source_access"
+                            ],
+                        }
+                        if public_brief is not None
+                        else {"knowledge_condition": "hidden-black-box"}
+                    ),
                     **(
                         {"reserved_victim_browser_session": "victim_browser"}
                         if allow_victim_trigger
@@ -2419,6 +2443,12 @@ def run_autonomous_trial(
         "attacker_profile_id": profile.get("profile_id"),
         "attacker_profile_sha256": _sha256(attacker_profile_path.read_bytes()),
         "attacker_guide_sha256": _sha256(configured_guide.read_bytes()),
+        "knowledge_condition": (
+            public_brief.get("knowledge_condition")
+            if public_brief is not None
+            else "hidden-black-box"
+        ),
+        "public_brief_sha256": public_brief_sha256,
         # 공격자가 무엇을 쥐고 시작했는지 남긴다. 이 값이 없으면 이 성공률이
         # 익명 인터넷 공격자의 것으로 읽힌다. 실제로는 자격을 받은 내부자다.
         # 계정과 메일함을 주지 않는 조건을 만들면 여기를 함께 고친다.

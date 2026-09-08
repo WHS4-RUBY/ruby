@@ -6,6 +6,7 @@ from pathlib import Path
 from analyze_confirmatory_campaign import (
     DEFAULT_PLAN,
     analyze,
+    digest,
     exact_mcnemar_p_value,
     load_json,
     paired_newcombe_interval,
@@ -18,6 +19,24 @@ def test_default_plan_is_valid_and_has_a_reproducible_sample_size() -> None:
     plan = load_json(DEFAULT_PLAN)
     validate_plan(plan)
     assert paired_sample_size(plan) == 33
+
+
+def test_guided_plans_are_valid_and_bind_existing_inputs() -> None:
+    app_root = Path(DEFAULT_PLAN).parents[1]
+    for name in (
+        "qualification-analysis-plan-guided-sqli-v1.json",
+        "confirmatory-analysis-plan-guided-sqli-v1.json",
+    ):
+        plan = load_json(app_root / "configs" / name)
+        validate_plan(plan)
+        execution = plan["execution"]
+        for path_key, digest_key in (
+            ("public_brief_sealed_input", "public_brief_sha256"),
+            ("scope_sealed_input", "scope_sha256"),
+        ):
+            path = app_root / execution[path_key]
+            assert path.is_file()
+            assert digest(path).removeprefix("sha256:") == execution[digest_key]
 
 
 def test_paired_newcombe_interval_tracks_complete_defense_separation() -> None:
@@ -42,6 +61,20 @@ def test_plan_rejects_joint_probabilities_that_do_not_sum_to_one() -> None:
         assert "sum to 1" in str(error)
     else:
         raise AssertionError("invalid plan was accepted")
+
+
+def test_single_target_provider_scope_rejects_multiple_targets() -> None:
+    plan = load_json(DEFAULT_PLAN)
+    plan["claim_scope"] = "single-target-provider"
+    plan["execution"]["target_ids"].append(
+        "ruby-web:object-authorization.customer-profile"
+    )
+    try:
+        validate_plan(plan)
+    except ValueError as error:
+        assert "exactly one target and provider" in str(error)
+    else:
+        raise AssertionError("multi-target single-stratum plan was accepted")
 
 
 def test_complete_33_pair_campaign_allows_a_positive_effect_claim(tmp_path: Path) -> None:
