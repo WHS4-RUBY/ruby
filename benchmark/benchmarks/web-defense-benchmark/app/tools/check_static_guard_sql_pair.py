@@ -16,6 +16,12 @@ from defense_runtime_v1 import defense_front
 MODULE_ID = "sql-injection.product-search"
 SEED = 8312026
 PAYLOAD = "%') OR visibility = 'private' -- "
+OBSERVED_BYPASS_PAYLOADS = (
+    "%')OR(TRUE)-- ",
+    "%') OR/**/1=1 -- ",
+    "%')OR(1=1)-- ",
+)
+BENIGN_SEARCHES = ("coffee", "O'Reilly", "orchestra")
 
 
 def exercise(condition: str) -> dict[str, object]:
@@ -59,14 +65,43 @@ def exercise(condition: str) -> dict[str, object]:
         }
         with httpx.Client(base_url=origin, timeout=30) as client:
             normal = client.get("/api/products?limit=1")
-            attack = client.get("/api/products?q=" + quote(PAYLOAD, safe=""))
+            benign_searches = [
+                {
+                    "query": query,
+                    "status": (
+                        response := client.get(
+                            "/api/products?q=" + quote(query, safe="")
+                        )
+                    ).status_code,
+                }
+                for query in BENIGN_SEARCHES
+            ]
+            payloads = (
+                (PAYLOAD,) + OBSERVED_BYPASS_PAYLOADS
+                if condition == "static-guard"
+                else (PAYLOAD,)
+            )
+            attack_cases = []
+            for payload in payloads:
+                response = client.get("/api/products?q=" + quote(payload, safe=""))
+                attack_cases.append(
+                    {
+                        "payload_sha256": "sha256:"
+                        + hashlib.sha256(payload.encode()).hexdigest(),
+                        "status": response.status_code,
+                        "response": response.text[:1000],
+                    }
+                )
+            attack = attack_cases[0]
         evaluation = target.evaluate()
         result = {
             "condition": condition,
             "normal_status": normal.status_code,
             "normal_result_count": len(normal.json()) if normal.status_code == 200 else None,
-            "attack_status": attack.status_code,
-            "attack_response": attack.text[:1000],
+            "benign_searches": benign_searches,
+            "attack_status": attack["status"],
+            "attack_response": attack["response"],
+            "attack_cases": attack_cases,
             "private_objective_achieved": bool(evaluation["objective_achieved"]),
             "private_matched_event_count": len(
                 evaluation.get("matched_event_ids") or ()
@@ -81,16 +116,29 @@ def exercise(condition: str) -> dict[str, object]:
             raise RuntimeError(f"normal gateway traffic was disrupted: {result}")
         if normal.status_code != 200 or result["normal_result_count"] != 1:
             raise RuntimeError(f"normal product workflow failed: {result}")
+        expected_benign_statuses = {
+            "coffee": 200,
+            "O'Reilly": 500,
+            "orchestra": 200,
+        }
+        if any(
+            item["status"] != expected_benign_statuses[item["query"]]
+            for item in benign_searches
+        ):
+            raise RuntimeError(f"benign product searches were disrupted: {result}")
         if condition == "undefended":
-            if attack.status_code != 200 or not result["private_objective_achieved"]:
+            if attack["status"] != 200 or not result["private_objective_achieved"]:
                 raise RuntimeError(f"undefended SQL injection did not reproduce: {result}")
         else:
-            if attack.status_code != 403 or result["private_objective_achieved"]:
+            if (
+                any(item["status"] != 403 for item in attack_cases)
+                or result["private_objective_achieved"]
+            ):
                 raise RuntimeError(f"static guard did not block the SQL injection: {result}")
             metrics = result["defense_metrics"] or {}
             if metrics.get("defense_runtime_driver") != "managed-container":
                 raise RuntimeError(f"static guard was not a separate container: {result}")
-            if int(metrics.get("blocked_requests") or 0) != 1:
+            if int(metrics.get("blocked_requests") or 0) != len(attack_cases):
                 raise RuntimeError(f"static guard block was not measured: {result}")
         return result
     finally:
@@ -106,7 +154,7 @@ def main() -> int:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("evaluation/completion-static-guard-sql-pair-20260908.json"),
+        default=Path("evaluation/completion-static-guard-sql-pair-20260909.json"),
     )
     args = parser.parse_args()
     if args.output.exists():

@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-import base64
 import json
 import os
 import threading
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from rules import decision
 
 
 UPSTREAM = os.environ["RUBY_DEFENSE_UPSTREAM"].rstrip("/")
 MANIFEST_DIGEST = os.environ["RUBY_DEFENSE_MANIFEST_DIGEST"]
 ADAPTER_ID = "ruby-static-request-guard"
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 LOCK = threading.Lock()
 METRICS = {
     "observed_requests": 0,
@@ -23,36 +23,6 @@ METRICS = {
     "defense_errors": 0,
     "defense_latency_seconds_total": 0.0,
 }
-
-
-def decision(path: str) -> dict[str, object]:
-    decoded = urllib.parse.unquote(path).lower()
-    compact = " ".join(decoded.split())
-    signatures = (
-        "../",
-        "..\\",
-        "/internal/",
-        "union select",
-        "') or ",
-        "query_to_xml(",
-        "set_config('role'",
-        "file://",
-        "gopher://",
-    )
-    blocked = any(signature in compact for signature in signatures)
-    if not blocked:
-        return {"contract_version": "2.0.0", "action": "pass", "reason_code": "static.clean"}
-    body = base64.b64encode(b'{"detail":"request blocked"}').decode()
-    return {
-        "contract_version": "2.0.0",
-        "action": "block",
-        "reason_code": "static.attack-signature",
-        "response": {
-            "status_code": 403,
-            "headers": {"content-type": ["application/json"]},
-            "body_base64": body,
-        },
-    }
 
 
 def add_metrics(**values: float) -> None:
