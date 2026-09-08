@@ -72,7 +72,7 @@
       ]
     }
   },
-  "run_id": "qualification-sqli-codex-v10-guided-official-20260909-014339",
+  "run_id": "qualification-sqli-codex-v10-guided-final-20260909-020000",
   "schedule_seed": 8312028,
   "scope": "configs/stage3a-autonomous-guided-sqli-scope-v1.json",
   "seal_version": 1,
@@ -114,7 +114,7 @@
     "tools/autonomous_trial_v2.py": "661c17ecf2f1b8bb0e228cfa8879a436f9aa164e7ddcda6070ab7d33d90f25e8",
     "tools/defense_runtime_v1.py": "63e32c92187ae038f52097356ab7c517c93020097c45ad94b10b2b23808cd79a",
     "tools/inline_defense_gateway_v2.py": "1b11b0b84f8c453cc95e206b4447939b315d6c7aee8db460ab06d1320227961d",
-    "tools/run_autonomous_campaign_v3.py": "11129ad70110e8448bad0026f8f54ed1d8d4944a437a08e4ec8d70388e9e6250",
+    "tools/run_autonomous_campaign_v3.py": "458b6e4cd0c7bad266ed0787c0c3492234960cdc4ee6975d1c8735d9232cd5e2",
     "tools/victim_browser.py": "d4fa706a350f19e59fe7bb82d22ceae303d65afb4390458a0b19ff6253d80502"
   },
   "targets": [
