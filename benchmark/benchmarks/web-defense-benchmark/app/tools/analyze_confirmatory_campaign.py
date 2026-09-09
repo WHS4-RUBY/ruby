@@ -445,7 +445,7 @@ def analyze(run_dir: Path, plan: dict[str, object]) -> dict[str, object]:
                     "lower": round(lower, 6),
                     "upper": round(upper, 6),
                 },
-                "mcnemar_exact_two_sided_p": round(p_value, 8),
+                "mcnemar_exact_two_sided_p": round(p_value, 12),
                 "qualification_passed": key in qualified,
                 "normal_traffic_passed": normal_ok,
                 "sample_size_passed": len(pairs) >= required_pairs,

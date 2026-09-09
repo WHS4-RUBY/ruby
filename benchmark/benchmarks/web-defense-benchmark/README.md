@@ -13,6 +13,9 @@
 - 2026년 9월 8일의 7개 게이트 통과 기록은 당시 기능 점검 결과입니다. RUBY 전체 프로젝트나 방어 연구의 완성을 뜻하지 않습니다.
 - 한 표적에서 수행한 한 번의 비교 결과로 여러 표적에 대한 방어 효과를 주장하지 않습니다.
 - 작은 예산으로 실행한 v12와 v10 각 5회는 모두 공격 목표 달성 0회였으며 예비 결과로만 보관합니다. 공식 예산으로 다시 실행한 Codex v10 SQL 주입 무방어 시험도 5회 중 0회 성공했습니다. 공식 실행 계획, 격리와 정상 흐름 검사는 모두 통과했지만 60% 자격 기준에 미달해 이 조합의 방어 효과 비교는 실행하지 않습니다. 근거는 [`evidence/20260909/qualification-sqli-codex-v10-official.json`](evidence/20260909/qualification-sqli-codex-v10-official.json)에 있습니다.
+- 별도 `guided` 조건의 Codex `gpt-5.6-sol`, `medium`, 프로필 v10은 무방어 자격 시험 5회 중 5회 성공했습니다. 이어서 무방어, 단순 프록시와 연결 계약 검증용 `static-guard`를 각각 33회 실행했습니다. 무방어와 프록시는 33회 모두 성공했고 기준 모듈에서는 33회 모두 실패했습니다. 33개 유효 대응쌍의 공격 성공률 차이는 1.0, 95% Newcombe 구간은 0.85254에서 1.0, 양측 정확 McNemar p값은 `2.33e-10`입니다. 이 결과는 해당 과업 지정 공격자, SQL 상품 검색 표적과 기준 모듈 조합에만 적용하며 구현 비참여자의 검토는 남아 있습니다. 근거는 [`evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-analysis.json`](evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-analysis.json)에 있습니다.
+- 같은 공격자는 앞선 기준 모듈 v1과 v2를 실제로 우회했고 그 결과를 v3 수정에 사용했습니다. 따라서 v3 결과는 수정 후 고정한 연결 계약 회귀이며, 새로운 표적에서 수행한 독립 보류 시험이 아닙니다. 이 조정 이력과 한계는 [`docs/guided-ai-defense-evaluation.md`](docs/guided-ai-defense-evaluation.md)에 공개합니다.
+- 완료 항목과 남은 외부 검토 및 GitHub 상태는 [`docs/benchmark-status-20260909.md`](docs/benchmark-status-20260909.md)에 표로 정리했습니다.
 
 ## 처음 10분 사용 순서
 
@@ -118,7 +121,7 @@ curl -sG --data-urlencode "q=%') OR visibility = 'private' -- " \
 - 원본 CVE: Jenkins `CVE-2024-23897`, GeoServer `CVE-2024-36401`, Roundcube `CVE-2024-42009`와 `CVE-2026-54433`, Langflow `CVE-2025-3248`
 - 판정 무결성: 공개 HTTP 응답과 분리된 평가 원장 및 전용 데이터베이스 역할
 - 공격자 조건: 익명, 자기 계정 제공, 피해자 동작 필요 조건을 분리한 프로필
-- 방어 연결 실험 코드: `undefended`, 공통 게이트웨이만 쓰는 `proxy-only`, 별도 컨테이너 `static-guard`, loopback 외부 HTTP 어댑터
+- 방어 연결 실험 코드: `undefended`, 공통 게이트웨이만 쓰는 `proxy-only`, 연결 계약 검증용 최소 기준 모듈 `static-guard`, loopback 외부 HTTP 어댑터
 
 전체 목록은 [`docs/web-application-and-vulnerability-catalog-20260907.md`](docs/web-application-and-vulnerability-catalog-20260907.md), 구조는 [`docs/architecture.md`](docs/architecture.md), 공격자 공개 지침은 [`ATTACKER.md`](ATTACKER.md)에서 확인할 수 있습니다. 34개 대상은 OWASP 전체 범위나 실제 웹 취약점 분포를 대표하지 않습니다. 빠진 범주, 공격자 격리의 신뢰 경계와 평가의 한계는 [`docs/benchmark-audit-20260908.md`](docs/benchmark-audit-20260908.md)에 판정과 근거를 정리했습니다. 추가한 여섯 합성 시나리오와 Roundcube 2026 원본 CVE pair의 범위는 [`docs/scenario-scope-contracts-20260908.md`](docs/scenario-scope-contracts-20260908.md), 실제 재현 절차와 결과는 [`docs/scope-expansion-reproduction-20260908.md`](docs/scope-expansion-reproduction-20260908.md)와 [`docs/roundcube-cve-2026-54433-reproduction-20260908.md`](docs/roundcube-cve-2026-54433-reproduction-20260908.md)에 있습니다. 이후 수정 순서와 전체 완료 조건은 [`docs/benchmark-completion-plan-20260908.md`](docs/benchmark-completion-plan-20260908.md)를 따릅니다.
 
@@ -250,4 +253,4 @@ tools/        매니페스트 검증 도구
 
 ## 검증 범위와 한계
 
-취약 웹 릴리스 근거는 [`docs/release-readiness-20260908.md`](docs/release-readiness-20260908.md)에 있습니다. 기준 방어의 Docker 검사에서는 방어 뒤 정상 업무 6개와 HTTP 요청 13건이 모두 성공했고 정상 요청 차단과 방어 오류는 0건이었습니다. 같은 검사에서 SQL 주입은 무방어 조건에서 성공하고 `static-guard` 조건에서 차단됐습니다. 이 결과는 연결 기능 증거이며 반복 AI 공격의 통계적 방어 효과를 뜻하지 않습니다. 실제 확증 캠페인과 독립 검토 전에는 방어 효과 완료로 표시하지 않습니다.
+취약 웹 릴리스 근거는 [`docs/release-readiness-20260908.md`](docs/release-readiness-20260908.md)에 있습니다. `static-guard`는 RUBY의 실제 방어 제품이 아니라 외부 방어 등록, 장착, 요청 전달, 차단과 제거 계약을 확인하는 최소 기준 모듈입니다. Docker 검사에서는 방어 뒤 정상 업무 6개와 HTTP 요청 13건이 모두 성공했고 정상 요청 차단과 방어 오류는 0건이었습니다. 같은 검사에서 SQL 주입은 무방어 조건에서 성공하고 `static-guard` 조건에서 차단됐습니다. 반복 AI 공격 결과는 해당 공격자, 표적과 기준 모듈 조합에만 적용하며 구현 비참여자의 검토 전에는 방어 효과 평가 전체를 완료로 표시하지 않습니다.
