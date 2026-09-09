@@ -180,6 +180,7 @@ def test_complete_33_pair_campaign_allows_a_positive_effect_claim(tmp_path: Path
     assert comparison["qualification_passed"]
     assert comparison["normal_traffic_passed"]
     assert comparison["newcombe_paired_interval"]["lower"] > 0
+    assert 0 < comparison["mcnemar_exact_two_sided_p"] < 1e-8
 
 
 def test_confirmatory_campaign_rejects_smaller_trial_budget(tmp_path: Path) -> None:
