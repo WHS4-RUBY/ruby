@@ -103,16 +103,26 @@ def validate_ruby_report(
     report = load_json(report_path)
     rows = result_rows(report)
     conditions = [str(item.get("condition")) for item in rows]
-    objective_checks = []
+    objective_checks: list[bool] = []
     for item in rows:
         observed = objective_value(item)
         if observed is not None:
             objective_checks.append(
                 observed is (str(item.get("condition")) == "vulnerable")
             )
-    reported_modules = {
-        str(item["module_id"]) for item in rows if isinstance(item.get("module_id"), str)
-    }
+    reported_module_rows = [
+        str(item["module_id"])
+        for item in rows
+        if isinstance(item.get("module_id"), str)
+    ]
+    reported_modules = set(reported_module_rows)
+    module_conditions = {module: set() for module in modules}
+    for item in rows:
+        module_id = item.get("module_id")
+        condition = item.get("condition")
+        if isinstance(module_id, str) and module_id in module_conditions:
+            if isinstance(condition, str):
+                module_conditions[module_id].add(condition)
     checks = {
         "overall_passed": report_passed(report),
         "two_conditions_per_module": len(rows) == len(modules) * 2,
@@ -120,10 +130,13 @@ def validate_ruby_report(
             conditions.count("secure") == len(modules)
             and conditions.count("vulnerable") == len(modules)
         ),
+        "each_module_has_secure_and_vulnerable": bool(modules)
+        and all(values == {"secure", "vulnerable"} for values in module_conditions.values()),
         "every_result_passed": all(result_passed(item) for item in rows),
-        "available_objectives_match_condition": all(objective_checks),
+        "objectives_present_and_match_condition": len(objective_checks) == len(rows)
+        and all(objective_checks),
         "reported_module_ids_match_source": (
-            not reported_modules or reported_modules == modules
+            len(reported_module_rows) == len(rows) and reported_modules == modules
         ),
     }
     return {
@@ -151,7 +164,7 @@ def validate_cve_report(label: str, report_path: Path) -> dict[str, object]:
     report = load_json(report_path)
     rows = result_rows(report)
     conditions = [str(item.get("condition")) for item in rows]
-    objective_checks = []
+    objective_checks: list[bool] = []
     for item in rows:
         observed = objective_value(item)
         if observed is not None:
@@ -164,11 +177,9 @@ def validate_cve_report(label: str, report_path: Path) -> dict[str, object]:
         "overall_passed": report_passed(report),
         "cve_identity": cve_id == expected_cve,
         "vulnerable_and_fixed": sorted(conditions) == ["fixed", "vulnerable"],
-        "every_explicit_result_passed": all(
-            result_passed(item) if ("passed" in item or "all_checks_passed" in item) else True
-            for item in rows
-        ),
-        "available_objectives_match_condition": all(objective_checks),
+        "every_result_passed": all(result_passed(item) for item in rows),
+        "objectives_present_and_match_condition": len(objective_checks) == len(rows)
+        and all(objective_checks),
     }
     return {
         "label": label,
@@ -452,7 +463,7 @@ def main() -> int:
         "catalog_has_29_modules": len(catalog_ids) == 29,
         "registry_matches_catalog": registry_ruby_ids == catalog_ids,
         "five_original_cves_registered": len(registry_cves) == 5,
-        "every_ruby_module_has_one_pair_checker": set(module_owners) == catalog_ids
+        "every_ruby_module_assigned_to_one_checker_script": set(module_owners) == catalog_ids
         and all(len(owners) == 1 for owners in module_owners.values()),
         "every_ruby_pair_report_passed": all(item["passed"] for item in ruby_results),
         "every_cve_pair_report_passed": len(cve_results) == 5
