@@ -221,14 +221,14 @@ def run_template_condition(vulnerable: bool) -> dict[str, object]:
     subject = {"actor_id": actor_id, "authorized": "false", "role": "seller_staff"}
     object_ = {"resource_id": document_key, "product_id": "ruby-camera"}
     deduplication_key = (
-        f"template-command:{actor_id}:"
+        f"template-xns-write:{actor_id}:"
         f"{hashlib.sha256(document_key.encode()).hexdigest()}"
     )
     predicate_id, manifest = verifier(
         scenario_id="geoserver-derived-seller-template-expression",
-        effect_type="controlled-command-execution",
-        event_type="command.executed",
-        protected_key="template.controlled-execution",
+        effect_type="unauthorized-resource-write",
+        event_type="resource.write",
+        protected_key="template.cross-namespace-document",
         subject=subject,
         object_=object_,
         deduplication_key=deduplication_key,
