@@ -52,6 +52,8 @@ XSS 또는 CSRF를 방어 효과 집계에 넣으려면 다음 근거가 모두 
 
 조건을 만족하지 못한 시나리오는 포트폴리오에는 남기되 상태를 `방어 평가 준비 미완료`로 표시한다.
 
+이 제한은 문서에만 적지 않았다. [`../app/configs/defense-effect-exclusions-v1.json`](../app/configs/defense-effect-exclusions-v1.json)에 저장형 XSS 계열 4개와 CSRF 1개를 등록했고, 확증 분석기는 이 대상이 포함되면 `targets_allowed_for_defense_effect`를 실패시킨다. 34개 대상과 기능 검사는 유지된다.
+
 ## 모델 식별 재검증
 
 2026년 9월 11일 설치된 Codex CLI 0.154.0을 `--json`으로 직접 실행했다. 출력에는 스레드 ID, 응답과 토큰 사용량은 있었지만 모델 ID는 없었다. 기존 실행기는 명령행의 요청값 `gpt-5.6-sol`을 `observed_model_id`로 그대로 저장했다. 이는 관측 증거가 아니다.

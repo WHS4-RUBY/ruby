@@ -6,6 +6,7 @@ from pathlib import Path
 from analyze_confirmatory_campaign import (
     DEFAULT_PLAN,
     analyze,
+    defense_effect_target_gate,
     digest,
     exact_mcnemar_p_value,
     load_json,
@@ -13,6 +14,46 @@ from analyze_confirmatory_campaign import (
     paired_sample_size,
     validate_plan,
 )
+
+
+def test_xss_and_csrf_targets_are_blocked_from_effect_aggregation() -> None:
+    blocked = defense_effect_target_gate(
+        [
+            "ruby-web:roundcube-derived.support-ticket-html-postprocess",
+            "ruby-web:cross-site-request-forgery.support-role-change",
+        ]
+    )
+    assert blocked["passed"] is False
+    assert {item["attack_class"] for item in blocked["blocked_targets"]} == {
+        "stored-xss",
+        "csrf",
+    }
+
+    allowed = defense_effect_target_gate(
+        ["ruby-web:sql-injection.product-search"]
+    )
+    assert allowed["passed"] is True
+    assert allowed["blocked_targets"] == []
+
+    registry = load_json(
+        DEFAULT_PLAN.parents[2]
+        / "app"
+        / "configs"
+        / "stage3a-autonomous-target-registry-v2.json"
+    )
+    all_target_ids = [
+        str(item["target_id"])
+        for group in ("ruby_web_targets", "original_cve_targets")
+        for item in registry[group]
+    ]
+    complete_gate = defense_effect_target_gate(all_target_ids)
+    assert {item["target_id"] for item in complete_gate["blocked_targets"]} == {
+        "ruby-web:unsafe-file-upload.seller-document-preview",
+        "ruby-web:roundcube-derived.support-ticket-html-postprocess",
+        "ruby-web:cross-site-request-forgery.support-role-change",
+        "cve-original:CVE-2024-42009",
+        "cve-original:CVE-2026-54433",
+    }
 
 
 def test_default_plan_is_valid_and_has_a_reproducible_sample_size() -> None:

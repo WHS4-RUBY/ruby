@@ -1,0 +1,39 @@
+{
+  "policy_version": 1,
+  "policy_id": "ruby-defense-effect-exclusions-v1",
+  "purpose": "Keep implemented targets in the portfolio while blocking unsupported attack classes from defense-effect claims.",
+  "blocked_targets": [
+    {
+      "target_id": "ruby-web:unsafe-file-upload.seller-document-preview",
+      "attack_class": "stored-browser-script-execution",
+      "reason": "The private browser evaluator can judge execution, but the current RUBY detector and registered static guard do not detect or block this attack class."
+    },
+    {
+      "target_id": "ruby-web:roundcube-derived.support-ticket-html-postprocess",
+      "attack_class": "stored-xss",
+      "reason": "The private browser evaluator can judge execution, but the current RUBY detector and registered static guard do not detect or block XSS."
+    },
+    {
+      "target_id": "ruby-web:cross-site-request-forgery.support-role-change",
+      "attack_class": "csrf",
+      "reason": "The private evaluator can judge the role change, but the current RUBY detector has no verified way to distinguish an induced cross-site request from a legitimate state change."
+    },
+    {
+      "target_id": "cve-original:CVE-2024-42009",
+      "attack_class": "stored-xss",
+      "reason": "The original target reproduces browser execution, but no current RUBY XSS detector or defense has passed attack and benign-input tests."
+    },
+    {
+      "target_id": "cve-original:CVE-2026-54433",
+      "attack_class": "stored-xss",
+      "reason": "The original target reproduces browser execution, but no current RUBY XSS detector or defense has passed attack and benign-input tests."
+    }
+  ],
+  "removal_requirements": [
+    "vulnerable target attack succeeds",
+    "secure twin or fixed target rejects the same attack",
+    "registered RUBY detector or defense acts on the attack",
+    "representative benign requests pass without false positives",
+    "raw reproducible evidence is retained"
+  ]
+}
