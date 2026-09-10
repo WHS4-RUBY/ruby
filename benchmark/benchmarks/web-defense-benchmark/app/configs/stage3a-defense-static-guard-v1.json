@@ -4,9 +4,9 @@
   "defense_version": "3.0.0",
   "source": {
     "repository_url": "https://github.com/WHS4-RUBY/ruby",
-    "revision": "workspace-20260909",
+    "revision": "2c0419c82c6de6afa7e536a6d37499e8149ac208",
     "source_digest": "sha256:a2583133cb09c88dc50d01b64962b73e58397059aaba7c6ae1db23420b80a96e",
-    "license": "Project-internal",
+    "license": "All rights reserved; no license granted",
     "paper": null
   },
   "implementation_fidelity": "native",
