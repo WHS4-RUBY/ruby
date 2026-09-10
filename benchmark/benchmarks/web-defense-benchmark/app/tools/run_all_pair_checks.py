@@ -56,14 +56,59 @@ CHECKERS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 )
 
 
+def build_current_images(skip: bool) -> dict[str, object]:
+    started = time.time()
+    build = (
+        subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        if skip
+        else subprocess.run(
+            ["docker", "compose", "build"],
+            cwd=APP_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    )
+    return {
+        "command": "docker compose build",
+        "skipped": skip,
+        "returncode": build.returncode,
+        "seconds": round(time.time() - started, 1),
+        "stderr_tail": (build.stderr or "").strip()[-1000:],
+        "passed": build.returncode == 0 and not skip,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--skip-build",
+        action="store_true",
+        help="reuse local images for debugging; do not use for release evidence",
+    )
     args = parser.parse_args()
     output_dir = args.output_dir.resolve()
     if output_dir.exists():
         raise FileExistsError(f"refusing to reuse output directory: {output_dir}")
     output_dir.mkdir(parents=True)
+
+    build_result = build_current_images(args.skip_build)
+    if build_result["returncode"] != 0:
+        report = {
+            "report_version": 2,
+            "image_build": build_result,
+            "results": [],
+            "passed": False,
+        }
+        path = output_dir / "all-pair-checks.json"
+        path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps({"passed": False, "report": str(path)}))
+        return 1
 
     rows: list[dict[str, object]] = []
     for label, name, extra in CHECKERS:
@@ -103,9 +148,11 @@ def main() -> int:
         )
 
     report = {
-        "report_version": 1,
+        "report_version": 2,
+        "image_build": build_result,
         "results": rows,
-        "passed": all(item.get("status") == "passed" for item in rows),
+        "passed": build_result["passed"]
+        and all(item.get("status") == "passed" for item in rows),
     }
     path = output_dir / "all-pair-checks.json"
     path.write_text(

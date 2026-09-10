@@ -202,6 +202,8 @@ PYTHONPATH='app/backend:app/evaluator:app/runner:app/tools' \
   --output-dir app/evaluation/all-pairs-unique-run
 ```
 
+이 명령은 검사 전에 로컬 빌드 대상 이미지를 현재 소스로 다시 빌드합니다. `--skip-build`는 디버깅용이며, 이 옵션을 쓴 결과는 릴리스 근거로 인정하지 않습니다.
+
 원본 CVE 5개의 취약판과 수정판, 관리형 방어 컨테이너의 권한과 네트워크 격리는 다음 공통 관문으로 확인합니다. 모든 원본 이미지를 실행하므로 일반 smoke test보다 오래 걸립니다.
 
 ```powershell
