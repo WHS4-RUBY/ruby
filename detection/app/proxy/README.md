@@ -15,17 +15,19 @@ app = create_app([MyHook()])          # uvicorn 으로 기동
 ```
 
 훅 종류
-    on_request(ctx)   : 백엔드로 보내기 전. ``Response`` 를 반환하면 즉시 종료
-                        (차단·기만·캐시). ``ctx.body`` / ``ctx.forward_headers`` /
-                        ``ctx.target_url`` / ``ctx.meta`` 를 수정해 요청을 변형.
+```
+    on_request(ctx)   : 백엔드로 보내기 전. Response 를 반환하면 즉시 종료
+                        (차단·기만·캐시). ctx.body / ctx.forward_headers /
+                        ctx.target_url / ctx.meta 를 수정해 요청을 변형.
     on_response(ctx)  : 백엔드 응답을 받은 뒤, 클라이언트로 돌려주기 전.
-                        ``ctx.response_status`` / ``ctx.response_headers`` /
-                        ``ctx.response_body`` 를 수정해 응답을 변형.
-    on_error(ctx, exc): 백엔드 연결 실패 시. ``Response`` 를 반환하면 기본 502 대신 사용.
-
+                        ctx.response_status / ctx.response_headers /
+                        ctx.response_body 를 수정해 응답을 변형.
+    on_error(ctx, exc): 백엔드 연결 실패 시. Response 를 반환하면 기본 502 대신 사용.
+```
 훅은 리스트 순서대로 실행된다. 관찰(로깅) 훅은 보통 맨 앞에 둔다.
 
 계층별 연결 지점 (구현은 각 계층에서 — detection/app, defense/)
+```
     관찰  : on_request / on_response 에서 ctx 를 읽어 로깅·수집.  (packet_proxy.LoggingHook)
     탐지  : on_request 에서 위험도를 산정해 다음 홉으로 전달.
               ctx.forward_headers["X-Risk-Score"] = str(score)
@@ -38,6 +40,7 @@ app = create_app([MyHook()])          # uvicorn 으로 기동
             on_response 에서
               - 변환 : ctx.response_body / ctx.response_headers 수정 (지문 제거 등)
     (훅이 백엔드를 건너뛰면 ctx.short_circuited 가 True 가 된다.)
+```
 
 ``create_app(..., before_catchall=fn)`` 으로 캐치올보다 먼저 매칭돼야 하는 전용
 라우트(트랩 엔드포인트 등)를 등록할 수 있다 — ``fn(app)`` 안에서 ``@app.get(...)``.
