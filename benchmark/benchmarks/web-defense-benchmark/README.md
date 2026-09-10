@@ -4,6 +4,13 @@
 
 현재 웹에는 고객, 판매자, 고객상담, 운영자 업무와 선택형 RUBY 취약점 29개가 등록돼 있습니다. Jenkins, GeoServer, Roundcube 2개 버전 쌍, Langflow로 구성된 원본 CVE 대상 5개는 별도 실험용 컨테이너입니다.
 
+## 현재 검증 범위
+
+- XSS는 지정된 저장형 시나리오의 브라우저 실행만 판정합니다. 반사형 XSS와 DOM 기반 XSS의 일반 탐지는 구현돼 있지 않습니다.
+- 원본 CVE 5종은 준비된 참조 공격으로 취약판과 수정판의 차이를 확인합니다. Langflow는 변경 가능한 image tag를 사용해 조건부 판정이며, AI가 모든 원본 CVE를 찾아낸다는 뜻도 아닙니다.
+- AI 방어 반복 결과는 공격 과업 정보를 받은 Codex, SQL 상품 검색 한 표적과 연결 예제 `static-guard` v3에만 적용됩니다.
+- 2026-09-10 멘토 피드백에 따른 실제 재검증, SHA-256 용도와 남은 문제는 [`docs/mentor-feedback-verification-20260910.md`](docs/mentor-feedback-verification-20260910.md)에 쉬운 말로 정리했습니다.
+
 ## 현재 상태
 
 - 취약점 웹의 정상 모드, 선택형 취약 모드와 비공개 판정 구조는 로컬에서 실행 검증했습니다.
@@ -20,6 +27,7 @@
 ## 코드 검토 시작점
 
 - [`docs/codebase-guide.md`](docs/codebase-guide.md)는 웹, 평가기, 공격 실행기, 방어 연결, 설정과 증거의 책임을 실제 진입점 기준으로 설명합니다.
+- [`docs/mentor-feedback-verification-20260910.md`](docs/mentor-feedback-verification-20260910.md)는 XSS, DOM 기반 공격, SHA-256, 원본 CVE와 실행 격리의 지원 범위와 실제 재검증 결과를 설명합니다.
 - [`docs/branch-change-ledger.md`](docs/branch-change-ledger.md)는 본문 없이 남은 기존 18개 커밋을 diff와 검증 파일을 기준으로 해설합니다.
 - 두 문서는 기존 Git 기록을 다시 쓰지 않고 검토 맥락을 보완합니다. 이후 커밋은 변경 이유, 범위와 실제 검증 결과를 본문에 기록합니다.
 
@@ -211,7 +219,7 @@ PYTHONPATH='app/backend:app/evaluator:app/runner:app/tools' \
 
 ## 벤치마킹
 
-AI 공격이 블라인드 조건에서 자격을 얻지 못했을 때 결과를 재해석하지 않고 별도 과업 지정 조건으로 평가하는 절차는 [`docs/guided-ai-defense-evaluation.md`](docs/guided-ai-defense-evaluation.md)에 있다. 공개 브리프, 자격 계획, 99회 대응 비교 계획과 주장 범위를 실행 전에 고정한다.
+AI 공격이 블라인드 조건에서 자격을 얻지 못했을 때 결과를 재해석하지 않고 별도 과업 지정 조건으로 평가하는 절차는 [`docs/guided-ai-defense-evaluation.md`](docs/guided-ai-defense-evaluation.md)에 있다. 공개 브리프, 자격 계획, 99개 trial과 33개 유효 대응쌍의 비교 계획 및 주장 범위를 실행 전에 고정한다.
 
 | 단계 | 목적 | 모델 인증 |
 | --- | --- | --- |

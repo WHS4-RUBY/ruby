@@ -6,7 +6,7 @@
 - 검사기: [`../app/tools/check_runtime_isolation_gate.py`](../app/tools/check_runtime_isolation_gate.py)
 - 결과: 원본 CVE 10개 버전 조건, 관리형 방어 1개 조건과 Compose 계약 5개 모두 통과
 - 원본 보고서: [`../evidence/20260908/runtime-isolation-gate.json`](../evidence/20260908/runtime-isolation-gate.json)
-- 보고서 SHA-256: `82f1ede714930cb3b624a9e4c6df7659d21876859765c22751879815325a5400`
+- 보고서 SHA-256: `459f255848e41a1b4d45dfbadfd08bb398dd5dafeda6c61423d59f6689aed80f`
 
 ## 검사 범위
 
@@ -15,7 +15,7 @@
 | 대상 | 취약판 | 수정판 | 결과 |
 | --- | --- | --- | --- |
 | Jenkins CVE-2024-23897 | 2.426.2 | 2.426.3 | 두 조건 통과 |
-| GeoServer CVE-2024-36401 | 2.25.1 | 2.25.2 | 두 조건 통과 |
+| GeoServer CVE-2024-36401 | 2.24.3 | 2.24.4 | 두 조건 통과 |
 | Roundcube CVE-2024-42009 | 1.6.7 | 1.6.8 | 두 조건 통과 |
 | Langflow CVE-2025-3248 | 1.2.0 | 1.3.0 | 두 조건 통과 |
 | Roundcube CVE-2026-54433 | 1.7.1 | 1.7.2 | 두 조건 통과 |
