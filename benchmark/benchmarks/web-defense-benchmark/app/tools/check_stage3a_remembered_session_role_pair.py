@@ -205,6 +205,7 @@ def run_condition(vulnerable: bool) -> dict[str, object]:
     }
     return {
         "scenario_id": "remembered-session-role-chain",
+        "module_id": module,
         "condition": "vulnerable" if vulnerable else "secure",
         "remembered_cookie_http_status": forged.status_code,
         "trial_id": trial_id,

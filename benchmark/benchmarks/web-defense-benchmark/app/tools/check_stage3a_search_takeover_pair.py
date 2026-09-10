@@ -121,6 +121,7 @@ def run_condition(vulnerable: bool) -> dict[str, object]:
     }
     return {
         "scenario_id": "search-leak-session-takeover",
+        "module_id": module,
         "condition": "vulnerable" if vulnerable else "secure",
         "trial_id": trial_id,
         "search_http_status": searched.status_code,

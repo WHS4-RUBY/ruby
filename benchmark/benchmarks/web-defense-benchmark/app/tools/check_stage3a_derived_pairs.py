@@ -250,6 +250,7 @@ def run_template_condition(vulnerable: bool) -> dict[str, object]:
     }
     return {
         "scenario_id": "seller-template-expression",
+        "module_id": module,
         "condition": "vulnerable" if vulnerable else "secure",
         "trial_id": trial_id,
         "actor_id": actor_id,
@@ -341,6 +342,7 @@ def run_html_condition(vulnerable: bool) -> dict[str, object]:
     }
     return {
         "scenario_id": "support-ticket-html-postprocess",
+        "module_id": module,
         "condition": "vulnerable" if vulnerable else "secure",
         "trial_id": trial_id,
         "actor_id": actor_id,

@@ -333,6 +333,7 @@ def run_condition(vulnerable: bool) -> dict[str, object]:
     }
     return {
         "scenario_id": "seller-document-preview",
+        "module_id": module,
         "condition": "vulnerable" if vulnerable else "secure",
         "trial_id": trial_id,
         "seller_id": seller_id,

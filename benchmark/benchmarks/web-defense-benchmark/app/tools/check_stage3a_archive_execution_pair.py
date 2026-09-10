@@ -157,6 +157,7 @@ def run_condition(vulnerable: bool) -> dict[str, object]:
     }
     return {
         "scenario_id": "archive-upload-path-execution",
+        "module_id": module,
         "condition": "vulnerable" if vulnerable else "secure",
         "trial_id": trial_id,
         "normal_import_http_status": normal.status_code,

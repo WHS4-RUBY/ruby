@@ -238,6 +238,7 @@ def run_password_reset_condition(vulnerable: bool) -> dict[str, object]:
     }
     return {
         "scenario_id": "password-reset-session-swap",
+        "module_id": module,
         "condition": "vulnerable" if vulnerable else "secure",
         "trial_id": trial_id,
         "http_statuses": [item.status_code for item in reset_responses],
@@ -296,6 +297,7 @@ def run_operations_condition(vulnerable: bool) -> dict[str, object]:
     }
     return {
         "scenario_id": "operations-status-secret",
+        "module_id": module,
         "condition": "vulnerable" if vulnerable else "secure",
         "trial_id": trial_id,
         "summary_status": summary.status_code,
