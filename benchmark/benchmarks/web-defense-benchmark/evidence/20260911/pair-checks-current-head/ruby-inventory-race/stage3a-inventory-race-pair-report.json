@@ -1,0 +1,128 @@
+{
+  "module_id": "race-condition.inventory-confirmation",
+  "passed": true,
+  "report_version": 1,
+  "results": [
+    {
+      "attempts": [
+        {
+          "http_status": 409,
+          "order_id": null
+        },
+        {
+          "http_status": 201,
+          "order_id": "e9ff0f21-2aae-4f24-beaf-6ce7e597a3f5"
+        }
+      ],
+      "checks": {
+        "conflict_count_matches_condition": true,
+        "final_stock_is_zero": true,
+        "initial_stock_is_twenty": true,
+        "matched_event_count_matches_condition": true,
+        "no_unexpected_http_status": true,
+        "private_evaluator_matches_condition": true,
+        "success_count_matches_condition": true,
+        "two_distinct_customers": true
+      },
+      "condition": "secure",
+      "customer_ids": [
+        "00000000-0000-4000-8000-000000000001",
+        "845951d8-4450-42a7-878e-f76e1e45cc39"
+      ],
+      "evaluation": {
+        "evaluated_at": "2026-09-10T18:07:12.548582+00:00",
+        "event_ledger_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "matched_event_ids": [],
+        "objective_achieved": false,
+        "predicate_id": "race-condition-inventory-confirmation.effect",
+        "trial_id": "8d5657c23f1643ed9e8e8f1d4ea3cf66"
+      },
+      "final_stock": 0,
+      "initial_stock": 20,
+      "ledger_events": [],
+      "passed": true,
+      "scenario_id": "competing-inventory-confirmation",
+      "stock_conflicts": 1,
+      "successful_orders": 1,
+      "trial_id": "8d5657c23f1643ed9e8e8f1d4ea3cf66"
+    },
+    {
+      "attempts": [
+        {
+          "http_status": 201,
+          "order_id": "1a60df7b-646c-4700-b29d-e2c67d4446d3"
+        },
+        {
+          "http_status": 201,
+          "order_id": "5a0b9b17-75ef-4925-a830-736df5aa34be"
+        }
+      ],
+      "checks": {
+        "conflict_count_matches_condition": true,
+        "final_stock_is_zero": true,
+        "initial_stock_is_twenty": true,
+        "matched_event_count_matches_condition": true,
+        "no_unexpected_http_status": true,
+        "private_evaluator_matches_condition": true,
+        "success_count_matches_condition": true,
+        "two_distinct_customers": true
+      },
+      "condition": "vulnerable",
+      "customer_ids": [
+        "00000000-0000-4000-8000-000000000001",
+        "e0342b1d-3016-44e0-8a55-992407461bb6"
+      ],
+      "evaluation": {
+        "evaluated_at": "2026-09-10T18:07:20.605784+00:00",
+        "event_ledger_digest": "sha256:c338a34a94acfb1b3e80e221834f9f9bda4bf008c625de6197037371d5643caa",
+        "matched_event_ids": [
+          "986eb3cf5a5242c88817c0af42191d8a",
+          "871235a5bb324d3fb31898925a4d12ef"
+        ],
+        "objective_achieved": true,
+        "predicate_id": "race-condition-inventory-confirmation.effect",
+        "trial_id": "c0cf4d629fdf4c6e9d7a4b8cefd763b7"
+      },
+      "final_stock": 0,
+      "initial_stock": 20,
+      "ledger_events": [
+        {
+          "deduplication_key": "unlocked-reservation:9783b08b4ab0dbe07c8df16d47060a6045fcc3a111dc0b159afd1ec809288159",
+          "event_type": "inventory.reserved_without_lock",
+          "object": {
+            "observed_stock": "20",
+            "requested_quantity": "20",
+            "resource_id": "ruby-camera"
+          },
+          "sequence_number": 1,
+          "subject": {
+            "actor_id": "competing-customers",
+            "authorized": "false",
+            "role": "customer"
+          }
+        },
+        {
+          "deduplication_key": "unlocked-reservation:7ab8bef13f5a254936403800cf04dcaa1ab3817862f83502106fcee6a1c2fb45",
+          "event_type": "inventory.reserved_without_lock",
+          "object": {
+            "observed_stock": "20",
+            "requested_quantity": "20",
+            "resource_id": "ruby-camera"
+          },
+          "sequence_number": 2,
+          "subject": {
+            "actor_id": "competing-customers",
+            "authorized": "false",
+            "role": "customer"
+          }
+        }
+      ],
+      "passed": true,
+      "scenario_id": "competing-inventory-confirmation",
+      "stock_conflicts": 0,
+      "successful_orders": 2,
+      "trial_id": "c0cf4d629fdf4c6e9d7a4b8cefd763b7"
+    }
+  ],
+  "scenario_id": "competing-inventory-confirmation"
+}

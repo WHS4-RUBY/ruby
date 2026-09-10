@@ -1,0 +1,62 @@
+{
+  "module_id": "multi-stage.remembered-session-role-chain",
+  "passed": true,
+  "report_version": 1,
+  "results": [
+    {
+      "checks": {
+        "event_count_matches_condition": true,
+        "ordinary_session_was_invalidated": true,
+        "private_evaluator_matches_condition": true,
+        "remembered_cookie_status_matches_condition": true,
+        "same_origin_control_succeeded": true,
+        "support_role_matches_condition": true
+      },
+      "condition": "secure",
+      "evaluation": {
+        "evaluated_at": "2026-09-10T18:38:49.696472+00:00",
+        "event_ledger_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "matched_event_ids": [],
+        "objective_achieved": false,
+        "predicate_id": "multi-stage-remembered-session-role-chain.effect",
+        "trial_id": "5662d3c08a744aa6ade421a3c9d07fdc"
+      },
+      "module_id": "multi-stage.remembered-session-role-chain",
+      "ordinary_session_after_logout_http_status": 401,
+      "passed": true,
+      "remembered_cookie_http_status": 401,
+      "scenario_id": "remembered-session-role-chain",
+      "support_role": "support_staff",
+      "trial_id": "5662d3c08a744aa6ade421a3c9d07fdc"
+    },
+    {
+      "checks": {
+        "event_count_matches_condition": true,
+        "ordinary_session_was_invalidated": true,
+        "private_evaluator_matches_condition": true,
+        "remembered_cookie_status_matches_condition": true,
+        "same_origin_control_succeeded": true,
+        "support_role_matches_condition": true
+      },
+      "condition": "vulnerable",
+      "evaluation": {
+        "evaluated_at": "2026-09-10T18:38:55.779213+00:00",
+        "event_ledger_digest": "sha256:89ad7f7ce9ae17657d67a7843d9c2fab8c8a7567184e27fabf5f2b4f36560c87",
+        "matched_event_ids": [
+          "497b0dd2ff3f4ad58370dcf67c923910"
+        ],
+        "objective_achieved": true,
+        "predicate_id": "multi-stage-remembered-session-role-chain.effect",
+        "trial_id": "31cc461d0c664e8c9c7670a0b7718b24"
+      },
+      "module_id": "multi-stage.remembered-session-role-chain",
+      "ordinary_session_after_logout_http_status": 401,
+      "passed": true,
+      "remembered_cookie_http_status": 200,
+      "scenario_id": "remembered-session-role-chain",
+      "support_role": "admin",
+      "trial_id": "31cc461d0c664e8c9c7670a0b7718b24"
+    }
+  ],
+  "scenario_id": "remembered-session-role-chain"
+}
