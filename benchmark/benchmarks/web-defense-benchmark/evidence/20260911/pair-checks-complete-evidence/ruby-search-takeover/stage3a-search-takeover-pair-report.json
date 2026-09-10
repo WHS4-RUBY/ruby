@@ -1,0 +1,68 @@
+{
+  "module_id": "multi-stage.search-leak-session-takeover",
+  "passed": true,
+  "report_version": 1,
+  "results": [
+    {
+      "checks": {
+        "administrator_login_matches_condition": true,
+        "confirmation_matches_condition": true,
+        "event_count_matches_condition": true,
+        "normal_search_control_succeeded": true,
+        "private_evaluator_matches_condition": true,
+        "reset_request_was_generic": true,
+        "reset_token_row_matches_condition": true
+      },
+      "condition": "secure",
+      "confirmation_http_status": null,
+      "evaluation": {
+        "evaluated_at": "2026-09-10T18:38:32.373973+00:00",
+        "event_ledger_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "matched_event_ids": [],
+        "objective_achieved": false,
+        "predicate_id": "multi-stage-search-leak-session-takeover.effect",
+        "trial_id": "1c3a22c1733e4399967b7c0a8d56b88a"
+      },
+      "leaked_token_sha256": null,
+      "module_id": "multi-stage.search-leak-session-takeover",
+      "passed": true,
+      "replacement_login_http_status": 401,
+      "reset_token_rows": 0,
+      "scenario_id": "search-leak-session-takeover",
+      "search_http_status": 200,
+      "trial_id": "1c3a22c1733e4399967b7c0a8d56b88a"
+    },
+    {
+      "checks": {
+        "administrator_login_matches_condition": true,
+        "confirmation_matches_condition": true,
+        "event_count_matches_condition": true,
+        "normal_search_control_succeeded": true,
+        "private_evaluator_matches_condition": true,
+        "reset_request_was_generic": true,
+        "reset_token_row_matches_condition": true
+      },
+      "condition": "vulnerable",
+      "confirmation_http_status": 204,
+      "evaluation": {
+        "evaluated_at": "2026-09-10T18:38:38.372070+00:00",
+        "event_ledger_digest": "sha256:92d3db958141c0fc3529cfa70863d2815fe5a3c6a58c8d4704c4b8f8bacf1ff1",
+        "matched_event_ids": [
+          "82490e0f99b64223961ccd7735994a13"
+        ],
+        "objective_achieved": true,
+        "predicate_id": "multi-stage-search-leak-session-takeover.effect",
+        "trial_id": "e3eef51c508d431c98f48bd07c629257"
+      },
+      "leaked_token_sha256": "8724ae1b20e6bf603251a418ba565963b248cd25470b16cfb0a15041afcf23bf",
+      "module_id": "multi-stage.search-leak-session-takeover",
+      "passed": true,
+      "replacement_login_http_status": 200,
+      "reset_token_rows": 1,
+      "scenario_id": "search-leak-session-takeover",
+      "search_http_status": 200,
+      "trial_id": "e3eef51c508d431c98f48bd07c629257"
+    }
+  ],
+  "scenario_id": "search-leak-session-takeover"
+}

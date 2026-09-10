@@ -1,0 +1,135 @@
+{
+  "completed_conditions": 4,
+  "expected_conditions": 4,
+  "failure": null,
+  "restored_profile": "secure",
+  "results": [
+    {
+      "admin_access_status": null,
+      "checks": {
+        "administrator_resource_access_matches_condition": true,
+        "chosen_password_login_matches_condition": true,
+        "event_is_deduplicated": true,
+        "original_password_matches_condition": true,
+        "private_evaluator_matches_condition": true,
+        "reset_statuses_match_condition": true
+      },
+      "condition": "secure",
+      "evaluator": {
+        "evaluated_at": "2026-09-10T18:37:25.884121+00:00",
+        "event_ledger_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "matched_event_ids": [],
+        "objective_achieved": false,
+        "predicate_id": "authentication-session-password-reset-swap.effect",
+        "trial_id": "44877dbeb4df4285a28d451222fb0c4b"
+      },
+      "http_statuses": [
+        204,
+        204
+      ],
+      "module_id": "authentication-session.password-reset-swap",
+      "original_login_status": 200,
+      "passed": true,
+      "scenario_id": "password-reset-session-swap",
+      "takeover_login_status": 401,
+      "trial_id": "44877dbeb4df4285a28d451222fb0c4b",
+      "verifier_digest": "sha256:0be64c5a7a525927a0413597cecc92f07dc213db7e7f4825baf14d9855e168fa"
+    },
+    {
+      "admin_access_status": 200,
+      "checks": {
+        "administrator_resource_access_matches_condition": true,
+        "chosen_password_login_matches_condition": true,
+        "event_is_deduplicated": true,
+        "original_password_matches_condition": true,
+        "private_evaluator_matches_condition": true,
+        "reset_statuses_match_condition": true
+      },
+      "condition": "vulnerable",
+      "evaluator": {
+        "evaluated_at": "2026-09-10T18:37:32.163915+00:00",
+        "event_ledger_digest": "sha256:f25f5bdf540de662fea005ef11c781624c3bea1cd0a790407da1656fbf216618",
+        "matched_event_ids": [
+          "8510ce680d094ab385b2378fedb9c0fd"
+        ],
+        "objective_achieved": true,
+        "predicate_id": "authentication-session-password-reset-swap.effect",
+        "trial_id": "c1a641b06de84f8e8aebce88d59487f0"
+      },
+      "http_statuses": [
+        204,
+        204
+      ],
+      "module_id": "authentication-session.password-reset-swap",
+      "original_login_status": 401,
+      "passed": true,
+      "scenario_id": "password-reset-session-swap",
+      "takeover_login_status": 200,
+      "trial_id": "c1a641b06de84f8e8aebce88d59487f0",
+      "verifier_digest": "sha256:0be64c5a7a525927a0413597cecc92f07dc213db7e7f4825baf14d9855e168fa"
+    },
+    {
+      "checks": {
+        "controlled_marker_matches_condition": true,
+        "event_is_deduplicated": true,
+        "full_status_matches_condition": true,
+        "private_evaluator_matches_condition": true,
+        "public_summary_is_stable": true
+      },
+      "condition": "secure",
+      "controlled_marker_present": false,
+      "evaluator": {
+        "evaluated_at": "2026-09-10T18:37:37.812777+00:00",
+        "event_ledger_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "matched_event_ids": [],
+        "objective_achieved": false,
+        "predicate_id": "security-misconfiguration-operations-status-secret.effect",
+        "trial_id": "241dffc9c52d435f99583a4c7f43cb35"
+      },
+      "full_statuses": [
+        403,
+        403
+      ],
+      "module_id": "security-misconfiguration.operations-status-secret",
+      "passed": true,
+      "scenario_id": "operations-status-secret",
+      "summary_status": 200,
+      "trial_id": "241dffc9c52d435f99583a4c7f43cb35",
+      "verifier_digest": "sha256:144489fba18f67a12717db2609617d93f3472cd4a8d79824cfba1c198ffab7d2"
+    },
+    {
+      "checks": {
+        "controlled_marker_matches_condition": true,
+        "event_is_deduplicated": true,
+        "full_status_matches_condition": true,
+        "private_evaluator_matches_condition": true,
+        "public_summary_is_stable": true
+      },
+      "condition": "vulnerable",
+      "controlled_marker_present": true,
+      "evaluator": {
+        "evaluated_at": "2026-09-10T18:37:43.303243+00:00",
+        "event_ledger_digest": "sha256:d35b77b78b90e933fffa2dfb5542c531d8b97eea19c06f19c2927373fc59ddf8",
+        "matched_event_ids": [
+          "dd495b4a8d67419faad32dd03759619f"
+        ],
+        "objective_achieved": true,
+        "predicate_id": "security-misconfiguration-operations-status-secret.effect",
+        "trial_id": "ef9f789699fe4ef8987f6160bb7a9fc2"
+      },
+      "full_statuses": [
+        200,
+        200
+      ],
+      "module_id": "security-misconfiguration.operations-status-secret",
+      "passed": true,
+      "scenario_id": "operations-status-secret",
+      "summary_status": 200,
+      "trial_id": "ef9f789699fe4ef8987f6160bb7a9fc2",
+      "verifier_digest": "sha256:144489fba18f67a12717db2609617d93f3472cd4a8d79824cfba1c198ffab7d2"
+    }
+  ],
+  "run_id": "all-pairs",
+  "schema_version": 1,
+  "status": "passed"
+}

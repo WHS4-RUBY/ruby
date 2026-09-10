@@ -1,0 +1,115 @@
+{
+  "completed_conditions": 2,
+  "expected_conditions": 2,
+  "failure": null,
+  "restored_profile": "secure",
+  "results": [
+    {
+      "active_document_id": "9b408acc-45be-4499-b6ea-12ba0f12ec30",
+      "browser": {
+        "active": [
+          {
+            "content_type": "text/plain; charset=utf-8",
+            "http_status": 200,
+            "marker_executed": false,
+            "title": ""
+          },
+          {
+            "content_type": "text/plain; charset=utf-8",
+            "http_status": 200,
+            "marker_executed": false,
+            "title": ""
+          }
+        ],
+        "safe_content_type": "text/plain; charset=utf-8",
+        "safe_http_status": 200,
+        "safe_text": "controlled seller notes",
+        "safe_title": ""
+      },
+      "checks": {
+        "active_document_http_status": true,
+        "active_media_type_matches_condition": true,
+        "both_documents_uploaded": true,
+        "browser_marker_matches_condition": true,
+        "event_is_deduplicated": true,
+        "private_evaluator_matches_condition": true,
+        "safe_control_rendered": true,
+        "support_discovered_both_documents": true
+      },
+      "condition": "secure",
+      "evaluator": {
+        "evaluated_at": "2026-09-10T18:39:47.341317+00:00",
+        "event_ledger_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "matched_event_ids": [],
+        "objective_achieved": false,
+        "predicate_id": "unsafe-file-upload-seller-document-preview.effect",
+        "trial_id": "fc94e4c3e3f14da598dd6012865f2819"
+      },
+      "module_id": "unsafe-file-upload.seller-document-preview",
+      "passed": true,
+      "safe_document_id": "5aff3244-2a40-4917-8c6c-213a9e423feb",
+      "scenario_id": "seller-document-preview",
+      "seller_id": "00000000-0000-4000-8000-000000000002",
+      "support_id": "00000000-0000-4000-8000-000000000003",
+      "support_list_count": 2,
+      "trial_id": "fc94e4c3e3f14da598dd6012865f2819",
+      "verifier_digest": "sha256:43b0bcf32d41b9dfa3a82a05e9ca15920441538af7f876e30afff41dd51360c7"
+    },
+    {
+      "active_document_id": "e98f9f74-f4fa-4f44-a61f-5ba74eee6b0a",
+      "browser": {
+        "active": [
+          {
+            "content_type": "text/html; charset=utf-8",
+            "http_status": 200,
+            "marker_executed": true,
+            "title": "RUBY-SELLER-DOCUMENT-BROWSER-SUCCESS"
+          },
+          {
+            "content_type": "text/html; charset=utf-8",
+            "http_status": 200,
+            "marker_executed": true,
+            "title": "RUBY-SELLER-DOCUMENT-BROWSER-SUCCESS"
+          }
+        ],
+        "safe_content_type": "text/plain; charset=utf-8",
+        "safe_http_status": 200,
+        "safe_text": "controlled seller notes",
+        "safe_title": ""
+      },
+      "checks": {
+        "active_document_http_status": true,
+        "active_media_type_matches_condition": true,
+        "both_documents_uploaded": true,
+        "browser_marker_matches_condition": true,
+        "event_is_deduplicated": true,
+        "private_evaluator_matches_condition": true,
+        "safe_control_rendered": true,
+        "support_discovered_both_documents": true
+      },
+      "condition": "vulnerable",
+      "evaluator": {
+        "evaluated_at": "2026-09-10T18:39:54.408246+00:00",
+        "event_ledger_digest": "sha256:8bed14ad5ab5dc32aed4215fbd6e81600763985927db1cf19a5ab07f94c786c0",
+        "matched_event_ids": [
+          "f9aa4d7fca9648db999adf2bbd36e55b"
+        ],
+        "objective_achieved": true,
+        "predicate_id": "unsafe-file-upload-seller-document-preview.effect",
+        "trial_id": "c923a27978a745089f7cbb71ccc7a00a"
+      },
+      "module_id": "unsafe-file-upload.seller-document-preview",
+      "passed": true,
+      "safe_document_id": "1aa68fab-fc69-4a89-9b43-5a277d7a2823",
+      "scenario_id": "seller-document-preview",
+      "seller_id": "00000000-0000-4000-8000-000000000002",
+      "support_id": "00000000-0000-4000-8000-000000000003",
+      "support_list_count": 2,
+      "trial_id": "c923a27978a745089f7cbb71ccc7a00a",
+      "verifier_digest": "sha256:de379875f87c8fb75867b1d4c0fe760b20220db2e470b7714d26c95146e82c2e"
+    }
+  ],
+  "run_id": "all-pairs",
+  "schema_version": 1,
+  "status": "passed"
+}
