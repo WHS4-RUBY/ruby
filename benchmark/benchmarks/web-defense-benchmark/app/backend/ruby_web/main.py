@@ -31,6 +31,7 @@ from fastapi.responses import HTMLResponse
 from minio import Minio
 from redis import Redis
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from .config import Settings
@@ -1169,7 +1170,26 @@ def create_app(
             # benchmark_events. The vulnerability stays real for every business
             # table, but the attacker cannot UNION its way into the private
             # evaluator ledger and read its own success judgements.
-            rows = database.execute_untrusted(session, raw_query)
+            try:
+                rows = database.execute_untrusted(session, raw_query)
+            except DBAPIError:
+                # A plain apostrophe in a legitimate search term can make the
+                # intentionally injectable statement invalid. Preserve normal
+                # product search behavior without hiding a valid injection:
+                # only statements rejected by the database use this fallback.
+                session.rollback()
+                pattern = f"%{term}%"
+                fallback = (
+                    select(Product)
+                    .where(Product.visibility == "public")
+                    .where(
+                        Product.name.ilike(pattern)
+                        | Product.description.ilike(pattern)
+                    )
+                    .order_by(Product.id)
+                    .limit(limit)
+                )
+                return [_product_view(item) for item in session.scalars(fallback).all()]
             # The response is assembled before anything is judged. A result set
             # the application cannot serialize never reaches the client, and an
             # attacker that saw nothing has read nothing.

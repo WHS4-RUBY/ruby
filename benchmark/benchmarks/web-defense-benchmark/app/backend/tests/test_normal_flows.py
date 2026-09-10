@@ -2102,6 +2102,9 @@ def test_product_search_sql_injection_secure_twin_and_vulnerable_pair() -> None:
                 job_queue=memory,
             )
             with TestClient(app) as client:
+                benign = client.get("/api/products", params={"q": "O'Reilly"})
+                assert benign.status_code == 200
+                assert benign.json() == []
                 first = client.get("/api/products", params={"q": payload})
                 second = client.get("/api/products", params={"q": payload})
                 assert first.status_code == 200

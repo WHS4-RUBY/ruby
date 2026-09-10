@@ -119,7 +119,7 @@ def exercise(condition: str) -> dict[str, object]:
             raise RuntimeError(f"normal product workflow failed: {result}")
         expected_benign_statuses = {
             "coffee": 200,
-            "O'Reilly": 500,
+            "O'Reilly": 200,
             "orchestra": 200,
         }
         if any(
