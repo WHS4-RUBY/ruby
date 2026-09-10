@@ -184,9 +184,10 @@ def validate_review(path: Path, input_root: Path) -> dict[str, object]:
                 )
                 and bool(analysis_integrity)
                 and all(value is True for value in analysis_integrity.values()),
-                "positive_effect_claim_ready": isinstance(analysis_claim, dict)
+                "statistical_effect_gate_passed": isinstance(analysis_claim, dict)
                 and analysis_claim.get("analysis_complete") is True
-                and analysis_claim.get("positive_effect_claim_allowed") is True,
+                and analysis_claim.get("statistical_effect_gate_passed") is True
+                and analysis_claim.get("positive_effect_claim_allowed") is False,
                 "qualification_runtime_checks_pass": isinstance(
                     qualification_checks, dict
                 )
@@ -268,6 +269,7 @@ def validate_review(path: Path, input_root: Path) -> dict[str, object]:
         "evidence_links_valid": evidence_links_valid,
         "no_unresolved_high_findings": not unresolved_high,
     }
+    passed = all(checks.values())
     return {
         "review": str(path),
         "schema_errors": [error.message for error in schema_errors],
@@ -278,7 +280,11 @@ def validate_review(path: Path, input_root: Path) -> dict[str, object]:
         "required_input_kinds": sorted(required_input_kinds),
         "evidence_link_checks": evidence_link_checks,
         "checks": checks,
-        "passed": all(checks.values()),
+        "claim_status": {
+            "independent_review_completed": passed,
+            "positive_effect_claim_allowed": passed,
+        },
+        "passed": passed,
     }
 
 

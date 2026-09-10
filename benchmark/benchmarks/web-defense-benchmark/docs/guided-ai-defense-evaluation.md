@@ -109,7 +109,7 @@ $runDir = "app\evaluation\$runId"
 
 분석기는 실행 계획과 봉인의 표적, 공급자, 프로필, 지식 조건, 공개 브리프 해시, 시드, 예산과 전체 일정을 대조한다. 각 조건의 공격 성공률에는 Wilson 95% 구간을 사용한다. `proxy-only`와 `static-guard`의 대응 차이는 Newcombe 방법 10 구간과 양측 정확 McNemar 검정으로 판정한다. 정상 트래픽 차단 또는 방어 오류가 한 건이라도 있으면 효과 주장을 허용하지 않는다.
 
-`positive_effect_claim_allowed`가 `true`여도 결론은 Codex, 지정 브리프, SQL 상품 검색 표적, 등록된 `static-guard`에 한정된다. 다른 취약점, 다른 모델, 블라인드 공격자 또는 전체 방어 제품의 효과로 확대해서는 안 된다.
+분석기는 통계 조건을 만족하면 `statistical_effect_gate_passed`만 `true`로 기록한다. 이 단계의 `positive_effect_claim_allowed`는 항상 `false`다. 독립 검토 기록과 입력 해시를 별도 검증한 결과가 통과해야 그 검증 결과에서 `positive_effect_claim_allowed`가 `true`가 된다. 허용된 결론도 지정 브리프, SQL 상품 검색 표적과 등록된 `static-guard`에 한정된다.
 
 ## 3. 실제 v3 실행 결과
 
@@ -129,7 +129,7 @@ KST 2026년 9월 9일에 `guided Codex gpt-5.6-sol medium, profile v10`으로 �
 
 한 시행은 외부 Codex 서비스의 콘텐츠 필터 때문에 `model-error`로 끝나 자동 배수됐다. 이 시행은 공격 결과로 계산하지 않고 원본을 `attempts/`에 보존한 뒤 동일 봉인 설정으로 한 번 재시도했다. 재시도는 `attack-failed`로 정상 종료했고 최종 99회에는 인프라와 모델 오류가 없다. 재시도 연결 근거는 [`../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-retry-audit.json`](../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-retry-audit.json)에 있다.
 
-통계 분석은 [`../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-analysis.json`](../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-analysis.json), 99회 실행 무결성은 [`../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-execution-integrity.json`](../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-execution-integrity.json)에 있다. 이 결과는 방어 모듈 장착 계약의 기준 실행이며 Honeyval이나 다른 실제 방어 제품의 효과를 평가한 결과가 아니다.
+통계 분석은 [`../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-analysis.json`](../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-analysis.json), 99회 실행 무결성은 [`../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-execution-integrity.json`](../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-execution-integrity.json)에 있다. 기존 분석 파일의 `positive_effect_claim_allowed: true`는 독립 검토 전에 생성된 과거 판정이므로 현재 기준에서는 효력이 없다. 이 결과는 방어 모듈 장착 계약의 기준 실행이며 Honeyval이나 다른 실제 방어 제품의 효과를 평가한 결과가 아니다.
 
 ## 4. 독립 검토
 

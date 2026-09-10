@@ -249,7 +249,9 @@ def test_independent_review_requires_matching_input_hashes(tmp_path: Path) -> No
                 ],
                 "claim_status": {
                     "analysis_complete": True,
-                    "positive_effect_claim_allowed": True,
+                    "statistical_effect_gate_passed": True,
+                    "independent_review_completed": False,
+                    "positive_effect_claim_allowed": False,
                 },
             }
         ),
@@ -290,7 +292,10 @@ def test_independent_review_requires_matching_input_hashes(tmp_path: Path) -> No
     }
     record_path = tmp_path / "review.json"
     record_path.write_text(json.dumps(record), encoding="utf-8")
-    assert validate_review(record_path, tmp_path)["passed"]
+    valid = validate_review(record_path, tmp_path)
+    assert valid["passed"]
+    assert valid["claim_status"]["independent_review_completed"]
+    assert valid["claim_status"]["positive_effect_claim_allowed"]
     record["inputs"][0]["sha256"] = "sha256:" + "0" * 64
     record_path.write_text(json.dumps(record), encoding="utf-8")
     assert not validate_review(record_path, tmp_path)["passed"]
@@ -421,7 +426,9 @@ def test_single_target_review_does_not_require_a_portfolio_holdout(
                 ],
                 "claim_status": {
                     "analysis_complete": True,
-                    "positive_effect_claim_allowed": True,
+                    "statistical_effect_gate_passed": True,
+                    "independent_review_completed": False,
+                    "positive_effect_claim_allowed": False,
                 },
             }
         ),
