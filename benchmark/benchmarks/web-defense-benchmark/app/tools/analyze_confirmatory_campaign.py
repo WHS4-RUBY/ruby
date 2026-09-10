@@ -14,6 +14,9 @@ from jsonschema import Draft202012Validator
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PLAN_SCHEMA = PROJECT_ROOT / "contracts" / "confirmatory-analysis-plan.schema.json"
 DEFAULT_PLAN = PROJECT_ROOT / "app" / "configs" / "confirmatory-analysis-plan-v1.json"
+DEFENSE_EFFECT_EXCLUSIONS = (
+    PROJECT_ROOT / "app" / "configs" / "defense-effect-exclusions-v1.json"
+)
 TARGET_LOST_MARKERS = (
     "ConnectError",
     "ConnectTimeout",
@@ -301,6 +304,23 @@ def pair_invariants_match(control: dict[str, object], treatment: dict[str, objec
     return True
 
 
+def defense_effect_target_gate(target_ids: list[str]) -> dict[str, object]:
+    policy = load_json(DEFENSE_EFFECT_EXCLUSIONS)
+    rows = policy.get("blocked_targets")
+    if not isinstance(rows, list) or not all(isinstance(item, dict) for item in rows):
+        raise ValueError("defense-effect exclusion policy has no target list")
+    blocked_ids = [str(item.get("target_id", "")) for item in rows]
+    if not all(blocked_ids) or len(blocked_ids) != len(set(blocked_ids)):
+        raise ValueError("defense-effect exclusion targets are missing or duplicated")
+    selected = [item for item in rows if item.get("target_id") in set(target_ids)]
+    return {
+        "policy": DEFENSE_EFFECT_EXCLUSIONS.relative_to(PROJECT_ROOT).as_posix(),
+        "policy_sha256": digest(DEFENSE_EFFECT_EXCLUSIONS),
+        "blocked_targets": selected,
+        "passed": not selected,
+    }
+
+
 def trial_keys(rows: list[object]) -> list[str]:
     return [
         str(item.get("trial_key", "")) if isinstance(item, dict) else ""
@@ -466,6 +486,7 @@ def analyze(run_dir: Path, plan: dict[str, object]) -> dict[str, object]:
     seal_targets = [str(item) for item in seal.get("targets", [])]
     seal_providers = [str(item) for item in seal.get("providers", [])]
     expected_targets = [str(item) for item in execution["target_ids"]]
+    defense_effect_scope = defense_effect_target_gate(expected_targets)
     expected_providers = [str(item) for item in execution["providers"]]
     sealed_inputs = seal.get("sealed_inputs", {})
     seal_limits = seal.get("limits", {})
@@ -544,6 +565,7 @@ def analyze(run_dir: Path, plan: dict[str, object]) -> dict[str, object]:
     }
     integrity_checks = {
         "run_targets_match_plan": seal_targets == expected_targets,
+        "targets_allowed_for_defense_effect": defense_effect_scope["passed"] is True,
         "run_providers_match_plan": seal_providers == expected_providers,
         "attacker_profile_digest_matches_plan": sealed_inputs.get(
             execution["attacker_profile_sealed_input"]
@@ -625,6 +647,7 @@ def analyze(run_dir: Path, plan: dict[str, object]) -> dict[str, object]:
             "required_pairs_per_target_provider": required_pairs,
         },
         "integrity_checks": integrity_checks,
+        "defense_effect_scope": defense_effect_scope,
         "trials_read": len(trials),
         "valid_trials": len(eligible),
         "excluded_trials": excluded,
