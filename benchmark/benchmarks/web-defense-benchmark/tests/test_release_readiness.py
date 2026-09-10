@@ -14,6 +14,7 @@ import run_all_pair_checks  # noqa: E402
 from check_release_readiness import (  # noqa: E402
     RUBY_CHECKERS,
     objective_value,
+    pytest_result,
     report_passed,
     result_passed,
     source_module_ids,
@@ -73,6 +74,30 @@ def test_pair_orchestrator_requires_a_current_image_build(monkeypatch) -> None:
     built = run_all_pair_checks.build_current_images(False)
     assert built["skipped"] is False
     assert built["passed"] is True
+
+
+def test_release_pytest_uses_all_local_package_roots(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+        return __import__("subprocess").CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout="286 passed, 6 warnings, 50 subtests passed",
+            stderr="",
+        )
+
+    monkeypatch.setattr(check_release_readiness.subprocess, "run", fake_run)
+    result = pytest_result()
+    configured = str(captured["env"]["PYTHONPATH"])
+    assert all(
+        str(check_release_readiness.APP_ROOT / name) in configured
+        for name in ("tools", "backend", "evaluator", "runner")
+    )
+    assert result["passed"] is True
+    assert result["passed_tests"] == 286
+    assert result["passed_subtests"] == 50
 
 
 def _write_report(path: Path, value: dict[str, object]) -> None:

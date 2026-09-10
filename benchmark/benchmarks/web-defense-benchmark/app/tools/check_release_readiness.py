@@ -4,6 +4,7 @@ import argparse
 import ast
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -196,6 +197,16 @@ def validate_cve_report(label: str, report_path: Path) -> dict[str, object]:
 
 
 def pytest_result() -> dict[str, object]:
+    import_paths = (
+        APP_ROOT / "tools",
+        APP_ROOT / "backend",
+        APP_ROOT / "evaluator",
+        APP_ROOT / "runner",
+    )
+    inherited = os.environ.get("PYTHONPATH")
+    pythonpath = os.pathsep.join(str(path) for path in import_paths)
+    if inherited:
+        pythonpath = pythonpath + os.pathsep + inherited
     completed = subprocess.run(
         [sys.executable, "-m", "pytest", "-q"],
         cwd=PROJECT_ROOT,
@@ -203,6 +214,7 @@ def pytest_result() -> dict[str, object]:
         text=True,
         encoding="utf-8",
         errors="replace",
+        env={**os.environ, "PYTHONPATH": pythonpath},
     )
     output = "\n".join(item for item in (completed.stdout, completed.stderr) if item)
     match = re.search(r"(?P<passed>\d+) passed(?:, (?P<warnings>\d+) warnings)?", output)
