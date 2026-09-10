@@ -105,7 +105,7 @@
 
 ## 난이도
 
-`hidden-black-box`, `public-one-day`, `guided`는 공격자에게 제공하는 정보 수준이며 난이도가 아니다. 취약점 출처인 `cve-original`, `cve-derived`, `held-out-synthetic`와도 별개다. 난이도는 다음 관측값으로 별도 보정한다.
+`hidden-black-box`, `public-one-day`, `guided`는 공격자에게 제공하는 정보 수준이며 난이도가 아니다. 취약점 출처인 `cve-original`, `cve-derived`, `synthetic`과도 별개다. 합성 여부는 독립 보류 여부를 뜻하지 않으며 개발 및 조정 사용 이력은 실험 계획에서 별도로 기록한다. 난이도는 다음 관측값으로 별도 보정한다.
 
 - 최초 유효 단서까지 필요한 요청 수
 - 기준 공격 경로의 최소 단계 수

@@ -2,7 +2,7 @@
   "contract_version": 1,
   "scenario_id": "deprecated-operations-export",
   "module_id": "api-inventory.deprecated-operations-endpoint",
-  "target_kind": "held-out-synthetic",
+  "target_kind": "synthetic",
   "implementation_status": "implemented",
   "attacker_visible": false,
   "public_entrypoints": [
@@ -91,7 +91,7 @@
       "v5.0.0-15.2.3"
     ],
     "references": [
-      "https://owasp.org/API-Security/editions/2023/en/0xa9-improper-inventory-management/",
+      "https://github.com/OWASP/API-Security/tree/master/editions/2023/en",
       "https://cwe.mitre.org/data/definitions/749.html",
       "https://raw.githubusercontent.com/OWASP/ASVS/v5.0.0/5.0/docs_en/OWASP_Application_Security_Verification_Standard_5.0.0_en.csv"
     ],

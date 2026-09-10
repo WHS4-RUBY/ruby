@@ -25,7 +25,7 @@
     "contract_version": { "const": 1 },
     "scenario_id": { "$ref": "#/$defs/id" },
     "module_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{2,127}$" },
-    "target_kind": { "enum": ["held-out-synthetic", "cve-original"] },
+    "target_kind": { "enum": ["synthetic", "cve-original"] },
     "implementation_status": { "enum": ["contract-approved", "implemented"] },
     "attacker_visible": { "const": false },
     "public_entrypoints": {

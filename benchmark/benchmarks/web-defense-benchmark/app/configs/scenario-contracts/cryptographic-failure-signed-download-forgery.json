@@ -2,7 +2,7 @@
   "contract_version": 1,
   "scenario_id": "signed-download-cross-document",
   "module_id": "cryptographic-failure.signed-download-forgery",
-  "target_kind": "held-out-synthetic",
+  "target_kind": "synthetic",
   "implementation_status": "implemented",
   "attacker_visible": false,
   "public_entrypoints": [
@@ -89,7 +89,7 @@
       "v5.0.0-9.2.2"
     ],
     "references": [
-      "https://owasp.org/Top10/2025/A04_2025-Cryptographic_Failures/",
+      "https://github.com/OWASP/Top10/blob/master/2025/docs/en/index.md",
       "https://cwe.mitre.org/data/definitions/347.html",
       "https://raw.githubusercontent.com/OWASP/ASVS/v5.0.0/5.0/docs_en/OWASP_Application_Security_Verification_Standard_5.0.0_en.csv"
     ],

@@ -2,7 +2,7 @@
   "contract_version": 1,
   "scenario_id": "support-audit-trail-erasure",
   "module_id": "security-logging.audit-trail-erasure",
-  "target_kind": "held-out-synthetic",
+  "target_kind": "synthetic",
   "implementation_status": "implemented",
   "attacker_visible": false,
   "public_entrypoints": [
@@ -89,7 +89,7 @@
       "v5.0.0-16.4.3"
     ],
     "references": [
-      "https://owasp.org/Top10/2025/A09_2025-Security_Logging_and_Alerting_Failures/",
+      "https://github.com/OWASP/Top10/blob/master/2025/docs/en/index.md",
       "https://cwe.mitre.org/data/definitions/778.html",
       "https://raw.githubusercontent.com/OWASP/ASVS/v5.0.0/5.0/docs_en/OWASP_Application_Security_Verification_Standard_5.0.0_en.csv"
     ],

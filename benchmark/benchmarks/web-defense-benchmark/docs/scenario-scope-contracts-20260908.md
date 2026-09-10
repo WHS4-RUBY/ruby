@@ -16,7 +16,7 @@
 | 대량 프로모션 중복 사용 | 민감 업무 흐름 자동화와 중복 실행 | OWASP A06:2025, API6:2023, CWE-837, CWE-799, ASVS 2.3.2, 2.4.1 | 구현 및 Docker pair 통과 |
 | 폐기된 운영 API | API 목록과 수명주기 관리 | OWASP A02:2025, API9:2023, CWE-749, ASVS 8.2.1, 15.2.3 | 구현 및 Docker pair 통과 |
 | 감사 기록 삭제 | 보안 로깅, 변경 방지, 경보 | OWASP A09:2025, CWE-778, ASVS 16.3.3, 16.4.2, 16.4.3 | 구현 및 Docker pair 통과 |
-| 서명 없는 파트너 웹훅 | 소프트웨어 및 데이터 무결성, 외부 API 신뢰 | OWASP A08:2025, API10:2023, CWE-353, ASVS 11.4.3, 13.2.1 | 구현 및 Docker pair 통과 |
+| 서명 없는 파트너 웹훅 | 소프트웨어 및 데이터 무결성, 외부 API 신뢰 | OWASP A08:2025, API10:2023, CWE-353, ASVS 13.2.1 | 구현 및 Docker pair 통과 |
 | Roundcube CVE-2026-54433 | 2026년 원본 제품 취약점, plain-text 메시지 저장형 XSS | OWASP A05:2025, CWE-79, ASVS 1.2.1, 3.2.2 | 1.7.1 및 1.7.2 pair 구현 및 실제 검증 완료 |
 
 ASVS 표의 짧은 번호는 계약 파일에 `v5.0.0-번호` 형식으로 저장한다. 여섯 합성 시나리오는 웹 취약점 범주의 공백을 줄이기 위한 벤치마크 설계다. 실제 서비스에서의 발생 빈도나 전체 웹 취약점 분포를 대표한다고 주장하지 않는다.
@@ -49,17 +49,17 @@ app/.venv/bin/python tools/validate_scenario_contracts.py
 
 일곱 계약은 이 조건을 통과해 `implemented`로 변경했다. 여섯 합성 모듈의 26개 Docker 조건 보고서는 [`../evidence/20260908/scope-expansion-pairs.json`](../evidence/20260908/scope-expansion-pairs.json)에 있다. Roundcube 제품 쌍 검증과 자율 어댑터 검증의 원본 JSON은 각각 [`../evidence/20260908/roundcube-cve-2026-54433-pair.json`](../evidence/20260908/roundcube-cve-2026-54433-pair.json), [`../evidence/20260908/roundcube-cve-2026-54433-autonomous-adapter.json`](../evidence/20260908/roundcube-cve-2026-54433-autonomous-adapter.json)에 있다.
 
-## 확인한 직접 출처
+## 분류와 제품 버전의 1차 출처
 
-- [OWASP Top 10:2025](https://owasp.org/Top10/)
-- [OWASP API Security Top 10:2023 API4](https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/)
-- [OWASP API Security Top 10:2023 API6](https://owasp.org/API-Security/editions/2023/en/0xa6-unrestricted-access-to-sensitive-business-flows/)
-- [OWASP API Security Top 10:2023 API9](https://owasp.org/API-Security/editions/2023/en/0xa9-improper-inventory-management/)
-- [OWASP API Security Top 10:2023 API10](https://owasp.org/API-Security/editions/2023/en/0xaa-unsafe-consumption-of-apis/)
+- [OWASP Top 10:2025 원문](https://github.com/OWASP/Top10/blob/master/2025/docs/en/index.md)
+- [OWASP API Security Top 10:2023 원문](https://github.com/OWASP/API-Security/tree/master/editions/2023/en)
 - [OWASP ASVS 5.0.0](https://github.com/OWASP/ASVS/tree/v5.0.0)
 - [MITRE CWE](https://cwe.mitre.org/data/index.html)
 - [Roundcube 2026-07-05 보안 공지](https://roundcube.net/news/2026/07/05/security-updates-1.6.17-and-1.7.2)
 - [Roundcube 1.7 계열 수정 commit](https://github.com/roundcube/roundcubemail/commit/5477e979aae0317e111564bfc9971ba7707cc165)
+
+## 색인과 재현 입력의 2차 출처
+
 - [GitHub Advisory Database, GHSA-6hj3-f24f-rwj8](https://github.com/advisories/GHSA-6hj3-f24f-rwj8)
 - [NVD, CVE-2026-54433](https://nvd.nist.gov/vuln/detail/CVE-2026-54433)
 - [검증에 사용한 공개 PoC revision](https://github.com/aramosf/CVE-2026-54433/tree/93ade06334a28fa83db888623f701d5706ca40ae)

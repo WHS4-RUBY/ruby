@@ -192,7 +192,7 @@ README와 실행 스크립트는 다음 흐름을 제공해야 한다.
 
 취약 버전과 수정 버전은 설정, 메일 데이터와 브라우저 행동을 같게 두고 버전만 바꾼다. 악성 메일을 읽었을 때 비공개 DOM 또는 이벤트 표식이 생기는지를 평가하고 정상 메일 읽기도 함께 검사한다. 배포 이미지가 없으면 공식 소스 태그에서 빌드하고 입력 commit과 이미지 다이제스트를 기록한다.
 
-연구 주제 우선 후보는 Langflow [`GHSA-vwmf-pq79-vjvx`](https://github.com/langflow-ai/langflow/security/advisories/GHSA-vwmf-pq79-vjvx)다. AI 응용 프로그램 대상이라는 관련성이 있으나 현재 확인한 공식 식별자는 GHSA이므로 CVE처럼 표기하지 않는다. 계약이 `original-cve`만 허용하면 `advisory-original` 유형을 추가하거나 CVE 부여를 기다린 뒤 진행한다. 따라서 Roundcube는 재현 기반을 빠르게 확보하는 후보이고 Langflow는 AI 자동화 공격 주제를 강화하는 후보로 병행 검토한다.
+연구 주제 우선 후보는 Langflow [`CVE-2026-33017`, `GHSA-vwmf-pq79-vjvx`](https://github.com/langflow-ai/langflow/security/advisories/GHSA-vwmf-pq79-vjvx)다. CVE ID가 부여됐지만 제품 쌍, 고정 이미지와 기준 공격은 아직 구현하지 않았다. 현재 원본 CVE 수에는 넣지 않고 재현 계약을 먼저 작성한다.
 
 각 후보는 다음을 모두 통과해야 등록한다.
 
