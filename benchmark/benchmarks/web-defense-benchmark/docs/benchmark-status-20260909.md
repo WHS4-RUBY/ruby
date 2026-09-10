@@ -20,7 +20,7 @@
 | 99회 실행 안전성 | 통과 | 전체 일정, 격리, 금지 도구 0건, 정상 흐름, 오류 상태 0건과 Docker 자원 정리 검사가 통과했다. [`../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-execution-integrity.json`](../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-execution-integrity.json) |
 | 공격자 난이도 등급 | 미부여 | `guided`는 정보 조건이다. 사람 집단과 서로 다른 프론티어 공격자 두 종류 이상의 반복 보정이 없어 `easy`, `medium`, `hard` 등급을 붙이지 않는다. |
 | 독립 검토 | 대기 | 필수 입력 경로와 SHA256은 준비했다. 구현에 참여하지 않은 사람이 비공개 판정 경계와 결과를 확인하고 서명해야 한다. [`../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-independent-review-inputs.json`](../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-independent-review-inputs.json) |
-| GitHub | 업로드 준비, 미전송 | 브랜치는 최신 `origin/main`보다 뒤처진 커밋 0개다. 사용자 허락 전에는 push나 Pull Request를 만들지 않는다. |
+| GitHub | 개인 원격 전송, 팀 PR 미생성 | 2026-09-11 확인 기준 `benchmark/web-defense-benchmark-completion`의 `34c6049`가 개인 저장소 `origin`에 전송돼 있다. `origin/main`보다 1개 커밋 뒤, 20개 커밋 앞이다. 팀 저장소 `upstream`에는 이 후속 커밋을 push하거나 PR로 제출하지 않았다. |
 
 ## 완료 판정
 

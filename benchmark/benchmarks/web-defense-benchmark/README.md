@@ -6,7 +6,7 @@
 
 ## 현재 검증 범위
 
-- XSS는 지정된 저장형 시나리오의 브라우저 실행만 판정합니다. 반사형 XSS와 DOM 기반 XSS의 일반 탐지는 구현돼 있지 않습니다.
+- 현재 저장소에서 확인되는 탐지 컴포넌트와 `static-guard`에는 XSS 또는 CSRF 공격 탐지가 구현돼 있지 않습니다. 취약점 웹은 지정된 일부 시나리오에서 브라우저 실행이나 상태 변경을 사후 판정하며, 이는 공격 탐지가 아닙니다. 탐지 또는 방어와 오탐 검증 전에는 해당 시나리오를 방어 효과 집계에 넣지 않습니다.
 - 원본 CVE 5종은 준비된 참조 공격으로 취약판과 수정판의 차이를 확인합니다. Langflow는 변경 가능한 image tag를 사용해 조건부 판정이며, AI가 모든 원본 CVE를 찾아낸다는 뜻도 아닙니다.
 - AI 방어 반복 결과는 공격 과업 정보를 받은 Codex, SQL 상품 검색 한 표적과 연결 예제 `static-guard` v3에만 적용됩니다.
 - 2026-09-10 멘토 피드백에 따른 실제 재검증, SHA-256 용도와 남은 문제는 [`docs/mentor-feedback-verification-20260910.md`](docs/mentor-feedback-verification-20260910.md)에 쉬운 말로 정리했습니다.
@@ -28,6 +28,7 @@
 
 - [`docs/codebase-guide.md`](docs/codebase-guide.md)는 웹, 평가기, 공격 실행기, 방어 연결, 설정과 증거의 책임을 실제 진입점 기준으로 설명합니다.
 - [`docs/mentor-feedback-verification-20260910.md`](docs/mentor-feedback-verification-20260910.md)는 XSS, DOM 기반 공격, SHA-256, 원본 CVE와 실행 격리의 지원 범위와 실제 재검증 결과를 설명합니다.
+- [`docs/mentor-feedback-action-status-20260911.md`](docs/mentor-feedback-action-status-20260911.md)는 공격 요청 탐지와 실험 성공 판정을 구분하고 XSS 및 CSRF의 방어 실험 편입 조건을 기록합니다.
 - [`docs/branch-change-ledger.md`](docs/branch-change-ledger.md)는 본문 없이 남은 기존 18개 커밋을 diff와 검증 파일을 기준으로 해설합니다.
 - 두 문서는 기존 Git 기록을 다시 쓰지 않고 검토 맥락을 보완합니다. 이후 커밋은 변경 이유, 범위와 실제 검증 결과를 본문에 기록합니다.
 
