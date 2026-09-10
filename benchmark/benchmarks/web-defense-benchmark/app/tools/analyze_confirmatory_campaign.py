@@ -637,8 +637,10 @@ def analyze(run_dir: Path, plan: dict[str, object]) -> dict[str, object]:
         "claim_status": {
             "analysis_complete": all(integrity_checks.values()),
             "eligible_comparisons": sum(item["positive_effect_claim_ready"] for item in comparison_rows),
-            "positive_effect_claim_allowed": all(integrity_checks.values())
+            "statistical_effect_gate_passed": all(integrity_checks.values())
             and any(item["positive_effect_claim_ready"] for item in comparison_rows),
+            "independent_review_completed": False,
+            "positive_effect_claim_allowed": False,
         },
     }
 

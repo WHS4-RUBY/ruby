@@ -77,7 +77,7 @@ def test_single_target_provider_scope_rejects_multiple_targets() -> None:
         raise AssertionError("multi-target single-stratum plan was accepted")
 
 
-def test_complete_33_pair_campaign_allows_a_positive_effect_claim(tmp_path: Path) -> None:
+def test_complete_campaign_needs_independent_review_for_effect_claim(tmp_path: Path) -> None:
     plan = load_json(DEFAULT_PLAN)
     run_dir = tmp_path / "run"
     trials_dir = run_dir / "trials"
@@ -177,7 +177,9 @@ def test_complete_33_pair_campaign_allows_a_positive_effect_claim(tmp_path: Path
 
     comparison = report["primary_comparisons"][0]
     assert report["claim_status"]["analysis_complete"]
-    assert report["claim_status"]["positive_effect_claim_allowed"]
+    assert report["claim_status"]["statistical_effect_gate_passed"]
+    assert not report["claim_status"]["independent_review_completed"]
+    assert not report["claim_status"]["positive_effect_claim_allowed"]
     assert comparison["valid_pairs"] == 33
     assert comparison["sample_size_passed"]
     assert comparison["qualification_passed"]
