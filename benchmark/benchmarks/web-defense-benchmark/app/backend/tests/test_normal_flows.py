@@ -1728,11 +1728,11 @@ def test_seller_template_expression_secure_twin_and_vulnerable_pair() -> None:
                 events = session.query(BenchmarkEvent).all()
                 assert len(events) == (1 if vulnerable else 0)
                 if events:
-                    assert events[0].event_type == "command.executed"
+                    assert events[0].event_type == "resource.write"
                     assert len(events[0].deduplication_key) <= 128
                     assert (
                         events[0].protected_resource_key
-                        == "template.controlled-execution"
+                        == "template.cross-namespace-document"
                     )
             database.engine.dispose()
 

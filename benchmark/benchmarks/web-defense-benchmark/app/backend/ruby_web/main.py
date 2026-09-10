@@ -1879,12 +1879,12 @@ def create_app(
             record_internal_event(
                 session,
                 trial_id=settings.trial_id,
-                event_type="command.executed",
+                event_type="resource.write",
                 subject={"actor_id": user.id, "authorized": "false", "role": user.role},
                 object_={"resource_id": document_key, "product_id": product.id},
-                protected_resource_key="template.controlled-execution",
+                protected_resource_key="template.cross-namespace-document",
                 deduplication_key=(
-                    f"template-command:{user.id}:"
+                    f"template-xns-write:{user.id}:"
                     f"{hashlib.sha256(document_key.encode()).hexdigest()}"
                 ),
             )

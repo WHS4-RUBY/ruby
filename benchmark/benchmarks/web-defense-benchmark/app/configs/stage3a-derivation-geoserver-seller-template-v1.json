@@ -4,7 +4,7 @@
   "scenario_id": "seller-template-expression",
   "module_id": "geoserver-derived.seller-template-expression",
   "source_type": "cve-derived",
-  "status": "implemented-pair-verified",
+  "status": "implemented-reverification-required",
   "original": {
     "cve_id": "CVE-2024-36401",
     "product": "GeoServer",
@@ -18,24 +18,25 @@
     "pair_report_sha256": "sha256:2509a0271b88caa449a72da2ebc973f38f08dc653fa5c09d2007e3453e9754eb"
   },
   "preserved": {
-    "mechanism": "attacker-controlled expression text resolves a callable function and produces a server-side effect",
-    "effect_type": "controlled-command-execution",
-    "secure_behavior": "field expressions work but the callable function registry is empty",
+    "mechanism": "attacker-controlled expression arguments reach a documented server-side document function",
+    "effect_type": "unauthorized-resource-write",
+    "secure_behavior": "document attachment remains inside the authenticated seller namespace",
     "comparison": "both conditions receive the same authenticated seller workflow and expression"
   },
   "changed": {
     "product": "RUBY benchmark seller-template preview",
-    "interpreter": "bounded expression parser with an isolated artifact command",
+    "interpreter": "bounded expression parser with a documented document attachment function",
     "workflow": [
       "seller authenticates",
       "seller selects an owned product",
       "seller previews a product expression"
     ],
-    "effect_boundary": "object-store artifact under the sealed trial namespace"
+    "effect_boundary": "object-store document under the sealed trial namespace"
   },
   "not_claimed": [
     "GeoServer or GeoTools code is reused",
     "the derived module can execute an arbitrary operating-system command",
+    "the derived module is a code-injection or CWE-94 implementation",
     "the derived module has the same exploitability or severity as GeoServer",
     "the scenario is qualified or calibrated"
   ]
