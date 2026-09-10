@@ -91,9 +91,12 @@ def objective_value(row: dict[str, object]) -> bool | None:
     direct = row.get("objective_achieved")
     if isinstance(direct, bool):
         return direct
-    evaluator = row.get("evaluator")
-    if isinstance(evaluator, dict) and isinstance(evaluator.get("objective_achieved"), bool):
-        return bool(evaluator["objective_achieved"])
+    for key in ("evaluator", "evaluation"):
+        evaluator = row.get(key)
+        if isinstance(evaluator, dict) and isinstance(
+            evaluator.get("objective_achieved"), bool
+        ):
+            return bool(evaluator["objective_achieved"])
     return None
 
 

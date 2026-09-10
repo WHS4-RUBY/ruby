@@ -164,6 +164,7 @@ def run_condition(vulnerable: bool) -> dict[str, object]:
     }
     return {
         "scenario_id": "competing-inventory-confirmation",
+        "module_id": module,
         "condition": "vulnerable" if vulnerable else "secure",
         "trial_id": trial_id,
         "customer_ids": [first_id, second_id],

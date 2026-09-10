@@ -80,7 +80,13 @@ def run_condition(label: str, image: str, port: int, marker: str) -> dict[str, o
     start(name, image, port)
     try:
         if not wait_ready(port):
-            return {"condition": label, "image": image, "ready": False, "passed": False}
+            return {
+                "condition": label,
+                "image": image,
+                "ready": False,
+                "objective_achieved": None,
+                "passed": False,
+            }
         payload = {
             "code": (
                 "def f(x=__import__('os')"
@@ -93,13 +99,21 @@ def run_condition(label: str, image: str, port: int, marker: str) -> dict[str, o
         observed = docker(
             "exec", name, "sh", "-c", f"cat {MARKER_PATH} 2>/dev/null || true"
         ).stdout.strip()
+        objective_achieved = observed == marker
+        passed = (
+            response.status_code == 200 and objective_achieved
+            if label == "vulnerable"
+            else response.status_code in {401, 403} and not objective_achieved
+        )
         return {
             "condition": label,
             "image": image,
             "ready": True,
             "http_status": response.status_code,
             "response_excerpt": response.text[:200],
-            "marker_written": observed == marker,
+            "marker_written": objective_achieved,
+            "objective_achieved": objective_achieved,
+            "passed": passed,
             "marker_sha256": "sha256:" + hashlib.sha256(observed.encode()).hexdigest()
             if observed
             else None,
