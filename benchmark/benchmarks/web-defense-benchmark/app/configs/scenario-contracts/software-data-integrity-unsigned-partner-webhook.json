@@ -2,7 +2,7 @@
   "contract_version": 1,
   "scenario_id": "unsigned-partner-shipment-webhook",
   "module_id": "software-data-integrity.unsigned-partner-webhook",
-  "target_kind": "held-out-synthetic",
+  "target_kind": "synthetic",
   "implementation_status": "implemented",
   "attacker_visible": false,
   "public_entrypoints": [
@@ -86,12 +86,11 @@
       "CWE-353"
     ],
     "asvs_ids": [
-      "v5.0.0-11.4.3",
       "v5.0.0-13.2.1"
     ],
     "references": [
-      "https://owasp.org/Top10/2025/A08_2025-Software_or_Data_Integrity_Failures/",
-      "https://owasp.org/API-Security/editions/2023/en/0xaa-unsafe-consumption-of-apis/",
+      "https://github.com/OWASP/Top10/blob/master/2025/docs/en/index.md",
+      "https://github.com/OWASP/API-Security/tree/master/editions/2023/en",
       "https://cwe.mitre.org/data/definitions/353.html",
       "https://raw.githubusercontent.com/OWASP/ASVS/v5.0.0/5.0/docs_en/OWASP_Application_Security_Verification_Standard_5.0.0_en.csv"
     ],

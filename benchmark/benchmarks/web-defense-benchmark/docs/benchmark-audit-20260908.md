@@ -34,7 +34,7 @@
 
 ### OWASP Top 10:2025 대응
 
-판정 기준은 [OWASP Top 10:2025 공식 목록](https://owasp.org/Top10/2025/)이다. `충족`은 적어도 하나의 직접 대상이 있다는 뜻이며 해당 범주를 대표한다는 뜻은 아니다.
+판정 기준은 [OWASP Top 10:2025 공식 원문](https://github.com/OWASP/Top10/blob/master/2025/docs/en/index.md)이다. `충족`은 적어도 하나의 직접 대상이 있다는 뜻이며 해당 범주를 대표한다는 뜻은 아니다.
 
 | 범주 | 현재 대응 | 판정 |
 | --- | --- | --- |
@@ -51,7 +51,7 @@
 
 ### OWASP API Security Top 10:2023 대응
 
-판정 기준은 [OWASP API Security Top 10:2023 공식 목록](https://owasp.org/API-Security/editions/2023/en/0x11-t10/)이다.
+판정 기준은 [OWASP API Security Top 10:2023 공식 원문](https://github.com/OWASP/API-Security/tree/master/editions/2023/en)이다.
 
 | 범주 | 현재 대응 | 판정 |
 | --- | --- | --- |
@@ -76,14 +76,14 @@ Roundcube `CVE-2026-54433`은 취약 1.7.1과 수정 1.7.2 원본 이미지를 �
 
 | 후보 | 공식 확인 내용 | 현재 상태 |
 | --- | --- | --- |
-| Langflow `GHSA-vwmf-pq79-vjvx` | 2026-03-16 공개, 공개 flow build 경로에서 인증 없는 원격 코드 실행, 영향 버전 `<= 1.8.2`, 수정 버전 `>= 1.9.0` | 미구현 |
+| Langflow `CVE-2026-33017`, `GHSA-vwmf-pq79-vjvx` | 2026-03-16 공개, 공개 flow build 경로에서 인증 없는 원격 코드 실행, 영향 버전 `<= 1.8.2`, 수정 버전 `>= 1.9.0` | 미구현 |
 | Roundcube `CVE-2026-54432` | 2026-07-05 공지, 첨부 MIME 유형을 통한 저장형 XSS | 미구현 |
 | Roundcube `CVE-2026-54433` | 2026-07-05 공지, 평문 렌더링의 사용자 동작 없는 저장형 XSS | 1.7.1 및 1.7.2 원본 쌍 구현 및 검증 완료 |
 | Roundcube 2026-09 보안 수정 | 사용자 동작 없는 저장형 XSS, 사용자 간 주소록 접근, SSRF 우회 등을 공식 공지 | CVE 식별자가 공지에 없는 항목은 후보 조사만 가능 |
 
 근거는 [Langflow 2026년 공개 flow RCE 공지](https://github.com/langflow-ai/langflow/security/advisories/GHSA-vwmf-pq79-vjvx), [현재 구현된 Langflow CVE-2025-3248 공지](https://github.com/langflow-ai/langflow/security/advisories/GHSA-rvqx-wpfh-mfx7), [Roundcube 2026-07-05 공지](https://roundcube.net/news/2026/07/05/security-updates-1.6.17-and-1.7.2), [Roundcube 2026-09-06 공지](https://roundcube.net/news/2026/09/06/security-updates-1.6.19-and-1.7.4)다.
 
-추가 후보 중 Langflow `GHSA-vwmf-pq79-vjvx`는 기존 `CVE-2025-3248`과 다른 공개 flow 경로의 인증 없는 코드 실행이라 프로젝트 주제와 가깝다. 현재 공식 CVE 대상 계약은 CVE ID를 요구하므로 GHSA만 확인된 후보를 원본 CVE 수에 넣지 않는다.
+추가 후보 중 Langflow `CVE-2026-33017`, `GHSA-vwmf-pq79-vjvx`는 기존 `CVE-2025-3248`과 다른 공개 flow 경로의 인증 없는 코드 실행이다. CVE ID는 부여됐지만 아직 제품 쌍, 고정 이미지와 기준 공격을 구현하지 않았으므로 현재 원본 CVE 5개에는 포함하지 않는다.
 
 ## 3. 공격자가 구축 환경으로 우회하는가
 
