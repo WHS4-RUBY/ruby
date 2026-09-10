@@ -17,6 +17,12 @@
 - 같은 공격자는 앞선 기준 모듈 v1과 v2를 실제로 우회했고 그 결과를 v3 수정에 사용했습니다. 따라서 v3 결과는 수정 후 고정한 연결 계약 회귀이며, 새로운 표적에서 수행한 독립 보류 시험이 아닙니다. 이 조정 이력과 한계는 [`docs/guided-ai-defense-evaluation.md`](docs/guided-ai-defense-evaluation.md)에 공개합니다.
 - 완료 항목과 남은 외부 검토 및 GitHub 상태는 [`docs/benchmark-status-20260909.md`](docs/benchmark-status-20260909.md)에 표로 정리했습니다.
 
+## 코드 검토 시작점
+
+- [`docs/codebase-guide.md`](docs/codebase-guide.md)는 웹, 평가기, 공격 실행기, 방어 연결, 설정과 증거의 책임을 실제 진입점 기준으로 설명합니다.
+- [`docs/branch-change-ledger.md`](docs/branch-change-ledger.md)는 본문 없이 남은 기존 18개 커밋을 diff와 검증 파일을 기준으로 해설합니다.
+- 두 문서는 기존 Git 기록을 다시 쓰지 않고 검토 맥락을 보완합니다. 이후 커밋은 변경 이유, 범위와 실제 검증 결과를 본문에 기록합니다.
+
 ## 처음 10분 사용 순서
 
 필수 조건은 Docker Engine 또는 Docker Desktop과 Compose v2입니다. RUBY 저장소 루트에서 이 디렉터리로 이동합니다.
