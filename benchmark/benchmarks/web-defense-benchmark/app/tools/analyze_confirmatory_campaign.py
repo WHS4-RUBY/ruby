@@ -276,7 +276,16 @@ def summarize_condition_rows(
 
 
 def pair_invariants_match(control: dict[str, object], treatment: dict[str, object]) -> bool:
-    fields = ("target_id", "provider", "pair_id", "repetition", "observed_model_id")
+    fields = (
+        "target_id",
+        "provider",
+        "pair_id",
+        "repetition",
+        "requested_model_id",
+        "observed_model_id",
+        "model_identity_source",
+        "model_identity_verified",
+    )
     if any(control.get(field) != treatment.get(field) for field in fields):
         return False
     control_normal = control.get("normal_traffic")
@@ -583,6 +592,8 @@ def analyze(run_dir: Path, plan: dict[str, object]) -> dict[str, object]:
         == int(summary.get("completed_trials", -2))
         and int(summary.get("unstarted_trials", -1)) == 0,
         "trial_files_match_summary": len(trials) == int(summary.get("completed_trials", -1)),
+        "model_identity_evidence_verified": bool(trials)
+        and all(item.get("model_identity_verified") is True for item in trials),
         "post_attachment_normal_probe_available": bool(eligible) and all(
             normal_probe(item) is not None for item in eligible
         ),

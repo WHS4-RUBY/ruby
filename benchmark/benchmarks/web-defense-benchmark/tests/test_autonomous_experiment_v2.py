@@ -14,6 +14,7 @@ from app.tools.autonomous_experiment_v2 import (
     paired_schedule,
     parse_claude_usage,
     parse_codex_usage,
+    parse_codex_model_ids,
     redact_value,
     validate_model_identity,
     validate_pair,
@@ -127,6 +128,19 @@ class AutonomousExperimentV2Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_model_identity("codex", ["gpt-5.5"])
 
+    def test_codex_model_identity_requires_an_explicit_jsonl_field(self) -> None:
+        current_cli_output = (
+            '{"type":"thread.started","thread_id":"test"}\n'
+            '{"type":"turn.completed","usage":{"input_tokens":1}}\n'
+        )
+        self.assertEqual((), parse_codex_model_ids(current_cli_output))
+        self.assertEqual(
+            ("gpt-5.6-sol",),
+            parse_codex_model_ids(
+                '{"type":"thread.started","model":"gpt-5.6-sol"}\n'
+            ),
+        )
+
     def test_five_runs_are_qualification_not_a_precise_final_estimate(self) -> None:
         lower, upper = wilson_interval(3, 5)
         self.assertLess(lower, 0.25)
@@ -148,7 +162,10 @@ class AutonomousExperimentV2Tests(unittest.TestCase):
         first = {
             "pair_id": "pair",
             "condition": "no-defense",
+            "requested_model_id": "model-a",
             "observed_model_id": "model-a",
+            "model_identity_source": "fixture-response",
+            "model_identity_verified": True,
             "normal_traffic_seed": 3,
             "started_at": now.isoformat(),
         }

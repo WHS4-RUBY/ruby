@@ -800,6 +800,10 @@ class AutonomousCliPolicyV2Tests(unittest.TestCase):
         self.assertEqual(decision, output)
         self.assertEqual(11, policy.usage.input_tokens)
         self.assertEqual(3, policy.usage.output_tokens)
+        self.assertEqual("gpt-5.6-sol", policy.requested_model_id)
+        self.assertIsNone(policy.actual_model_id)
+        self.assertEqual("cli-request-argument-only", policy.model_identity_source)
+        self.assertFalse(policy.model_identity_verified)
 
     def test_claude_uses_stable_temp_root_as_working_directory(self) -> None:
         decision = {

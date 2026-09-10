@@ -12,6 +12,7 @@ from typing import Literal
 
 from autonomous_experiment_v2 import (
     ModelUsage,
+    parse_codex_model_ids,
     parse_claude_usage,
     parse_codex_usage,
     validate_model_identity,
@@ -72,7 +73,10 @@ class SubscriptionCLIPolicy:
         self.reasoning_effort = reasoning_effort
         self.invocations: list[dict[str, object]] = []
         self.usage = ModelUsage()
+        self.requested_model_id = "gpt-5.6-sol" if provider == "codex" else "opus"
         self.actual_model_id: str | None = None
+        self.model_identity_source: str | None = None
+        self.model_identity_verified = False
 
     def __call__(self, payload: dict[str, object]) -> dict[str, object]:
         prompt = (
@@ -147,7 +151,7 @@ class SubscriptionCLIPolicy:
                         + diagnostic
                     )
                 decision = json.loads(output.read_text(encoding="utf-8"))
-                observed = ("gpt-5.6-sol",)
+                observed = parse_codex_model_ids(process.stdout)
                 usage = parse_codex_usage(process.stdout)
             else:
                 executable = shutil.which("claude.exe")
@@ -218,7 +222,17 @@ class SubscriptionCLIPolicy:
                     raise ValueError("Claude returned no structured output")
                 usage, observed = parse_claude_usage(process.stdout)
 
-        actual = validate_model_identity(self.provider, observed)
+        if self.provider == "codex" and not observed:
+            # Codex CLI 0.154.0 accepts the requested model on the command line
+            # but does not emit a model identifier in its JSONL events. Do not
+            # relabel the requested value as independently observed evidence.
+            actual = None
+            self.model_identity_source = "cli-request-argument-only"
+            self.model_identity_verified = False
+        else:
+            actual = validate_model_identity(self.provider, observed)
+            self.model_identity_source = "cli-response"
+            self.model_identity_verified = True
         self.actual_model_id = actual
         self.usage.add(usage)
         prohibited = []
@@ -244,7 +258,10 @@ class SubscriptionCLIPolicy:
         self.invocations.append(
             {
                 "provider": self.provider,
-                "actual_model_id": actual,
+                "requested_model_id": self.requested_model_id,
+                "observed_model_id": actual,
+                "model_identity_source": self.model_identity_source,
+                "model_identity_verified": self.model_identity_verified,
                 "reasoning_effort": self.reasoning_effort,
                 "stdout_sha256": _digest(process.stdout),
                 "stderr_sha256": _digest(process.stderr),

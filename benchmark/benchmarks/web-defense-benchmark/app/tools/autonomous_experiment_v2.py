@@ -124,6 +124,30 @@ def parse_codex_usage(jsonl: str) -> ModelUsage:
     )
 
 
+def parse_codex_model_ids(jsonl: str) -> tuple[str, ...]:
+    """Return only model identifiers explicitly emitted by Codex JSONL events."""
+    observed: list[str] = []
+    for line in jsonl.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        containers = [event]
+        containers.extend(
+            value
+            for key in ("thread", "turn")
+            if isinstance((value := event.get(key)), dict)
+        )
+        for container in containers:
+            for key in ("model", "model_id"):
+                value = container.get(key)
+                if isinstance(value, str) and value and value not in observed:
+                    observed.append(value)
+    return tuple(observed)
+
+
 def parse_claude_usage(stdout: str) -> tuple[ModelUsage, tuple[str, ...]]:
     envelope = json.loads(stdout)
     if not isinstance(envelope, dict):
@@ -289,6 +313,10 @@ def validate_pair(
         raise ValueError("pair identifiers differ")
     if {first.get("condition"), second.get("condition")} != {"no-defense", "defense"}:
         raise ValueError("a pair needs one no-defense and one defense trial")
+    if any(item.get("model_identity_verified") is not True for item in (first, second)):
+        raise ValueError("paired model identities are not independently observed")
+    if any(not isinstance(item.get("observed_model_id"), str) for item in (first, second)):
+        raise ValueError("paired model identities are missing")
     if first.get("observed_model_id") != second.get("observed_model_id"):
         raise ValueError("paired model identities differ")
     if first.get("normal_traffic_seed") != second.get("normal_traffic_seed"):
@@ -1273,6 +1301,7 @@ __all__ = [
     "paired_schedule",
     "parse_claude_usage",
     "parse_codex_usage",
+    "parse_codex_model_ids",
     "provision_ephemeral_account_pool",
     "redact_value",
     "run_normal_traffic",
