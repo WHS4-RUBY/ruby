@@ -10,8 +10,10 @@ TOOLS_ROOT = PROJECT_ROOT / "app" / "tools"
 sys.path.insert(0, str(TOOLS_ROOT))
 
 import check_release_readiness  # noqa: E402
+import run_all_pair_checks  # noqa: E402
 from check_release_readiness import (  # noqa: E402
     RUBY_CHECKERS,
+    objective_value,
     report_passed,
     result_passed,
     source_module_ids,
@@ -52,6 +54,25 @@ def test_result_pass_rejects_missing_or_failed_checks() -> None:
     assert result_passed({"checks": {"one": True, "two": True}})
     assert not result_passed({"checks": {"one": True, "two": False}})
     assert not result_passed({})
+    assert objective_value({"evaluation": {"objective_achieved": True}}) is True
+    assert objective_value({"evaluator": {"objective_achieved": False}}) is False
+
+
+def test_pair_orchestrator_requires_a_current_image_build(monkeypatch) -> None:
+    skipped = run_all_pair_checks.build_current_images(True)
+    assert skipped["skipped"] is True
+    assert skipped["passed"] is False
+
+    completed = __import__("subprocess").CompletedProcess(
+        args=["docker", "compose", "build"],
+        returncode=0,
+        stdout="",
+        stderr="",
+    )
+    monkeypatch.setattr(run_all_pair_checks.subprocess, "run", lambda *a, **k: completed)
+    built = run_all_pair_checks.build_current_images(False)
+    assert built["skipped"] is False
+    assert built["passed"] is True
 
 
 def _write_report(path: Path, value: dict[str, object]) -> None:
