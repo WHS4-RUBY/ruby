@@ -627,6 +627,218 @@ def _write_atomic(path: Path, value: object) -> None:
     temporary.replace(path)
 
 
+def _sealed_input_reference(path: Path, app_root: Path = APP_ROOT) -> str:
+    return os.path.relpath(path.resolve(), app_root.resolve()).replace("\\", "/")
+
+
+def _configuration_snapshot_relative_path(
+    path: Path, repository_root: Path
+) -> Path:
+    resolved = path.resolve()
+    root = repository_root.resolve()
+    if resolved != root and root not in resolved.parents:
+        raise ValueError(f"sealed input is outside the repository: {resolved}")
+    return Path("inputs") / resolved.relative_to(root)
+
+
+def _append_configuration_history(
+    output_dir: Path,
+    event: str,
+    details: dict[str, object],
+) -> dict[str, object]:
+    history_path = output_dir / "configuration-history.jsonl"
+    records: list[dict[str, object]] = []
+    if history_path.is_file():
+        for line in history_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                value = json.loads(line)
+                if not isinstance(value, dict):
+                    raise ValueError("configuration history contains a non-object record")
+                saved_digest = value.get("record_sha256")
+                unsigned = {
+                    name: item for name, item in value.items() if name != "record_sha256"
+                }
+                canonical = json.dumps(
+                    unsigned,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                if saved_digest != hashlib.sha256(canonical).hexdigest():
+                    raise ValueError("configuration history record digest mismatch")
+                records.append(value)
+    record: dict[str, object] = {
+        "event_index": len(records),
+        "event": event,
+        "recorded_at": datetime.now(UTC).isoformat(),
+        "previous_record_sha256": (
+            records[-1].get("record_sha256") if records else None
+        ),
+        **details,
+    }
+    canonical = json.dumps(
+        record, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    record["record_sha256"] = hashlib.sha256(canonical).hexdigest()
+    records.append(record)
+    temporary = history_path.with_suffix(history_path.suffix + ".tmp")
+    temporary.write_text(
+        "".join(
+            json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n"
+            for item in records
+        ),
+        encoding="utf-8",
+    )
+    temporary.replace(history_path)
+    return record
+
+
+def _configuration_changes(
+    sealed: dict[str, object], observed: dict[str, object]
+) -> dict[str, object]:
+    setting_changes = []
+    for name in sorted((set(sealed) | set(observed)) - {"sealed_inputs"}):
+        if sealed.get(name) != observed.get(name):
+            setting_changes.append(
+                {
+                    "field": name,
+                    "sealed": sealed.get(name),
+                    "observed": observed.get(name),
+                }
+            )
+    sealed_inputs = sealed.get("sealed_inputs")
+    observed_inputs = observed.get("sealed_inputs")
+    if not isinstance(sealed_inputs, dict) or not isinstance(observed_inputs, dict):
+        raise ValueError("run seal must contain sealed_inputs objects")
+    input_changes = []
+    for name in sorted(set(sealed_inputs) | set(observed_inputs)):
+        if sealed_inputs.get(name) != observed_inputs.get(name):
+            input_changes.append(
+                {
+                    "path": name,
+                    "sealed_sha256": sealed_inputs.get(name),
+                    "observed_sha256": observed_inputs.get(name),
+                }
+            )
+    return {
+        "setting_changes": setting_changes,
+        "input_changes": input_changes,
+    }
+
+
+def _capture_configuration_snapshot(
+    output_dir: Path,
+    seal: dict[str, object],
+    input_paths: tuple[Path, ...],
+    *,
+    app_root: Path = APP_ROOT,
+    event: str = "configuration-captured",
+) -> dict[str, object]:
+    repository_root = app_root.resolve().parent
+    snapshot_root = output_dir / "configuration-snapshot"
+    staging_root = output_dir / "configuration-snapshot.tmp"
+    if snapshot_root.exists() or staging_root.exists():
+        raise FileExistsError(f"configuration snapshot already exists: {snapshot_root}")
+    sealed_inputs = seal.get("sealed_inputs")
+    if not isinstance(sealed_inputs, dict):
+        raise ValueError("run seal must contain a sealed_inputs object")
+    staging_root.mkdir(parents=True)
+
+    files = []
+    try:
+        for source in input_paths:
+            reference = _sealed_input_reference(source, app_root)
+            expected_digest = sealed_inputs.get(reference)
+            if not isinstance(expected_digest, str):
+                raise ValueError(f"sealed input digest is missing: {reference}")
+            relative = _configuration_snapshot_relative_path(source, repository_root)
+            destination = staging_root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            observed_digest = _digest(destination)
+            if observed_digest != expected_digest:
+                raise RuntimeError(
+                    f"configuration snapshot digest mismatch: {reference}"
+                )
+            files.append(
+                {
+                    "source_path": reference,
+                    "snapshot_path": relative.as_posix(),
+                    "sha256": observed_digest,
+                }
+            )
+
+        manifest = {
+            "schema_version": 1,
+            "captured_at": datetime.now(UTC).isoformat(),
+            "run_id": seal.get("run_id"),
+            "effective_settings": {
+                name: value for name, value in seal.items() if name != "sealed_inputs"
+            },
+            "files": files,
+        }
+        _write_atomic(staging_root / "manifest.json", manifest)
+        staging_root.replace(snapshot_root)
+    except Exception:
+        shutil.rmtree(staging_root, ignore_errors=True)
+        raise
+    manifest_path = snapshot_root / "manifest.json"
+    _append_configuration_history(
+        output_dir,
+        event,
+        {
+            "manifest_path": "configuration-snapshot/manifest.json",
+            "manifest_sha256": _digest(manifest_path),
+            "captured_input_count": len(files),
+        },
+    )
+    return manifest
+
+
+def _verify_configuration_snapshot(
+    output_dir: Path, seal: dict[str, object]
+) -> dict[str, object]:
+    snapshot_root = output_dir / "configuration-snapshot"
+    manifest_path = snapshot_root / "manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError("configuration snapshot manifest is missing")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    files = manifest.get("files") if isinstance(manifest, dict) else None
+    sealed_inputs = seal.get("sealed_inputs")
+    if not isinstance(files, list) or not isinstance(sealed_inputs, dict):
+        raise ValueError("configuration snapshot manifest is invalid")
+    expected_settings = {
+        name: value for name, value in seal.items() if name != "sealed_inputs"
+    }
+    if manifest.get("effective_settings") != expected_settings:
+        raise ValueError("configuration snapshot settings do not match the run seal")
+    checked = []
+    for item in files:
+        if not isinstance(item, dict):
+            raise ValueError("configuration snapshot file record is invalid")
+        reference = item.get("source_path")
+        snapshot_path = item.get("snapshot_path")
+        expected_digest = item.get("sha256")
+        if not all(
+            isinstance(value, str)
+            for value in (reference, snapshot_path, expected_digest)
+        ):
+            raise ValueError("configuration snapshot file record is incomplete")
+        candidate = (snapshot_root / str(snapshot_path)).resolve()
+        if snapshot_root.resolve() not in candidate.parents or not candidate.is_file():
+            raise ValueError(f"configuration snapshot file is missing: {snapshot_path}")
+        observed_digest = _digest(candidate)
+        if (
+            observed_digest != expected_digest
+            or sealed_inputs.get(reference) != expected_digest
+        ):
+            raise ValueError(f"configuration snapshot digest mismatch: {reference}")
+        checked.append(reference)
+    if set(checked) != set(sealed_inputs):
+        raise ValueError("configuration snapshot does not cover every sealed input")
+    return manifest
+
+
 def _safe(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "-", value).strip("-")
 
@@ -1037,6 +1249,15 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
         variants=variants,
         conditions=conditions,
     )
+    sealed_input_paths = tuple(
+        dict.fromkeys(
+            BASE_SEALED_INPUTS
+            + defense_source_inputs
+            + (profile_path, guide_path, scope_path)
+            + ((variant_manifest_path,) if variant_manifest_path is not None else ())
+            + ((public_brief_path,) if public_brief_path is not None else ())
+        )
+    )
     seal = {
         "seal_version": 1,
         "run_id": args.run_id,
@@ -1064,12 +1285,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
             "model_calls_per_trial": args.max_model_calls_per_trial,
         },
         "sealed_inputs": {
-            os.path.relpath(path, APP_ROOT).replace("\\", "/"): _digest(path)
-            for path in BASE_SEALED_INPUTS
-            + defense_source_inputs
-            + (profile_path, guide_path, scope_path)
-            + ((variant_manifest_path,) if variant_manifest_path is not None else ())
-            + ((public_brief_path,) if public_brief_path is not None else ())
+            _sealed_input_reference(path): _digest(path)
+            for path in sealed_input_paths
         },
     }
     if public_brief is not None:
@@ -1085,8 +1302,28 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
     if output_dir.exists():
         if not args.resume:
             raise FileExistsError(f"output directory already exists: {output_dir}")
-        if json.loads(seal_path.read_text(encoding="utf-8")) != seal:
+        observed_seal = json.loads(seal_path.read_text(encoding="utf-8"))
+        if observed_seal != seal:
+            _append_configuration_history(
+                output_dir,
+                "configuration-resume-rejected",
+                _configuration_changes(observed_seal, seal),
+            )
             raise ValueError("resume seal does not match current arguments or inputs")
+        if (output_dir / "configuration-snapshot" / "manifest.json").is_file():
+            _verify_configuration_snapshot(output_dir, observed_seal)
+            _append_configuration_history(
+                output_dir,
+                "configuration-resume-verified",
+                {"setting_changes": [], "input_changes": []},
+            )
+        else:
+            _capture_configuration_snapshot(
+                output_dir,
+                observed_seal,
+                sealed_input_paths,
+                event="configuration-snapshot-backfilled",
+            )
     else:
         if args.resume:
             raise FileNotFoundError("resume output directory does not exist")
@@ -1094,6 +1331,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
         trials_dir.mkdir()
         _write_atomic(seal_path, seal)
         _write_atomic(output_dir / "schedule.json", schedule)
+        _capture_configuration_snapshot(output_dir, seal, sealed_input_paths)
 
     _write_atomic(
         output_dir / "startup-resource-recovery.json",
