@@ -152,6 +152,8 @@ Langflow는 동작 차이는 재현됐지만 검사기가 설정에 적힌 고�
 
 이번 격리 명령은 `--skip-defenses`로 실행했다. 원본 JSON의 `all_managed_defenses_passed: true`는 방어 실행 결과가 아니라 방어 검사를 생략했을 때 검사기가 넣는 값이다. `defense_results`가 비어 있으므로 이 파일을 방어 런타임 통과 근거로 쓰지 않는다.
 
+2026-09-12에 검사기를 고쳐 방어 검사를 생략하면 `managed_defenses_executed: false`, `all_managed_defenses_passed: null`을 기록하게 했다. 과거 원본 JSON의 값은 당시 실행 기록이므로 바꾸지 않았다.
+
 ## 범용성 판정
 
 원본 CVE 재현, 런타임 격리와 AI 방어 효과는 서로 다른 주장이다.

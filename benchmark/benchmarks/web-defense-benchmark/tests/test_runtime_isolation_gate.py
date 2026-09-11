@@ -12,8 +12,10 @@ sys.path.insert(0, str(PROJECT_ROOT / "app" / "tools"))
 
 from check_runtime_isolation_gate import (  # noqa: E402
     POLICY_PATH,
+    gate_checks,
     load_policy,
     public_bind_mounts,
+    required_checks_passed,
     security_observation,
     static_compose_contracts,
 )
@@ -52,6 +54,34 @@ def hardened_inspect() -> dict[str, object]:
 
 
 class RuntimeIsolationGateTests(unittest.TestCase):
+    def test_skipped_defense_gate_is_not_recorded_as_a_defense_pass(self) -> None:
+        checks = gate_checks(
+            static_results=[{"passed": True}],
+            target_results=[{"passed": True}],
+            defense_results=[],
+            expected_target_runs=1,
+            skip_defenses=True,
+            canary_cleanup=True,
+        )
+
+        self.assertFalse(checks["managed_defenses_executed"])
+        self.assertIsNone(checks["all_managed_defenses_passed"])
+        self.assertTrue(required_checks_passed(checks, skip_defenses=True))
+
+    def test_required_defense_gate_rejects_an_empty_result(self) -> None:
+        checks = gate_checks(
+            static_results=[{"passed": True}],
+            target_results=[{"passed": True}],
+            defense_results=[],
+            expected_target_runs=1,
+            skip_defenses=False,
+            canary_cleanup=True,
+        )
+
+        self.assertTrue(checks["managed_defenses_executed"])
+        self.assertFalse(checks["all_managed_defenses_passed"])
+        self.assertFalse(required_checks_passed(checks, skip_defenses=False))
+
     def test_public_bind_mounts_remove_host_paths(self) -> None:
         result = public_bind_mounts(
             [r"C:\private\workspace\relay.conf:/etc/nginx/conf.d/default.conf:ro"]
