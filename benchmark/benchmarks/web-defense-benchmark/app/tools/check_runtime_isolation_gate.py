@@ -770,6 +770,51 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def gate_checks(
+    *,
+    static_results: list[dict[str, object]],
+    target_results: list[dict[str, object]],
+    defense_results: list[dict[str, object]],
+    expected_target_runs: int,
+    skip_defenses: bool,
+    canary_cleanup: bool,
+) -> dict[str, bool | None]:
+    return {
+        "all_compose_contracts_passed": all(
+            item["passed"] for item in static_results
+        ),
+        "all_selected_target_releases_executed": (
+            len(target_results) == expected_target_runs
+        ),
+        "all_target_runs_passed": bool(target_results)
+        and all(item["passed"] for item in target_results),
+        "managed_defenses_executed": not skip_defenses,
+        "all_managed_defenses_passed": (
+            None
+            if skip_defenses
+            else bool(defense_results)
+            and all(item["passed"] for item in defense_results)
+        ),
+        "canary_resources_removed": canary_cleanup,
+    }
+
+
+def required_checks_passed(
+    checks: dict[str, bool | None], *, skip_defenses: bool
+) -> bool:
+    required = [
+        "all_compose_contracts_passed",
+        "all_selected_target_releases_executed",
+        "all_target_runs_passed",
+        "canary_resources_removed",
+    ]
+    if not skip_defenses:
+        required.extend(
+            ["managed_defenses_executed", "all_managed_defenses_passed"]
+        )
+    return all(checks[name] is True for name in required)
+
+
 def main() -> int:
     args = parse_args()
     output = args.output.resolve()
@@ -843,17 +888,16 @@ def main() -> int:
         for release in item["releases"]
         if release in args.releases
     )
-    checks = {
-        "all_compose_contracts_passed": all(item["passed"] for item in static_results),
-        "all_selected_target_releases_executed": len(target_results) == expected_target_runs,
-        "all_target_runs_passed": bool(target_results) and all(item["passed"] for item in target_results),
-        "all_managed_defenses_passed": (
-            True if args.skip_defenses else bool(defense_results) and all(item["passed"] for item in defense_results)
-        ),
-        "canary_resources_removed": canary_cleanup,
-    }
+    checks = gate_checks(
+        static_results=static_results,
+        target_results=target_results,
+        defense_results=defense_results,
+        expected_target_runs=expected_target_runs,
+        skip_defenses=args.skip_defenses,
+        canary_cleanup=canary_cleanup,
+    )
     report = {
-        "report_version": 1,
+        "report_version": 2,
         "generated_at": datetime.now(UTC).isoformat(),
         "run_id": run_id,
         "policy_path": str(policy_path.relative_to(PROJECT_ROOT)),
@@ -864,7 +908,9 @@ def main() -> int:
         "target_results": target_results,
         "defense_results": defense_results,
         "checks": checks,
-        "passed": all(checks.values()),
+        "passed": required_checks_passed(
+            checks, skip_defenses=args.skip_defenses
+        ),
     }
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({"report": str(output), "passed": report["passed"]}), flush=True)
