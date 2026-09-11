@@ -6,11 +6,11 @@
 
 ## 현재 판정
 
-평가 프로토콜과 집계 도구, 과업 지정 SQL 한 층의 실제 확증 캠페인은 완료됐다. 구현 비참여자의 독립 검토는 남아 있으므로 프로젝트 전체의 방어 효과 평가는 완료로 표시하지 않는다.
+평가 프로토콜과 집계 도구, 과업 지정 SQL 한 층의 5회와 99회 실행 기록은 완료됐다. 당시 CLI 출력에서 실제 모델 ID가 관측되지 않았고 구현 비참여자의 독립 검토도 남아 있으므로 방어 효과 판정이나 프로젝트 전체 평가 완료로 표시하지 않는다.
 
 작은 예산으로 실행한 v12와 v10 SQL 주입 무방어 시험은 각각 5회 중 0회 성공했으며 공식 자격판정에는 사용하지 않는다. 공식 계획과 같은 v10 프로필, 1,800초, 능동 HTTP 100건, 판단 40회, 모델 호출 45회 상한으로 5회를 다시 실행했다. 목표 달성은 0회, Wilson 95% 신뢰구간은 0.0000에서 0.4345였다. 총 능동 HTTP 요청 488건과 모델 호출 161회를 사용했고 상태는 공격 실패 4회와 예산 소진 1회였다. 완료, 격리, 금지 도구 0건, 정상 업무, 프로필, 시드와 예산 검사는 모두 통과했다. 공격 성공률 60% 기준에 미달했으므로 이 조합의 확증 비교는 사전 규칙에 따라 중단한다. 공식 최소 증거는 [`../evidence/20260909/qualification-sqli-codex-v10-official.json`](../evidence/20260909/qualification-sqli-codex-v10-official.json)에 있고, 작은 예산 예비 결과는 [`../evidence/20260908/qualification-sqli-codex-v12.json`](../evidence/20260908/qualification-sqli-codex-v12.json)과 [`../evidence/20260908/qualification-sqli-codex-v10.json`](../evidence/20260908/qualification-sqli-codex-v10.json)에 있다.
 
-이 블라인드 결과와 별개로 공개 상품 검색 과업을 받은 `guided Codex gpt-5.6-sol medium, profile v10`은 무방어 자격 시험 5회 중 5회 성공했다. 같은 봉인 설정의 확증 캠페인은 무방어 33/33, 프록시 33/33, 연결 계약 검증용 `static-guard` 0/33이었다. 유효 대응쌍 33개의 공격 성공률 차이는 1.0, 95% Newcombe 구간은 0.85254에서 1.0, 양측 정확 McNemar p값은 `2.33e-10`이다. 통계 근거는 [`../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-analysis.json`](../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-analysis.json)에 있다.
+이 블라인드 결과와 별개로 요청 모델을 Codex `gpt-5.6-sol`, 추론 강도를 `medium`, 프로필을 v10으로 설정한 공개 상품 검색 과업은 무방어 자격 시험 5회 중 5회 성공했다. 같은 봉인 설정의 캠페인은 무방어 33/33, 프록시 33/33, 연결 계약 검증용 `static-guard` 0/33이었다. 유효 대응쌍 33개의 공격 성공률 차이는 1.0, 95% Newcombe 구간은 0.85254에서 1.0, 양측 정확 McNemar p값은 `2.33e-10`이다. 당시 CLI 출력에서 실제 모델 ID는 관측되지 않았으므로 이 수치는 모델 동일성이 검증된 방어 효과 근거가 아니다. 실행 통계는 [`../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-analysis.json`](../evidence/20260909/confirmatory-sqli-codex-v10-guided-v3-analysis.json)에 보존한다.
 
 실제 Docker 기능 검사에서는 `static-guard`를 거친 정상 업무 6개가 모두 성공했다. 익명, 고객, 판매자, 고객지원, 관리자 직렬 읽기 5개와 동시 상품 조회 1개를 합쳐 HTTP 요청 13건이 모두 200이었다. 방어 호출 26건 중 정상 요청 차단과 방어 오류는 각각 0건이었다. 같은 검사에서 SQL 주입은 무방어 조건에서 비공개 목표를 달성했고 `static-guard` 조건에서는 HTTP 403으로 차단돼 목표를 달성하지 못했다. 근거는 [`../evidence/20260908/static-guard-sql-pair.json`](../evidence/20260908/static-guard-sql-pair.json)이다.
 
