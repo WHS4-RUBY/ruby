@@ -256,7 +256,10 @@ $outputDir = "app\evaluation\$runId"
 
 | 파일 | 내용 |
 | --- | --- |
-| `run-seal.json` | 실제 CLI 버전, 모델 공급자, 조건, 예산, 이미지 ID와 입력 SHA256 |
+| `run-seal.json` | 실제 CLI 버전, 모델 공급자, 조건, 예산, 이미지 ID와 입력 SHA-256 |
+| `configuration-snapshot/manifest.json` | 실행 당시 설정값, 원본 입력 사본의 경로와 파일별 SHA-256 |
+| `configuration-snapshot/inputs/` | 설정, 계약, 실행 코드와 방어 입력의 실행 당시 원본 사본 |
+| `configuration-history.jsonl` | 최초 기록, 재개 확인과 재개 거부 사유, 달라진 설정값과 입력 해시 |
 | `schedule.json` | 무작위화된 실행 순서, 반복, 조건과 `pair_id` |
 | `campaign-summary.json` | 예정, 완료, 미시작 시험 수와 상태별 합계 |
 | `trials/*.json` | 비공개 판정, 정상 흐름, HTTP 요청, 모델 호출, 방어 지연과 오류 |
@@ -300,7 +303,7 @@ $outputDir = "app\evaluation\$runId"
 
 ## 8. 중단, 재개와 정리
 
-실행을 중단했다면 같은 인자에 `--resume`을 추가합니다. 기존 `run-seal.json`과 인자가 다르면 실행기가 재개를 거부합니다. 완료된 시험을 골라 다시 실행하지 않습니다.
+실행을 중단했다면 같은 인자에 `--resume`을 추가합니다. 기존 `run-seal.json`과 인자가 다르면 실행기는 달라진 설정값과 입력 해시를 `configuration-history.jsonl`에 기록하고 재개를 거부합니다. 값이 같아도 원본 사본이 없거나 사본의 해시가 달라지면 재개하지 않습니다. 이 기능을 추가하기 전에 만든 실행 폴더는 현재 입력 해시가 기존 봉인과 모두 같을 때만 원본 사본을 보충합니다. 완료된 시험을 골라 다시 실행하지 않습니다.
 
 실행이 비정상 종료된 뒤 남은 RUBY 캠페인 컨테이너는 다음 시작 시 실행기가 회수합니다. 수동으로 웹을 실행한 상태라면 별도로 정리합니다.
 
@@ -314,4 +317,4 @@ $outputDir = "app\evaluation\$runId"
 
 34개 표적 전체 실행은 `--targets`를 생략하면 됩니다. 소규모 표적에서 기준선과 판정이 확인되기 전에는 전체 실행으로 확대하지 않습니다. 전체 실행은 모델 사용량과 시간이 크게 늘어납니다.
 
-원시 모델 대화, 브라우저 프로필과 전체 공격 로그에는 인증 정보나 불필요한 대용량 데이터가 섞일 수 있습니다. 검토용 산출물은 비밀 정보를 제거한 뒤 `run-seal.json`, `campaign-summary.json`, 집계 보고서와 필요한 시험 원장만 보존합니다.
+원시 모델 대화, 브라우저 프로필과 전체 공격 로그에는 인증 정보나 불필요한 대용량 데이터가 섞일 수 있습니다. 검토용 산출물은 비밀 정보를 제거한 뒤 `run-seal.json`, `configuration-snapshot/`, `configuration-history.jsonl`, `campaign-summary.json`, 집계 보고서와 필요한 시험 원장을 보존합니다. SHA-256은 원본 사본의 동일성 확인에만 사용하며 원본을 대신하지 않습니다.
