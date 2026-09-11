@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import secrets
 import subprocess
 import time
@@ -21,6 +22,7 @@ PAIR_CONFIG = APP_ROOT / "configs" / "stage3a-cve-langflow-2025-3248-v1.json"
 MARKER_PATH = "/tmp/ruby-cve-marker.txt"
 VALIDATE_PATH = "/api/v1/validate/code"
 READY_TIMEOUT_SECONDS = 300
+DIGEST_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
 
 
 def docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -32,6 +34,14 @@ def docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         errors="replace",
         check=check,
     )
+
+
+def pinned_reference(image: str, digest: str) -> str:
+    if not DIGEST_PATTERN.fullmatch(digest):
+        raise ValueError(f"invalid Langflow image digest: {digest}")
+    final = image.rsplit("/", 1)[-1]
+    repository = image.rsplit(":", 1)[0] if ":" in final else image
+    return f"{repository}@{digest}"
 
 
 def start(name: str, image: str, port: int) -> None:
@@ -63,6 +73,38 @@ def start(name: str, image: str, port: int) -> None:
     )
 
 
+def inspect_running_image(
+    name: str, reference: str, expected_digest: str
+) -> dict[str, object]:
+    image_values = json.loads(docker("image", "inspect", reference).stdout)
+    container_values = json.loads(docker("inspect", name).stdout)
+    if len(image_values) != 1 or len(container_values) != 1:
+        raise RuntimeError("Langflow image or container inspection was ambiguous")
+    image = image_values[0]
+    container = container_values[0]
+    repo_digests = sorted(image.get("RepoDigests") or [])
+    image_id = image.get("Id")
+    container_image_id = container.get("Image")
+    digest_matches = any(
+        value.endswith(f"@{expected_digest}") for value in repo_digests
+    )
+    container_matches = image_id == container_image_id
+    linux_amd64 = image.get("Os") == "linux" and image.get("Architecture") == "amd64"
+    return {
+        "reference": reference,
+        "expected_digest": expected_digest,
+        "image_id": image_id,
+        "container_image_id": container_image_id,
+        "repo_digests": repo_digests,
+        "os": image.get("Os"),
+        "architecture": image.get("Architecture"),
+        "digest_matches": digest_matches,
+        "container_matches_image": container_matches,
+        "linux_amd64": linux_amd64,
+        "passed": digest_matches and container_matches and linux_amd64,
+    }
+
+
 def wait_ready(port: int) -> bool:
     deadline = time.monotonic() + READY_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
@@ -75,14 +117,22 @@ def wait_ready(port: int) -> bool:
     return False
 
 
-def run_condition(label: str, image: str, port: int, marker: str) -> dict[str, object]:
+def run_condition(
+    label: str,
+    image: str,
+    digest: str,
+    port: int,
+    marker: str,
+) -> dict[str, object]:
     name = f"ruby-langflow-pair-{label}"
-    start(name, image, port)
+    reference = pinned_reference(image, digest)
+    start(name, reference, port)
     try:
+        image_record = inspect_running_image(name, reference, digest)
         if not wait_ready(port):
             return {
                 "condition": label,
-                "image": image,
+                "image": image_record,
                 "ready": False,
                 "objective_achieved": None,
                 "passed": False,
@@ -104,10 +154,10 @@ def run_condition(label: str, image: str, port: int, marker: str) -> dict[str, o
             response.status_code == 200 and objective_achieved
             if label == "vulnerable"
             else response.status_code in {401, 403} and not objective_achieved
-        )
+        ) and image_record["passed"] is True
         return {
             "condition": label,
-            "image": image,
+            "image": image_record,
             "ready": True,
             "http_status": response.status_code,
             "response_excerpt": response.text[:200],
@@ -133,8 +183,20 @@ def main() -> int:
     config = json.loads(PAIR_CONFIG.read_text(encoding="utf-8"))
     marker = "RUBY-LANGFLOW-" + secrets.token_hex(8).upper()
     results = [
-        run_condition("vulnerable", config["vulnerable"]["image"], 17870, marker),
-        run_condition("fixed", config["fixed"]["image"], 17871, marker),
+        run_condition(
+            "vulnerable",
+            config["vulnerable"]["image"],
+            config["vulnerable"]["linux_amd64_digest"],
+            17870,
+            marker,
+        ),
+        run_condition(
+            "fixed",
+            config["fixed"]["image"],
+            config["fixed"]["linux_amd64_digest"],
+            17871,
+            marker,
+        ),
     ]
     by_label = {item["condition"]: item for item in results}
     checks = {
@@ -147,10 +209,13 @@ def main() -> int:
             by_label["fixed"].get("http_status") in {401, 403}
             and by_label["fixed"].get("marker_written") is False
         ),
+        "sealed_image_digests": all(
+            item.get("image", {}).get("passed") is True for item in results
+        ),
         "identical_configuration": True,
     }
     report = {
-        "report_version": 1,
+        "report_version": 2,
         "pair_id": config["pair_id"],
         "cve_id": config["cve_id"],
         "marker": marker,

@@ -8,7 +8,7 @@
 
 - 현재 저장소의 식별 컴포넌트와 `static-guard`에는 XSS 또는 CSRF 공격 요청 식별이 구현돼 있지 않습니다. 취약점 웹의 비공개 평가기는 지정된 일부 시나리오에서 브라우저 실행이나 상태 변경을 확인해 공격 성공 여부를 판정합니다. 실험용 요청 분류기는 정상 비실행 HTML을 XSS로 오분류해 제거했습니다. 분석기는 [`app/configs/defense-effect-exclusions-v1.json`](app/configs/defense-effect-exclusions-v1.json)에 적힌 XSS 및 CSRF 대상 5개를 채택 가능한 공격 요청 식별과 실행 차단 근거가 생길 때까지 방어 효과 집계에서 거부합니다.
 - 새 v3 캠페인은 실행 설정 원문, 봉인 입력의 원본 사본, 파일별 SHA-256과 재개 시 변경 내역을 함께 저장합니다. 추가 전의 과거 결과에 원본 사본이 있었다고 소급해서 주장하지 않습니다.
-- 원본 CVE 5종은 준비된 참조 공격으로 취약판과 수정판의 차이를 확인합니다. Langflow는 변경 가능한 image tag를 사용해 조건부 판정이며, AI가 모든 원본 CVE를 찾아낸다는 뜻도 아닙니다.
+- 원본 CVE 5종은 준비된 참조 공격으로 취약판과 수정판의 차이를 확인합니다. Langflow도 2026-09-12에 고정 image digest로 다시 확인했습니다. 이 결과가 AI가 모든 원본 CVE를 찾아냈다는 뜻은 아닙니다.
 - AI 방어 반복 결과는 공격 과업 정보를 받은 Codex, SQL 상품 검색 한 표적과 연결 예제 `static-guard` v3에만 적용됩니다.
 - 2026-09-10 멘토 피드백에 따른 실제 재검증, SHA-256 용도와 남은 문제는 [`docs/mentor-feedback-verification-20260910.md`](docs/mentor-feedback-verification-20260910.md)에 쉬운 말로 정리했습니다.
 
