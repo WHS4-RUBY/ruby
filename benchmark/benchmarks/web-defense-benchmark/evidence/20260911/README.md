@@ -2,7 +2,7 @@
 
 ## 결론
 
-현재 소스로 이미지를 다시 빌드한 뒤 29개 RUBY 모듈과 원본 CVE 5개의 기능 쌍이 모두 통과했다. 강화된 릴리스 관문도 `PASS`했다. 이 판정은 취약판과 안전판 또는 수정판의 기능 차이, 실행 격리, 방어 연결 계약과 전체 회귀에 적용된다. XSS와 CSRF 탐지 효과 및 일반 방어 효과는 포함하지 않는다.
+현재 소스로 이미지를 다시 빌드한 뒤 29개 RUBY 모듈과 원본 CVE 5개의 기능 쌍이 모두 통과했다. 강화된 릴리스 관문도 `PASS`했다. 이 판정은 취약판과 안전판 또는 수정판의 기능 차이, 실행 격리, 방어 연결 계약과 전체 회귀에 적용된다. XSS와 CSRF 공격 요청 식별, 실행 차단 및 일반 방어 효과는 포함하지 않는다.
 
 ## 최종 근거
 
@@ -21,8 +21,9 @@
 
 ## 남은 제한
 
-- 저장형 XSS 계열 4개와 CSRF 1개는 기능 쌍이 통과했지만 현재 RUBY 탐지 또는 방어와 정상 입력 오탐 검증이 없다.
+- 저장형 XSS 계열 4개와 CSRF 1개는 기능 쌍이 통과했다. 실험용 요청 분류기는 정상 비실행 HTML을 XSS로 오분류해 미채택했고, 현재 RUBY에는 이 공격군의 채택된 요청 식별 또는 실행 차단 기능이 없다.
 - 해당 5개 대상은 [`../../app/configs/defense-effect-exclusions-v1.json`](../../app/configs/defense-effect-exclusions-v1.json)에 등록돼 방어 효과 집계가 차단된다.
+- 실제 연결 시험과 분류기 제거 판단은 [`../../docs/request-identification-decision-20260911.md`](../../docs/request-identification-decision-20260911.md)와 [`request-identification-live-evaluation.json`](request-identification-live-evaluation.json)에 있다.
 - DOM 기반 XSS와 반사형 XSS 전용 시나리오는 현재 34개 대상에 없다.
 - Codex CLI 0.154.0 JSONL은 실제 모델 ID를 제공하지 않았다. 요청 모델을 관측 모델로 취급하지 않으며 모델 동일성이 필요한 효과 분석은 실패한다.
 - 구현 비참여자의 독립 검토가 끝나기 전에는 `positive_effect_claim_allowed`가 `true`가 되지 않는다.
