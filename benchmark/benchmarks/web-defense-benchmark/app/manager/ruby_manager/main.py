@@ -533,7 +533,10 @@ def build_campaign_command(payload: "RunRequest", run_id: str, output: Path) -> 
     ]
 
 
-def campaign_environment() -> dict[str, str]:
+def campaign_environment(
+    stack_environment: dict[str, str] | None = None,
+) -> dict[str, str]:
+    stack_environment = stack_environment or manager_stack_environment()
     environment = os.environ.copy()
     for name in (
         "RUBY_MANAGER_TOKEN",
@@ -546,6 +549,7 @@ def campaign_environment() -> dict[str, str]:
         "RUBY_TEST_CONTROL_ORIGIN",
     ):
         environment.pop(name, None)
+    environment["RUBY_IMAGE_PREFIX"] = stack_environment["RUBY_IMAGE_PREFIX"]
     return environment
 
 

@@ -16,12 +16,36 @@ from run_autonomous_campaign_v3 import (  # noqa: E402
     _append_configuration_history,
     _capture_configuration_snapshot,
     _configuration_changes,
+    _ruby_image_prefix,
+    _ruby_image_references,
     _verify_configuration_snapshot,
 )
 
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_ruby_image_references_use_the_configured_checkout_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RUBY_IMAGE_PREFIX", "ruby-web-defense-a1b2c3d4e5f6")
+
+    references = _ruby_image_references()
+
+    assert _ruby_image_prefix() == "ruby-web-defense-a1b2c3d4e5f6"
+    assert references[0] == "ruby-web-defense-a1b2c3d4e5f6-api:latest"
+    assert references[-1] == "ruby-web-defense-a1b2c3d4e5f6-redis:latest"
+    assert len(references) == 8
+
+
+def test_ruby_image_prefix_rejects_a_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RUBY_IMAGE_PREFIX", "../shared")
+
+    with pytest.raises(ValueError, match="RUBY_IMAGE_PREFIX"):
+        _ruby_image_references()
 
 
 def fixture_seal(app_root: Path, inputs: tuple[Path, ...]) -> dict[str, object]:

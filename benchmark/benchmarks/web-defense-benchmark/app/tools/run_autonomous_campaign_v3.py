@@ -182,15 +182,19 @@ def _scope_input(
         ):
             raise ValueError("campaign scope public brief binding does not match")
     return resolved, scope
-RUBY_IMAGE_REFERENCES = (
-    "ruby-web-defense-benchmark-api:latest",
-    "ruby-web-defense-benchmark-postgres:latest",
-    "ruby-web-defense-benchmark-web:latest",
-    "ruby-web-defense-benchmark-worker:latest",
-    "ruby-web-defense-benchmark-mock-integration:latest",
-    "ruby-web-defense-benchmark-evaluator:latest",
-    "ruby-web-defense-benchmark-object-store:latest",
-    "ruby-web-defense-benchmark-redis:latest",
+DEFAULT_RUBY_IMAGE_PREFIX = "ruby-web-defense-benchmark"
+RUBY_IMAGE_PREFIX_PATTERN = re.compile(
+    r"^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$"
+)
+RUBY_IMAGE_SERVICES = (
+    "api",
+    "postgres",
+    "web",
+    "worker",
+    "mock-integration",
+    "evaluator",
+    "object-store",
+    "redis",
 )
 TERMINAL_STATUSES = {
     "objective-achieved",
@@ -595,9 +599,21 @@ def _cli_versions(providers: list[str]) -> dict[str, str]:
     return versions
 
 
+def _ruby_image_prefix() -> str:
+    prefix = os.getenv("RUBY_IMAGE_PREFIX", DEFAULT_RUBY_IMAGE_PREFIX).strip()
+    if RUBY_IMAGE_PREFIX_PATTERN.fullmatch(prefix) is None:
+        raise ValueError("RUBY_IMAGE_PREFIX is not a valid local image prefix")
+    return prefix
+
+
+def _ruby_image_references() -> tuple[str, ...]:
+    prefix = _ruby_image_prefix()
+    return tuple(f"{prefix}-{service}:latest" for service in RUBY_IMAGE_SERVICES)
+
+
 def _ruby_image_ids() -> dict[str, dict[str, object]]:
     sealed: dict[str, dict[str, object]] = {}
-    for reference in RUBY_IMAGE_REFERENCES:
+    for reference in _ruby_image_references():
         result = subprocess.run(
             ["docker", "image", "inspect", reference],
             capture_output=True,
@@ -1276,6 +1292,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
             f"{PROVIDER_PARALLEL_LIMIT}, total at most max_parallel"
         ),
         "cli_versions": _cli_versions(args.providers),
+        "ruby_image_prefix": _ruby_image_prefix(),
         "ruby_image_ids": _ruby_image_ids(),
         "limits": {
             "wall_clock_seconds": args.max_seconds,

@@ -521,7 +521,9 @@ def test_static_shell_marks_xss_and_csrf_claim_limits() -> None:
         assert label in script
 
 
-def test_campaign_environment_drops_manager_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_campaign_environment_drops_manager_control_values_and_keeps_image_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("RUBY_MANAGER_TOKEN", "must-not-reach-campaign")
     monkeypatch.setenv("RUBY_MANAGER_COMPOSE_PROJECT", "must-not-reach-campaign")
     monkeypatch.setenv("COMPOSE_PROJECT_NAME", "must-not-reach-campaign")
@@ -532,7 +534,7 @@ def test_campaign_environment_drops_manager_token(monkeypatch: pytest.MonkeyPatc
     assert "RUBY_MANAGER_TOKEN" not in environment
     assert "RUBY_MANAGER_COMPOSE_PROJECT" not in environment
     assert "COMPOSE_PROJECT_NAME" not in environment
-    assert "RUBY_IMAGE_PREFIX" not in environment
+    assert environment["RUBY_IMAGE_PREFIX"] == "must-not-reach-campaign"
 
 
 def test_job_state_recovers_running_and_completed_process(
