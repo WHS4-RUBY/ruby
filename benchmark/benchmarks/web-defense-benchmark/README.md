@@ -29,6 +29,7 @@
 - [`docs/codebase-guide.md`](docs/codebase-guide.md)는 웹, 평가기, 공격 실행기, 방어 연결, 설정과 증거의 책임을 실제 진입점 기준으로 설명합니다.
 - [`docs/mentor-feedback-verification-20260910.md`](docs/mentor-feedback-verification-20260910.md)는 XSS, DOM 기반 공격, SHA-256, 원본 CVE와 실행 격리의 지원 범위와 실제 재검증 결과를 설명합니다.
 - [`docs/mentor-feedback-action-status-20260911.md`](docs/mentor-feedback-action-status-20260911.md)는 공격 요청 탐지와 실험 성공 판정을 구분하고 XSS 및 CSRF의 방어 실험 편입 조건을 기록합니다.
+- [`docs/scenario-verification-20260911/`](docs/scenario-verification-20260911/README.md)는 자체 시나리오 29개와 원본 CVE 5개의 공격 재현 결과, 안전판 차이와 아직 구현되지 않은 탐지 및 방어 범위를 쉬운 표로 정리합니다.
 - [`docs/branch-change-ledger.md`](docs/branch-change-ledger.md)는 본문 없이 남은 기존 18개 커밋을 diff와 검증 파일을 기준으로 해설합니다.
 - 두 문서는 기존 Git 기록을 다시 쓰지 않고 검토 맥락을 보완합니다. 이후 커밋은 변경 이유, 범위와 실제 검증 결과를 본문에 기록합니다.
 
