@@ -580,3 +580,32 @@ def test_runs_preserves_failed_status_without_a_summary(
     assert manager.runs() == [
         {"run_id": run_id, "status": "failed", "summary": None}
     ]
+
+
+def test_run_documents_includes_configuration_originals_and_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_id = "manager-20260911T020000Z-1234abcd"
+    run = tmp_path / run_id
+    snapshot = run / "configuration-snapshot"
+    snapshot.mkdir(parents=True)
+    (snapshot / "manifest.json").write_text(
+        '{"effective_settings":{"repetitions":1}}\n', encoding="utf-8"
+    )
+    (run / "configuration-history.jsonl").write_text(
+        '{"event":"configuration-captured","event_index":0}\n'
+        '{"event":"configuration-resume-verified","event_index":1}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(manager, "EVALUATION_ROOT", tmp_path)
+    monkeypatch.setattr(manager, "JOB_STATE_PATH", tmp_path / ".manager-job-state.json")
+
+    result = manager.run_documents(run_id)
+
+    assert result["documents"]["configuration-snapshot/manifest.json"] == {
+        "effective_settings": {"repetitions": 1}
+    }
+    assert [
+        item["event"]
+        for item in result["documents"]["configuration-history.jsonl"]
+    ] == ["configuration-captured", "configuration-resume-verified"]

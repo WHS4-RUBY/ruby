@@ -662,7 +662,7 @@ async function showDetail(runId, quiet = false) {
     if (documents["confirmatory-analysis.json"]) blocks.push(evidenceBlock("확증 분석", documents["confirmatory-analysis.json"], true));
     if (documents["qualification-analysis.json"]) blocks.push(evidenceBlock("자격 분석", documents["qualification-analysis.json"], true));
     blocks.push(evidenceBlock("캠페인 요약", summary));
-    [["봉인 입력", "run-seal.json"], ["실행 일정", "schedule.json"], ["런타임 용량", "runtime-capacity.json"], ["시작 복구 기록", "startup-resource-recovery.json"]].forEach(([title, name]) => {
+    [["실제 실행 설정", "run-seal.json"], ["설정 원본 목록", "configuration-snapshot/manifest.json"], ["설정 변경 기록", "configuration-history.jsonl"], ["실행 일정", "schedule.json"], ["런타임 용량", "runtime-capacity.json"], ["시작 복구 기록", "startup-resource-recovery.json"]].forEach(([title, name]) => {
       if (documents[name]) blocks.push(evidenceBlock(title, documents[name]));
     });
     blocks.push(evidenceBlock("실행 로그", result.log_tail || "로그 없음"));

@@ -628,10 +628,18 @@ def run_documents(run_id: str) -> dict[str, object]:
         "campaign-summary.json", "run-seal.json", "schedule.json",
         "confirmatory-analysis.json", "qualification-analysis.json",
         "runtime-capacity.json", "startup-resource-recovery.json",
+        "configuration-snapshot/manifest.json",
     ):
         path = directory / name
         if path.is_file():
             documents[name] = read_json(path)
+    history_path = directory / "configuration-history.jsonl"
+    if history_path.is_file():
+        documents["configuration-history.jsonl"] = [
+            json.loads(line)
+            for line in history_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
     log_path = EVALUATION_ROOT / ".manager-logs" / f"{run_id}.log"
     log = ""
     if log_path.is_file():
