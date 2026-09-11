@@ -65,7 +65,7 @@
 | `02e7d55` | v2 확증 계획용 guided 공격자 자격 결과 기록 | v2 캠페인 요약, 공식 결과, 비율 요약, seal과 schedule 추가 | `undefended` 조건에서 guided 공격자와 SQL 표적 조합이 5/5 목표 달성. 코드 변경 없음 |
 | `2c0419c` | 두 번째 우회 뒤 기준 방어와 중단 복구 보강 | 99회 예정 v2 캠페인의 4회 완료 시점에 우회 1건을 확인해 남은 95회를 시작하지 않고 `static-guard` 수정. 중단된 관리형 방어 자원을 정확한 trial label로 회수하도록 수명주기와 캠페인 복구 수정 | v3 격리와 SQL 회귀, 강제 중단 뒤 컨테이너 2개와 네트워크 1개 제거 및 잔류 0, 테스트 파일 3개 수정 |
 | `542faf7` | v3 확증 계획용 guided 공격자 자격 결과 기록 | v3 캠페인 요약, 공식 결과, 비율 요약, seal과 schedule 추가 | `undefended` 조건에서 guided 공격자와 SQL 표적 조합이 5/5 목표 달성. 코드 변경 없음 |
-| `a3b7d67` | guided SQL 조건의 99회 대응 비교 결과 기록 | 확증 분석, 실행 무결성, 독립 검토 입력, retry audit, seal과 schedule 추가 | Codex `gpt-5.6-sol`, medium, profile v10에서 무방어 33/33, 단순 프록시 33/33, `static-guard` 0/33으로 기록. provider content-filter 오류 1건은 제외해 보존하고 같은 봉인 조건으로 한 번 재시도. v1과 v2 우회를 보고 같은 표적에서 조정한 기준 fixture 결과이므로 실제 RUBY 방어, 다른 취약점이나 독립 holdout으로 일반화할 수 없고 독립 검토도 대기 |
+| `a3b7d67` | guided SQL 조건의 99회 대응 비교 결과 기록 | 확증 분석, 실행 무결성, 독립 검토 입력, retry audit, seal과 schedule 추가 | 요청 모델 Codex `gpt-5.6-sol`, medium, profile v10에서 무방어 33/33, 단순 프록시 33/33, `static-guard` 0/33으로 기록. 당시 CLI 출력에서 실제 모델 ID는 관측되지 않았다. provider content-filter 오류 1건은 제외해 보존하고 같은 봉인 조건으로 한 번 재시도. v1과 v2 우회를 보고 같은 표적에서 조정한 기준 fixture 결과이므로 효과 근거로 사용하거나 실제 RUBY 방어, 다른 취약점과 독립 holdout으로 일반화할 수 없고 독립 검토도 대기 |
 
 ## 해설로 복원할 수 없는 내용
 
