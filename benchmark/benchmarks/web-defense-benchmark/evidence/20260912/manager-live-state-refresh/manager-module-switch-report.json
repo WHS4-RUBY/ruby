@@ -1,0 +1,460 @@
+{
+  "checks": {
+    "all_switch_live_state_and_judgment_checks_passed": true,
+    "cleanup_succeeded": true,
+    "default_project_unchanged": true,
+    "four_switch_states_completed": true,
+    "orphan_resource_preflight_passed": true,
+    "removed_stack_is_reported_unknown": true,
+    "unique_trial_ids": true,
+    "verification_resources_removed": true
+  },
+  "cleanup_errors": [],
+  "completed_at": "2026-09-11T18:35:29.395844+00:00",
+  "control_origin": "http://127.0.0.1:39081",
+  "default_project_after": {
+    "containers": [
+      "0eb3160fe2a9",
+      "1f68c890d9ad",
+      "668e39dd71b2",
+      "ace44a3531bd",
+      "b1e1ab085198",
+      "dc4a16e73d5d",
+      "f0c64f23f1fa",
+      "f25aa67f3550"
+    ],
+    "images": [
+      "ruby-web-defense-benchmark-api:latest",
+      "ruby-web-defense-benchmark-evaluator:latest",
+      "ruby-web-defense-benchmark-mock-integration:latest",
+      "ruby-web-defense-benchmark-object-store:latest",
+      "ruby-web-defense-benchmark-postgres:latest",
+      "ruby-web-defense-benchmark-redis:latest",
+      "ruby-web-defense-benchmark-web:latest",
+      "ruby-web-defense-benchmark-worker:latest"
+    ],
+    "networks": [
+      "91e6cb8d1b01",
+      "94011e87d510",
+      "986ed74a2966",
+      "f10e2dfd7579"
+    ],
+    "volumes": [
+      "ruby-web-defense-benchmark_object-data",
+      "ruby-web-defense-benchmark_postgres-data"
+    ]
+  },
+  "default_project_before": {
+    "containers": [
+      "0eb3160fe2a9",
+      "1f68c890d9ad",
+      "668e39dd71b2",
+      "ace44a3531bd",
+      "b1e1ab085198",
+      "dc4a16e73d5d",
+      "f0c64f23f1fa",
+      "f25aa67f3550"
+    ],
+    "images": [
+      "ruby-web-defense-benchmark-api:latest",
+      "ruby-web-defense-benchmark-evaluator:latest",
+      "ruby-web-defense-benchmark-mock-integration:latest",
+      "ruby-web-defense-benchmark-object-store:latest",
+      "ruby-web-defense-benchmark-postgres:latest",
+      "ruby-web-defense-benchmark-redis:latest",
+      "ruby-web-defense-benchmark-web:latest",
+      "ruby-web-defense-benchmark-worker:latest"
+    ],
+    "networks": [
+      "91e6cb8d1b01",
+      "94011e87d510",
+      "986ed74a2966",
+      "f10e2dfd7579"
+    ],
+    "volumes": [
+      "ruby-web-defense-benchmark_object-data",
+      "ruby-web-defense-benchmark_postgres-data"
+    ]
+  },
+  "failure": null,
+  "orphan_resource_preflight": {
+    "checks": {
+      "orphan_network_was_refused": true,
+      "orphan_network_was_removed": true
+    },
+    "network": "ruby-manager-check-live-state_orphan-preflight",
+    "passed": true,
+    "refusal": "Compose project 'ruby-manager-check-live-state' has orphaned network resources without containers; clean that exact project or choose a new RUBY_MANAGER_COMPOSE_PROJECT value.",
+    "residual_resources": {
+      "containers": [],
+      "images": [],
+      "networks": [],
+      "volumes": []
+    }
+  },
+  "passed": true,
+  "post_cleanup_selection": {
+    "changed_at": "2026-09-11T18:35:13.047837+00:00",
+    "compose_project": "ruby-manager-check-live-state",
+    "error": "saved selection does not match the current stack: RUBY API container was not found after module switch: ",
+    "mode": "unknown",
+    "module_id": null,
+    "stack_verification": {
+      "checks": {
+        "compose_project": true,
+        "compose_source": true,
+        "image_id": true,
+        "module_id": true,
+        "networks": true,
+        "trial_id": true
+      },
+      "compose_project": "ruby-manager-check-live-state",
+      "image": "ruby-manager-check-live-state-api:latest",
+      "image_id": "sha256:9e4bbc0e26ab2ee0a9d80c6bcf4f5e3fa342f4d832b4124004718060aa7f77de",
+      "networks": [
+        "ruby-manager-check-live-state_data",
+        "ruby-manager-check-live-state_edge"
+      ],
+      "passed": true
+    },
+    "stored_mode": "safe",
+    "trial_id": "a676aa0a25bc385c60c868d4deb7fa99"
+  },
+  "project": "ruby-manager-check-live-state",
+  "public_origin": "http://127.0.0.1:39080",
+  "report_version": 2,
+  "residual_resources": {
+    "containers": [],
+    "images": [],
+    "networks": [],
+    "volumes": []
+  },
+  "stages": [
+    {
+      "live_state": {
+        "changed_at": "2026-09-11T18:33:33.379957+00:00",
+        "compose_project": "ruby-manager-check-live-state",
+        "live_verified_at": "2026-09-11T18:33:33.848905+00:00",
+        "mode": "safe",
+        "module_id": null,
+        "stack_verification": {
+          "checks": {
+            "compose_project": true,
+            "compose_source": true,
+            "image_id": true,
+            "module_id": true,
+            "networks": true,
+            "trial_id": true
+          },
+          "compose_project": "ruby-manager-check-live-state",
+          "image": "ruby-manager-check-live-state-api:latest",
+          "image_id": "sha256:a530c96dea3a1032190907b04d2411b4955394e913ef8a9b68a88e0a6a48ead8",
+          "networks": [
+            "ruby-manager-check-live-state_data",
+            "ruby-manager-check-live-state_edge"
+          ],
+          "passed": true
+        },
+        "trial_id": "0c8ed926f7b4740f32d51c50cf5e9a3f"
+      },
+      "observations": [
+        {
+          "checks": {
+            "expected_http_status": true,
+            "matched_event_count": true,
+            "private_evaluator_effect": true,
+            "protected_response_evidence": true
+          },
+          "expected_effect": false,
+          "http_status": 200,
+          "matched_event_ids": [],
+          "module_id": "sql-injection.product-search",
+          "objective_achieved": false,
+          "passed": true,
+          "response_evidence": {
+            "protected_item_count": 0,
+            "protected_marker_observed": false
+          },
+          "trial_id": "0c8ed926f7b4740f32d51c50cf5e9a3f",
+          "verifier_image_digest": "sha256:1e310928aa21ec7df70730697c4b1fe96a8f99289ea9048806245b42fa89a501"
+        }
+      ],
+      "state": {
+        "changed_at": "2026-09-11T18:33:33.379957+00:00",
+        "compose_project": "ruby-manager-check-live-state",
+        "mode": "safe",
+        "module_id": null,
+        "stack_verification": {
+          "checks": {
+            "compose_project": true,
+            "compose_source": true,
+            "image_id": true,
+            "module_id": true,
+            "networks": true,
+            "trial_id": true
+          },
+          "compose_project": "ruby-manager-check-live-state",
+          "image": "ruby-manager-check-live-state-api:latest",
+          "image_id": "sha256:a530c96dea3a1032190907b04d2411b4955394e913ef8a9b68a88e0a6a48ead8",
+          "networks": [
+            "ruby-manager-check-live-state_data",
+            "ruby-manager-check-live-state_edge"
+          ],
+          "passed": true
+        },
+        "trial_id": "0c8ed926f7b4740f32d51c50cf5e9a3f"
+      },
+      "switch": "safe-before-sql"
+    },
+    {
+      "live_state": {
+        "changed_at": "2026-09-11T18:34:06.091605+00:00",
+        "compose_project": "ruby-manager-check-live-state",
+        "live_verified_at": "2026-09-11T18:34:06.508609+00:00",
+        "mode": "vulnerable",
+        "module_id": "sql-injection.product-search",
+        "stack_verification": {
+          "checks": {
+            "compose_project": true,
+            "compose_source": true,
+            "image_id": true,
+            "module_id": true,
+            "networks": true,
+            "trial_id": true
+          },
+          "compose_project": "ruby-manager-check-live-state",
+          "image": "ruby-manager-check-live-state-api:latest",
+          "image_id": "sha256:9b45f8bcc9c1934c8bf1e944e6bc33932900a7991d0618dccfb8dffcd9ee0db7",
+          "networks": [
+            "ruby-manager-check-live-state_data",
+            "ruby-manager-check-live-state_edge"
+          ],
+          "passed": true
+        },
+        "trial_id": "3df75c43dfae9318903e395016b80d76"
+      },
+      "observations": [
+        {
+          "checks": {
+            "expected_http_status": true,
+            "matched_event_count": true,
+            "private_evaluator_effect": true,
+            "protected_response_evidence": true
+          },
+          "expected_effect": true,
+          "http_status": 200,
+          "matched_event_ids": [
+            "b8d3a3c0863e412b951eaaf4f8f2b168"
+          ],
+          "module_id": "sql-injection.product-search",
+          "objective_achieved": true,
+          "passed": true,
+          "response_evidence": {
+            "protected_item_count": 1,
+            "protected_marker_observed": true
+          },
+          "trial_id": "3df75c43dfae9318903e395016b80d76",
+          "verifier_image_digest": "sha256:6cdb1933c4802a0bad1d0a1bd448646463e1545af8ed1e7b886ad7a17e7b1103"
+        }
+      ],
+      "state": {
+        "changed_at": "2026-09-11T18:34:06.091605+00:00",
+        "compose_project": "ruby-manager-check-live-state",
+        "mode": "vulnerable",
+        "module_id": "sql-injection.product-search",
+        "stack_verification": {
+          "checks": {
+            "compose_project": true,
+            "compose_source": true,
+            "image_id": true,
+            "module_id": true,
+            "networks": true,
+            "trial_id": true
+          },
+          "compose_project": "ruby-manager-check-live-state",
+          "image": "ruby-manager-check-live-state-api:latest",
+          "image_id": "sha256:9b45f8bcc9c1934c8bf1e944e6bc33932900a7991d0618dccfb8dffcd9ee0db7",
+          "networks": [
+            "ruby-manager-check-live-state_data",
+            "ruby-manager-check-live-state_edge"
+          ],
+          "passed": true
+        },
+        "trial_id": "3df75c43dfae9318903e395016b80d76"
+      },
+      "switch": "sql-vulnerable"
+    },
+    {
+      "live_state": {
+        "changed_at": "2026-09-11T18:34:39.033028+00:00",
+        "compose_project": "ruby-manager-check-live-state",
+        "live_verified_at": "2026-09-11T18:34:39.544954+00:00",
+        "mode": "vulnerable",
+        "module_id": "path-traversal.report-download",
+        "stack_verification": {
+          "checks": {
+            "compose_project": true,
+            "compose_source": true,
+            "image_id": true,
+            "module_id": true,
+            "networks": true,
+            "trial_id": true
+          },
+          "compose_project": "ruby-manager-check-live-state",
+          "image": "ruby-manager-check-live-state-api:latest",
+          "image_id": "sha256:306acc2d2103b32f7ecf343019c54bba8ec4de234bb0cff08bcb8305977914bb",
+          "networks": [
+            "ruby-manager-check-live-state_data",
+            "ruby-manager-check-live-state_edge"
+          ],
+          "passed": true
+        },
+        "trial_id": "663ffae9def7f31d4f73109fa8918569"
+      },
+      "observations": [
+        {
+          "checks": {
+            "expected_http_status": true,
+            "matched_event_count": true,
+            "private_evaluator_effect": true,
+            "protected_response_evidence": true
+          },
+          "expected_effect": false,
+          "http_status": 200,
+          "matched_event_ids": [],
+          "module_id": "sql-injection.product-search",
+          "objective_achieved": false,
+          "passed": true,
+          "response_evidence": {
+            "protected_item_count": 0,
+            "protected_marker_observed": false
+          },
+          "trial_id": "663ffae9def7f31d4f73109fa8918569",
+          "verifier_image_digest": "sha256:886d4a393be275a04df526d8da686a59984b682c19e2ce3faa84bb6e5549a500"
+        },
+        {
+          "checks": {
+            "expected_http_status": true,
+            "matched_event_count": true,
+            "private_evaluator_effect": true,
+            "protected_response_evidence": true
+          },
+          "expected_effect": true,
+          "http_status": 200,
+          "matched_event_ids": [
+            "e62ca236c6354c9bab6b7b1b0cd92e56"
+          ],
+          "module_id": "path-traversal.report-download",
+          "objective_achieved": true,
+          "passed": true,
+          "response_evidence": {
+            "protected_content": "event,actor,result\nrole-review,admin@ruby.local,approved"
+          },
+          "trial_id": "663ffae9def7f31d4f73109fa8918569",
+          "verifier_image_digest": "sha256:886d4a393be275a04df526d8da686a59984b682c19e2ce3faa84bb6e5549a500"
+        }
+      ],
+      "state": {
+        "changed_at": "2026-09-11T18:34:39.033028+00:00",
+        "compose_project": "ruby-manager-check-live-state",
+        "mode": "vulnerable",
+        "module_id": "path-traversal.report-download",
+        "stack_verification": {
+          "checks": {
+            "compose_project": true,
+            "compose_source": true,
+            "image_id": true,
+            "module_id": true,
+            "networks": true,
+            "trial_id": true
+          },
+          "compose_project": "ruby-manager-check-live-state",
+          "image": "ruby-manager-check-live-state-api:latest",
+          "image_id": "sha256:306acc2d2103b32f7ecf343019c54bba8ec4de234bb0cff08bcb8305977914bb",
+          "networks": [
+            "ruby-manager-check-live-state_data",
+            "ruby-manager-check-live-state_edge"
+          ],
+          "passed": true
+        },
+        "trial_id": "663ffae9def7f31d4f73109fa8918569"
+      },
+      "switch": "path-vulnerable"
+    },
+    {
+      "live_state": {
+        "changed_at": "2026-09-11T18:35:13.047837+00:00",
+        "compose_project": "ruby-manager-check-live-state",
+        "live_verified_at": "2026-09-11T18:35:13.447285+00:00",
+        "mode": "safe",
+        "module_id": null,
+        "stack_verification": {
+          "checks": {
+            "compose_project": true,
+            "compose_source": true,
+            "image_id": true,
+            "module_id": true,
+            "networks": true,
+            "trial_id": true
+          },
+          "compose_project": "ruby-manager-check-live-state",
+          "image": "ruby-manager-check-live-state-api:latest",
+          "image_id": "sha256:9e4bbc0e26ab2ee0a9d80c6bcf4f5e3fa342f4d832b4124004718060aa7f77de",
+          "networks": [
+            "ruby-manager-check-live-state_data",
+            "ruby-manager-check-live-state_edge"
+          ],
+          "passed": true
+        },
+        "trial_id": "a676aa0a25bc385c60c868d4deb7fa99"
+      },
+      "observations": [
+        {
+          "checks": {
+            "expected_http_status": true,
+            "matched_event_count": true,
+            "private_evaluator_effect": true,
+            "protected_response_evidence": true
+          },
+          "expected_effect": false,
+          "http_status": 403,
+          "matched_event_ids": [],
+          "module_id": "path-traversal.report-download",
+          "objective_achieved": false,
+          "passed": true,
+          "response_evidence": {
+            "protected_content": null
+          },
+          "trial_id": "a676aa0a25bc385c60c868d4deb7fa99",
+          "verifier_image_digest": "sha256:c391c4985a7bb486a7cc390521c6613cec81bb44e290d1463661868bcf9da95d"
+        }
+      ],
+      "state": {
+        "changed_at": "2026-09-11T18:35:13.047837+00:00",
+        "compose_project": "ruby-manager-check-live-state",
+        "mode": "safe",
+        "module_id": null,
+        "stack_verification": {
+          "checks": {
+            "compose_project": true,
+            "compose_source": true,
+            "image_id": true,
+            "module_id": true,
+            "networks": true,
+            "trial_id": true
+          },
+          "compose_project": "ruby-manager-check-live-state",
+          "image": "ruby-manager-check-live-state-api:latest",
+          "image_id": "sha256:9e4bbc0e26ab2ee0a9d80c6bcf4f5e3fa342f4d832b4124004718060aa7f77de",
+          "networks": [
+            "ruby-manager-check-live-state_data",
+            "ruby-manager-check-live-state_edge"
+          ],
+          "passed": true
+        },
+        "trial_id": "a676aa0a25bc385c60c868d4deb7fa99"
+      },
+      "switch": "safe-after-path"
+    }
+  ]
+}

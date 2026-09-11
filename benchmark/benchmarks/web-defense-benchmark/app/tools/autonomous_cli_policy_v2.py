@@ -21,19 +21,54 @@ from autonomous_experiment_v2 import (
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = APP_ROOT / "configs" / "stage3a-attacker-action-v2.schema.json"
+MODEL_ENVIRONMENT_ALLOWLIST = {
+    "ALL_PROXY",
+    "APPDATA",
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+    "COMSPEC",
+    "CURL_CA_BUNDLE",
+    "HOME",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "LANG",
+    "LC_ALL",
+    "LOCALAPPDATA",
+    "LOGNAME",
+    "NODE_EXTRA_CA_CERTS",
+    "NO_PROXY",
+    "OS",
+    "PATH",
+    "PATHEXT",
+    "PROGRAMDATA",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "REQUESTS_CA_BUNDLE",
+    "SHELL",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "SYSTEMDRIVE",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "USER",
+    "USERNAME",
+    "USERPROFILE",
+    "WINDIR",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+}
 
 
 def _environment() -> dict[str, str]:
-    value = os.environ.copy()
-    for key in tuple(value):
-        if key.endswith("_API_KEY") or key in {
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "CLAUDE_CODE_USE_BEDROCK",
-            "CLAUDE_CODE_USE_VERTEX",
-        }:
-            value.pop(key, None)
-    return value
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key.upper() in MODEL_ENVIRONMENT_ALLOWLIST
+    }
 
 
 def _digest(value: str) -> str:

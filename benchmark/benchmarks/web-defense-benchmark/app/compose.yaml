@@ -2,7 +2,7 @@ name: ruby-web-defense-benchmark
 
 services:
   postgres:
-    image: ruby-web-defense-benchmark-postgres:latest
+    image: ${RUBY_IMAGE_PREFIX:-ruby-web-defense-benchmark}-postgres:latest
     build: ./postgres
     environment:
       POSTGRES_DB: ruby_web
@@ -21,7 +21,7 @@ services:
     networks: [data, control]
 
   redis:
-    image: ruby-web-defense-benchmark-redis:latest
+    image: ${RUBY_IMAGE_PREFIX:-ruby-web-defense-benchmark}-redis:latest
     build: ./redis
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
@@ -32,7 +32,7 @@ services:
     networks: [data]
 
   object-store:
-    image: ruby-web-defense-benchmark-object-store:latest
+    image: ${RUBY_IMAGE_PREFIX:-ruby-web-defense-benchmark}-object-store:latest
     build: ./object-store
     command: ["/data"]
     environment:
@@ -50,7 +50,7 @@ services:
     networks: [data]
 
   mock-integration:
-    image: ruby-web-defense-benchmark-mock-integration:latest
+    image: ${RUBY_IMAGE_PREFIX:-ruby-web-defense-benchmark}-mock-integration:latest
     build: ./mock-integration
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live')"]
@@ -60,7 +60,7 @@ services:
     networks: [data]
 
   api:
-    image: ruby-web-defense-benchmark-api:latest
+    image: ${RUBY_IMAGE_PREFIX:-ruby-web-defense-benchmark}-api:latest
     build: ./backend
     environment:
       RUBY_WEB_ENV: ${RUBY_WEB_ENV:-development}
@@ -94,7 +94,7 @@ services:
     networks: [edge, data]
 
   worker:
-    image: ruby-web-defense-benchmark-worker:latest
+    image: ${RUBY_IMAGE_PREFIX:-ruby-web-defense-benchmark}-worker:latest
     build: ./backend
     command: ["python", "-m", "ruby_web.worker"]
     environment:
@@ -112,7 +112,7 @@ services:
     networks: [data]
 
   evaluator:
-    image: ruby-web-defense-benchmark-evaluator:latest
+    image: ${RUBY_IMAGE_PREFIX:-ruby-web-defense-benchmark}-evaluator:latest
     build: ./evaluator
     environment:
       RUBY_EVALUATOR_DATABASE_URL: postgresql://ruby_verifier:${POSTGRES_VERIFIER_PASSWORD:-ruby-verifier-development-only}@postgres:5432/ruby_web
@@ -128,7 +128,7 @@ services:
     networks: [control]
 
   web:
-    image: ruby-web-defense-benchmark-web:latest
+    image: ${RUBY_IMAGE_PREFIX:-ruby-web-defense-benchmark}-web:latest
     build: ./frontend
     depends_on:
       api: {condition: service_healthy}

@@ -18,6 +18,7 @@ from jsonschema import Draft202012Validator
 from autonomous_cli_policy_v2 import (
     SubscriptionCLIPolicy,
     _codex_transport_schema,
+    _environment,
 )
 from autonomous_trial_v2 import (
     ATTACKER_GUIDE,
@@ -67,6 +68,21 @@ from defense_runtime_v1 import DefenseRuntimeError, registered_defense_source_fi
 
 
 class AutonomousCliPolicyV2Tests(unittest.TestCase):
+    def test_model_environment_drops_manager_token(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "RUBY_MANAGER_TOKEN": "must-not-reach-model",
+                "OPENAI_API_KEY": "must-not-reach-model",
+                "UNRELATED_SECRET": "must-not-reach-model",
+            },
+        ):
+            environment = _environment()
+        self.assertNotIn("RUBY_MANAGER_TOKEN", environment)
+        self.assertNotIn("OPENAI_API_KEY", environment)
+        self.assertNotIn("UNRELATED_SECRET", environment)
+        self.assertEqual(os.environ["PATH"], environment["PATH"])
+
     def test_legacy_host_runners_are_blocked_before_output_or_defense_load(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
         environment = os.environ.copy()
