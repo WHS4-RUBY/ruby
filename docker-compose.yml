@@ -6,9 +6,39 @@ services:
     image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/detection:${IMAGE_TAG:-latest}
     container_name: detection
     ports:
-      - "80:8081"
+      - "80:8080"
     environment:
-      - NEXT_HOP_URL=http://policy:8082
+      - TARGET_URL=http://policy:8082
+      - PORT=8080
+      - BLOCK_MODE=false
+      - DETECTION_LEVEL=${DETECTION_LEVEL:-medium}
+      - CSRF_ALLOWED_ORIGINS=${CSRF_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1}
+      - SCHEMA_LEARNING_FILE=/app/data/schema-learning.json
+      - CRS_ENABLED=true
+      - CRS_SCAN_TIMEOUT_MS=2000
+      - CRS_MAX_BODY_BYTES=1048576
+      - DECEPTION_ENABLED=true
+      - DECEPTION_TOKEN_TTL_MS=3600000
+      - DECEPTION_MAX_SESSIONS=5000
+      - ENABLE_EXPERIMENT_RUN_ID=true
+      - PAYLOAD_FINGERPRINT_KEY=${PAYLOAD_FINGERPRINT_KEY:-}
+      - DCID_HMAC_SECRET=${DCID_HMAC_SECRET:-}
+      - DCID_TTL_MS=${DCID_TTL_MS:-2592000000}
+      - DCID_COOKIE_SECURE=${DCID_COOKIE_SECURE:-false}
+      - TRUST_PROXY=${TRUST_PROXY:-false}
+      - ACCOUNT_JWT_PUBLIC_KEY=${ACCOUNT_JWT_PUBLIC_KEY:-}
+      - ACCOUNT_ID_HASH_KEY=${ACCOUNT_ID_HASH_KEY:-}
+      - RESOLVED_ACTOR_TTL_MS=${RESOLVED_ACTOR_TTL_MS:-604800000}
+      - MAX_RESOLVED_ACTORS=${MAX_RESOLVED_ACTORS:-5000}
+      - MAX_RESOLUTION_MEMBERSHIPS=${MAX_RESOLUTION_MEMBERSHIPS:-20000}
+      - MAX_RESOLUTION_RELATED_LINKS=${MAX_RESOLUTION_RELATED_LINKS:-5}
+    volumes:
+      - detection-data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     depends_on:
       - policy
     restart: unless-stopped
@@ -61,3 +91,6 @@ services:
     restart: unless-stopped
     networks:
       - ai-defense-net
+
+volumes:
+  detection-data:
