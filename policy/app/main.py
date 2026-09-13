@@ -33,6 +33,10 @@ _RESPONSE_SKIP = {
     "transfer-encoding",
     "content-encoding",
     "content-length",
+    # Uvicorn이 현재 hop의 값을 생성한다. upstream 값을 전달하면 프록시
+    # 계층 수만큼 Date/Server 헤더가 중복된다.
+    "date",
+    "server",
 }
 # 프록시는 압축을 풀어 다시 쓰는 역할을 하지 않는다. 지원하지 않는 압축 형식의
 # 본문과 Content-Encoding 헤더가 어긋나지 않도록 업스트림 압축을 비활성화한다.
@@ -91,16 +95,18 @@ def build_upstream_headers(request: Request, extra: dict) -> dict[str, str]:
 
 
 def proxy_response(upstream: httpx.Response) -> Response:
-    headers = {
-        key: value
-        for key, value in upstream.headers.items()
-        if key.lower() not in _RESPONSE_SKIP
-    }
-    return Response(
-        content=upstream.content,
-        status_code=upstream.status_code,
-        headers=headers,
-    )
+    response = Response(content=upstream.content, status_code=upstream.status_code)
+
+    # dict로 변환하면 Set-Cookie처럼 같은 이름을 여러 번 쓰는 헤더가 하나로
+    # 합쳐진다. 원본 순서와 중복을 보존해 각 헤더를 ASGI raw_headers에 추가한다.
+    for key, value in upstream.headers.multi_items():
+        if key.lower() in _RESPONSE_SKIP:
+            continue
+        response.raw_headers.append(
+            (key.encode("latin-1"), _header_value(value).encode("latin-1"))
+        )
+
+    return response
 
 
 @app.get("/healthz")
@@ -110,7 +116,7 @@ async def healthz():
 
 @app.api_route(
     "/{full_path:path}",
-    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 async def catch_all(request: Request, full_path: str):
     risk_score = parse_risk_score(request.headers.get("x-risk-score"))
