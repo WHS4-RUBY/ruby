@@ -61,3 +61,4 @@ datasets/
 models/
 checkpoints/
 artifacts/
+**/data/schema-learning.json
