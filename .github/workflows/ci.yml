@@ -6,11 +6,37 @@ on:
   pull_request:
 
 jobs:
-  build-check:
+  detection-check:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: detection/package-lock.json
+
+      - name: Install Detection dependencies
+        working-directory: detection
+        run: npm ci
+
+      - name: Test Detection
+        working-directory: detection
+        run: npm test
+
+      - name: Audit Detection dependencies
+        working-directory: detection
+        run: npm audit --audit-level=moderate
+
+      - name: Build Detection image
+        run: docker build -t detection:ci ./detection
+
+  python-check:
     runs-on: ubuntu-26.04
     strategy:
       matrix:
-        service: [detection, policy, defense]
+        service: [policy, defense]
     steps:
       - uses: actions/checkout@v4
 
@@ -27,3 +53,8 @@ jobs:
       - name: Import check (문법/의존성 오류 조기 발견)
         working-directory: ${{ matrix.service }}
         run: python -c "import app.main"
+
+      - name: Test ${{ matrix.service }}
+        env:
+          POLICY_CONFIG_PATH: policy/config.yaml
+        run: python -m unittest discover -s ${{ matrix.service }}/tests -p 'test_*.py'

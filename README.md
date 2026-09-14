@@ -8,7 +8,7 @@ RUBY는 웹 요청의 공격 가능성을 탐지하고, 위험도와 정책에 �
 RUBY/
 ├── benchmark/   # 실험 대상, 실행 환경, 결과 및 재현 자료
 ├── defense/     # 차단·변환·지연·기만 등 방어 계층
-├── detection/   # 요청 분석, 공격 탐지 및 위험도 산정 계층
+├── detection/   # Node.js 탐지 프록시, ModSecurity/CRS, 대시보드
 └── policy/      # 위험도와 정책에 따른 처리 전략 판단 계층
 ```
 
@@ -26,7 +26,9 @@ RUBY/
 
 ### `detection/`
 
-요청의 특징을 추출하고 공격 가능성을 분석합니다. 규칙·모델 기반 탐지, 위험도 점수를 관리합니다.
+요청의 특징을 추출해 Automation/Attack 점수를 계산하고 기존 Policy 계약의
+`X-Risk-Score`로 변환합니다. ModSecurity/OWASP CRS, 행동 기반 휴리스틱,
+Honey/Deception 신호와 실시간 대시보드를 포함합니다.
 
 자세한 내용은 [`detection/README.md`](detection/README.md)를 참고하세요.
 
@@ -73,7 +75,11 @@ curl http://localhost:8081/healthz
 curl -I http://localhost:8081
 ```
 
-`detection/app`, `policy/app`, `policy/config.yaml`, `defense/app` 변경은 컨테이너가 자동으로 다시 불러옵니다. 종료 및 컨테이너 정리는 다음 명령을 사용합니다.
+`policy/app`, `policy/config.yaml`, `defense/app` 변경은 컨테이너가 자동으로 다시
+불러옵니다. Detection은 Node.js와 네이티브 CRS scanner를 포함하므로 변경 후 이미지를
+다시 빌드해야 합니다. 첫 Detection 빌드는 ModSecurity와 CRS를 준비하므로 시간이 걸릴 수
+있습니다. 실시간 탐지 화면은 `http://localhost:8081/__detection/dashboard`에서 확인합니다.
+종료 및 컨테이너 정리는 다음 명령을 사용합니다.
 
 ```bash
 docker compose -f docker-compose.local.yml down
