@@ -9,12 +9,16 @@ function severity(analysis) {
 // Identity resolution과 탐지 continuity는 서로 다른 문제다. CONFIRMED 요청이
 // 없는 Resolved Actor가 기존 Candidate/Auth Group 이력을 가리지 않도록, 현재
 // log-only 판단에는 독립 집계 중 가장 강한 관찰값과 그 출처를 사용한다.
-function selectEffectiveDetection({ session, candidate, authGroup, resolved }) {
+function selectEffectiveDetection({ session, candidate, authGroup, clientFlow, provisional, resolved }) {
   const sources = [
     ["session", session],
     ["actor-candidate-fallback", candidate],
     ["auth-group", authGroup],
   ];
+  const flow = clientFlow || provisional;
+  if (Number(flow?.features?.totalRequests) > 0) {
+    sources.push(["fingerprint-client-flow", flow]);
+  }
   if (Number(resolved?.features?.totalRequests) > 0) {
     sources.push(["confirmed-resolved-actor", resolved]);
   }

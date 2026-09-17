@@ -64,6 +64,8 @@ docker compose -f docker-compose.local.yml up --build
 - Detection 대시보드: http://localhost:8081/__detection/dashboard
 - 세션 API: http://localhost:8081/__detection/api/sessions
 - Client Actor API: http://localhost:8081/__detection/api/actors
+- Client Flow API: http://localhost:8081/__detection/api/client-flows
+- Provisional Actor 호환 API: http://localhost:8081/__detection/api/provisional-actors
 - Auth Group API: http://localhost:8081/__detection/api/auth-groups
 - CRS 상태 API: http://localhost:8081/__detection/api/crs-status
 
@@ -86,6 +88,23 @@ npm test
 | `CRS_ENABLED` | `true` | ModSecurity/OWASP CRS 활성화 |
 | `DECEPTION_ENABLED` | `true` | Honey/Deception 신호 활성화 |
 | `TRUST_PROXY` | `false` | 신뢰할 리버스 프록시가 있을 때만 설정 |
+| `FINGERPRINT_SIMILARITY_TTL_MS` | `1800000` | Fingerprint Client Flow 비교 시간, 기본 30분 |
+| `FINGERPRINT_MAX_PROVISIONAL_CANDIDATES` | `3` | 한 Client Flow에 자동 연결할 Candidate 상한 |
+| `MAX_PROVISIONAL_ACTORS` | `5000` | 메모리에 유지할 Client Flow 상한 |
+
+## Fingerprint Client Flow 집계
+
+`hfp2` 정확 일치만으로 설명할 수 없는 IP·UA 버전·언어·인코딩 변화를 위해 원본
+클라이언트 특징을 `clientObservation` JSON으로 보존합니다. 필드별 기본 가중치는 IP 30,
+UA 종류 25, UA 버전 15, 언어 10, Accept-Encoding 10, Client Hints 7, 헤더 순서 3입니다.
+
+같은 IP에서는 UA 종류와 주 버전이 같고 총점이 85점 이상일 때, IP가 다르면 나머지
+프로필이 거의 완전히 일치하고 총점이 70점 이상일 때 하나의 Client Flow로 최대 3개
+Candidate를 연결합니다. 공격 점수는 기존 Candidate 점수를 더하지 않고 고유
+`requestId` 요청 집합에서 Feature를 다시 추출해 계산합니다. signed DCID는 별도의
+`CONFIRMED` Resolved Actor 경계를 유지한다. 서로 다른 DCID가 같은 Flow에 나타나도
+신원을 합치지 않고 하위 흐름으로 함께 표시합니다. 이 연관 점수는 동일 사용자 확률이
+아니라 요청 흐름을 연결하기 위한 휴리스틱 점수입니다.
 
 운영 환경에서는 `PAYLOAD_FINGERPRINT_KEY`, `DCID_HMAC_SECRET`,
 `ACCOUNT_ID_HASH_KEY`에 충분히 긴 고정 비밀값을 주입해야 합니다. 스키마 학습 결과는

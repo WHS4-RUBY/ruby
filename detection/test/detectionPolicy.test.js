@@ -42,3 +42,14 @@ test("현재 점수가 낮아도 과거 최고 Attack 점수가 높은 출처를
   });
   assert.equal(source, "actor-candidate-fallback");
 });
+
+test("Fingerprint Client Flow 점수가 가장 높으면 자동 탐지 출처로 사용한다", () => {
+  const [source] = selectEffectiveDetection({
+    session: analysis(0.1, 0.1),
+    candidate: analysis(0.2, 0.2),
+    authGroup: null,
+    clientFlow: analysis(0.8, 0.9, 12),
+    resolved: null,
+  });
+  assert.equal(source, "fingerprint-client-flow");
+});

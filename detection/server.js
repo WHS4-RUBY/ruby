@@ -160,6 +160,24 @@ function analyzeResolvedActor(aggregate) {
   };
 }
 
+function analyzeProvisionalActor(aggregate) {
+  const features = extractResolvedActorFeatures(aggregate);
+  const analysis = classify(features);
+  return {
+    ...analysis,
+    detection: assessDetection(
+      { ...analysis, maxAttackScore: aggregate.attackHistory?.maxAttackScore },
+      { level: DETECTION_LEVEL }
+    ),
+    features,
+    agenticEvidence: computeAgenticEvidence(aggregate.requests),
+  };
+}
+
+// Client Flow는 동일 클라이언트 확정 객체가 아니라 Session/Candidate 요청을
+// 시간순으로 이어 보는 휴리스틱 집계다. 기존 함수명은 내부 호환을 위해 유지한다.
+const analyzeClientFlow = analyzeProvisionalActor;
+
 /**
  * Policy는 요청을 전달하기 전에 위험도 헤더가 필요하지만, 이 탐지기의 일부
  * 신호(CRS 결과, 응답 상태)는 upstream 응답이 끝난 뒤 확정된다. 따라서 현재
@@ -182,11 +200,15 @@ function buildPriorPolicyDecision(req) {
   const resolvedActor = session?.resolvedActorId
     ? store.getResolvedActorAggregate(session.resolvedActorId)
     : null;
+  const clientFlow = store.getClientFlowAggregate(actorId);
 
   const analyses = {
     session: session ? analyzeSession(session) : null,
-    candidate: actor ? analyzeActor(actor) : null,
+    candidate: actor && clientFlow?.status !== "CONFLICT" ? analyzeActor(actor) : null,
     authGroup: authGroup ? analyzeAuthGroup(authGroup) : null,
+    clientFlow: clientFlow?.aggregationEnabled
+      ? analyzeClientFlow(clientFlow)
+      : null,
     resolved: resolvedActor ? analyzeResolvedActor(resolvedActor) : null,
   };
   if (!Object.values(analyses).some(Boolean)) {
@@ -194,7 +216,11 @@ function buildPriorPolicyDecision(req) {
   }
 
   const [source, analysis] = selectEffectiveDetection(analyses);
-  const clientId = source === "confirmed-resolved-actor" ? resolvedActor.id : actorId;
+  const clientId = source === "confirmed-resolved-actor"
+    ? resolvedActor.id
+    : source === "fingerprint-client-flow"
+      ? clientFlow.id
+      : actorId;
   return buildPolicyDecision({ source, analysis, clientId });
 }
 
@@ -397,20 +423,30 @@ function recordCompletedRequest(req, {
     ? store.getResolvedActorAggregate(resolvedActorId)
     : null;
   const resolvedActorAnalysis = resolvedActor ? analyzeResolvedActor(resolvedActor) : null;
+  const clientFlowId = session.requests.at(-1)?.clientFlowId || session.requests.at(-1)?.provisionalActorId;
+  const clientFlow = clientFlowId
+    ? store.getClientFlowAggregate(clientFlowId)
+    : null;
+  const clientFlowAnalysis = clientFlow?.aggregationEnabled
+    ? analyzeClientFlow(clientFlow)
+    : null;
   const [effectiveDetectionSource, effectiveDetectionAnalysis] = selectEffectiveDetection({
     session: sessionAnalysis,
-    candidate: actorAnalysis,
+    candidate: clientFlow?.status === "CONFLICT" ? null : actorAnalysis,
     authGroup: authGroupAnalysis,
+    clientFlow: clientFlowAnalysis,
     resolved: resolvedActorAnalysis,
   });
   store.updateAttackScoreHistory({
     sessionId: session.id,
     actorId,
     authGroupId: req.authGroupId,
+    clientFlowId,
     scores: {
       session: sessionAnalysis.attackScore,
       actor: actorAnalysis.attackScore,
       authGroup: authGroupAnalysis?.attackScore,
+      clientFlow: clientFlowAnalysis?.attackScore,
     },
   });
   return {
@@ -418,6 +454,8 @@ function recordCompletedRequest(req, {
     sessionAnalysis,
     actorAnalysis,
     authGroupAnalysis,
+    clientFlowAnalysis,
+    provisionalActorAnalysis: clientFlowAnalysis,
     resolvedActorAnalysis,
     effectiveDetectionSource,
     effectiveDetectionAnalysis,
@@ -508,6 +546,8 @@ app.get("/__detection/api/sessions", (req, res) => {
       sessionId: s.id,
       actorId: s.actorId,
       resolvedActorId: s.resolvedActorId,
+      provisionalActorId: s.provisionalActorId,
+      clientFlowId: s.clientFlowId || s.provisionalActorId,
       ip: s.ip,
       ...analyzeSession(s),
       attackHistory: s.attackHistory,
@@ -528,6 +568,8 @@ app.get("/__detection/api/sessions/:id", (req, res) => {
     actorIds: Array.from(s.actorIds),
     resolvedActorId: s.resolvedActorId,
     resolutionMembershipId: s.resolutionMembershipId,
+    provisionalActorId: s.provisionalActorId,
+    clientFlowId: s.clientFlowId || s.provisionalActorId,
     ip: s.ip,
     ...analyzeSession(s),
     attackHistory: s.attackHistory,
@@ -616,13 +658,116 @@ app.get("/__detection/api/resolved-actors/:id/memberships", (req, res) => {
   res.json({ resolvedActorId: req.params.id, memberships });
 });
 
+function provisionalActorJson(aggregate, { includeRequests = false } = {}) {
+  const analysis = analyzeClientFlow(aggregate);
+  const candidates = aggregate.candidateIds.map((candidateId) => store.getActor(candidateId)).filter(Boolean);
+  const candidateAnalyses = candidates.map(analyzeActor);
+  const result = {
+    provisionalActorId: aggregate.id,
+    clientFlowId: aggregate.id,
+    status: aggregate.status,
+    confidence: aggregate.confidence,
+    similarityVersion: aggregate.similarityVersion,
+    aggregationPolicy: aggregate.aggregationPolicy,
+    aggregationEnabled: aggregate.aggregationEnabled,
+    flowLinked: aggregate.flowLinked,
+    verifiedClientCount: aggregate.verifiedClientCount,
+    scoringApplied: aggregate.aggregationEnabled,
+    anchorCandidateId: aggregate.anchorCandidateId,
+    candidateIds: aggregate.candidateIds,
+    candidateCount: aggregate.candidateCount,
+    sessionIds: aggregate.sessionIds,
+    sessionCount: aggregate.sessionCount,
+    resolvedActorIds: [...new Set(aggregate.requests.map((request) => request.resolvedActorId).filter(Boolean))],
+    observedIps: aggregate.observedIps,
+    links: aggregate.links,
+    conflicts: aggregate.conflicts,
+    clientObservation: aggregate.clientObservation,
+    firstSeen: aggregate.firstSeen,
+    lastSeen: aggregate.lastSeen,
+    totalRequests: aggregate.totalRequests,
+    preMergeAutomationScore: Math.max(0, ...candidateAnalyses.map((item) => item.automationScore || 0)),
+    preMergeAttackScore: Math.max(0, ...candidateAnalyses.map((item) => item.attackScore || 0)),
+    attackHistory: aggregate.attackHistory,
+    deceptionHistory: aggregate.deceptionHistory,
+    ...analysis,
+  };
+  if (includeRequests) result.requests = aggregate.requests;
+  return result;
+}
+
+const clientFlowJson = provisionalActorJson;
+
+app.get("/__detection/api/client-flows", (_req, res) => {
+  res.json(store.getAllClientFlowAggregates().map((aggregate) => clientFlowJson(aggregate)));
+});
+
+app.get("/__detection/api/client-flows/:id", (req, res) => {
+  const aggregate = store.getClientFlowAggregate(req.params.id);
+  if (!aggregate) return res.status(404).json({ error: "not found" });
+  res.json(clientFlowJson(aggregate, { includeRequests: true }));
+});
+
+app.get("/__detection/api/client-flows/:id/path", (req, res) => {
+  const aggregate = store.getClientFlowAggregate(req.params.id);
+  if (!aggregate) return res.status(404).json({ error: "not found" });
+  res.json({
+    clientFlowId: aggregate.id,
+    aggregationPolicy: aggregate.aggregationPolicy,
+    candidateIds: aggregate.candidateIds,
+    sessionIds: aggregate.sessionIds,
+    links: aggregate.links,
+    requests: aggregate.requests,
+  });
+});
+
+app.get("/__detection/api/provisional-actors", (_req, res) => {
+  res.json(store.getAllProvisionalActorAggregates().map((aggregate) => provisionalActorJson(aggregate)));
+});
+
+app.get("/__detection/api/provisional-actors/:id", (req, res) => {
+  const aggregate = store.getProvisionalActorAggregate(req.params.id);
+  if (!aggregate) return res.status(404).json({ error: "not found" });
+  res.json(provisionalActorJson(aggregate, { includeRequests: true }));
+});
+
+app.get("/__detection/api/provisional-actors/:id/path", (req, res) => {
+  const aggregate = store.getProvisionalActorAggregate(req.params.id);
+  if (!aggregate) return res.status(404).json({ error: "not found" });
+  res.json({
+    provisionalActorId: aggregate.id,
+    aggregationPolicy: aggregate.aggregationPolicy,
+    candidateIds: aggregate.candidateIds,
+    sessionIds: aggregate.sessionIds,
+    links: aggregate.links,
+    requests: aggregate.requests,
+  });
+});
+
 app.get("/__detection/api/actors", (req, res) => {
   const result = store.getAllActors().map((actor) => {
+    const provisional = store.getProvisionalActorAggregate(actor.id);
     return {
       actorId: actor.id,
       resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
       ip: actor.ip,
       fingerprint: actor.fingerprint,
+      clientObservation: actor.clientObservation,
+      clientFlow: provisional && provisional.flowLinked ? {
+        clientFlowId: provisional.id,
+        status: provisional.status,
+        aggregationEnabled: provisional.aggregationEnabled,
+        candidateCount: provisional.candidateCount,
+        sessionCount: provisional.sessionCount,
+        links: provisional.links,
+      } : null,
+      provisionalActor: provisional && provisional.candidateCount > 1 ? {
+        provisionalActorId: provisional.id,
+        status: provisional.status,
+        aggregationEnabled: provisional.aggregationEnabled,
+        candidateCount: provisional.candidateCount,
+        links: provisional.links,
+      } : null,
       ...analyzeActor(actor),
       attackHistory: actor.attackHistory,
       deceptionHistory: actor.deceptionHistory,
@@ -638,11 +783,30 @@ app.get("/__detection/api/actors", (req, res) => {
 app.get("/__detection/api/actors/:id", (req, res) => {
   const actor = store.getActor(req.params.id);
   if (!actor) return res.status(404).json({ error: "not found" });
+  const provisional = store.getProvisionalActorAggregate(actor.id);
   res.json({
     actorId: actor.id,
     resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
     ip: actor.ip,
     fingerprint: actor.fingerprint,
+    clientObservation: actor.clientObservation,
+    clientFlow: provisional && provisional.flowLinked ? {
+      clientFlowId: provisional.id,
+      status: provisional.status,
+      aggregationEnabled: provisional.aggregationEnabled,
+      candidateIds: provisional.candidateIds,
+      sessionIds: provisional.sessionIds,
+      links: provisional.links,
+      conflicts: provisional.conflicts,
+    } : null,
+    provisionalActor: provisional && provisional.candidateCount > 1 ? {
+      provisionalActorId: provisional.id,
+      status: provisional.status,
+      aggregationEnabled: provisional.aggregationEnabled,
+      candidateIds: provisional.candidateIds,
+      links: provisional.links,
+      conflicts: provisional.conflicts,
+    } : null,
     ...analyzeActor(actor),
     attackHistory: actor.attackHistory,
     deceptionHistory: actor.deceptionHistory,
@@ -778,6 +942,8 @@ app.get("/__detection/api/export", (req, res) => {
       sessionId: s.id,
       actorId: s.actorId,
       resolvedActorId: s.resolvedActorId,
+      provisionalActorId: s.provisionalActorId,
+      clientFlowId: s.clientFlowId || s.provisionalActorId,
       ip: s.ip,
       userAgent: s.userAgent,
       firstSeen: s.firstSeen,

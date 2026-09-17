@@ -3,6 +3,8 @@ const { normalizePath } = require("./requestMetadata");
 const { DECEPTION_SIGNAL_CATALOG } = require("./deceptionEngine");
 const { ActorResolver, MEMBERSHIP_STATUS } = require("./actorResolver");
 const { buildHttpFingerprint } = require("./httpFingerprint");
+const { buildClientObservation } = require("./fingerprintSimilarity");
+const { ProvisionalActorStore } = require("./provisionalActorStore");
 
 // 세션 단위 데이터: 요청 로그 + 클라이언트 텔레메트리
 const sessions = new Map();
@@ -15,6 +17,9 @@ const authGroups = new Map();
 const ipEntries = new Map();
 // Session 단위 Resolution Assignment를 관리하며 원본 요청은 복사하지 않는다.
 const actorResolver = new ActorResolver();
+// Fingerprint 유사도 기반 Client Flow 집계. DCID 기반 Resolved Actor는 신원 경계로
+// 그대로 보존하고, Session/Candidate 사이의 휴리스틱 요청 흐름만 연결한다.
+const provisionalActorStore = new ProvisionalActorStore();
 
 const MAX_REQUESTS_PER_SESSION = 500; // 메모리 보호용 링버퍼 상한
 const MAX_REQUESTS_PER_AUTH_GROUP = MAX_REQUESTS_PER_SESSION * 2;
@@ -179,6 +184,8 @@ function getOrCreateSession(sessionId, ip) {
       actorIds: new Set(),
       resolvedActorId: null,
       resolutionMembershipId: null,
+      provisionalActorId: null,
+      clientFlowId: null,
       userAgent: null,
       attackHistory: emptyAttackHistory(),
       deceptionHistory: emptyDeceptionHistory(),
@@ -294,6 +301,8 @@ function recordRequest(
     authGroupId: authGroupId || null,
     resolvedActorId: null,
     resolutionMembershipId: null,
+    provisionalActorId: null,
+    clientFlowId: null,
     clientId: clientIdentity?.valid ? clientIdentity.clientId : null,
     clientContinuityVerified: Boolean(
       clientIdentity?.continuityVerified === true || clientIdentity?.source === "verified"
@@ -340,6 +349,19 @@ function recordRequest(
     securityQuestionEmail: securityQuestionEmail || null,
     tags: tags || [],
   };
+  const clientObservation = buildClientObservation({ ip, httpFingerprint, ts: now });
+  const provisionalActor = provisionalActorStore.observe({
+    candidateId: actorId,
+    observation: clientObservation,
+    sessionId,
+    clientIdentity,
+    ts: now,
+  });
+  requestRecord.clientObservation = clientObservation;
+  requestRecord.provisionalActorId = provisionalActor.id;
+  requestRecord.clientFlowId = provisionalActor.id;
+  s.provisionalActorId = provisionalActor.id;
+  s.clientFlowId = provisionalActor.id;
   s.requests.push(requestRecord);
   if (s.requests.length > MAX_REQUESTS_PER_SESSION) {
     s.requests.shift();
@@ -394,6 +416,7 @@ function recordRequest(
       ip,
       fingerprint,
       clientFingerprintV2: httpFingerprint.clientFingerprint,
+      clientObservation,
       headerSample: withoutSensitiveHeaders(headers),
       userAgent: headers["user-agent"] || "",
       firstSeen: now,
@@ -407,6 +430,7 @@ function recordRequest(
   }
   const actor = actors.get(actorId);
   actor.clientFingerprintV2 = httpFingerprint.clientFingerprint;
+  actor.clientObservation = clientObservation;
   actor.lastSeen = now;
   actor.totalRequests++;
   actor.sessionIds.add(sessionId);
@@ -447,10 +471,12 @@ function recordRequest(
   return s;
 }
 
-function updateAttackScoreHistory({ sessionId, actorId, authGroupId, scores = {} }) {
+function updateAttackScoreHistory({ sessionId, actorId, authGroupId, clientFlowId, provisionalActorId, scores = {} }) {
   updateMaxAttackScore(sessions.get(sessionId), scores.session);
   updateMaxAttackScore(actors.get(actorId), scores.actor);
   if (authGroupId) updateMaxAttackScore(authGroups.get(authGroupId), scores.authGroup);
+  const flowId = clientFlowId || provisionalActorId;
+  if (flowId) provisionalActorStore.updateAttackScore(flowId, scores.clientFlow ?? scores.provisional);
 }
 
 function recordTelemetry(sessionId, ip, payload) {
@@ -688,8 +714,86 @@ function deactivateResolutionMembership(membershipId, reason) {
 }
 
 function getResolutionStatus() {
-  return actorResolver.status();
+  return {
+    ...actorResolver.status(),
+    fingerprintSimilarity: provisionalActorStore.status(),
+  };
 }
+
+function getProvisionalActorAggregate(idOrCandidateId) {
+  const group = provisionalActorStore.get(idOrCandidateId) || provisionalActorStore.getByCandidate(idOrCandidateId);
+  if (!group) return null;
+  const memberSessions = [...group.sessionIds].map((id) => sessions.get(id)).filter(Boolean);
+  const requestIds = new Set();
+  const requests = [];
+  for (const session of memberSessions) {
+    for (const request of session.requests) {
+      if (!group.candidateIds.has(request.actorId)) continue;
+      const key = request.requestId || `${request.sessionId}\u0000${request.ts}\u0000${request.operation}`;
+      if (requestIds.has(key)) continue;
+      requestIds.add(key);
+      requests.push(request);
+    }
+  }
+  requests.sort((a, b) => a.ts - b.ts);
+  if (requests.length > MAX_REQUESTS_PER_RESOLVED_ACTOR) {
+    requests.splice(0, requests.length - MAX_REQUESTS_PER_RESOLVED_ACTOR);
+  }
+  const includedRequests = group.aggregationEnabled
+    ? requests
+    : requests.filter((request) => request.actorId === group.anchorCandidateId);
+  const includedSessionIds = new Set(includedRequests.map((request) => request.sessionId));
+  const includedSessions = memberSessions.filter((session) => includedSessionIds.has(session.id));
+  const attackHistory = aggregateAttackHistory(includedSessions);
+  if (group.aggregationEnabled) {
+    attackHistory.maxAttackScore = Math.max(attackHistory.maxAttackScore, group.maxAttackScore || 0);
+  }
+  const flowLinked = group.sessionIds.size > 1 || group.candidateIds.size > 1 || group.verifiedClientIds.size > 1;
+  return {
+    id: group.id,
+    status: group.conflicts.length ? "CONFLICT" : flowLinked ? "FLOW_LINKED" : "OBSERVED",
+    confidence: flowLinked ? "MEDIUM" : "LOW",
+    similarityVersion: group.similarityVersion,
+    aggregationPolicy: group.aggregationEnabled
+      ? "FINGERPRINT_CLIENT_FLOW_AUTO"
+      : "CANDIDATE_CLIENT_FLOW",
+    aggregationEnabled: group.aggregationEnabled,
+    flowLinked,
+    verifiedClientCount: group.verifiedClientIds.size,
+    anchorCandidateId: group.anchorCandidateId,
+    candidateIds: [...group.candidateIds],
+    sessionIds: [...includedSessionIds],
+    observedIps: [...new Set(requests.map((request) => request.ip).filter(Boolean))],
+    links: group.links.map((link) => ({ ...link })),
+    conflicts: [...group.conflicts],
+    clientObservation: group.anchorObservation,
+    firstSeen: group.firstSeen,
+    lastSeen: group.lastSeen,
+    totalRequests: includedRequests.length,
+    candidateCount: group.candidateIds.size,
+    sessionCount: includedSessionIds.size,
+    requests: includedRequests,
+    memberSessions: includedSessions,
+    attackHistory,
+    deceptionHistory: aggregateDeceptionHistory(includedSessions),
+  };
+}
+
+function getAllProvisionalActorAggregates() {
+  return provisionalActorStore
+    .getAll()
+    .filter((group) =>
+      group.sessionIds.size > 1 ||
+      group.candidateIds.size > 1 ||
+      group.verifiedClientIds.size > 1 ||
+      group.conflicts.length > 0
+    )
+    .map((group) => getProvisionalActorAggregate(group.id));
+}
+
+// 새 명칭의 기본 API. 기존 Provisional Actor 함수는 호환성을 위해 유지한다.
+const getClientFlowAggregate = getProvisionalActorAggregate;
+const getAllClientFlowAggregates = getAllProvisionalActorAggregates;
 
 module.exports = {
   getOrCreateSession,
@@ -708,6 +812,10 @@ module.exports = {
   getResolutionMemberships,
   deactivateResolutionMembership,
   getResolutionStatus,
+  getProvisionalActorAggregate,
+  getAllProvisionalActorAggregates,
+  getClientFlowAggregate,
+  getAllClientFlowAggregates,
   updateAttackScoreHistory,
   emptyAttackHistory,
   emptyDeceptionHistory,
