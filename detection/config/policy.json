@@ -1,0 +1,16 @@
+{
+  "defense": {
+    "rules": [
+      {
+        "min_score": 0.0,
+        "max_score": 0.5,
+        "strategies": []
+      },
+      {
+        "min_score": 0.5,
+        "max_score": 1.01,
+        "strategies": []
+      }
+    ]
+  }
+}
