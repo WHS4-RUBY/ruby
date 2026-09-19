@@ -14,9 +14,8 @@ ModSecurity 및 OWASP CRS의 버전과 라이선스는
 ```text
 Client
   -> Detection :8080
-       -> Policy :8082
-            -> Defense :8080
-                 -> benchmark-target :3000
+          -> Defense :8081
+               -> benchmark-target :3000
 ```
 
 기존 FastAPI 탐지 스텁과 JavaScript 탐지기를 별도 프록시로 겹쳐 두지 않습니다.
@@ -32,7 +31,7 @@ Express app
 ```
 
 따라서 추후 다른 탐지기나 로깅 기능은 `onRequest`와 `onResponse`를 구현해
-`hooks` 배열에 추가할 수 있습니다. Policy와 Defense는 기존 FastAPI 서비스로 유지됩니다.
+`hooks` 배열에 추가할 수 있습니다. Defense는 기존 FastAPI 서비스로 유지됩니다.
 
 Detection은 다음 두 점수를 각각 0~1로 계산합니다.
 
