@@ -77,6 +77,14 @@ http://ruby-web-target:8080
 접근합니다. 관리 UI는 이 Compose에 포함되지 않으며 별도 운영자 전용 연결을 사용합니다.
 평가기와 초기화 API도 공개 진입점에서 전달하지 않습니다.
 
+Defense가 두 대상을 실제로 왕복 전환하는 로컬 검사는 벤치마크 루트에서 실행합니다.
+검사는 고유 임시 프로젝트와 네트워크를 만들고 초기화, 비공개 성공 판정과 격리 계약,
+자체 웹과 Juice Shop 응답을 확인한 뒤 컨테이너, 볼륨과 네트워크를 정리합니다.
+
+```bash
+./scripts/check_target_switch.sh
+```
+
 ## 개발용 계정
 
 | 역할 | 이메일 | 비밀번호 |
@@ -93,7 +101,7 @@ http://ruby-web-target:8080
 프로젝트 루트에서 개발 의존성을 설치한 뒤 실행합니다.
 
 ```powershell
-$env:PYTHONPATH='app/backend;app/evaluator;app/runner'
+$env:PYTHONPATH='app/backend;app/evaluator;app/runner;app/tools'
 app\.venv\Scripts\python.exe app\tools\check_running_stack.py
 app\.venv\Scripts\python.exe app\tools\check_role_flows.py
 ```

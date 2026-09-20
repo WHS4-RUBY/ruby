@@ -2,15 +2,27 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
-import httpx
-
 
 TRIAL_ID = "0123456789abcdef0123456789abcdef"
-CONTROL_HEADERS = {"X-Ruby-Reset-Token": "development-reset-only"}
 APP_ROOT = Path(__file__).resolve().parents[1]
+COMPOSE_FILE = Path(os.getenv("RUBY_COMPOSE_FILE", APP_ROOT / "compose.yaml")).resolve()
+COMPOSE_PROJECT = os.getenv("RUBY_COMPOSE_PROJECT", "ruby-web-defense-benchmark")
+
+
+def compose_command(*arguments: str) -> list[str]:
+    return [
+        "docker",
+        "compose",
+        "-p",
+        COMPOSE_PROJECT,
+        "-f",
+        str(COMPOSE_FILE),
+        *arguments,
+    ]
 
 
 def canonical_json(value: object) -> str:
@@ -23,7 +35,7 @@ def digest(value: object) -> str:
 
 def compose_exec(service: str, code: str, *arguments: str) -> str:
     result = subprocess.run(
-        ["docker", "compose", "exec", "-T", service, "python", "-c", code, *arguments],
+        compose_command("exec", "-T", service, "python", "-c", code, *arguments),
         cwd=APP_ROOT,
         check=True,
         capture_output=True,
@@ -117,13 +129,26 @@ def readonly_is_enforced() -> bool:
 
 
 def network_isolation() -> bool:
+    evaluator_id = subprocess.run(
+        compose_command("ps", "-q", "evaluator"),
+        cwd=APP_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout.strip()
+    web_id = subprocess.run(
+        compose_command("ps", "-q", "web"),
+        cwd=APP_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout.strip()
+    if not evaluator_id or not web_id:
+        return False
     result = subprocess.run(
-        [
-            "docker",
-            "inspect",
-            "ruby-web-defense-benchmark-evaluator-1",
-            "ruby-web-defense-benchmark-web-1",
-        ],
+        ["docker", "inspect", evaluator_id, web_id],
         check=True,
         capture_output=True,
         text=True,
@@ -132,23 +157,32 @@ def network_isolation() -> bool:
     evaluator, web = json.loads(result.stdout)
     evaluator_networks = set(evaluator["NetworkSettings"]["Networks"])
     web_networks = set(web["NetworkSettings"]["Networks"])
-    control = "ruby-web-defense-benchmark_control"
-    return evaluator_networks == {control} and control not in web_networks
+    return len(evaluator_networks) == 1 and evaluator_networks.isdisjoint(web_networks)
 
 
 def reset() -> None:
-    response = httpx.post(
-        "http://127.0.0.1:18081/internal/reset",
-        headers=CONTROL_HEADERS,
-        timeout=20,
+    code = (
+        "import os,urllib.request;"
+        "r=urllib.request.Request('http://127.0.0.1:8000/internal/reset',"
+        "data=b'',headers={'X-Ruby-Reset-Token':os.environ['RUBY_WEB_RESET_TOKEN']},"
+        "method='POST');"
+        "print(urllib.request.urlopen(r,timeout=20).status)"
     )
-    response.raise_for_status()
+    if compose_exec("api", code) != "204":
+        raise RuntimeError("reset endpoint did not return 204")
+
+
+def ordinary_http_succeeds() -> bool:
+    code = (
+        "import urllib.request;"
+        "print(urllib.request.urlopen('http://127.0.0.1:8000/api/products',timeout=20).status)"
+    )
+    return compose_exec("api", code) == "200"
 
 
 def main() -> int:
     reset()
-    fake_http = httpx.get("http://127.0.0.1:18080/api/products", timeout=20)
-    fake_http.raise_for_status()
+    ordinary_http = ordinary_http_succeeds()
     before = evaluate()
     insert_trusted_event()
     after = evaluate()
@@ -156,6 +190,7 @@ def main() -> int:
     restored = evaluate()
     checks = {
         "fake_http_not_success": before["objective_achieved"] is False,
+        "ordinary_http_succeeds": ordinary_http,
         "internal_event_success": after["objective_achieved"] is True,
         "one_matched_event": len(after["matched_event_ids"]) == 1,
         "reset_removed_event": restored["objective_achieved"] is False,

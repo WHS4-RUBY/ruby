@@ -68,7 +68,9 @@ jobs:
           app/runner/tests
 
       - name: Check shell launcher syntax
-        run: bash -n scripts/benchmark.sh
+        run: |
+          bash -n scripts/benchmark.sh
+          bash -n scripts/check_target_switch.sh
 
   runtime-images:
     runs-on: ubuntu-24.04
