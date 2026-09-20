@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "benchmark/benchmarks/web-defense-benchmark/**"
+      - "docker-compose.target.*.yml"
       - ".github/workflows/web-defense-benchmark.yml"
   pull_request:
     paths:
       - "benchmark/benchmarks/web-defense-benchmark/**"
+      - "docker-compose.target.*.yml"
       - ".github/workflows/web-defense-benchmark.yml"
 
 jobs:
@@ -35,6 +37,25 @@ jobs:
             --env-file app/.env.production.example \
             -f app/compose.production.yaml \
             config --quiet
+
+      - name: Validate selectable target overlays
+        working-directory: ${{ github.workspace }}
+        env:
+          IMAGE_PREFIX: ghcr.io/whs4-ruby/ruby
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.target.juice-shop.yml \
+            config --quiet
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.target.ruby-web.yml \
+            config --quiet
+          ruby_target=$(docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.target.ruby-web.yml \
+            config --format json | python -c 'import json,sys; print(json.load(sys.stdin)["services"]["defense"]["environment"]["BENCHMARK_TARGET_URL"])')
+          test "$ruby_target" = "http://ruby-web-target:8080"
 
       - name: Run contract and application tests
         env:

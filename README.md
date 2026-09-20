@@ -93,6 +93,39 @@ curl -I http://localhost:8081
 docker compose -f docker-compose.local.yml down
 ```
 
+## 벤치마크 대상 선택
+
+기본 대상은 Juice Shop입니다. 자체 취약점 웹은 별도 8개 서비스 스택으로 실행한 뒤
+Defense의 전달 주소만 바꿉니다. 두 대상은 함께 실행할 수 있지만 한 시험에서는 하나만
+선택하고, 사용한 오버레이와 이미지 태그를 시험 설정에 기록합니다.
+
+Juice Shop을 선택하거나 다시 전환하려면 다음 오버레이를 사용합니다.
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.target.juice-shop.yml \
+  up -d --no-deps --force-recreate defense
+```
+
+자체 취약점 웹을 선택하려면 먼저 운영 스택을 기동하고 Defense를 전환합니다.
+
+```bash
+docker compose \
+  --env-file benchmark/benchmarks/web-defense-benchmark/app/.env.production \
+  -f benchmark/benchmarks/web-defense-benchmark/app/compose.production.yaml \
+  up -d --wait
+
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.target.ruby-web.yml \
+  up -d --no-deps --force-recreate defense
+```
+
+외부 공개 진입점은 계속 Detection 하나입니다. 자체 웹의 `web` 서비스만 공유망에
+`ruby-web-target`으로 연결되며 API, 평가기와 데이터 서비스는 공유망에 연결하지 않습니다.
+관리 UI도 이 전환 경로에 포함하지 않습니다.
+
 ## 보안 주의사항
 
 API 키, 토큰, 비밀번호, 실제 서버 식별 정보, 개인정보가 포함된 로그를 커밋하지 않습니다. 필요한 환경 변수는 실제 값이 없는 `.env.example`로만 공유합니다.
