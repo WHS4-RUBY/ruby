@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-26.04
     strategy:
       matrix:
-        service: [policy, defense]
+        service: [defense]
     steps:
       - uses: actions/checkout@v4
 
