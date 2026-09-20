@@ -43,6 +43,40 @@ docker compose up -d --build --wait
 
 종료 시 볼륨을 보존하려면 `docker compose down`, 데이터도 지우려면 `docker compose down --volumes --remove-orphans`를 사용합니다.
 
+## 팀 서버 런타임
+
+`compose.production.yaml`은 소스 빌드와 호스트 포트 공개 없이 CI가 만든 이미지를
+실행합니다. 루트 RUBY 스택이 `ruby_ai-defense-net`을 먼저 생성해야 하며, 이 스택에서는
+`web`만 해당 네트워크에 `ruby-web-target`이라는 이름으로 연결됩니다. API, 평가기,
+PostgreSQL, Redis와 오브젝트 저장소는 내부 네트워크에만 남습니다.
+
+```bash
+cp .env.production.example .env.production
+# .env.production의 이미지 태그와 모든 replace-* 값을 실제 배포 값으로 변경
+docker compose \
+  --env-file .env.production \
+  -f compose.production.yaml \
+  pull
+docker compose \
+  --env-file .env.production \
+  -f compose.production.yaml \
+  up -d --wait
+```
+
+배포 이미지 태그에는 `latest` 대신 CI가 발행한 Git 커밋 SHA를 사용합니다. PostgreSQL
+비밀번호는 연결 URL에도 들어가므로 `openssl rand -hex 32`처럼 URL에 그대로 사용할 수
+있는 값으로 생성합니다. 실제 `.env.production`은 커밋하지 않습니다.
+
+자체 웹을 실험 대상으로 선택할 때 Defense의 전달 주소는 다음과 같습니다.
+
+```text
+http://ruby-web-target:8080
+```
+
+웹 컨테이너에는 호스트 포트가 없으므로 외부 공격자는 Detection의 공개 포트를 통해서만
+접근합니다. 관리 UI는 이 Compose에 포함되지 않으며 별도 운영자 전용 연결을 사용합니다.
+평가기와 초기화 API도 공개 진입점에서 전달하지 않습니다.
+
 ## 개발용 계정
 
 | 역할 | 이메일 | 비밀번호 |
