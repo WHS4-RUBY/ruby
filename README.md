@@ -1,14 +1,6 @@
 # RUBY
 
-RUBY는 웹 요청 특징과 위험도 점수를 수집하고, 정책과 방어 조건에 따른 공격 성공률과 비용 차이를 평가하는 프로젝트입니다. 현재 공격 요청 식별과 실행 차단 범위는 각 컴포넌트 문서에서 별도로 밝힙니다.
-
-## 처음 실행해 볼 로컬 웹
-
-[`RUBY Market 취약점 웹`](benchmark/benchmarks/web-defense-benchmark/README.md)은 정상 쇼핑몰을 먼저 사용한 뒤 원하는 취약점만 켜서 결과를 비교하는 로컬 실습 환경입니다. README의 `처음 10분 사용 순서`부터 따르면 Docker 실행, 화면 체험, 개발 계정 로그인, SQL 주입 확인과 정리까지 진행할 수 있습니다.
-
-이 웹은 팀 서버에서 Detection과 Defense 뒤의 선택형 벤치마크 대상으로 배포할 수
-있습니다. 웹 컨테이너를 호스트 포트에 직접 공개하지 말고, 평가기와 데이터 서비스는
-내부 네트워크에 유지합니다. 미완성 방어 컴포넌트는 배포 준비물에 포함하지 않습니다.
+RUBY는 웹 요청의 공격 가능성을 탐지하고, 위험도와 정책에 따라 대응 전략을 선택해 방어 기법을 적용하며, 그 성능과 재현성을 검증하는 프로젝트입니다. 탐지, 정책 판단, 방어, 벤치마크에 필요한 코드와 문서를 함께 관리합니다.
 
 ## 저장소 구조
 
@@ -16,7 +8,7 @@ RUBY는 웹 요청 특징과 위험도 점수를 수집하고, 정책과 방어 
 RUBY/
 ├── benchmark/   # 실험 대상, 실행 환경, 결과 및 재현 자료
 ├── defense/     # 차단·변환·지연·기만 등 방어 계층
-├── detection/   # Node.js 탐지 프록시, 요청 특징 추출과 위험도 산정
+├── detection/   # Node.js 탐지 프록시, ModSecurity/CRS, 대시보드
 └── policy/      # 위험도와 정책에 따른 처리 전략 판단 계층
 ```
 
@@ -28,7 +20,7 @@ RUBY/
 
 ### `defense/`
 
-탐지 결과에 따라 요청을 차단, 변환, 지연하거나 기만하는 방어 계층을 개발합니다. 방어 정책, 계층 간 인터페이스, 로그와 테스트를 관리합니다.
+탐지 결과에 따라 요청을 차단·변환·지연·기만하는 방어 계층을 개발합니다. 방어 정책, 계층 간 인터페이스, 로그와 테스트를 관리합니다.
 
 자세한 내용은 [`defense/README.md`](defense/README.md)를 참고하세요.
 
@@ -36,8 +28,7 @@ RUBY/
 
 요청의 특징을 추출해 Automation/Attack 점수를 계산하고 기존 Policy 계약의
 `X-Risk-Score`로 변환합니다. ModSecurity/OWASP CRS, 행동 기반 휴리스틱,
-Honey/Deception 신호와 실시간 대시보드를 포함합니다. 규칙과 모델별로 검증된
-공격 요청 식별 범위는 해당 컴포넌트 문서에 기록합니다.
+Honey/Deception 신호와 실시간 대시보드를 포함합니다.
 
 자세한 내용은 [`detection/README.md`](detection/README.md)를 참고하세요.
 
@@ -59,10 +50,11 @@ Detection이 산정한 위험도 점수를 정책에 따라 해석하고, 정상
 
 ## 서버 배포
 
-서버 배포 운영자는 저장소 루트에 `.env`를 만들고 `IMAGE_PREFIX`에 배포 레지스트리 경로를, `IMAGE_TAG`에 배포할 태그를 설정합니다. `BENCHMARK_*` 변수는 기동할 벤치마크와 Defense의 내부 타깃 주소를 정합니다.
+서버에서는 [`.env.example`](.env.example)을 `.env`로 복사한 뒤 `IMAGE_PREFIX`에 배포 레지스트리 경로를, `IMAGE_TAG`에 배포할 태그를 설정합니다. `BENCHMARK_*` 변수는 기동할 벤치마크와 Defense의 내부 타깃 주소를 정합니다.
 
 ```bash
-# .env에 IMAGE_PREFIX와 IMAGE_TAG를 배포 값으로 설정
+cp .env.example .env
+# .env의 IMAGE_PREFIX와 IMAGE_TAG를 배포 값으로 수정
 docker network create ai-defense-net
 docker compose pull
 docker compose up -d
@@ -92,39 +84,6 @@ curl -I http://localhost:8081
 ```bash
 docker compose -f docker-compose.local.yml down
 ```
-
-## 벤치마크 대상 선택
-
-기본 대상은 Juice Shop입니다. 자체 취약점 웹은 별도 8개 서비스 스택으로 실행한 뒤
-Defense의 전달 주소만 바꿉니다. 두 대상은 함께 실행할 수 있지만 한 시험에서는 하나만
-선택하고, 사용한 오버레이와 이미지 태그를 시험 설정에 기록합니다.
-
-Juice Shop을 선택하거나 다시 전환하려면 다음 오버레이를 사용합니다.
-
-```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.target.juice-shop.yml \
-  up -d --no-deps --force-recreate defense
-```
-
-자체 취약점 웹을 선택하려면 먼저 운영 스택을 기동하고 Defense를 전환합니다.
-
-```bash
-docker compose \
-  --env-file benchmark/benchmarks/web-defense-benchmark/app/.env.production \
-  -f benchmark/benchmarks/web-defense-benchmark/app/compose.production.yaml \
-  up -d --wait
-
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.target.ruby-web.yml \
-  up -d --no-deps --force-recreate defense
-```
-
-외부 공개 진입점은 계속 Detection 하나입니다. 자체 웹의 `web` 서비스만 공유망에
-`ruby-web-target`으로 연결되며 API, 평가기와 데이터 서비스는 공유망에 연결하지 않습니다.
-관리 UI도 이 전환 경로에 포함하지 않습니다.
 
 ## 보안 주의사항
 
