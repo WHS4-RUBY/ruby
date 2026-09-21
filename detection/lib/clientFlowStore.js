@@ -10,17 +10,24 @@ function positiveNumber(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function booleanFlag(value, fallback) {
+  if (value === undefined || value === "") return fallback;
+  return !["0", "false", "no", "off"].includes(String(value).trim().toLowerCase());
+}
+
 class ClientFlowStore {
   constructor({
     ttlMs = positiveNumber(process.env.FINGERPRINT_SIMILARITY_TTL_MS, 30 * 60_000),
     maxCandidates = positiveNumber(process.env.FINGERPRINT_MAX_FLOW_CANDIDATES, 3),
     maxGroups = positiveNumber(process.env.MAX_CLIENT_FLOWS, 5_000),
     cleanupIntervalMs = positiveNumber(process.env.FINGERPRINT_CLEANUP_INTERVAL_MS, 60_000),
+    allowIpRotation = booleanFlag(process.env.FINGERPRINT_IP_ROTATION_ENABLED, true),
   } = {}) {
     this.ttlMs = ttlMs;
     this.maxCandidates = maxCandidates;
     this.maxGroups = maxGroups;
     this.cleanupIntervalMs = cleanupIntervalMs;
+    this.allowIpRotation = allowIpRotation;
     this.lastCleanupAt = 0;
     this.groups = new Map();
     this.candidateIndex = new Map();
@@ -84,6 +91,7 @@ class ClientFlowStore {
       const comparison = compareClientObservations(group.anchorObservation, observation);
       const eligibility = canAutoAggregate(comparison, group.anchorObservation, observation, {
         windowMs: this.ttlMs,
+        allowIpRotation: this.allowIpRotation,
       });
       if (!eligibility.eligible) continue;
       if (!best || comparison.score > best.comparison.score) {
@@ -174,6 +182,7 @@ class ClientFlowStore {
       ttlMs: this.ttlMs,
       maxCandidates: this.maxCandidates,
       maxGroups: this.maxGroups,
+      allowIpRotation: this.allowIpRotation,
       groups: this.groups.size,
       aggregatingGroups: [...this.groups.values()].filter((group) => group.aggregationEnabled).length,
     };

@@ -91,6 +91,7 @@ npm test
 | `FINGERPRINT_CLEANUP_INTERVAL_MS` | `60000` | 만료된 Client Flow 정리 주기 |
 | `FINGERPRINT_MAX_FLOW_CANDIDATES` | `3` | 한 Client Flow에 자동 연결할 Candidate 상한 |
 | `MAX_CLIENT_FLOWS` | `5000` | 메모리에 유지할 Client Flow 상한 |
+| `FINGERPRINT_IP_ROTATION_ENABLED` | `true` | IP가 다른 관찰의 자동 연결 허용 여부 |
 
 ## Fingerprint Client Flow 집계
 
@@ -100,7 +101,8 @@ UA 종류 25, UA 버전 15, 언어 10, Accept-Encoding 10, Client Hints 7, 헤�
 
 같은 IP에서는 UA 종류와 주 버전이 같고 총점이 85점 이상일 때, IP가 다르면 나머지
 프로필이 거의 완전히 일치하고 총점이 70점 이상일 때 하나의 Client Flow로 최대 3개
-Candidate를 연결합니다. 공격 점수는 기존 Candidate 점수를 더하지 않고 고유
+Candidate를 연결합니다. IP가 다른 경로는 오탐 시 무고한 사용자의 위험 점수를
+합산시키므로 `FINGERPRINT_IP_ROTATION_ENABLED=false`로 끌 수 있습니다. 공격 점수는 기존 Candidate 점수를 더하지 않고 고유
 `requestId` 요청 집합에서 Feature를 다시 추출해 계산합니다. signed DCID는 별도의
 `CONFIRMED` Resolved Actor 경계를 유지한다. 서로 다른 DCID가 같은 Flow에 나타나도
 신원을 합치지 않고 하위 흐름으로 함께 표시합니다. 이 연관 점수는 동일 사용자 확률이

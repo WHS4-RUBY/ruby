@@ -41,7 +41,11 @@ function sample({ ip = "203.0.113.10", headers = baseHeaders, pairs = headerPair
 
 function compareCase(number, name, baseline, current, note = null) {
   const comparison = compareClientObservations(baseline.observation, current.observation);
-  const eligibility = canAutoAggregate(comparison, baseline.observation, current.observation);
+  // 이 실험은 기본 정책(IP 로테이션 연결 허용) 기준 표를 재현한다.
+  // 환경변수와 무관하게 결정적이어야 하므로 값을 고정한다.
+  const eligibility = canAutoAggregate(comparison, baseline.observation, current.observation, {
+    allowIpRotation: true,
+  });
   const sameCandidate = baseline.ip === current.ip && baseline.fingerprint.clientFingerprint === current.fingerprint.clientFingerprint;
   return {
     number,
@@ -128,5 +132,6 @@ rows.push({
 console.log(JSON.stringify({
   experiment: "fingerprint-single-variable-v1",
   similarityIsProbability: false,
+  allowIpRotation: true,
   rows,
 }, null, 2));

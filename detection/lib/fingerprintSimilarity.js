@@ -197,7 +197,12 @@ function compareClientObservations(left, right, { weights = DEFAULT_WEIGHTS } = 
   };
 }
 
-function canAutoAggregate(comparison, left, right, { windowMs = 30 * 60_000 } = {}) {
+function canAutoAggregate(
+  comparison,
+  left,
+  right,
+  { windowMs = 30 * 60_000, allowIpRotation = true } = {}
+) {
   const timeGapMs = Math.abs(Number(left?.observedAt || 0) - Number(right?.observedAt || 0));
   const uaLeft = left?.clientProfile?.userAgent || {};
   const uaRight = right?.clientProfile?.userAgent || {};
@@ -211,6 +216,11 @@ function canAutoAggregate(comparison, left, right, { windowMs = 30 * 60_000 } = 
       eligible: comparison.score >= 85,
       reason: comparison.score >= 85 ? "same_ip_high_similarity" : "same_ip_below_threshold",
     };
+  }
+  // IP가 다른 두 관찰을 묶는 경로는 오탐 시 무고한 사용자의 위험 점수를 합산시킨다.
+  // 오탐률이 측정되기 전까지 운영에서 끌 수 있도록 플래그를 둔다.
+  if (!allowIpRotation) {
+    return { eligible: false, reason: "ip_rotation_disabled" };
   }
   const sameRawUa = clean(uaLeft.raw) && clean(uaLeft.raw) === clean(uaRight.raw);
   const sameLanguage = clean(left?.clientProfile?.language?.primary) === clean(right?.clientProfile?.language?.primary);
