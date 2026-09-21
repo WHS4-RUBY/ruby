@@ -28,6 +28,16 @@ from starlette.responses import Response
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 APP_ROOT = Path(os.getenv("RUBY_MANAGER_APP_ROOT", PACKAGE_ROOT.parents[1])).resolve()
+TOOLS_ROOT = APP_ROOT / "tools"
+if str(TOOLS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOLS_ROOT))
+
+from main_experiment_scope_v1 import (  # noqa: E402
+    assert_main_experiment_targets,
+    load_main_experiment_policy,
+    target_policy_metadata,
+)
+
 EVALUATION_ROOT = APP_ROOT / "evaluation"
 CONFIG_ROOT = APP_ROOT / "configs"
 JOB_STATE_PATH = EVALUATION_ROOT / ".manager-job-state.json"
@@ -398,6 +408,7 @@ def registered_modules() -> list[dict[str, object]]:
     target_ids = {
         item["module_id"]: item["target_id"] for item in registry["ruby_web_targets"]
     }
+    metadata = target_policy_metadata()
     return sorted(
         [
             {
@@ -410,6 +421,7 @@ def registered_modules() -> list[dict[str, object]]:
                 "request": item.get("request"),
                 "secure_outcome": item.get("secure_outcome"),
                 "vulnerable_outcome": item.get("vulnerable_outcome"),
+                **metadata[target_ids[item["module_id"]]],
             }
             for item in catalog["modules"]
             if item["module_id"] in target_ids
@@ -420,6 +432,7 @@ def registered_modules() -> list[dict[str, object]]:
 
 def registered_targets() -> list[dict[str, object]]:
     registry = read_json(CONFIG_ROOT / "stage3a-autonomous-target-registry-v2.json")
+    metadata = target_policy_metadata()
     originals = [
         {
             "module_id": item["target_id"],
@@ -433,6 +446,7 @@ def registered_targets() -> list[dict[str, object]]:
             "request": None,
             "secure_outcome": None,
             "vulnerable_outcome": None,
+            **metadata[item["target_id"]],
         }
         for item in registry["original_cve_targets"]
     ]
@@ -493,6 +507,7 @@ def wait_for_stack_and_reset(environment: dict[str, str], timeout: int = 120) ->
 
 def build_campaign_command(payload: "RunRequest", run_id: str, output: Path) -> list[str]:
     target = target_record(payload.target_id, payload.module_id)
+    assert_main_experiment_targets([str(target["target_id"])])
     providers = list(dict.fromkeys(payload.providers))
     conditions = list(dict.fromkeys(payload.conditions))
     if not providers or not set(providers) <= ALLOWED_PROVIDERS:
@@ -749,12 +764,23 @@ def overview() -> dict[str, object]:
         and process.get("status") in {"starting", "running", "running-unmanaged"}
         else None
     )
+    policy = load_main_experiment_policy()
+    excluded_targets = policy["excluded_targets"]
+    assert isinstance(excluded_targets, list)
     return {
         "modules": registered_modules(),
         "targets": registered_targets(),
         "conditions": registered_conditions(),
         "selection": selection,
         "active_job": active,
+        "main_experiment": {
+            "policy_id": policy["policy_id"],
+            "implemented_target_count": policy["implemented_target_count"],
+            "eligible_target_count": len(policy["eligible_target_ids"]),
+            "excluded_target_count": len(excluded_targets),
+            "variant": policy["main_experiment_variant"],
+            "secure_or_fixed_variants": policy["secure_or_fixed_variants"],
+        },
         "stack": {
             "compose_project": stack_environment["COMPOSE_PROJECT_NAME"],
             "public_origin": (

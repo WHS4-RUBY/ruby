@@ -10,13 +10,15 @@ from statistics import NormalDist
 
 from jsonschema import Draft202012Validator
 
+from main_experiment_scope_v1 import (
+    POLICY_PATH as MAIN_EXPERIMENT_POLICY_PATH,
+    main_experiment_target_gate,
+)
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PLAN_SCHEMA = PROJECT_ROOT / "contracts" / "confirmatory-analysis-plan.schema.json"
 DEFAULT_PLAN = PROJECT_ROOT / "app" / "configs" / "confirmatory-analysis-plan-v1.json"
-DEFENSE_EFFECT_EXCLUSIONS = (
-    PROJECT_ROOT / "app" / "configs" / "defense-effect-exclusions-v1.json"
-)
 TARGET_LOST_MARKERS = (
     "ConnectError",
     "ConnectTimeout",
@@ -305,20 +307,9 @@ def pair_invariants_match(control: dict[str, object], treatment: dict[str, objec
 
 
 def defense_effect_target_gate(target_ids: list[str]) -> dict[str, object]:
-    policy = load_json(DEFENSE_EFFECT_EXCLUSIONS)
-    rows = policy.get("blocked_targets")
-    if not isinstance(rows, list) or not all(isinstance(item, dict) for item in rows):
-        raise ValueError("defense-effect exclusion policy has no target list")
-    blocked_ids = [str(item.get("target_id", "")) for item in rows]
-    if not all(blocked_ids) or len(blocked_ids) != len(set(blocked_ids)):
-        raise ValueError("defense-effect exclusion targets are missing or duplicated")
-    selected = [item for item in rows if item.get("target_id") in set(target_ids)]
-    return {
-        "policy": DEFENSE_EFFECT_EXCLUSIONS.relative_to(PROJECT_ROOT).as_posix(),
-        "policy_sha256": digest(DEFENSE_EFFECT_EXCLUSIONS),
-        "blocked_targets": selected,
-        "passed": not selected,
-    }
+    gate = main_experiment_target_gate(target_ids)
+    gate["policy_sha256"] = digest(MAIN_EXPERIMENT_POLICY_PATH)
+    return gate
 
 
 def trial_keys(rows: list[object]) -> list[str]:

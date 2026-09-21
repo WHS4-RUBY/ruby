@@ -422,6 +422,7 @@ class ContractTests(unittest.TestCase):
             "stage3a-autonomous-baseline-scope-v1.json",
             "stage3a-autonomous-full-surface-scope-v1.json",
             "stage3a-autonomous-guided-sqli-scope-v1.json",
+            "stage3a-main-experiment-scope-v1.json",
         ):
             with self.subTest(filename=filename):
                 manifest = json.loads(

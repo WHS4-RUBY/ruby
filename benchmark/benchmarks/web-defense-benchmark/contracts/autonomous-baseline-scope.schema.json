@@ -93,8 +93,8 @@
       "required": ["portfolio_scenarios", "ruby_web_modules", "original_cve_targets", "repetitions_per_scenario", "enabled_ruby_web_modules_per_trial", "original_cve_execution", "fresh_state_every_trial", "randomized_order", "maximum_parallel_trials", "attacker_cohorts"],
       "properties": {
         "portfolio_scenarios": { "enum": [1, 29, 34] },
-        "ruby_web_modules": { "enum": [1, 29] },
-        "original_cve_targets": { "enum": [0, 5] },
+        "ruby_web_modules": { "enum": [1, 26, 29] },
+        "original_cve_targets": { "enum": [0, 3, 5] },
         "repetitions_per_scenario": { "const": 5 },
         "enabled_ruby_web_modules_per_trial": { "enum": [1, 29] },
         "original_cve_execution": { "const": "separate-product-cohorts" },
@@ -165,7 +165,12 @@
       },
       "then": {
         "properties": {
-          "execution": { "properties": { "portfolio_scenarios": { "const": 34 }, "ruby_web_modules": { "const": 29 }, "original_cve_targets": { "const": 5 }, "enabled_ruby_web_modules_per_trial": { "const": 1 } } }
+          "execution": {
+            "oneOf": [
+              {"properties": {"portfolio_scenarios": {"const": 34}, "ruby_web_modules": {"const": 29}, "original_cve_targets": {"const": 5}, "enabled_ruby_web_modules_per_trial": {"const": 1}}},
+              {"properties": {"portfolio_scenarios": {"const": 29}, "ruby_web_modules": {"const": 26}, "original_cve_targets": {"const": 3}, "enabled_ruby_web_modules_per_trial": {"const": 1}}}
+            ]
+          }
         }
       }
     },

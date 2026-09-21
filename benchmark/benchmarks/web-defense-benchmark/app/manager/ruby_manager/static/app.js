@@ -44,14 +44,6 @@ const conditionLabels = {
   undefended: "무방어",
 };
 
-const xssCsrfClaimLimitedTargets = new Set([
-  "ruby-web:unsafe-file-upload.seller-document-preview",
-  "ruby-web:roundcube-derived.support-ticket-html-postprocess",
-  "ruby-web:cross-site-request-forgery.support-role-change",
-  "cve-original:CVE-2024-42009",
-  "cve-original:CVE-2026-54433",
-]);
-
 const statusLabels = {
   completed: "완료",
   failed: "실패",
@@ -198,11 +190,11 @@ function outcomeText(outcome) {
 }
 
 function claimScope(module) {
-  if (!xssCsrfClaimLimitedTargets.has(module?.target_id)) return null;
+  if (module?.main_experiment_eligible !== false) return null;
   return [
     ["판정", "검증됨", "status-online", "준비된 공격의 성공과 안전판 또는 수정판의 실패를 쌍 검사에서 확인했습니다."],
     ["식별", "미채택", "status-failed", "실험 요청 분류기는 확실한 공격 구분 기준을 충족하지 못해 제거했습니다."],
-    ["차단", "미구현", "status-neutral", "현재 등록된 방어에서 이 공격군의 실행 차단은 구현 및 검증되지 않았습니다."],
+    ["방어 평가", "본 실험 미사용", "status-neutral", "외부 방어 모듈의 차단 여부를 이번 본 실험에서 비교하지 않습니다."],
   ];
 }
 
@@ -255,7 +247,8 @@ function renderModuleList() {
 
 function selectModule(moduleId) {
   state.selectedModuleId = moduleId;
-  $("target").value = moduleId;
+  const module = moduleById(moduleId);
+  if (module?.main_experiment_eligible === true) $("target").value = moduleId;
   renderModuleList();
   renderModuleDetail();
   renderBudget();
@@ -308,7 +301,7 @@ function renderModuleDetail() {
     const scopeHeading = element("div", "claim-scope-heading");
     scopeHeading.append(
       element("h4", "", "현재 검증 범위"),
-      element("span", "status status-failed", "방어 효과 집계 제외"),
+      element("span", "status status-failed", "본 실험 미사용"),
     );
     const scopeGrid = element("div", "claim-scope-grid");
     scopeItems.forEach(([label, value, className, description]) => {
@@ -319,6 +312,9 @@ function renderModuleDetail() {
       );
       scopeGrid.append(item);
     });
+    if (module.main_experiment_reason) {
+      scopeGrid.append(element("p", "", module.main_experiment_reason));
+    }
     scope.append(scopeHeading, scopeGrid);
   }
 
@@ -331,7 +327,9 @@ function renderModuleDetail() {
     activate.addEventListener("click", () => requestSwitch(module.module_id));
     actions.append(activate);
   } else {
-    actions.append(element("span", "active-note", "아래 실험 실행에서 선택하면 전용 격리 스택으로 시작합니다."));
+    actions.append(element("span", "active-note", module.main_experiment_eligible
+      ? "아래 실험 실행에서 선택하면 전용 격리 스택으로 시작합니다."
+      : "재현과 공격 성공 판정 근거는 보존하지만 본 실험 실행 대상으로 선택할 수 없습니다."));
   }
   detail.replaceChildren(header, facts, outcomes, ...(scopeItems ? [scope] : []), actions);
 }
@@ -340,11 +338,14 @@ function populateModuleControls() {
   const target = $("target");
   const currentTarget = target.value;
   target.replaceChildren();
-  state.overview.targets.forEach((module) => target.append(option(module.target_id, `${familyLabel(module.family)} / ${module.cve_id || module.module_id}`)));
+  const eligibleTargets = state.overview.targets.filter((module) => module.main_experiment_eligible === true);
+  eligibleTargets.forEach((module) => target.append(option(module.target_id, `${familyLabel(module.family)} / ${module.cve_id || module.module_id}`)));
   const activeTarget = state.overview.selection.mode === "vulnerable" && state.overview.selection.module_id
     ? `ruby-web:${state.overview.selection.module_id}`
     : "";
-  const preferred = currentTarget || activeTarget || state.overview.targets[0]?.target_id || "";
+  const preferred = [currentTarget, activeTarget].find((targetId) => eligibleTargets.some((item) => item.target_id === targetId))
+    || eligibleTargets[0]?.target_id
+    || "";
   target.value = preferred;
   state.selectedModuleId = preferred;
 
@@ -397,7 +398,8 @@ function renderOverview() {
   $("safe-mode").disabled = Boolean(active) || selectionMode === "safe" || state.busy;
 
   const families = new Set(state.overview.targets.map((item) => item.family));
-  $("module-count").textContent = `${state.overview.targets.length}개`;
+  const mainExperiment = state.overview.main_experiment;
+  $("module-count").textContent = `${state.overview.targets.length}개 구현 / ${mainExperiment.eligible_target_count}개 본 실험`;
   $("family-count").textContent = `${families.size}개 보안 분류`;
   renderModuleList();
   renderModuleDetail();
@@ -505,6 +507,7 @@ function applyPreset(name) {
 function validateRun(payload) {
   if (!$("run").reportValidity()) return false;
   if (!payload.target_id) return say("공격 대상을 선택하세요.", true), false;
+  if (moduleById(payload.target_id)?.main_experiment_eligible !== true) return say("본 실험에서 제외된 대상입니다.", true), false;
   if (!payload.providers.length) return say("공격자를 하나 이상 선택하세요.", true), false;
   if (!payload.conditions.length) return say("방어 조건을 하나 이상 선택하세요.", true), false;
   return true;

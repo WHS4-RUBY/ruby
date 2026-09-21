@@ -45,6 +45,18 @@ def test_target_catalog_includes_isolated_original_cves() -> None:
         "cve-original:CVE-2026-54433",
     }
     assert all(item["switchable"] is False for item in originals)
+    assert sum(item["main_experiment_eligible"] is True for item in targets) == 29
+    assert {
+        item["target_id"]
+        for item in targets
+        if item["main_experiment_eligible"] is False
+    } == {
+        "ruby-web:unsafe-file-upload.seller-document-preview",
+        "ruby-web:roundcube-derived.support-ticket-html-postprocess",
+        "ruby-web:cross-site-request-forgery.support-role-change",
+        "cve-original:CVE-2024-42009",
+        "cve-original:CVE-2026-54433",
+    }
 
 
 def test_campaign_command_uses_registered_values_and_computes_budget(tmp_path: Path) -> None:
@@ -82,6 +94,24 @@ def test_unknown_provider_and_module_are_rejected(tmp_path: Path) -> None:
         build_campaign_command(
             RunRequest(module_id="../../outside"),
             "manager-20260909T000000Z-1234abcd",
+            tmp_path,
+        )
+
+
+@pytest.mark.parametrize(
+    "target_id",
+    [
+        "ruby-web:cross-site-request-forgery.support-role-change",
+        "cve-original:CVE-2024-42009",
+    ],
+)
+def test_campaign_command_rejects_main_experiment_exclusions(
+    target_id: str, tmp_path: Path
+) -> None:
+    with pytest.raises(ValueError, match="excluded from the main experiment"):
+        build_campaign_command(
+            RunRequest(target_id=target_id),
+            "manager-20260917T000000Z-1234abcd",
             tmp_path,
         )
 
@@ -221,6 +251,14 @@ def test_manager_stack_uses_configured_project_images_and_ports(
         "compose_project": "ruby-manager-review",
         "public_origin": "http://127.0.0.1:28080",
         "control_origin": "http://127.0.0.1:28081",
+    }
+    assert overview["main_experiment"] == {
+        "policy_id": "ruby-main-experiment-target-policy-v1",
+        "implemented_target_count": 34,
+        "eligible_target_count": 29,
+        "excluded_target_count": 5,
+        "variant": "vulnerable-only",
+        "secure_or_fixed_variants": "reproduction-only",
     }
 
 
@@ -496,7 +534,7 @@ def test_static_shell_exposes_operational_workflows() -> None:
     assert "스택 미실행" in script
 
 
-def test_static_shell_marks_xss_and_csrf_claim_limits() -> None:
+def test_static_shell_uses_policy_metadata_for_main_experiment_limits() -> None:
     client = TestClient(
         manager.app,
         base_url="http://127.0.0.1:18083",
@@ -504,19 +542,13 @@ def test_static_shell_marks_xss_and_csrf_claim_limits() -> None:
     )
     script = client.get("/assets/app.js").text
 
-    for target_id in (
-        "ruby-web:unsafe-file-upload.seller-document-preview",
-        "ruby-web:roundcube-derived.support-ticket-html-postprocess",
-        "ruby-web:cross-site-request-forgery.support-role-change",
-        "cve-original:CVE-2024-42009",
-        "cve-original:CVE-2026-54433",
-    ):
-        assert target_id in script
+    assert "xssCsrfClaimLimitedTargets" not in script
+    assert "main_experiment_eligible" in script
     for label in (
         '["판정", "검증됨"',
         '["식별", "미채택"',
-        '["차단", "미구현"',
-        '"방어 효과 집계 제외"',
+        '["방어 평가", "본 실험 미사용"',
+        '"본 실험 미사용"',
     ):
         assert label in script
 

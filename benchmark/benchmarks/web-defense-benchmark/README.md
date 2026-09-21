@@ -6,7 +6,7 @@
 
 ## 현재 검증 범위
 
-- 현재 저장소의 식별 컴포넌트와 `static-guard`에는 XSS 또는 CSRF 공격 요청 식별이 구현돼 있지 않습니다. 취약점 웹의 비공개 평가기는 지정된 일부 시나리오에서 브라우저 실행이나 상태 변경을 확인해 공격 성공 여부를 판정합니다. 실험용 요청 분류기는 정상 비실행 HTML을 XSS로 오분류해 제거했습니다. 분석기는 [`app/configs/defense-effect-exclusions-v1.json`](app/configs/defense-effect-exclusions-v1.json)에 적힌 XSS 및 CSRF 대상 5개를 채택 가능한 공격 요청 식별과 실행 차단 근거가 생길 때까지 방어 효과 집계에서 거부합니다.
+- 구현과 재현 자료는 34개 모두 보존합니다. 2026-09-17 결정에 따라 XSS 및 CSRF 관련 대상 5개는 공격자, 요청 식별, 방어 효과 본 실험에서 제외하고 나머지 29개만 실행합니다. 제외된 5개의 취약점 재현과 공격 성공 판정 자료는 삭제하지 않습니다. 정확한 목록과 적용 위치는 [`docs/main-experiment-scope-20260917.md`](docs/main-experiment-scope-20260917.md)에 있습니다.
 - 새 v3 캠페인은 실행 설정 원문, 봉인 입력의 원본 사본, 파일별 SHA-256과 재개 시 변경 내역을 함께 저장합니다. 추가 전의 과거 결과에 원본 사본이 있었다고 소급해서 주장하지 않습니다.
 - 원본 CVE 5종은 준비된 참조 공격으로 취약판과 수정판의 차이를 확인합니다. Langflow도 2026-09-12에 고정 image digest로 다시 확인했습니다. 이 결과가 AI가 모든 원본 CVE를 찾아냈다는 뜻은 아닙니다.
 - AI 방어 반복 결과는 공격 과업 정보를 받은 Codex, SQL 상품 검색 한 표적과 연결 예제 `static-guard` v3에만 적용됩니다.
@@ -31,6 +31,7 @@
 - [`docs/mentor-feedback-verification-20260910.md`](docs/mentor-feedback-verification-20260910.md)는 XSS, DOM 기반 공격, SHA-256, 원본 CVE와 실행 격리의 지원 범위와 실제 재검증 결과를 설명합니다.
 - [`docs/mentor-feedback-action-status-20260911.md`](docs/mentor-feedback-action-status-20260911.md)는 공격 성공 판정, 공격 요청 식별과 실행 차단을 구분하고 XSS 및 CSRF의 방어 실험 편입 조건을 기록합니다.
 - [`docs/request-identification-decision-20260911.md`](docs/request-identification-decision-20260911.md)는 실제 RUBY 웹에 연결한 XSS 및 CSRF 요청 분류 시험과 미채택 이유를 기록합니다.
+- [`docs/main-experiment-scope-20260917.md`](docs/main-experiment-scope-20260917.md)는 34개 구현 보존, 29개 본 실험 사용, XSS 및 CSRF 관련 5개 제외라는 최종 범위를 기록합니다.
 - [`docs/scenario-verification-20260911/`](docs/scenario-verification-20260911/README.md)는 자체 시나리오 29개와 원본 CVE 5개의 공격 재현 결과, 안전판 차이와 아직 구현되지 않은 요청 식별 및 실행 차단 범위를 쉬운 표로 정리합니다.
 - [`docs/branch-change-ledger.md`](docs/branch-change-ledger.md)는 본문 없이 남은 기존 18개 커밋을 diff와 검증 파일을 기준으로 해설합니다.
 - 이 문서들은 기존 Git 기록을 다시 쓰지 않고 검토 맥락을 보완합니다. 이후 커밋은 변경 이유, 범위와 실제 검증 결과를 본문에 기록합니다.

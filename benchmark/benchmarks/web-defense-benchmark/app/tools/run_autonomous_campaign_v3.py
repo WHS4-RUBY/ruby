@@ -26,6 +26,13 @@ from defense_runtime_v1 import (
     registered_conditions,
     registered_defense_source_files,
 )
+from main_experiment_scope_v1 import (
+    LEGACY_EFFECT_EXCLUSIONS_PATH,
+    POLICY_PATH as MAIN_EXPERIMENT_POLICY_PATH,
+    POLICY_SCHEMA_PATH as MAIN_EXPERIMENT_POLICY_SCHEMA_PATH,
+    assert_main_experiment_targets,
+    load_main_experiment_policy,
+)
 from autonomous_trial_v2 import (
     ACTION_SCHEMA,
     ModelCallBudgetExceeded,
@@ -38,7 +45,7 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 
 # 방어 구현은 별도 패키지에 있다. 무방어 조건에서는 불러오지 않는다.
 REGISTRY_PATH = APP_ROOT / "configs" / "stage3a-autonomous-target-registry-v2.json"
-SCOPE_PATH = APP_ROOT / "configs" / "stage3a-autonomous-baseline-scope-v1.json"
+SCOPE_PATH = APP_ROOT / "configs" / "stage3a-main-experiment-scope-v1.json"
 PROFILE_PATH = APP_ROOT / "configs" / "stage3a-autonomous-web-attacker-profile-v10.json"
 PUBLIC_BRIEF_SCHEMA_PATH = APP_ROOT.parent / "contracts" / "public-brief.schema.json"
 SCOPE_SCHEMA_PATH = APP_ROOT.parent / "contracts" / "autonomous-baseline-scope.schema.json"
@@ -69,6 +76,9 @@ SETUP_ADAPTER_MEMORY_RESERVES = {
 }
 BASE_SEALED_INPUTS = (
     REGISTRY_PATH,
+    MAIN_EXPERIMENT_POLICY_PATH,
+    MAIN_EXPERIMENT_POLICY_SCHEMA_PATH,
+    LEGACY_EFFECT_EXCLUSIONS_PATH,
     # 피해자 루프와 방어 구현도 결과를 만든다. 봉인에 없으면 그것들이
     # 바뀌어도 재개 검사를 통과하고, 한 실행 묶음에 다른 피해자 동작이나
     # 다른 방어 판본의 결과가 섞인다.
@@ -95,6 +105,7 @@ BASE_SEALED_INPUTS = (
     APP_ROOT.parent / "contracts" / "defense-runtime-registry.schema.json",
     APP_ROOT / "compose.yaml",
     Path(__file__).resolve(),
+    APP_ROOT / "tools" / "main_experiment_scope_v1.py",
     APP_ROOT / "tools" / "autonomous_cli_policy_v2.py",
     APP_ROOT / "tools" / "autonomous_cve_target_adapters_v3.py",
     APP_ROOT / "tools" / "autonomous_target_adapters_v2.py",
@@ -1174,14 +1185,19 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
         getattr(args, "attacker_profile", PROFILE_PATH)
     )
     args.attacker_profile = profile_path
-    recovered_projects = _reconcile_managed_docker_projects()
     registry = _registry()
-    targets = args.targets or list(registry)
+    main_experiment_policy = load_main_experiment_policy()
+    targets = (
+        list(args.targets)
+        if args.targets is not None
+        else [str(item) for item in main_experiment_policy["eligible_target_ids"]]
+    )
     unknown = sorted(set(targets) - set(registry))
     if unknown:
         raise ValueError(f"unregistered targets: {unknown}")
     if len(targets) != len(set(targets)):
         raise ValueError("target list contains duplicates")
+    assert_main_experiment_targets(targets)
     public_brief_path, public_brief = _public_brief_input(
         getattr(args, "public_brief", None), targets
     )
@@ -1256,6 +1272,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
     defense_source_inputs = registered_defense_source_files(
         conditions, args.defense_registry
     )
+    recovered_projects = _reconcile_managed_docker_projects()
     schedule = _schedule(
         targets,
         registry,
@@ -1278,6 +1295,9 @@ def run_campaign(args: argparse.Namespace) -> dict[str, object]:
         "seal_version": 1,
         "run_id": args.run_id,
         "targets": targets,
+        "main_experiment_target_policy": os.path.relpath(
+            MAIN_EXPERIMENT_POLICY_PATH, APP_ROOT
+        ).replace("\\", "/"),
         "providers": args.providers,
         "conditions": conditions,
         "defense_registry": os.path.relpath(

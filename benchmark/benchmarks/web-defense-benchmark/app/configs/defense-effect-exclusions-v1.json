@@ -1,7 +1,9 @@
 {
   "policy_version": 1,
   "policy_id": "ruby-defense-effect-exclusions-v1",
-  "purpose": "Keep implemented targets in the portfolio while blocking unsupported attack classes from defense-effect claims.",
+  "status": "compatibility-mirror",
+  "derived_from": "main-experiment-target-policy-v1.json",
+  "purpose": "Preserve the former analysis input while mirroring the five targets excluded from the 2026-09-17 main experiment decision.",
   "blocked_targets": [
     {
       "target_id": "ruby-web:unsafe-file-upload.seller-document-preview",
@@ -28,12 +30,5 @@
       "attack_class": "stored-xss",
       "reason": "The original target reproduces browser execution, but no current RUBY XSS detector or defense has passed attack and benign-input tests."
     }
-  ],
-  "removal_requirements": [
-    "vulnerable target attack succeeds",
-    "secure twin or fixed target rejects the same attack",
-    "registered RUBY detector or defense acts on the attack",
-    "representative benign requests pass without false positives",
-    "raw reproducible evidence is retained"
   ]
 }

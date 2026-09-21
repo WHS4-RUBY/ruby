@@ -3,6 +3,11 @@
 공격 대상 웹과 분리된 로컬 통제면이다. 등록된 취약점만 전환하고 기존 캠페인 실행기를
 시작하며 결과 JSON과 로그를 표시한다. 임의 명령과 임의 경로는 받지 않는다.
 
+화면의 취약점 목록에는 구현된 34개가 모두 보인다. 재현 자료를 확인하고 RUBY 웹 모듈을
+전환하는 기능도 유지한다. 실험 실행 목록에는 2026-09-17 결정으로 허용된 29개만 나타나며,
+XSS 및 CSRF 관련 제외 대상 5개는 API에서도 실행 전에 거부한다. 안전판과 원본 제품 수정판은
+재현 대조군이며 본 실험 조건으로 사용하지 않는다.
+
 ```powershell
 python -m pip install -r requirements-dev.txt
 python -m pip install -r app/manager/requirements.txt
