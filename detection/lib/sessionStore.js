@@ -3,6 +3,8 @@ const { normalizePath } = require("./requestMetadata");
 const { DECEPTION_SIGNAL_CATALOG } = require("./deceptionEngine");
 const { ActorResolver, MEMBERSHIP_STATUS } = require("./actorResolver");
 const { buildHttpFingerprint } = require("./httpFingerprint");
+const { buildClientObservation } = require("./fingerprintSimilarity");
+const { ClientFlowStore } = require("./clientFlowStore");
 
 // 세션 단위 데이터: 요청 로그 + 클라이언트 텔레메트리
 const sessions = new Map();
@@ -15,6 +17,9 @@ const authGroups = new Map();
 const ipEntries = new Map();
 // Session 단위 Resolution Assignment를 관리하며 원본 요청은 복사하지 않는다.
 const actorResolver = new ActorResolver();
+// Fingerprint 유사도 기반 Client Flow 집계. DCID 기반 Resolved Actor는 신원 경계로
+// 그대로 보존하고, Session/Candidate 사이의 휴리스틱 요청 흐름만 연결한다.
+const clientFlowStore = new ClientFlowStore();
 
 const MAX_REQUESTS_PER_SESSION = 500; // 메모리 보호용 링버퍼 상한
 const MAX_REQUESTS_PER_AUTH_GROUP = MAX_REQUESTS_PER_SESSION * 2;
@@ -179,6 +184,7 @@ function getOrCreateSession(sessionId, ip) {
       actorIds: new Set(),
       resolvedActorId: null,
       resolutionMembershipId: null,
+      clientFlowId: null,
       userAgent: null,
       attackHistory: emptyAttackHistory(),
       deceptionHistory: emptyDeceptionHistory(),
@@ -294,6 +300,7 @@ function recordRequest(
     authGroupId: authGroupId || null,
     resolvedActorId: null,
     resolutionMembershipId: null,
+    clientFlowId: null,
     clientId: clientIdentity?.valid ? clientIdentity.clientId : null,
     clientContinuityVerified: Boolean(
       clientIdentity?.continuityVerified === true || clientIdentity?.source === "verified"
@@ -340,6 +347,18 @@ function recordRequest(
     securityQuestionEmail: securityQuestionEmail || null,
     tags: tags || [],
   };
+  const clientObservation = buildClientObservation({ ip, httpFingerprint, ts: now });
+  const clientFlow = clientFlowStore.observe({
+    candidateId: actorId,
+    observation: clientObservation,
+    sessionId,
+    clientIdentity,
+    ts: now,
+  });
+  // 관찰값은 Actor와 Client Flow에만 보관한다. 요청마다 복사하면 세션당 최대 500벌이
+  // 중복 적재되는데 읽는 쪽이 없다.
+  requestRecord.clientFlowId = clientFlow.id;
+  s.clientFlowId = clientFlow.id;
   s.requests.push(requestRecord);
   if (s.requests.length > MAX_REQUESTS_PER_SESSION) {
     s.requests.shift();
@@ -394,6 +413,7 @@ function recordRequest(
       ip,
       fingerprint,
       clientFingerprintV2: httpFingerprint.clientFingerprint,
+      clientObservation,
       headerSample: withoutSensitiveHeaders(headers),
       userAgent: headers["user-agent"] || "",
       firstSeen: now,
@@ -407,6 +427,7 @@ function recordRequest(
   }
   const actor = actors.get(actorId);
   actor.clientFingerprintV2 = httpFingerprint.clientFingerprint;
+  actor.clientObservation = clientObservation;
   actor.lastSeen = now;
   actor.totalRequests++;
   actor.sessionIds.add(sessionId);
@@ -447,10 +468,11 @@ function recordRequest(
   return s;
 }
 
-function updateAttackScoreHistory({ sessionId, actorId, authGroupId, scores = {} }) {
+function updateAttackScoreHistory({ sessionId, actorId, authGroupId, clientFlowId, scores = {} }) {
   updateMaxAttackScore(sessions.get(sessionId), scores.session);
   updateMaxAttackScore(actors.get(actorId), scores.actor);
   if (authGroupId) updateMaxAttackScore(authGroups.get(authGroupId), scores.authGroup);
+  if (clientFlowId) clientFlowStore.updateAttackScore(clientFlowId, scores.clientFlow);
 }
 
 function recordTelemetry(sessionId, ip, payload) {
@@ -688,7 +710,101 @@ function deactivateResolutionMembership(membershipId, reason) {
 }
 
 function getResolutionStatus() {
-  return actorResolver.status();
+  return {
+    ...actorResolver.status(),
+    fingerprintSimilarity: clientFlowStore.status(),
+  };
+}
+
+function summarizeClientFlowGroup(group) {
+  const flowLinked =
+    group.sessionIds.size > 1 || group.candidateIds.size > 1 || group.verifiedClientIds.size > 1;
+  return {
+    id: group.id,
+    status: group.conflicts.length ? "CONFLICT" : flowLinked ? "FLOW_LINKED" : "OBSERVED",
+    confidence: flowLinked ? "MEDIUM" : "LOW",
+    similarityVersion: group.similarityVersion,
+    aggregationPolicy: group.aggregationEnabled
+      ? "FINGERPRINT_CLIENT_FLOW_AUTO"
+      : "CANDIDATE_CLIENT_FLOW",
+    aggregationEnabled: group.aggregationEnabled,
+    flowLinked,
+    verifiedClientCount: group.verifiedClientIds.size,
+    anchorCandidateId: group.anchorCandidateId,
+    candidateIds: [...group.candidateIds],
+    candidateCount: group.candidateIds.size,
+    sessionIds: [...group.sessionIds],
+    sessionCount: group.sessionIds.size,
+    links: group.links.map((link) => ({ ...link })),
+    conflicts: [...group.conflicts],
+    firstSeen: group.firstSeen,
+    lastSeen: group.lastSeen,
+  };
+}
+
+/**
+ * 프록시 핫패스에서 매 요청 호출되는 O(1) 조회.
+ * 전체 집계(getClientFlowAggregate)는 멤버 세션의 요청을 전부 훑고 정렬하므로
+ * 실제로 Flow가 병합된 경우에만 호출한다.
+ */
+function getClientFlowState(idOrCandidateId) {
+  const group = clientFlowStore.get(idOrCandidateId) || clientFlowStore.getByCandidate(idOrCandidateId);
+  return group ? summarizeClientFlowGroup(group) : null;
+}
+
+function getClientFlowAggregate(idOrCandidateId) {
+  const group = clientFlowStore.get(idOrCandidateId) || clientFlowStore.getByCandidate(idOrCandidateId);
+  if (!group) return null;
+  const summary = summarizeClientFlowGroup(group);
+  const memberSessions = [...group.sessionIds].map((id) => sessions.get(id)).filter(Boolean);
+  const requestIds = new Set();
+  const requests = [];
+  for (const session of memberSessions) {
+    for (const request of session.requests) {
+      if (!group.candidateIds.has(request.actorId)) continue;
+      const key = request.requestId || `${request.sessionId}\u0000${request.ts}\u0000${request.operation}`;
+      if (requestIds.has(key)) continue;
+      requestIds.add(key);
+      requests.push(request);
+    }
+  }
+  requests.sort((a, b) => a.ts - b.ts);
+  if (requests.length > MAX_REQUESTS_PER_RESOLVED_ACTOR) {
+    requests.splice(0, requests.length - MAX_REQUESTS_PER_RESOLVED_ACTOR);
+  }
+  const includedRequests = group.aggregationEnabled
+    ? requests
+    : requests.filter((request) => request.actorId === group.anchorCandidateId);
+  const includedSessionIds = new Set(includedRequests.map((request) => request.sessionId));
+  const includedSessions = memberSessions.filter((session) => includedSessionIds.has(session.id));
+  const attackHistory = aggregateAttackHistory(includedSessions);
+  if (group.aggregationEnabled) {
+    attackHistory.maxAttackScore = Math.max(attackHistory.maxAttackScore, group.maxAttackScore || 0);
+  }
+  return {
+    ...summary,
+    sessionIds: [...includedSessionIds],
+    sessionCount: includedSessionIds.size,
+    observedIps: [...new Set(requests.map((request) => request.ip).filter(Boolean))],
+    clientObservation: group.anchorObservation,
+    totalRequests: includedRequests.length,
+    requests: includedRequests,
+    memberSessions: includedSessions,
+    attackHistory,
+    deceptionHistory: aggregateDeceptionHistory(includedSessions),
+  };
+}
+
+function getAllClientFlowAggregates() {
+  return clientFlowStore
+    .getAll()
+    .filter((group) =>
+      group.sessionIds.size > 1 ||
+      group.candidateIds.size > 1 ||
+      group.verifiedClientIds.size > 1 ||
+      group.conflicts.length > 0
+    )
+    .map((group) => getClientFlowAggregate(group.id));
 }
 
 module.exports = {
@@ -708,6 +824,9 @@ module.exports = {
   getResolutionMemberships,
   deactivateResolutionMembership,
   getResolutionStatus,
+  getClientFlowAggregate,
+  getAllClientFlowAggregates,
+  getClientFlowState,
   updateAttackScoreHistory,
   emptyAttackHistory,
   emptyDeceptionHistory,

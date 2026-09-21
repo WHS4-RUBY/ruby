@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "experiment:fingerprint": "node scripts/run-fingerprint-experiment.js"
   },
   "dependencies": {
     "cookie-parser": "^1.4.6",

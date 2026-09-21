@@ -61,4 +61,9 @@ datasets/
 models/
 checkpoints/
 artifacts/
-**/data/schema-learning.json
+# 런타임 데이터 볼륨 (detection/data 는 컨테이너의 /app/data 로 마운트된다)
+detection/data/*
+!detection/data/.gitkeep
+
+# 에이전트 개인 설정 (.codex/ 와 같은 맥락, 공유 설정은 커밋 가능)
+.claude/settings.local.json
