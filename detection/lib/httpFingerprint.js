@@ -14,6 +14,10 @@ function clean(value) {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function observed(value, maximum = 1024) {
+  return String(value || "").trim().slice(0, maximum);
+}
+
 function sortedTokens(value) {
   return clean(value)
     .split(",")
@@ -48,6 +52,13 @@ function userAgentProduct(value) {
     family: product ? product[1].toLowerCase() : "unknown",
     major: product?.[2] || "0",
   };
+}
+
+function userAgentVersion(value) {
+  const match = String(value || "").match(
+    /\b(?:curl|wget|python-requests|python-urllib|chrome|crios|firefox|fxios|version|edg)\/([0-9]+(?:\.[0-9]+)*)/i
+  );
+  return match?.[1] || "";
 }
 
 function headerNamesInOrder(rawHeaders, headers) {
@@ -89,8 +100,12 @@ function buildHttpFingerprint({ headers = {}, rawHeaders = [], httpVersion = "",
     version: 2,
     userAgentFamily: product.family,
     userAgentMajor: product.major,
+    userAgentVersion: userAgentVersion(headers["user-agent"]),
+    userAgentRaw: observed(headers["user-agent"]),
     userAgent: clean(headers["user-agent"]),
+    acceptLanguageRaw: observed(headers["accept-language"]),
     primaryLanguage: primaryLanguage(headers["accept-language"]),
+    acceptEncodingRaw: observed(headers["accept-encoding"]),
     acceptEncodings: sortedTokens(headers["accept-encoding"]),
     clientHints: {
       brands: clean(headers["sec-ch-ua"]),
@@ -136,4 +151,5 @@ module.exports = {
   headerNamesInOrder,
   primaryLanguage,
   userAgentProduct,
+  userAgentVersion,
 };

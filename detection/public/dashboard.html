@@ -147,6 +147,18 @@
   .relation-key { flex-shrink:0; width:112px; color:var(--muted); font-size:12px; font-weight:600; }
   .relation-chips { display:flex; flex-wrap:wrap; gap:6px; }
   .relation-note { margin:0; color:var(--muted); font-size:12px; line-height:1.55; }
+  .connection-disclosure { flex-shrink:0; border-bottom:1px solid var(--border); }
+  .connection-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 22px; color:var(--text); cursor:pointer; list-style:none; user-select:none; }
+  .connection-summary::-webkit-details-marker { display:none; }
+  .connection-summary:hover { background:var(--hover); }
+  .connection-summary-main { display:flex; align-items:center; gap:9px; min-width:0; }
+  .connection-summary-title { font-size:13px; font-weight:700; }
+  .connection-summary-meta { color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .connection-summary-toggle { flex-shrink:0; color:var(--navy); font-size:12px; font-weight:650; }
+  .connection-summary-toggle::before { content:"▸"; display:inline-block; margin-right:5px; transition:transform .15s ease; }
+  .connection-disclosure[open] .connection-summary-toggle::before { transform:rotate(90deg); }
+  .connection-disclosure[open] .connection-summary-toggle::after { content:"접기"; }
+  .connection-disclosure:not([open]) .connection-summary-toggle::after { content:"펼치기"; }
   .node-chip { display:inline-flex; align-items:center; gap:6px; padding:5px 9px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:12.5px; cursor:pointer; }
   .node-chip:hover { background:var(--hover); border-color:var(--select-border); }
   .node-chip.active { background:var(--select-bg); border-color:var(--select-border); }
@@ -303,7 +315,7 @@
               <div class="filter-chips" id="userIdentityFilters" role="group" aria-label="확인 상태 필터">
                 <button class="chip-button active" type="button" data-identity="all">전체</button>
                 <button class="chip-button" type="button" data-identity="confirmed">연속성 확정</button>
-                <button class="chip-button" type="button" data-identity="candidate">후보</button>
+                <button class="chip-button" type="button" data-identity="heuristic">휴리스틱 흐름</button>
               </div>
             </div>
             <p class="list-meta" id="userListMeta">—</p>
@@ -318,7 +330,7 @@
       <div class="tab-panel" id="panel-actors" role="tabpanel" hidden>
         <div class="section-head"><div><h2>후보 클라이언트</h2><p class="sub">IP와 HTTP 헤더 지문으로 묶은 추정 클라이언트이며 실제 사용자 식별자가 아닙니다.</p></div></div>
         <div class="table-wrap"><table><thead><tr>
-          <th>후보 클라이언트</th><th>IP</th><th>헤더 지문</th><th title="확률이 아닌 휴리스틱 지표입니다. 35%는 허니 신호 배점입니다.">자동화 점수</th><th title="확률이 아닌 휴리스틱 지표입니다. 22%는 허니 신호 배점입니다.">공격 점수</th><th>허니 신호</th><th>누적 공격 이력</th>
+          <th>후보 클라이언트</th><th>IP</th><th>클라이언트 특징 · 연관 판정</th><th title="확률이 아닌 휴리스틱 지표입니다. 35%는 허니 신호 배점입니다.">자동화 점수</th><th title="확률이 아닌 휴리스틱 지표입니다. 22%는 허니 신호 배점입니다.">공격 점수</th><th>허니 신호</th><th>누적 공격 이력</th>
           <th>요청</th><th>세션</th><th>최초 관찰</th><th>최근 관찰</th>
         </tr></thead><tbody id="actorRows"></tbody></table></div>
       </div>
@@ -378,6 +390,7 @@ const state = {
   timelineSession: 'all',
   timelineFlaggedOnly: false,
   timelineBackgroundExpanded: false,
+  connectionDetailsExpanded: false,
 };
 
 /* 세션마다 고정된 색을 배정해 타임라인에서 흐름을 구분한다. */
@@ -414,6 +427,7 @@ function toggleTheme() {
 
 const entityLabels = {
   'resolved-actors': '행위자 흐름 (Resolved Actor)',
+  'client-flows': '클라이언트 흐름 (Client Flow)',
   sessions: '세션 (Session)',
   actors: '후보 클라이언트 (Actor Candidate)',
   'auth-groups': '인증 그룹 (Auth Group)',
@@ -519,6 +533,8 @@ const statusNames = {
   UNRESOLVED: '미확정',
   PARTIALLY_CONFIRMED: '일부 확정',
   AMBIGUOUS: '판단 보류',
+  FLOW_LINKED: '흐름 연결',
+  OBSERVED: '단일 흐름 관찰',
   HIGH: '높음',
   MEDIUM: '중간',
   LOW: '낮음',
@@ -537,6 +553,8 @@ const statusHints = {
   UNRESOLVED: '확정된 Resolved Actor가 아직 없는 후보 흐름',
   PARTIALLY_CONFIRMED: '같은 후보 안에 확정 흐름과 미확정 요청이 섞인 상태',
   AMBIGUOUS: '한 후보에 연속성 확정 흐름이 둘 이상이라 단정할 수 없는 상태',
+  FLOW_LINKED: 'Fingerprint와 요청 연속성으로 세션을 한 흐름에 연결한 상태이며 동일 클라이언트 확정은 아님',
+  OBSERVED: '아직 다른 세션 또는 Candidate와 연결되지 않은 단일 요청 흐름',
   HIGH: '높은 신뢰도', MEDIUM: '중간 신뢰도', LOW: '낮은 신뢰도',
   NONE: '신뢰 근거 없음', MIXED: '확정과 미확정이 섞임',
 };
@@ -634,7 +652,7 @@ function statusBadge(code) {
   const hint = statusHints[code] ? ` title="${escapeHtml(statusHints[code])} · 원본 코드 ${escapeHtml(code)}"` : '';
   const tone = code === 'CONFIRMED' || code === 'HIGH' ? 'confirmed'
     : code === 'CONFLICT' ? 'danger'
-      : code === 'PROVISIONAL' || code === 'PARTIALLY_CONFIRMED' || code === 'UNRESOLVED' || code === 'AMBIGUOUS' ? 'candidate'
+      : code === 'PROVISIONAL' || code === 'FLOW_LINKED' || code === 'PARTIALLY_CONFIRMED' || code === 'UNRESOLVED' || code === 'AMBIGUOUS' ? 'candidate'
         : 'neutral';
   return `<span class="badge ${tone}"${hint}>${escapeHtml(statusText(code))}</span>`;
 }
@@ -760,15 +778,15 @@ function buildActorFlowPresentation(resolvedActors, actors) {
 
   for (const candidate of actors) {
     const resolvedIds = [...new Set(candidate.resolvedActorIds || [])];
-    if (!resolvedIds.some(id => pendingIds.has(id))) continue;
+    const hasPending = resolvedIds.some(id => pendingIds.has(id));
     const confirmedActors = resolvedIds
       .map(id => resolvedById.get(id))
       .filter(actor => actor?.continuityConfirmed);
-    // 한 Candidate 안에 확정 Actor가 여러 개면 NAT/공용 클라이언트일 수 있으므로
-    // 각각의 확정 행을 숨기거나 하나로 합치지 않는다.
-    if (confirmedActors.length === 1) {
-      suppressedConfirmedIds.add(confirmedActors[0].resolvedActorId);
-    }
+    // 확정 Actor 하나만 존재하면 그 신원 경계를 그대로 대표 흐름으로 사용한다.
+    // 쿠키 삭제 등으로 확정 Actor가 여러 개 생겼거나 미확정 세션이 섞였을 때는
+    // 신원을 병합하지 않고 상위 Client Flow 한 행에서 하위 흐름으로 연결한다.
+    if (!hasPending && resolvedIds.length === 1 && confirmedActors.length === 1) continue;
+    for (const confirmed of confirmedActors) suppressedConfirmedIds.add(confirmed.resolvedActorId);
     const confirmedRequests = Math.min(
       Number(candidate.totalRequests) || 0,
       confirmedActors.reduce((sum, actor) => sum + Number(actor.totalRequests || 0), 0)
@@ -785,9 +803,9 @@ function buildActorFlowPresentation(resolvedActors, actors) {
   };
 }
 
-/* Resolved Actor(연속성 확정)와 Candidate(후보) 흐름을 하나의 클라이언트 흐름 목록으로 통합한다.
-   두 흐름의 점수/요청 수는 각 API 값을 그대로 사용하며 재계산하지 않는다. */
-function buildUserRows(resolvedActors, actors) {
+/* Resolved Actor는 신원 경계로 보존하고, Candidate/Fingerprint 연결은 상위 Client Flow로
+   표시한다. Client Flow는 동일인 확정이 아니라 시간순 요청 연속성 집계다. */
+function buildUserRows(resolvedActors, actors, clientFlows = []) {
   const presentation = buildActorFlowPresentation(resolvedActors, actors);
   const rows = [];
 
@@ -831,9 +849,9 @@ function buildUserRows(resolvedActors, actors) {
     rows.push({
       kind: 'actors',
       id: candidate.actorId,
-      identity: 'candidate',
-      status,
-      confidence: flow.confirmedActors.length === 1 ? 'MIXED' : 'NONE',
+      identity: 'heuristic',
+      status: flow.confirmedActors.length > 1 ? 'FLOW_LINKED' : status,
+      confidence: flow.confirmedActors.length ? 'MEDIUM' : 'LOW',
       automationScore: candidate.automationScore,
       attackScore: candidate.attackScore,
       totalRequests: Number(candidate.totalRequests || 0),
@@ -857,11 +875,54 @@ function buildUserRows(resolvedActors, actors) {
         candidate.fingerprint,
         ...flow.confirmedActors.map(actor => actor.resolvedActorId),
       ],
-      note: `확정 ${flow.confirmedRequests} + 미확정 ${flow.unresolvedRequests}`,
+      note: flow.confirmedActors.length > 1
+        ? `분리된 DCID 흐름 ${flow.confirmedActors.length}개를 요청 흐름으로 연결`
+        : `확정 ${flow.confirmedRequests} + 미확정 ${flow.unresolvedRequests}`,
     });
   }
 
-  return rows;
+  const flowCandidateIds = new Set(
+    clientFlows.flatMap(group => group.flowLinked ? (group.candidateIds || []) : [])
+  );
+  const flowResolvedIds = new Set(
+    clientFlows.flatMap(group => group.flowLinked ? (group.resolvedActorIds || []) : [])
+  );
+  const visibleRows = rows.filter(row =>
+    !(row.kind === 'actors' && flowCandidateIds.has(row.id)) &&
+    !(row.kind === 'resolved-actors' && flowResolvedIds.has(row.id))
+  );
+  for (const group of clientFlows) {
+    if (!group.flowLinked && group.status !== 'CONFLICT') continue;
+    const scores = (group.links || []).map(link => Number(link.score || 0));
+    const lowestScore = scores.length ? Math.min(...scores) : 0;
+    visibleRows.push({
+      kind: 'client-flows',
+      id: group.clientFlowId,
+      identity: 'heuristic',
+      status: group.status,
+      confidence: group.confidence,
+      automationScore: group.automationScore,
+      attackScore: group.attackScore,
+      totalRequests: Number(group.totalRequests || 0),
+      behaviorAnalyzedRequests: Number(group.features?.behaviorAnalyzedRequests ?? group.totalRequests ?? 0),
+      backgroundRequests: Number(group.features?.backgroundRequests || 0),
+      sessionCount: Number(group.sessionCount || 0),
+      candidateCount: Number(group.candidateCount || 0),
+      ipCount: (group.observedIps || []).length,
+      ips: group.observedIps || [],
+      firstSeen: group.firstSeen,
+      lastSeen: group.lastSeen,
+      attackHistory: group.attackHistory,
+      deceptionHistory: group.deceptionHistory,
+      relatedIds: [group.clientFlowId, ...(group.candidateIds || []), ...(group.resolvedActorIds || []), ...(group.observedIps || [])],
+      note: group.status === 'CONFLICT'
+        ? 'Fingerprint 충돌 · 자동 합산 중단'
+        : group.candidateCount > 1
+          ? `Fingerprint 연관 ${lowestScore.toFixed(0)}점 이상 · 흐름 자동 연결`
+          : `동일 Candidate의 세션·DCID 흐름 연결`,
+    });
+  }
+  return visibleRows;
 }
 
 function filterAndSortUsers(rows) {
@@ -904,7 +965,7 @@ function renderUserList() {
     const badgeTitle = `확인 상태 ${statusText(row.status)}${row.note ? ` · ${row.note}` : ''}`;
     const badge = row.identity === 'confirmed'
       ? `<span class="badge confirmed" title="${escapeHtml(badgeTitle)}">연속성 확정</span>`
-      : `<span class="badge candidate" title="${escapeHtml(badgeTitle)}">후보</span>`;
+      : `<span class="badge candidate" title="${escapeHtml(badgeTitle)}">클라이언트 흐름</span>`;
     const flags = [
       detection.automationDetected ? `<span class="badge neutral" title="현재 Automation Score ${detection.automationScore}점 ≥ ${detection.threshold}점">AI 접근 식별</span>` : '',
       detection.attackDetected ? `<span class="badge danger" title="최고 Attack Score ${detection.maxAttackScore}점 ≥ ${detection.threshold}점">공격 식별</span>` : '',
@@ -941,6 +1002,7 @@ function renderUserList() {
 
 async function selectUser(kind, id, { keepTimelineFilters = false } = {}) {
   state.selected = { kind, id };
+  state.connectionDetailsExpanded = false;
   if (!keepTimelineFilters) {
     state.timelineQuery = '';
     state.timelineSession = 'all';
@@ -1047,8 +1109,9 @@ function collapseBackgroundRuns(requests) {
 
 function renderRelation(detail, kind, sessionNodes) {
   const isResolved = kind === 'resolved-actors';
-  const rootId = isResolved ? detail.resolvedActorId : detail.actorId;
-  const candidateIds = isResolved ? (detail.candidateIds || []) : [detail.actorId];
+  const isClientFlow = kind === 'client-flows';
+  const rootId = isResolved ? detail.resolvedActorId : isClientFlow ? detail.clientFlowId : detail.actorId;
+  const candidateIds = isResolved || isClientFlow ? (detail.candidateIds || []) : [detail.actorId];
   const linkedResolvedIds = isResolved
     ? []
     : [...new Set((detail.requests || []).map(request => request.resolvedActorId).filter(Boolean))];
@@ -1086,6 +1149,53 @@ function renderRelation(detail, kind, sessionNodes) {
       <span class="relation-chips">${sessionChips}</span>
     </div>
   </div>`;
+}
+
+function renderFingerprintSimilarity(detail) {
+  const links = detail.links || detail.clientFlow?.links || [];
+  if (!links.length) return '';
+  const items = links.map(link => `<div class="path-item">
+    <div class="meta">Fingerprint 연관 점수 <b>${Number(link.score || 0).toFixed(1)}/100</b> · 판정 ${escapeHtml(link.decision || '—')} · ${escapeHtml(link.reason || '—')}</div>
+    <div class="url"><code>${escapeHtml(shortId(link.fromCandidateId, 18))}</code> → <code>${escapeHtml(shortId(link.toCandidateId, 18))}</code></div>
+    <div class="meta">일치: ${escapeHtml((link.matchedFields || []).join(', ') || '—')}</div>
+    <div class="meta">변경: ${escapeHtml((link.changedFields || []).join(', ') || '—')}</div>
+    <div class="meta">비교 제외: ${escapeHtml((link.ignoredFields || []).join(', ') || '—')}</div>
+  </div>`).join('');
+  const beforeAttack = detail.preMergeAttackScore === undefined ? ''
+    : `<p class="sub">연결 전 최고 Attack ${scoreNumber(detail.preMergeAttackScore)}점 → Client Flow 연결 후 ${scoreNumber(detail.attackScore)}점 · 연결 전 최고 Automation ${scoreNumber(detail.preMergeAutomationScore)}점 → 연결 후 ${scoreNumber(detail.automationScore)}점</p>`;
+  return `<div class="panel"><h3>Fingerprint 유사도 · ${escapeHtml(detail.similarityVersion || 'fingerprint-similarity-v1')}</h3>${beforeAttack}${items}</div>`;
+}
+
+/* 세션·연결 흐름이 많아도 요청 타임라인이 먼저 보이도록, 관계 근거는 접어서 제공한다. */
+function renderConnectionDetails(detail, kind, sessionNodes) {
+  const similarity = renderFingerprintSimilarity(detail);
+  const relation = renderRelation(detail, kind, sessionNodes);
+  if (!similarity && !relation) return '';
+
+  const isClientFlow = kind === 'client-flows';
+  const candidateCount = isClientFlow
+    ? (detail.candidateIds || []).length
+    : kind === 'resolved-actors'
+      ? (detail.candidateIds || []).length
+      : 1;
+  const linkedResolvedCount = isClientFlow
+    ? new Set((detail.requests || []).map(request => request.resolvedActorId).filter(Boolean)).size
+    : 0;
+  const summary = [
+    `세션 ${sessionNodes.length}`,
+    candidateCount ? `후보 ${candidateCount}` : '',
+    linkedResolvedCount ? `확정 흐름 ${linkedResolvedCount}` : '',
+    similarity ? `Fingerprint 연결 ${detail.links?.length || detail.clientFlow?.links?.length || 0}` : '',
+  ].filter(Boolean).join(' · ');
+
+  return `<details class="connection-disclosure" id="connectionDisclosure"${state.connectionDetailsExpanded ? ' open' : ''}>
+    <summary class="connection-summary">
+      <span class="connection-summary-main"><span class="connection-summary-title">연결 관계 · 유사도</span><span class="connection-summary-meta">${escapeHtml(summary)}</span></span>
+      <span class="connection-summary-toggle" aria-hidden="true"></span>
+    </summary>
+    ${similarity}
+    ${relation}
+  </details>`;
 }
 
 function renderTimeline(detail, sessionNodes) {
@@ -1195,7 +1305,9 @@ function renderUserDetail() {
   const sessionNodes = buildSessionNodes(detail, kind);
   const identityBadge = kind === 'resolved-actors'
     ? '<span class="badge confirmed" title="서명된 클라이언트 ID로 동일 클라이언트 연속성이 확인된 흐름입니다(Continuity Confirmed).">연속성 확정</span>'
-    : '<span class="badge candidate" title="아직 확정되지 않아 IP + HTTP 헤더 지문으로만 묶인 후보 흐름입니다(Candidate Flow).">후보 흐름</span>';
+    : kind === 'client-flows'
+      ? '<span class="badge candidate" title="Fingerprint와 요청 연속성으로 연결한 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>'
+      : '<span class="badge candidate" title="IP + HTTP 헤더 지문으로 묶은 요청 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>';
   const detection = detectionFor(detail);
 
   pane.innerHTML = `
@@ -1226,7 +1338,7 @@ function renderUserDetail() {
         IP ${escapeHtml((detail.observedIps || (detail.ip ? [detail.ip] : [])).join(', ') || '—')}
       </p>
     </div>
-    ${renderRelation(detail, kind, sessionNodes)}
+    ${renderConnectionDetails(detail, kind, sessionNodes)}
     ${renderTimeline(detail, sessionNodes)}
   `;
 
@@ -1256,6 +1368,9 @@ function renderUserDetail() {
   document.getElementById('openDetailJson')?.addEventListener('click', () => {
     openJsonViewer(`/__detection/api/${kind}/${encodeURIComponent(id)}`, `${entityLabels[kind] || kind} — ${id}`, `${kind}-detail.json`);
   });
+  document.getElementById('connectionDisclosure')?.addEventListener('toggle', event => {
+    state.connectionDetailsExpanded = event.currentTarget.open;
+  });
   const search = document.getElementById('timelineSearch');
   if (search) {
     search.addEventListener('input', () => {
@@ -1282,10 +1397,10 @@ function updateSummary(userRows, sessions, actors, authGroups, ipEntries) {
   const behaviorAnalyzedRequests = sessions.reduce((sum, session) => sum + Number(session.features?.behaviorAnalyzedRequests ?? session.features?.totalRequests ?? 0), 0);
   const backgroundRequests = sessions.reduce((sum, session) => sum + Number(session.features?.backgroundRequests || 0), 0);
   const confirmed = userRows.filter(row => row.identity === 'confirmed').length;
-  const candidates = userRows.length - confirmed;
+  const heuristicFlows = userRows.length - confirmed;
   document.getElementById('summaryResolvedActors').textContent = userRows.length.toLocaleString();
   document.getElementById('summaryResolvedActorsSub').textContent =
-    `연속성 확정 ${confirmed.toLocaleString()} · 후보 ${candidates.toLocaleString()}`;
+    `연속성 확정 ${confirmed.toLocaleString()} · 휴리스틱 흐름 ${heuristicFlows.toLocaleString()}`;
   document.getElementById('summarySessions').textContent = sessions.length.toLocaleString();
   document.getElementById('summaryRequests').textContent = totalRequests.toLocaleString();
   document.getElementById('summaryRequestsSub').textContent = `분석 ${behaviorAnalyzedRequests.toLocaleString()} · 백그라운드 ${backgroundRequests.toLocaleString()}`;
@@ -1299,11 +1414,11 @@ function updateSummary(userRows, sessions, actors, authGroups, ipEntries) {
 async function refresh() {
   const responses = await Promise.all([
     fetch('/__detection/api/resolved-actors'), fetch('/__detection/api/sessions'), fetch('/__detection/api/actors'),
-    fetch('/__detection/api/auth-groups'), fetch('/__detection/api/ip-entries')
+    fetch('/__detection/api/auth-groups'), fetch('/__detection/api/ip-entries'), fetch('/__detection/api/client-flows')
   ]);
-  const [resolvedActors, sessions, actors, authGroups, ipEntries] = await Promise.all(responses.map(r => r.json()));
+  const [resolvedActors, sessions, actors, authGroups, ipEntries, clientFlows] = await Promise.all(responses.map(r => r.json()));
 
-  state.users = buildUserRows(resolvedActors, actors);
+  state.users = buildUserRows(resolvedActors, actors, clientFlows);
   updateSummary(state.users, sessions, actors, authGroups, ipEntries);
   renderUserList();
   // 데이터가 처음 들어온 순간에만 첫 흐름을 자동 선택한다. 사용자가 직접 고른
@@ -1334,9 +1449,17 @@ async function refresh() {
     .sort((a,b) => Math.max(detectionFor(b).maxAttackScore,b.automationScore*100)-Math.max(detectionFor(a).maxAttackScore,a.automationScore*100))
     .map(a => {
       const detection = detectionFor(a);
+      const profile = a.clientObservation?.clientProfile || {};
+      const ua = profile.userAgent || {};
+      const relation = a.clientFlow?.links?.find(link => link.toCandidateId === a.actorId)
+        || a.clientFlow?.links?.[0];
+      const profileText = `${ua.family || 'unknown'}/${ua.version || ua.major || '0'} · ${profile.language?.primary || 'unknown'} · ${(profile.acceptEncoding?.tokens || []).join(', ') || 'none'}`;
+      const relationText = relation
+        ? `<div class="meta">연관 ${Number(relation.score || 0).toFixed(1)}/100 · ${escapeHtml(relation.decision || '—')} · 변경 ${escapeHtml((relation.changedFields || []).join(', ') || '없음')}</div>`
+        : '<div class="meta">연관 Candidate 없음</div>';
       return `<tr ${rowAttrs('actors', a.actorId)}>
       <td><code>${escapeHtml(a.actorId.slice(0,18))}…</code></td><td>${escapeHtml(a.ip)}</td>
-      <td><code>${escapeHtml(a.fingerprint)}</code></td>
+      <td><code>${escapeHtml(profileText)}</code>${relationText}</td>
       <td>${scoreCell(a.automationScore,'automation',detection.automationDetected)}</td><td>${scoreCell(detection.maxAttackScore/100,'attack',detection.attackDetected)}</td><td>${honeySignalsCell(a.deceptionHistory)}</td><td>${attackHistoryCell(a.attackHistory)}</td>
       <td>${a.totalRequests}</td><td>${a.sessionCount}</td><td>${escapeHtml(formatTime(a.firstSeen))}</td><td>${escapeHtml(formatTime(a.lastSeen))}</td>
     </tr>`;
@@ -1514,6 +1637,7 @@ async function openDetail(kind, id) {
   document.getElementById('detailContent').innerHTML = `
     ${scoreHtml}
     ${resolved ? renderResolution(data) : ''}
+    ${kind === 'client-flows' || data.clientFlow ? renderFingerprintSimilarity(data) : ''}
     ${observationOnly ? '' : renderHoneyBreakdown(data.honeyBreakdown)}
     ${observationOnly ? '' : renderAttackHistory(data.attackHistory)}
     ${observationOnly ? '' : renderDeceptionHistory(data.deceptionHistory)}
