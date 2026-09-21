@@ -428,7 +428,6 @@ function toggleTheme() {
 const entityLabels = {
   'resolved-actors': '행위자 흐름 (Resolved Actor)',
   'client-flows': '클라이언트 흐름 (Client Flow)',
-  'provisional-actors': '클라이언트 흐름 호환 API (Legacy)',
   sessions: '세션 (Session)',
   actors: '후보 클라이언트 (Actor Candidate)',
   'auth-groups': '인증 그룹 (Auth Group)',
@@ -898,7 +897,7 @@ function buildUserRows(resolvedActors, actors, clientFlows = []) {
     const lowestScore = scores.length ? Math.min(...scores) : 0;
     visibleRows.push({
       kind: 'client-flows',
-      id: group.clientFlowId || group.provisionalActorId,
+      id: group.clientFlowId,
       identity: 'heuristic',
       status: group.status,
       confidence: group.confidence,
@@ -915,7 +914,7 @@ function buildUserRows(resolvedActors, actors, clientFlows = []) {
       lastSeen: group.lastSeen,
       attackHistory: group.attackHistory,
       deceptionHistory: group.deceptionHistory,
-      relatedIds: [group.clientFlowId || group.provisionalActorId, ...(group.candidateIds || []), ...(group.resolvedActorIds || []), ...(group.observedIps || [])],
+      relatedIds: [group.clientFlowId, ...(group.candidateIds || []), ...(group.resolvedActorIds || []), ...(group.observedIps || [])],
       note: group.status === 'CONFLICT'
         ? 'Fingerprint 충돌 · 자동 합산 중단'
         : group.candidateCount > 1
@@ -1110,8 +1109,8 @@ function collapseBackgroundRuns(requests) {
 
 function renderRelation(detail, kind, sessionNodes) {
   const isResolved = kind === 'resolved-actors';
-  const isClientFlow = kind === 'client-flows' || kind === 'provisional-actors';
-  const rootId = isResolved ? detail.resolvedActorId : isClientFlow ? (detail.clientFlowId || detail.provisionalActorId) : detail.actorId;
+  const isClientFlow = kind === 'client-flows';
+  const rootId = isResolved ? detail.resolvedActorId : isClientFlow ? detail.clientFlowId : detail.actorId;
   const candidateIds = isResolved || isClientFlow ? (detail.candidateIds || []) : [detail.actorId];
   const linkedResolvedIds = isResolved
     ? []
@@ -1153,7 +1152,7 @@ function renderRelation(detail, kind, sessionNodes) {
 }
 
 function renderFingerprintSimilarity(detail) {
-  const links = detail.links || detail.provisionalActor?.links || [];
+  const links = detail.links || detail.clientFlow?.links || [];
   if (!links.length) return '';
   const items = links.map(link => `<div class="path-item">
     <div class="meta">Fingerprint 연관 점수 <b>${Number(link.score || 0).toFixed(1)}/100</b> · 판정 ${escapeHtml(link.decision || '—')} · ${escapeHtml(link.reason || '—')}</div>
@@ -1173,7 +1172,7 @@ function renderConnectionDetails(detail, kind, sessionNodes) {
   const relation = renderRelation(detail, kind, sessionNodes);
   if (!similarity && !relation) return '';
 
-  const isClientFlow = kind === 'client-flows' || kind === 'provisional-actors';
+  const isClientFlow = kind === 'client-flows';
   const candidateCount = isClientFlow
     ? (detail.candidateIds || []).length
     : kind === 'resolved-actors'
@@ -1186,7 +1185,7 @@ function renderConnectionDetails(detail, kind, sessionNodes) {
     `세션 ${sessionNodes.length}`,
     candidateCount ? `후보 ${candidateCount}` : '',
     linkedResolvedCount ? `확정 흐름 ${linkedResolvedCount}` : '',
-    similarity ? `Fingerprint 연결 ${detail.links?.length || detail.provisionalActor?.links?.length || 0}` : '',
+    similarity ? `Fingerprint 연결 ${detail.links?.length || detail.clientFlow?.links?.length || 0}` : '',
   ].filter(Boolean).join(' · ');
 
   return `<details class="connection-disclosure" id="connectionDisclosure"${state.connectionDetailsExpanded ? ' open' : ''}>
@@ -1306,7 +1305,7 @@ function renderUserDetail() {
   const sessionNodes = buildSessionNodes(detail, kind);
   const identityBadge = kind === 'resolved-actors'
     ? '<span class="badge confirmed" title="서명된 클라이언트 ID로 동일 클라이언트 연속성이 확인된 흐름입니다(Continuity Confirmed).">연속성 확정</span>'
-    : kind === 'client-flows' || kind === 'provisional-actors'
+    : kind === 'client-flows'
       ? '<span class="badge candidate" title="Fingerprint와 요청 연속성으로 연결한 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>'
       : '<span class="badge candidate" title="IP + HTTP 헤더 지문으로 묶은 요청 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>';
   const detection = detectionFor(detail);
@@ -1453,9 +1452,7 @@ async function refresh() {
       const profile = a.clientObservation?.clientProfile || {};
       const ua = profile.userAgent || {};
       const relation = a.clientFlow?.links?.find(link => link.toCandidateId === a.actorId)
-        || a.clientFlow?.links?.[0]
-        || a.provisionalActor?.links?.find(link => link.toCandidateId === a.actorId)
-        || a.provisionalActor?.links?.[0];
+        || a.clientFlow?.links?.[0];
       const profileText = `${ua.family || 'unknown'}/${ua.version || ua.major || '0'} · ${profile.language?.primary || 'unknown'} · ${(profile.acceptEncoding?.tokens || []).join(', ') || 'none'}`;
       const relationText = relation
         ? `<div class="meta">연관 ${Number(relation.score || 0).toFixed(1)}/100 · ${escapeHtml(relation.decision || '—')} · 변경 ${escapeHtml((relation.changedFields || []).join(', ') || '없음')}</div>`
@@ -1640,7 +1637,7 @@ async function openDetail(kind, id) {
   document.getElementById('detailContent').innerHTML = `
     ${scoreHtml}
     ${resolved ? renderResolution(data) : ''}
-    ${kind === 'client-flows' || kind === 'provisional-actors' || data.clientFlow || data.provisionalActor ? renderFingerprintSimilarity(data) : ''}
+    ${kind === 'client-flows' || data.clientFlow ? renderFingerprintSimilarity(data) : ''}
     ${observationOnly ? '' : renderHoneyBreakdown(data.honeyBreakdown)}
     ${observationOnly ? '' : renderAttackHistory(data.attackHistory)}
     ${observationOnly ? '' : renderDeceptionHistory(data.deceptionHistory)}

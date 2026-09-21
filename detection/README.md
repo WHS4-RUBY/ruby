@@ -65,7 +65,6 @@ docker compose -f docker-compose.local.yml up --build
 - 세션 API: http://localhost:8081/__detection/api/sessions
 - Client Actor API: http://localhost:8081/__detection/api/actors
 - Client Flow API: http://localhost:8081/__detection/api/client-flows
-- Provisional Actor 호환 API: http://localhost:8081/__detection/api/provisional-actors
 - Auth Group API: http://localhost:8081/__detection/api/auth-groups
 - CRS 상태 API: http://localhost:8081/__detection/api/crs-status
 
@@ -89,8 +88,8 @@ npm test
 | `DECEPTION_ENABLED` | `true` | Honey/Deception 신호 활성화 |
 | `TRUST_PROXY` | `false` | 신뢰할 리버스 프록시가 있을 때만 설정 |
 | `FINGERPRINT_SIMILARITY_TTL_MS` | `1800000` | Fingerprint Client Flow 비교 시간, 기본 30분 |
-| `FINGERPRINT_MAX_PROVISIONAL_CANDIDATES` | `3` | 한 Client Flow에 자동 연결할 Candidate 상한 |
-| `MAX_PROVISIONAL_ACTORS` | `5000` | 메모리에 유지할 Client Flow 상한 |
+| `FINGERPRINT_MAX_FLOW_CANDIDATES` | `3` | 한 Client Flow에 자동 연결할 Candidate 상한 |
+| `MAX_CLIENT_FLOWS` | `5000` | 메모리에 유지할 Client Flow 상한 |
 
 ## Fingerprint Client Flow 집계
 

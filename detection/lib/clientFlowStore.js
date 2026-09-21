@@ -1,8 +1,8 @@
 const {
   SIMILARITY_VERSION,
   canAutoAggregate,
+  clientFlowId,
   compareClientObservations,
-  provisionalActorId,
 } = require("./fingerprintSimilarity");
 
 function positiveNumber(value, fallback) {
@@ -10,11 +10,11 @@ function positiveNumber(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-class ProvisionalActorStore {
+class ClientFlowStore {
   constructor({
     ttlMs = positiveNumber(process.env.FINGERPRINT_SIMILARITY_TTL_MS, 30 * 60_000),
-    maxCandidates = positiveNumber(process.env.FINGERPRINT_MAX_PROVISIONAL_CANDIDATES, 3),
-    maxGroups = positiveNumber(process.env.MAX_PROVISIONAL_ACTORS, 5_000),
+    maxCandidates = positiveNumber(process.env.FINGERPRINT_MAX_FLOW_CANDIDATES, 3),
+    maxGroups = positiveNumber(process.env.MAX_CLIENT_FLOWS, 5_000),
   } = {}) {
     this.ttlMs = ttlMs;
     this.maxCandidates = maxCandidates;
@@ -24,7 +24,7 @@ class ProvisionalActorStore {
   }
 
   create(candidateId, observation, sessionId, clientIdentity, now) {
-    const id = provisionalActorId(candidateId);
+    const id = clientFlowId(candidateId);
     const verifiedClientIds = new Set();
     if (clientIdentity?.continuityVerified && clientIdentity.clientId) {
       verifiedClientIds.add(clientIdentity.clientId);
@@ -163,4 +163,4 @@ class ProvisionalActorStore {
   }
 }
 
-module.exports = { ProvisionalActorStore };
+module.exports = { ClientFlowStore };

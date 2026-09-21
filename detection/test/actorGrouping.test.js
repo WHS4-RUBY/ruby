@@ -107,7 +107,7 @@ test("IP가 바뀐 고유사도 Candidate는 Client Flow 요청으로 중복 없
   const second = record("similarity-integration-b", "198.51.100.82", "/step/two", headers);
   assert.notEqual(first.actorId, second.actorId);
 
-  const aggregate = store.getProvisionalActorAggregate(first.actorId);
+  const aggregate = store.getClientFlowAggregate(first.actorId);
   assert.equal(aggregate.aggregationEnabled, true);
   assert.equal(aggregate.aggregationPolicy, "FINGERPRINT_CLIENT_FLOW_AUTO");
   assert.equal(aggregate.candidateCount, 2);
@@ -176,7 +176,7 @@ test("Candidate에 분산된 IDOR 흐름은 Client Flow 요청에서 Attack Scor
 
   const firstActor = store.getActor(first.actorId);
   const secondActor = store.getActor(second.actorId);
-  const aggregate = store.getProvisionalActorAggregate(first.actorId);
+  const aggregate = store.getClientFlowAggregate(first.actorId);
   const candidateMaximum = Math.max(
     classify(extractActorFeatures(firstActor, store.getSession)).attackScore,
     classify(extractActorFeatures(secondActor, store.getSession)).attackScore

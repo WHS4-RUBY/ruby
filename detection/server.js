@@ -160,7 +160,7 @@ function analyzeResolvedActor(aggregate) {
   };
 }
 
-function analyzeProvisionalActor(aggregate) {
+function analyzeClientFlow(aggregate) {
   const features = extractResolvedActorFeatures(aggregate);
   const analysis = classify(features);
   return {
@@ -175,8 +175,7 @@ function analyzeProvisionalActor(aggregate) {
 }
 
 // Client Flow는 동일 클라이언트 확정 객체가 아니라 Session/Candidate 요청을
-// 시간순으로 이어 보는 휴리스틱 집계다. 기존 함수명은 내부 호환을 위해 유지한다.
-const analyzeClientFlow = analyzeProvisionalActor;
+// 시간순으로 이어 보는 휴리스틱 집계다.
 
 /**
  * Policy는 요청을 전달하기 전에 위험도 헤더가 필요하지만, 이 탐지기의 일부
@@ -423,7 +422,7 @@ function recordCompletedRequest(req, {
     ? store.getResolvedActorAggregate(resolvedActorId)
     : null;
   const resolvedActorAnalysis = resolvedActor ? analyzeResolvedActor(resolvedActor) : null;
-  const clientFlowId = session.requests.at(-1)?.clientFlowId || session.requests.at(-1)?.provisionalActorId;
+  const clientFlowId = session.requests.at(-1)?.clientFlowId;
   const clientFlow = clientFlowId
     ? store.getClientFlowAggregate(clientFlowId)
     : null;
@@ -455,7 +454,6 @@ function recordCompletedRequest(req, {
     actorAnalysis,
     authGroupAnalysis,
     clientFlowAnalysis,
-    provisionalActorAnalysis: clientFlowAnalysis,
     resolvedActorAnalysis,
     effectiveDetectionSource,
     effectiveDetectionAnalysis,
@@ -546,8 +544,7 @@ app.get("/__detection/api/sessions", (req, res) => {
       sessionId: s.id,
       actorId: s.actorId,
       resolvedActorId: s.resolvedActorId,
-      provisionalActorId: s.provisionalActorId,
-      clientFlowId: s.clientFlowId || s.provisionalActorId,
+      clientFlowId: s.clientFlowId,
       ip: s.ip,
       ...analyzeSession(s),
       attackHistory: s.attackHistory,
@@ -568,8 +565,7 @@ app.get("/__detection/api/sessions/:id", (req, res) => {
     actorIds: Array.from(s.actorIds),
     resolvedActorId: s.resolvedActorId,
     resolutionMembershipId: s.resolutionMembershipId,
-    provisionalActorId: s.provisionalActorId,
-    clientFlowId: s.clientFlowId || s.provisionalActorId,
+    clientFlowId: s.clientFlowId,
     ip: s.ip,
     ...analyzeSession(s),
     attackHistory: s.attackHistory,
@@ -658,12 +654,11 @@ app.get("/__detection/api/resolved-actors/:id/memberships", (req, res) => {
   res.json({ resolvedActorId: req.params.id, memberships });
 });
 
-function provisionalActorJson(aggregate, { includeRequests = false } = {}) {
+function clientFlowJson(aggregate, { includeRequests = false } = {}) {
   const analysis = analyzeClientFlow(aggregate);
   const candidates = aggregate.candidateIds.map((candidateId) => store.getActor(candidateId)).filter(Boolean);
   const candidateAnalyses = candidates.map(analyzeActor);
   const result = {
-    provisionalActorId: aggregate.id,
     clientFlowId: aggregate.id,
     status: aggregate.status,
     confidence: aggregate.confidence,
@@ -696,8 +691,6 @@ function provisionalActorJson(aggregate, { includeRequests = false } = {}) {
   return result;
 }
 
-const clientFlowJson = provisionalActorJson;
-
 app.get("/__detection/api/client-flows", (_req, res) => {
   res.json(store.getAllClientFlowAggregates().map((aggregate) => clientFlowJson(aggregate)));
 });
@@ -721,52 +714,22 @@ app.get("/__detection/api/client-flows/:id/path", (req, res) => {
   });
 });
 
-app.get("/__detection/api/provisional-actors", (_req, res) => {
-  res.json(store.getAllProvisionalActorAggregates().map((aggregate) => provisionalActorJson(aggregate)));
-});
-
-app.get("/__detection/api/provisional-actors/:id", (req, res) => {
-  const aggregate = store.getProvisionalActorAggregate(req.params.id);
-  if (!aggregate) return res.status(404).json({ error: "not found" });
-  res.json(provisionalActorJson(aggregate, { includeRequests: true }));
-});
-
-app.get("/__detection/api/provisional-actors/:id/path", (req, res) => {
-  const aggregate = store.getProvisionalActorAggregate(req.params.id);
-  if (!aggregate) return res.status(404).json({ error: "not found" });
-  res.json({
-    provisionalActorId: aggregate.id,
-    aggregationPolicy: aggregate.aggregationPolicy,
-    candidateIds: aggregate.candidateIds,
-    sessionIds: aggregate.sessionIds,
-    links: aggregate.links,
-    requests: aggregate.requests,
-  });
-});
-
 app.get("/__detection/api/actors", (req, res) => {
   const result = store.getAllActors().map((actor) => {
-    const provisional = store.getProvisionalActorAggregate(actor.id);
+    const flow = store.getClientFlowAggregate(actor.id);
     return {
       actorId: actor.id,
       resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
       ip: actor.ip,
       fingerprint: actor.fingerprint,
       clientObservation: actor.clientObservation,
-      clientFlow: provisional && provisional.flowLinked ? {
-        clientFlowId: provisional.id,
-        status: provisional.status,
-        aggregationEnabled: provisional.aggregationEnabled,
-        candidateCount: provisional.candidateCount,
-        sessionCount: provisional.sessionCount,
-        links: provisional.links,
-      } : null,
-      provisionalActor: provisional && provisional.candidateCount > 1 ? {
-        provisionalActorId: provisional.id,
-        status: provisional.status,
-        aggregationEnabled: provisional.aggregationEnabled,
-        candidateCount: provisional.candidateCount,
-        links: provisional.links,
+      clientFlow: flow && flow.flowLinked ? {
+        clientFlowId: flow.id,
+        status: flow.status,
+        aggregationEnabled: flow.aggregationEnabled,
+        candidateCount: flow.candidateCount,
+        sessionCount: flow.sessionCount,
+        links: flow.links,
       } : null,
       ...analyzeActor(actor),
       attackHistory: actor.attackHistory,
@@ -783,29 +746,21 @@ app.get("/__detection/api/actors", (req, res) => {
 app.get("/__detection/api/actors/:id", (req, res) => {
   const actor = store.getActor(req.params.id);
   if (!actor) return res.status(404).json({ error: "not found" });
-  const provisional = store.getProvisionalActorAggregate(actor.id);
+  const flow = store.getClientFlowAggregate(actor.id);
   res.json({
     actorId: actor.id,
     resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
     ip: actor.ip,
     fingerprint: actor.fingerprint,
     clientObservation: actor.clientObservation,
-    clientFlow: provisional && provisional.flowLinked ? {
-      clientFlowId: provisional.id,
-      status: provisional.status,
-      aggregationEnabled: provisional.aggregationEnabled,
-      candidateIds: provisional.candidateIds,
-      sessionIds: provisional.sessionIds,
-      links: provisional.links,
-      conflicts: provisional.conflicts,
-    } : null,
-    provisionalActor: provisional && provisional.candidateCount > 1 ? {
-      provisionalActorId: provisional.id,
-      status: provisional.status,
-      aggregationEnabled: provisional.aggregationEnabled,
-      candidateIds: provisional.candidateIds,
-      links: provisional.links,
-      conflicts: provisional.conflicts,
+    clientFlow: flow && flow.flowLinked ? {
+      clientFlowId: flow.id,
+      status: flow.status,
+      aggregationEnabled: flow.aggregationEnabled,
+      candidateIds: flow.candidateIds,
+      sessionIds: flow.sessionIds,
+      links: flow.links,
+      conflicts: flow.conflicts,
     } : null,
     ...analyzeActor(actor),
     attackHistory: actor.attackHistory,
@@ -942,8 +897,7 @@ app.get("/__detection/api/export", (req, res) => {
       sessionId: s.id,
       actorId: s.actorId,
       resolvedActorId: s.resolvedActorId,
-      provisionalActorId: s.provisionalActorId,
-      clientFlowId: s.clientFlowId || s.provisionalActorId,
+      clientFlowId: s.clientFlowId,
       ip: s.ip,
       userAgent: s.userAgent,
       firstSeen: s.firstSeen,

@@ -4,7 +4,7 @@ const { DECEPTION_SIGNAL_CATALOG } = require("./deceptionEngine");
 const { ActorResolver, MEMBERSHIP_STATUS } = require("./actorResolver");
 const { buildHttpFingerprint } = require("./httpFingerprint");
 const { buildClientObservation } = require("./fingerprintSimilarity");
-const { ProvisionalActorStore } = require("./provisionalActorStore");
+const { ClientFlowStore } = require("./clientFlowStore");
 
 // 세션 단위 데이터: 요청 로그 + 클라이언트 텔레메트리
 const sessions = new Map();
@@ -19,7 +19,7 @@ const ipEntries = new Map();
 const actorResolver = new ActorResolver();
 // Fingerprint 유사도 기반 Client Flow 집계. DCID 기반 Resolved Actor는 신원 경계로
 // 그대로 보존하고, Session/Candidate 사이의 휴리스틱 요청 흐름만 연결한다.
-const provisionalActorStore = new ProvisionalActorStore();
+const clientFlowStore = new ClientFlowStore();
 
 const MAX_REQUESTS_PER_SESSION = 500; // 메모리 보호용 링버퍼 상한
 const MAX_REQUESTS_PER_AUTH_GROUP = MAX_REQUESTS_PER_SESSION * 2;
@@ -184,7 +184,6 @@ function getOrCreateSession(sessionId, ip) {
       actorIds: new Set(),
       resolvedActorId: null,
       resolutionMembershipId: null,
-      provisionalActorId: null,
       clientFlowId: null,
       userAgent: null,
       attackHistory: emptyAttackHistory(),
@@ -301,7 +300,6 @@ function recordRequest(
     authGroupId: authGroupId || null,
     resolvedActorId: null,
     resolutionMembershipId: null,
-    provisionalActorId: null,
     clientFlowId: null,
     clientId: clientIdentity?.valid ? clientIdentity.clientId : null,
     clientContinuityVerified: Boolean(
@@ -350,7 +348,7 @@ function recordRequest(
     tags: tags || [],
   };
   const clientObservation = buildClientObservation({ ip, httpFingerprint, ts: now });
-  const provisionalActor = provisionalActorStore.observe({
+  const clientFlow = clientFlowStore.observe({
     candidateId: actorId,
     observation: clientObservation,
     sessionId,
@@ -358,10 +356,8 @@ function recordRequest(
     ts: now,
   });
   requestRecord.clientObservation = clientObservation;
-  requestRecord.provisionalActorId = provisionalActor.id;
-  requestRecord.clientFlowId = provisionalActor.id;
-  s.provisionalActorId = provisionalActor.id;
-  s.clientFlowId = provisionalActor.id;
+  requestRecord.clientFlowId = clientFlow.id;
+  s.clientFlowId = clientFlow.id;
   s.requests.push(requestRecord);
   if (s.requests.length > MAX_REQUESTS_PER_SESSION) {
     s.requests.shift();
@@ -471,12 +467,11 @@ function recordRequest(
   return s;
 }
 
-function updateAttackScoreHistory({ sessionId, actorId, authGroupId, clientFlowId, provisionalActorId, scores = {} }) {
+function updateAttackScoreHistory({ sessionId, actorId, authGroupId, clientFlowId, scores = {} }) {
   updateMaxAttackScore(sessions.get(sessionId), scores.session);
   updateMaxAttackScore(actors.get(actorId), scores.actor);
   if (authGroupId) updateMaxAttackScore(authGroups.get(authGroupId), scores.authGroup);
-  const flowId = clientFlowId || provisionalActorId;
-  if (flowId) provisionalActorStore.updateAttackScore(flowId, scores.clientFlow ?? scores.provisional);
+  if (clientFlowId) clientFlowStore.updateAttackScore(clientFlowId, scores.clientFlow);
 }
 
 function recordTelemetry(sessionId, ip, payload) {
@@ -716,12 +711,12 @@ function deactivateResolutionMembership(membershipId, reason) {
 function getResolutionStatus() {
   return {
     ...actorResolver.status(),
-    fingerprintSimilarity: provisionalActorStore.status(),
+    fingerprintSimilarity: clientFlowStore.status(),
   };
 }
 
-function getProvisionalActorAggregate(idOrCandidateId) {
-  const group = provisionalActorStore.get(idOrCandidateId) || provisionalActorStore.getByCandidate(idOrCandidateId);
+function getClientFlowAggregate(idOrCandidateId) {
+  const group = clientFlowStore.get(idOrCandidateId) || clientFlowStore.getByCandidate(idOrCandidateId);
   if (!group) return null;
   const memberSessions = [...group.sessionIds].map((id) => sessions.get(id)).filter(Boolean);
   const requestIds = new Set();
@@ -779,8 +774,8 @@ function getProvisionalActorAggregate(idOrCandidateId) {
   };
 }
 
-function getAllProvisionalActorAggregates() {
-  return provisionalActorStore
+function getAllClientFlowAggregates() {
+  return clientFlowStore
     .getAll()
     .filter((group) =>
       group.sessionIds.size > 1 ||
@@ -788,12 +783,8 @@ function getAllProvisionalActorAggregates() {
       group.verifiedClientIds.size > 1 ||
       group.conflicts.length > 0
     )
-    .map((group) => getProvisionalActorAggregate(group.id));
+    .map((group) => getClientFlowAggregate(group.id));
 }
-
-// 새 명칭의 기본 API. 기존 Provisional Actor 함수는 호환성을 위해 유지한다.
-const getClientFlowAggregate = getProvisionalActorAggregate;
-const getAllClientFlowAggregates = getAllProvisionalActorAggregates;
 
 module.exports = {
   getOrCreateSession,
@@ -812,8 +803,6 @@ module.exports = {
   getResolutionMemberships,
   deactivateResolutionMembership,
   getResolutionStatus,
-  getProvisionalActorAggregate,
-  getAllProvisionalActorAggregates,
   getClientFlowAggregate,
   getAllClientFlowAggregates,
   updateAttackScoreHistory,

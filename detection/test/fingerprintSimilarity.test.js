@@ -7,7 +7,7 @@ const {
   canAutoAggregate,
   compareClientObservations,
 } = require("../lib/fingerprintSimilarity");
-const { ProvisionalActorStore } = require("../lib/provisionalActorStore");
+const { ClientFlowStore } = require("../lib/clientFlowStore");
 
 const baseHeaders = {
   "user-agent": "curl/8.10.1",
@@ -86,7 +86,7 @@ test("IP와 UA 계열이 모두 다르면 별도 후보로 유지한다", () => 
 });
 
 test("Client Flow는 고유사도 Candidate를 연결하되 서로 다른 verified DCID를 신원 병합하지 않는다", () => {
-  const store = new ProvisionalActorStore({ ttlMs: 60_000, maxCandidates: 3 });
+  const store = new ClientFlowStore({ ttlMs: 60_000, maxCandidates: 3 });
   const first = store.observe({
     candidateId: "actor:a",
     observation: observation(),
@@ -109,7 +109,7 @@ test("Client Flow는 고유사도 Candidate를 연결하되 서로 다른 verifi
   const verifiedB = {
     valid: true, continuityVerified: true, source: "verified", clientId: "dcid:b",
   };
-  const isolated = new ProvisionalActorStore({ ttlMs: 60_000 });
+  const isolated = new ClientFlowStore({ ttlMs: 60_000 });
   const dcidA = isolated.observe({
     candidateId: "actor:dcid-a", observation: observation(), clientIdentity: verifiedA,
     ts: 1_700_000_000_000,
@@ -124,7 +124,7 @@ test("Client Flow는 고유사도 Candidate를 연결하되 서로 다른 verifi
 });
 
 test("같은 Candidate에서 서로 다른 verified DCID가 확인돼도 Client Flow는 유지한다", () => {
-  const store = new ProvisionalActorStore();
+  const store = new ClientFlowStore();
   store.observe({
     candidateId: "actor:shared", observation: observation(),
     clientIdentity: { continuityVerified: true, clientId: "dcid:a" },

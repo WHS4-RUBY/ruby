@@ -227,9 +227,6 @@ function clientFlowId(candidateId) {
   return `client-flow:${crypto.createHash("sha256").update(String(candidateId)).digest("hex").slice(0, 24)}`;
 }
 
-// 기존 import 이름은 호환성을 위해 유지하되 새로 생성되는 ID는 Client Flow 명칭을 쓴다.
-const provisionalActorId = clientFlowId;
-
 module.exports = {
   DEFAULT_WEIGHTS,
   SIMILARITY_VERSION,
@@ -238,5 +235,4 @@ module.exports = {
   compareClientObservations,
   clientFlowId,
   jaccard,
-  provisionalActorId,
 };
