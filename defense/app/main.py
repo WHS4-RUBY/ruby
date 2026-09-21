@@ -58,15 +58,6 @@ def parse_plan(raw: str | None) -> list[dict]:
 
 
 
-def parse_risk_score(raw: str | None) -> float:
-    if raw is None or raw == "":
-        return 0.0
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return 0.0
-
-
 def _header_value(value) -> str:
     if isinstance(value, bytes):
         return value.decode("latin-1")
@@ -115,7 +106,6 @@ async def healthz():
 )
 async def catch_all(request: Request, full_path: str):
     plan = parse_plan(request.headers.get("x-defense-plan"))
-    request.state.risk_score = parse_risk_score(request.headers.get("x-risk-score"))
 
     applied_names: list[str] = []
     extra_headers: dict[str, str] = {}

@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-26.04
     strategy:
       matrix:
-        service: [policy, defense]
+        service: [defense]
     steps:
       - uses: actions/checkout@v4
 
@@ -55,6 +55,4 @@ jobs:
         run: python -c "import app.main"
 
       - name: Test ${{ matrix.service }}
-        env:
-          POLICY_CONFIG_PATH: policy/config.yaml
         run: python -m unittest discover -s ${{ matrix.service }}/tests -p 'test_*.py'

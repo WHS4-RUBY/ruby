@@ -7,7 +7,7 @@ services:
     ports:
       - "8081:8080"
     environment:
-      TARGET_URL: http://policy:8082
+      TARGET_URL: http://defense:8080
       PORT: "8080"
       BLOCK_MODE: "false"
       DETECTION_LEVEL: ${DETECTION_LEVEL:-medium}
@@ -40,26 +40,6 @@ services:
       - detection-data:/app/data
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
-      interval: 2s
-      timeout: 3s
-      retries: 15
-    depends_on:
-      policy:
-        condition: service_healthy
-    networks:
-      - ai-defense-net
-
-  policy:
-    build: ./policy
-    container_name: policy
-    environment:
-      NEXT_HOP_URL: http://defense:8080
-    volumes:
-      - ./policy/app:/app/app
-      - ./policy/config.yaml:/app/config.yaml:ro
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8082 --reload
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/healthz')"]
       interval: 2s
       timeout: 3s
       retries: 15

@@ -2,8 +2,8 @@
 
 RUBY의 진입점에서 모든 HTTP 요청과 응답을 관찰하는 Node.js 리버스 프록시입니다.
 기존 요청 횟수 기반 Python 스텁을 `juice-shop-detector`의 탐지 구현으로 교체했으며,
-기본 대상은 OWASP Juice Shop이지만 `TARGET_URL`로 다른 HTTP 서비스나 RUBY Policy를
-연결할 수 있습니다.
+위험도에 따른 방어 전략 선택(Policy)도 이 프록시 안에서 수행하며, `TARGET_URL`로
+Defense나 보호할 애플리케이션을 직접 가리킵니다.
 
 원본 통합 기준은 `kimwm5377/juice-shop-detector`의 `08fbf98` 커밋입니다. 포함된
 ModSecurity 및 OWASP CRS의 버전과 라이선스는
@@ -13,11 +13,13 @@ ModSecurity 및 OWASP CRS의 버전과 라이선스는
 
 ```text
 Client
-  -> Detection :8080
-       -> Policy :8082
-            -> Defense :8080
-                 -> benchmark-target :3000
+  -> Detection :8080        # 탐지 + 정책 결정 (X-Defense-Plan 생성)
+       -> Defense :8080     # 계획 실행 (지연·차단 등)
+            -> benchmark-target :3000
 ```
+
+별도의 Policy 프록시는 두지 않습니다. 구간별 방어 전략은
+[`config/policy.json`](config/policy.json)에 두고 `lib/policyEngine.js`가 읽습니다.
 
 기존 FastAPI 탐지 스텁과 JavaScript 탐지기를 별도 프록시로 겹쳐 두지 않습니다.
 대신 Python의 `create_app([ProxyHook])` 구조를 JavaScript로 이식한
@@ -32,24 +34,41 @@ Express app
 ```
 
 따라서 추후 다른 탐지기나 로깅 기능은 `onRequest`와 `onResponse`를 구현해
-`hooks` 배열에 추가할 수 있습니다. Policy와 Defense는 기존 FastAPI 서비스로 유지됩니다.
+`hooks` 배열에 추가할 수 있습니다. Defense는 별도 FastAPI 서비스로 유지됩니다.
 
 Detection은 다음 두 점수를 각각 0~1로 계산합니다.
 
 - `automationScore`: 요청 간격, 반복, 헤더, 브라우저 상호작용, Honey 신호
 - `attackScore`: CRS/페이로드, 탐색, IDOR, 인증 남용, 비즈니스 로직, CSRF, Deception 신호
 
-RUBY Policy의 기존 단일 점수 계약에는 아래 값을 `X-Risk-Score`로 전달합니다.
+두 점수는 아래 식으로 하나의 0~1 위험도로 합쳐집니다.
 
 ```text
 max(현재 automationScore, 누적 최고 attackScore)
 ```
 
-Policy가 요청 전에 결정을 내려야 하고 일부 탐지 신호는 upstream 응답이 돌아온 뒤에
-확정되므로, 각 요청에 붙는 점수는 **해당 Client/Session/Auth Group에서 직전까지 완료된
-요청의 관찰 이력**을 기준으로 합니다. 첫 요청은 0이며, 그 요청에서 확정된 신호는 다음
-요청부터 Policy에 반영됩니다. `X-Risk-Score`, `X-Client-Id`, `X-Classification`을
-클라이언트가 보내도 Detection에서 제거하고 서버 계산값으로 교체합니다.
+정책 결정은 요청을 넘기기 전에 내려야 하는데 일부 탐지 신호(CRS 결과, 응답 상태)는
+upstream 응답이 돌아온 뒤에 확정됩니다. 따라서 각 요청에 적용되는 위험도는 **해당
+Client/Session/Auth Group에서 직전까지 완료된 요청의 관찰 이력**을 기준으로 합니다.
+첫 요청은 0이며, 그 요청에서 확정된 신호는 다음 요청부터 반영됩니다.
+
+### 다음 계층으로 나가는 헤더
+
+| 헤더 | 값 |
+|---|---|
+| `X-Defense-Plan` | 위험도 구간에 해당하는 전략 배열 JSON. Defense가 소비하고 백엔드로 넘기지 않습니다 |
+| `X-Client-Id` | 방어 상태의 키가 되는 가명 식별자 |
+
+위험도 점수 자체는 내보내지 않습니다. 위험도에 따른 차이는 `policy.json`의 구간별
+파라미터(예: `delay_ms` 200/300/500)가 표현하므로, 정책 판단이 두 계층으로 갈라지지
+않게 하기 위함입니다.
+
+`X-Client-Id`는 확인된 가장 넓은 묶음을 안정적으로 가리킵니다
+(Resolved Actor > Client Flow > Candidate). 점수가 가장 높은 근거를 따라가면 요청마다
+식별자가 바뀌어 방어 카운터가 갈라지기 때문입니다.
+
+`X-Risk-Score`, `X-Client-Id`, `X-Classification`, `X-Defense-Plan`은 클라이언트가
+보내더라도 Detection에서 제거합니다.
 
 ## 실행 및 확인
 
@@ -80,8 +99,9 @@ npm test
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `TARGET_URL` | `http://localhost:3000` | upstream 주소. RUBY에서는 Policy 주소 |
+| `TARGET_URL` | `http://localhost:3000` | upstream 주소. RUBY에서는 Defense 주소 |
 | `PORT` | `8080` | Detection 내부 포트 |
+| `POLICY_CONFIG_PATH` | `config/policy.json` | 위험도 구간별 방어 전략 정의 |
 | `DETECTION_LEVEL` | `medium` | `low` 0.3, `medium` 0.5, `high` 0.7 |
 | `SCHEMA_LEARNING_FILE` | 없음 | 승인된 스키마 학습 결과 저장 경로 |
 | `CRS_ENABLED` | `true` | ModSecurity/OWASP CRS 활성화 |

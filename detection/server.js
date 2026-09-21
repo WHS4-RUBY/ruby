@@ -59,11 +59,12 @@ const {
   PRODUCTS_ITEM_PATH,
 } = require("./lib/priceIntegrity");
 const schemaLearning = require("./lib/schemaLearning");
-const { applyPolicyHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
+const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
+const { applyDefensePlan, loadPolicyRules } = require("./lib/policyEngine");
 const { createProxyCore } = require("./lib/proxyCore");
 
 const PORT = process.env.PORT || 8080;
-const TARGET = process.env.TARGET_URL || process.env.JUICE_SHOP_URL || "http://localhost:3000";
+const TARGET = process.env.TARGET_URL || "http://localhost:3000";
 // 2026-09-01 추가: HTML(index.html) 하나만 보는 정찰 대신, 자주 조회되는
 // 정적 텍스트 응답에도 기만 신호를 심는다 — deceptionEngine.injectSignalsPlaintext 참고.
 const PLAINTEXT_BAIT_PATHS = new Set([
@@ -91,6 +92,7 @@ const crsScanner = new CrsScanner();
 const deceptionEngine = new DeceptionEngine();
 const dcidManager = new DcidManager();
 const accountIdentityResolver = new AccountIdentityResolver();
+const policyRules = loadPolicyRules();
 
 const app = express();
 app.disable("x-powered-by");
@@ -990,7 +992,12 @@ const detectionHook = {
     // RUBY Policy 계약: 외부 입력을 제거하고, 완료된 탐지 이력에서 계산한
     // 0~1 risk score와 가명 client id만 내부 헤더로 전달한다.
     req.rubyPolicyDecision = buildPriorPolicyDecision(req);
-    applyPolicyHeaders(proxyReq, req.rubyPolicyDecision);
+    stripDetectionHeaders(proxyReq);
+    applyDefensePlan(proxyReq, {
+      riskScore: req.rubyPolicyDecision.riskScore,
+      rules: policyRules,
+    });
+    proxyReq.setHeader("X-Client-Id", req.rubyPolicyDecision.clientId);
     // Ground truth용 헤더는 탐지 프록시에서 소비하고 RUBY Policy에는 전달하지 않는다.
     proxyReq.removeHeader(EXPERIMENT_RUN_HEADER);
     // ModSecurity/CRS 검사는 응답을 차단하지 않으며 결과만 비동기로 기록한다.
@@ -1079,8 +1086,8 @@ const detectionHook = {
   },
 };
 
-// 공통 Express 프록시 코어에 탐지 훅을 장착한다. Policy/Defense는 이 뒤의
-// 독립 계층으로 유지되며, 추가 탐지·로깅 훅도 배열에 순서대로 붙일 수 있다.
+// 공통 Express 프록시 코어에 탐지와 정책 훅을 함께 장착한다. TARGET_URL은
+// Defense 또는 보호할 애플리케이션을 직접 가리키며, 별도 Policy 프록시는 없다.
 app.use("/", createProxyCore({ target: TARGET, hooks: [detectionHook] }));
 
 app.listen(PORT, () => {
