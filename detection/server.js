@@ -199,15 +199,18 @@ function buildPriorPolicyDecision(req) {
   const resolvedActor = session?.resolvedActorId
     ? store.getResolvedActorAggregate(session.resolvedActorId)
     : null;
-  const clientFlow = store.getClientFlowAggregate(actorId);
+  // 전체 집계는 멤버 세션의 요청을 모두 훑고 정렬하므로 요청 수에 대해 제곱으로
+  // 커진다. 실제로 Flow가 병합된 경우에만 계산하고, 그 외에는 O(1) 상태만 본다.
+  const clientFlowState = store.getClientFlowState(actorId);
+  const clientFlow = clientFlowState?.aggregationEnabled
+    ? store.getClientFlowAggregate(actorId)
+    : null;
 
   const analyses = {
     session: session ? analyzeSession(session) : null,
-    candidate: actor && clientFlow?.status !== "CONFLICT" ? analyzeActor(actor) : null,
+    candidate: actor && clientFlowState?.status !== "CONFLICT" ? analyzeActor(actor) : null,
     authGroup: authGroup ? analyzeAuthGroup(authGroup) : null,
-    clientFlow: clientFlow?.aggregationEnabled
-      ? analyzeClientFlow(clientFlow)
-      : null,
+    clientFlow: clientFlow ? analyzeClientFlow(clientFlow) : null,
     resolved: resolvedActor ? analyzeResolvedActor(resolvedActor) : null,
   };
   if (!Object.values(analyses).some(Boolean)) {
@@ -218,7 +221,7 @@ function buildPriorPolicyDecision(req) {
   const clientId = source === "confirmed-resolved-actor"
     ? resolvedActor.id
     : source === "fingerprint-client-flow"
-      ? clientFlow.id
+      ? clientFlowState.id
       : actorId;
   return buildPolicyDecision({ source, analysis, clientId });
 }
@@ -423,15 +426,13 @@ function recordCompletedRequest(req, {
     : null;
   const resolvedActorAnalysis = resolvedActor ? analyzeResolvedActor(resolvedActor) : null;
   const clientFlowId = session.requests.at(-1)?.clientFlowId;
-  const clientFlow = clientFlowId
-    ? store.getClientFlowAggregate(clientFlowId)
-    : null;
-  const clientFlowAnalysis = clientFlow?.aggregationEnabled
-    ? analyzeClientFlow(clientFlow)
+  const clientFlowState = clientFlowId ? store.getClientFlowState(clientFlowId) : null;
+  const clientFlowAnalysis = clientFlowState?.aggregationEnabled
+    ? analyzeClientFlow(store.getClientFlowAggregate(clientFlowId))
     : null;
   const [effectiveDetectionSource, effectiveDetectionAnalysis] = selectEffectiveDetection({
     session: sessionAnalysis,
-    candidate: clientFlow?.status === "CONFLICT" ? null : actorAnalysis,
+    candidate: clientFlowState?.status === "CONFLICT" ? null : actorAnalysis,
     authGroup: authGroupAnalysis,
     clientFlow: clientFlowAnalysis,
     resolved: resolvedActorAnalysis,
@@ -716,7 +717,7 @@ app.get("/__detection/api/client-flows/:id/path", (req, res) => {
 
 app.get("/__detection/api/actors", (req, res) => {
   const result = store.getAllActors().map((actor) => {
-    const flow = store.getClientFlowAggregate(actor.id);
+    const flow = store.getClientFlowState(actor.id);
     return {
       actorId: actor.id,
       resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
@@ -746,7 +747,7 @@ app.get("/__detection/api/actors", (req, res) => {
 app.get("/__detection/api/actors/:id", (req, res) => {
   const actor = store.getActor(req.params.id);
   if (!actor) return res.status(404).json({ error: "not found" });
-  const flow = store.getClientFlowAggregate(actor.id);
+  const flow = store.getClientFlowState(actor.id);
   res.json({
     actorId: actor.id,
     resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],

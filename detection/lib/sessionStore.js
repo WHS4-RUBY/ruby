@@ -715,9 +715,46 @@ function getResolutionStatus() {
   };
 }
 
+function summarizeClientFlowGroup(group) {
+  const flowLinked =
+    group.sessionIds.size > 1 || group.candidateIds.size > 1 || group.verifiedClientIds.size > 1;
+  return {
+    id: group.id,
+    status: group.conflicts.length ? "CONFLICT" : flowLinked ? "FLOW_LINKED" : "OBSERVED",
+    confidence: flowLinked ? "MEDIUM" : "LOW",
+    similarityVersion: group.similarityVersion,
+    aggregationPolicy: group.aggregationEnabled
+      ? "FINGERPRINT_CLIENT_FLOW_AUTO"
+      : "CANDIDATE_CLIENT_FLOW",
+    aggregationEnabled: group.aggregationEnabled,
+    flowLinked,
+    verifiedClientCount: group.verifiedClientIds.size,
+    anchorCandidateId: group.anchorCandidateId,
+    candidateIds: [...group.candidateIds],
+    candidateCount: group.candidateIds.size,
+    sessionIds: [...group.sessionIds],
+    sessionCount: group.sessionIds.size,
+    links: group.links.map((link) => ({ ...link })),
+    conflicts: [...group.conflicts],
+    firstSeen: group.firstSeen,
+    lastSeen: group.lastSeen,
+  };
+}
+
+/**
+ * 프록시 핫패스에서 매 요청 호출되는 O(1) 조회.
+ * 전체 집계(getClientFlowAggregate)는 멤버 세션의 요청을 전부 훑고 정렬하므로
+ * 실제로 Flow가 병합된 경우에만 호출한다.
+ */
+function getClientFlowState(idOrCandidateId) {
+  const group = clientFlowStore.get(idOrCandidateId) || clientFlowStore.getByCandidate(idOrCandidateId);
+  return group ? summarizeClientFlowGroup(group) : null;
+}
+
 function getClientFlowAggregate(idOrCandidateId) {
   const group = clientFlowStore.get(idOrCandidateId) || clientFlowStore.getByCandidate(idOrCandidateId);
   if (!group) return null;
+  const summary = summarizeClientFlowGroup(group);
   const memberSessions = [...group.sessionIds].map((id) => sessions.get(id)).filter(Boolean);
   const requestIds = new Set();
   const requests = [];
@@ -743,30 +780,13 @@ function getClientFlowAggregate(idOrCandidateId) {
   if (group.aggregationEnabled) {
     attackHistory.maxAttackScore = Math.max(attackHistory.maxAttackScore, group.maxAttackScore || 0);
   }
-  const flowLinked = group.sessionIds.size > 1 || group.candidateIds.size > 1 || group.verifiedClientIds.size > 1;
   return {
-    id: group.id,
-    status: group.conflicts.length ? "CONFLICT" : flowLinked ? "FLOW_LINKED" : "OBSERVED",
-    confidence: flowLinked ? "MEDIUM" : "LOW",
-    similarityVersion: group.similarityVersion,
-    aggregationPolicy: group.aggregationEnabled
-      ? "FINGERPRINT_CLIENT_FLOW_AUTO"
-      : "CANDIDATE_CLIENT_FLOW",
-    aggregationEnabled: group.aggregationEnabled,
-    flowLinked,
-    verifiedClientCount: group.verifiedClientIds.size,
-    anchorCandidateId: group.anchorCandidateId,
-    candidateIds: [...group.candidateIds],
+    ...summary,
     sessionIds: [...includedSessionIds],
-    observedIps: [...new Set(requests.map((request) => request.ip).filter(Boolean))],
-    links: group.links.map((link) => ({ ...link })),
-    conflicts: [...group.conflicts],
-    clientObservation: group.anchorObservation,
-    firstSeen: group.firstSeen,
-    lastSeen: group.lastSeen,
-    totalRequests: includedRequests.length,
-    candidateCount: group.candidateIds.size,
     sessionCount: includedSessionIds.size,
+    observedIps: [...new Set(requests.map((request) => request.ip).filter(Boolean))],
+    clientObservation: group.anchorObservation,
+    totalRequests: includedRequests.length,
     requests: includedRequests,
     memberSessions: includedSessions,
     attackHistory,
@@ -805,6 +825,7 @@ module.exports = {
   getResolutionStatus,
   getClientFlowAggregate,
   getAllClientFlowAggregates,
+  getClientFlowState,
   updateAttackScoreHistory,
   emptyAttackHistory,
   emptyDeceptionHistory,

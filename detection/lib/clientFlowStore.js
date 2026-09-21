@@ -15,10 +15,13 @@ class ClientFlowStore {
     ttlMs = positiveNumber(process.env.FINGERPRINT_SIMILARITY_TTL_MS, 30 * 60_000),
     maxCandidates = positiveNumber(process.env.FINGERPRINT_MAX_FLOW_CANDIDATES, 3),
     maxGroups = positiveNumber(process.env.MAX_CLIENT_FLOWS, 5_000),
+    cleanupIntervalMs = positiveNumber(process.env.FINGERPRINT_CLEANUP_INTERVAL_MS, 60_000),
   } = {}) {
     this.ttlMs = ttlMs;
     this.maxCandidates = maxCandidates;
     this.maxGroups = maxGroups;
+    this.cleanupIntervalMs = cleanupIntervalMs;
+    this.lastCleanupAt = 0;
     this.groups = new Map();
     this.candidateIndex = new Map();
   }
@@ -56,8 +59,14 @@ class ClientFlowStore {
   }
 
   observe({ candidateId, observation, sessionId, clientIdentity = null, ts = Date.now() }) {
-    this.cleanup(ts);
-    const indexed = this.getByCandidate(candidateId);
+    // cleanup은 전체 그룹을 순회하므로 요청마다 돌리면 프록시 핫패스가 O(그룹 수)가
+    // 된다. 주기적으로만 실행하고, 조회한 그룹의 만료 여부는 여기서 직접 확인한다.
+    this.cleanupIfDue(ts);
+    let indexed = this.getByCandidate(candidateId);
+    if (indexed && ts - indexed.lastSeen > this.ttlMs) {
+      this.remove(indexed.id);
+      indexed = null;
+    }
     if (indexed) {
       indexed.lastSeen = ts;
       indexed.observations.set(candidateId, observation);
@@ -128,7 +137,13 @@ class ClientFlowStore {
     return [...this.groups.values()];
   }
 
+  cleanupIfDue(now = Date.now()) {
+    if (now - this.lastCleanupAt < this.cleanupIntervalMs) return;
+    this.cleanup(now);
+  }
+
   cleanup(now = Date.now()) {
+    this.lastCleanupAt = now;
     for (const [id, group] of this.groups) {
       if (now - group.lastSeen <= this.ttlMs) continue;
       for (const candidateId of group.candidateIds) this.candidateIndex.delete(candidateId);
@@ -144,10 +159,12 @@ class ClientFlowStore {
   }
 
   enforceLimits() {
-    while (this.groups.size > this.maxGroups) {
-      const oldest = [...this.groups.values()].sort((a, b) => a.lastSeen - b.lastSeen)[0];
-      if (!oldest) break;
-      this.remove(oldest.id);
+    if (this.groups.size <= this.maxGroups) return;
+    // 축출할 때마다 전체를 다시 정렬하면 O(n^2 log n)이 된다. 한 번만 정렬한다.
+    const byOldest = [...this.groups.values()].sort((a, b) => a.lastSeen - b.lastSeen);
+    for (const group of byOldest) {
+      if (this.groups.size <= this.maxGroups) break;
+      this.remove(group.id);
     }
   }
 

@@ -88,6 +88,7 @@ npm test
 | `DECEPTION_ENABLED` | `true` | Honey/Deception 신호 활성화 |
 | `TRUST_PROXY` | `false` | 신뢰할 리버스 프록시가 있을 때만 설정 |
 | `FINGERPRINT_SIMILARITY_TTL_MS` | `1800000` | Fingerprint Client Flow 비교 시간, 기본 30분 |
+| `FINGERPRINT_CLEANUP_INTERVAL_MS` | `60000` | 만료된 Client Flow 정리 주기 |
 | `FINGERPRINT_MAX_FLOW_CANDIDATES` | `3` | 한 Client Flow에 자동 연결할 Candidate 상한 |
 | `MAX_CLIENT_FLOWS` | `5000` | 메모리에 유지할 Client Flow 상한 |
 
