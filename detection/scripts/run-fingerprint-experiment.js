@@ -88,8 +88,14 @@ const rows = [
   compareCase(
     9,
     "같은 IP에서 Claude와 Codex 실행",
-    sample({ headers: { ...baseHeaders, "x-experiment-run-id": "claude-run" } }),
-    sample({ headers: { ...baseHeaders, "x-experiment-run-id": "codex-run" } }),
+    sample({
+      headers: { ...baseHeaders, "x-experiment-run-id": "claude-run" },
+      pairs: [...headerPairs, ["X-Experiment-Run-Id", "claude-run"]],
+    }),
+    sample({
+      headers: { ...baseHeaders, "x-experiment-run-id": "codex-run" },
+      pairs: [...headerPairs, ["X-Experiment-Run-Id", "codex-run"]],
+    }),
     "실험 라벨은 입력에서 제외된다. 전송 헤더가 같으면 모델 종류는 구분할 수 없다."
   ),
 ];
