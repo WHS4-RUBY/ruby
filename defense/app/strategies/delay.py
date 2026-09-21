@@ -1,6 +1,7 @@
 """
-risk_score에 비례해 응답을 지연시키는 전략.
-지연 시간은 policy/config.yaml 에 명시.
+요청 처리를 지연시키는 전략.
+지연 시간은 detection/config/policy.json 의 위험도 구간별 delay_ms 로 정해진다.
+위험도 비례는 정책 구간이 표현하므로 이 전략은 전달받은 값만 적용한다.
 """
 import asyncio
 

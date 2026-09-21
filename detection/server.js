@@ -997,7 +997,7 @@ const detectionHook = {
       riskScore: req.rubyPolicyDecision.riskScore,
       rules: policyRules,
     });
-    proxyReq.setHeader("X-Client-Id", req.rubyPolicyDecision.clientId)
+    proxyReq.setHeader("X-Client-Id", req.rubyPolicyDecision.clientId);
     // Ground truth용 헤더는 탐지 프록시에서 소비하고 RUBY Policy에는 전달하지 않는다.
     proxyReq.removeHeader(EXPERIMENT_RUN_HEADER);
     // ModSecurity/CRS 검사는 응답을 차단하지 않으며 결과만 비동기로 기록한다.
