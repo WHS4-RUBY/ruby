@@ -38,9 +38,14 @@ services:
       FINGERPRINT_IP_ROTATION_ENABLED: ${FINGERPRINT_IP_ROTATION_ENABLED:-true}
     volumes:
       - detection-data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
     depends_on:
       defense:
-        condition: service_started
+        condition: service_healthy
     networks:
       - ai-defense-net
 
@@ -52,15 +57,26 @@ services:
     volumes:
       - ./defense/app:/app/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
     depends_on:
       benchmark-target:
-        condition: service_started
+        condition: service_healthy
     networks:
       - ai-defense-net
 
   benchmark-target:
     container_name: target
     image: ${BENCHMARK_IMAGE:-bkimminich/juice-shop:latest}
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "-e", "require('net').connect({port:3000,host:'127.0.0.1'}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 3s
     networks:
       - ai-defense-net
 
