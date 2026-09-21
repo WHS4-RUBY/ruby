@@ -17,7 +17,7 @@ const {
   extractIpFeatures,
 } = require("./lib/featureExtractor");
 const { classify } = require("./lib/classifier");
-const { selectEffectiveDetection } = require("./lib/detectionPolicy");
+const { selectClientId, selectEffectiveDetection } = require("./lib/detectionPolicy");
 const {
   assessDetection,
   normalizeDetectionLevel,
@@ -218,11 +218,11 @@ function buildPriorPolicyDecision(req) {
   }
 
   const [source, analysis] = selectEffectiveDetection(analyses);
-  const clientId = source === "confirmed-resolved-actor"
-    ? resolvedActor.id
-    : source === "fingerprint-client-flow"
-      ? clientFlowState.id
-      : actorId;
+  const clientId = selectClientId(analyses, {
+    actorId,
+    resolvedActorId: resolvedActor?.id,
+    clientFlowId: clientFlowState?.id,
+  });
   return buildPolicyDecision({ source, analysis, clientId });
 }
 

@@ -26,4 +26,21 @@ function selectEffectiveDetection({ session, candidate, authGroup, clientFlow, r
     .reduce((selected, current) => severity(current[1]) > severity(selected[1]) ? current : selected);
 }
 
-module.exports = { selectEffectiveDetection, severity };
+/**
+ * 하위 계층(Policy/Defense)은 X-Client-Id를 방어 상태(rate limit 카운터 등)의 키로
+ * 쓴다. 따라서 이 값은 "이번 요청에서 어떤 근거가 가장 높은 점수를 냈는지"와 무관하게
+ * 지금까지 확인된 가장 넓은 묶음을 안정적으로 가리켜야 한다. selectEffectiveDetection의
+ * 출처를 그대로 쓰면 Candidate 점수가 Flow 점수를 잠깐 앞지르는 순간 식별자가
+ * client-flow:* -> actor:* 로 되돌아가, 공격자가 방어 카운터를 새로 받게 된다.
+ */
+function selectClientId(analyses = {}, { actorId, resolvedActorId, clientFlowId } = {}) {
+  if (resolvedActorId && Number(analyses.resolved?.features?.totalRequests) > 0) {
+    return resolvedActorId;
+  }
+  if (clientFlowId && Number(analyses.clientFlow?.features?.totalRequests) > 0) {
+    return clientFlowId;
+  }
+  return actorId;
+}
+
+module.exports = { selectClientId, selectEffectiveDetection, severity };
