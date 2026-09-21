@@ -355,7 +355,8 @@ function recordRequest(
     clientIdentity,
     ts: now,
   });
-  requestRecord.clientObservation = clientObservation;
+  // 관찰값은 Actor와 Client Flow에만 보관한다. 요청마다 복사하면 세션당 최대 500벌이
+  // 중복 적재되는데 읽는 쪽이 없다.
   requestRecord.clientFlowId = clientFlow.id;
   s.clientFlowId = clientFlow.id;
   s.requests.push(requestRecord);

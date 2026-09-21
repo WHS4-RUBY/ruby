@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { userAgentVersion } = require("./httpFingerprint");
 
 const SIMILARITY_VERSION = "fingerprint-similarity-v1";
 const DEFAULT_WEIGHTS = Object.freeze({
@@ -48,11 +49,6 @@ function orderedSimilarity(left, right) {
   return (samePosition + (jaccard(a, b) || 0)) / 2;
 }
 
-function parseVersion(value) {
-  const match = String(value || "").match(/\b(?:curl|wget|python-requests|python-urllib|chrome|crios|firefox|fxios|version|edg)\/([0-9]+(?:\.[0-9]+)*)/i);
-  return match?.[1] || "";
-}
-
 function buildClientObservation({ ip, httpFingerprint, ts = Date.now() } = {}) {
   const client = httpFingerprint?.clientComponents || {};
   const request = httpFingerprint?.requestComponents || {};
@@ -66,7 +62,7 @@ function buildClientObservation({ ip, httpFingerprint, ts = Date.now() } = {}) {
         normalized: clean(client.userAgent),
         family: clean(client.userAgentFamily) || "unknown",
         major: clean(client.userAgentMajor) || "0",
-        version: clean(client.userAgentVersion) || parseVersion(client.userAgent),
+        version: clean(client.userAgentVersion) || userAgentVersion(client.userAgent),
       },
       language: {
         raw: String(client.acceptLanguageRaw || ""),
