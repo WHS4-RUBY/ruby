@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -593,6 +595,34 @@ def test_job_state_recovers_running_and_completed_process(
     completed = update_process()
     assert completed["status"] == "completed"
     assert completed["recovery"] == "campaign-summary-found-after-manager-restart"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process lookup regression")
+def test_process_exists_does_not_send_windows_console_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_called(pid: int, signal_number: int) -> None:
+        pytest.fail(f"os.kill({pid}, {signal_number}) must not run on Windows")
+
+    monkeypatch.setattr(manager.os, "kill", fail_if_called)
+
+    assert manager.process_exists(os.getpid()) is True
+
+
+def test_process_exists_distinguishes_running_and_completed_process() -> None:
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        creationflags=(
+            subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        ),
+    )
+    try:
+        assert manager.process_exists(process.pid) is True
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
+
+    assert manager.process_exists(process.pid) is False
 
 
 def test_runs_preserves_failed_status_without_a_summary(
