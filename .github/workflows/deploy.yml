@@ -16,7 +16,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        service: [detection, policy, defense]
+        service: [detection, defense]
     steps:
       - uses: actions/checkout@v4
 

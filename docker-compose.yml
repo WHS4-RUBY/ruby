@@ -8,7 +8,7 @@ services:
     ports:
       - "80:8080"
     environment:
-      - TARGET_URL=http://policy:8082
+      - TARGET_URL=http://defense:8080
       - PORT=8080
       - BLOCK_MODE=false
       - DETECTION_LEVEL=${DETECTION_LEVEL:-medium}
@@ -32,6 +32,11 @@ services:
       - MAX_RESOLVED_ACTORS=${MAX_RESOLVED_ACTORS:-5000}
       - MAX_RESOLUTION_MEMBERSHIPS=${MAX_RESOLUTION_MEMBERSHIPS:-20000}
       - MAX_RESOLUTION_RELATED_LINKS=${MAX_RESOLUTION_RELATED_LINKS:-5}
+      - FINGERPRINT_SIMILARITY_TTL_MS=${FINGERPRINT_SIMILARITY_TTL_MS:-1800000}
+      - FINGERPRINT_CLEANUP_INTERVAL_MS=${FINGERPRINT_CLEANUP_INTERVAL_MS:-60000}
+      - FINGERPRINT_MAX_FLOW_CANDIDATES=${FINGERPRINT_MAX_FLOW_CANDIDATES:-3}
+      - MAX_CLIENT_FLOWS=${MAX_CLIENT_FLOWS:-5000}
+      - FINGERPRINT_IP_ROTATION_ENABLED=${FINGERPRINT_IP_ROTATION_ENABLED:-true}
     volumes:
       - detection-data:/app/data
     healthcheck:
@@ -40,20 +45,8 @@ services:
       timeout: 3s
       retries: 5
     depends_on:
-      - policy
-    restart: unless-stopped
-    networks:
-      - ai-defense-net
-
-  policy:
-    image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/policy:${IMAGE_TAG:-latest}
-    container_name: policy
-    expose:
-      - "8082"
-    environment:
-      - NEXT_HOP_URL=http://defense:8080
-    depends_on:
-      - defense
+      defense:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - ai-defense-net
@@ -65,6 +58,11 @@ services:
       - "8080"
     environment:
       - BENCHMARK_TARGET_URL=http://benchmark-target:3000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     depends_on:
       benchmark-target:
         condition: service_healthy
@@ -77,13 +75,7 @@ services:
     expose:
       - "3000"
     healthcheck:
-      test:
-        [
-          "CMD",
-          "/nodejs/bin/node",
-          "-e",
-          "require('net').connect({port:3000,host:'127.0.0.1'}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
-        ]
+      test: ["CMD", "/nodejs/bin/node", "-e", "require('net').connect({port:3000,host:'127.0.0.1'}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
       interval: 2s
       timeout: 3s
       retries: 15

@@ -1,6 +1,6 @@
 # RUBY Defense
 
-RUBY의 방어 계층을 개발하는 영역입니다. Policy Engine이 선택한 전략에 따라 요청에 차단, 변환, 지연, 기만 등의 방어 기법을 적용합니다.
+RUBY의 방어 계층을 개발하는 영역입니다. Detection Proxy의 Policy Engine이 X-Defense-Plan 헤더로 넘긴 전략에 따라 요청에 차단, 변환, 지연, 기만 등의 방어 기법을 적용합니다.
 
 ## 담당 범위
 
@@ -11,7 +11,7 @@ RUBY의 방어 계층을 개발하는 영역입니다. Policy Engine이 선택�
 - 방어 로그와 계층 간 인터페이스 정의
 - 방어 기법의 단위·통합 테스트
 
-공격 탐지는 [`detection/`](../detection/)에서, 위험도와 정책에 따른 전략 선택은 [`policy/`](../policy/)에서 관리합니다. 실험 및 벤치마크 기록은 [`benchmark/`](../benchmark/)에서 관리합니다.
+공격 탐지와 위험도·정책에 따른 전략 선택은 모두 [`detection/`](../detection/)에서 관리합니다 (구간별 전략은 `detection/config/policy.json`). 실험 및 벤치마크 기록은 [`benchmark/`](../benchmark/)에서 관리합니다.
 
 ## 개발 상태
 

@@ -7,7 +7,7 @@ services:
     ports:
       - "8081:8080"
     environment:
-      TARGET_URL: http://policy:8082
+      TARGET_URL: http://defense:8080
       PORT: "8080"
       BLOCK_MODE: "false"
       DETECTION_LEVEL: ${DETECTION_LEVEL:-medium}
@@ -31,30 +31,15 @@ services:
       MAX_RESOLVED_ACTORS: ${MAX_RESOLVED_ACTORS:-5000}
       MAX_RESOLUTION_MEMBERSHIPS: ${MAX_RESOLUTION_MEMBERSHIPS:-20000}
       MAX_RESOLUTION_RELATED_LINKS: ${MAX_RESOLUTION_RELATED_LINKS:-5}
+      FINGERPRINT_SIMILARITY_TTL_MS: ${FINGERPRINT_SIMILARITY_TTL_MS:-1800000}
+      FINGERPRINT_CLEANUP_INTERVAL_MS: ${FINGERPRINT_CLEANUP_INTERVAL_MS:-60000}
+      FINGERPRINT_MAX_FLOW_CANDIDATES: ${FINGERPRINT_MAX_FLOW_CANDIDATES:-3}
+      MAX_CLIENT_FLOWS: ${MAX_CLIENT_FLOWS:-5000}
+      FINGERPRINT_IP_ROTATION_ENABLED: ${FINGERPRINT_IP_ROTATION_ENABLED:-true}
     volumes:
       - detection-data:/app/data
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
-      interval: 2s
-      timeout: 3s
-      retries: 15
-    depends_on:
-      policy:
-        condition: service_healthy
-    networks:
-      - ai-defense-net
-
-  policy:
-    build: ./policy
-    container_name: policy
-    environment:
-      NEXT_HOP_URL: http://defense:8080
-    volumes:
-      - ./policy/app:/app/app
-      - ./policy/config.yaml:/app/config.yaml:ro
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8082 --reload
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/healthz')"]
       interval: 2s
       timeout: 3s
       retries: 15

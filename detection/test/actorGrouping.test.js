@@ -2,7 +2,12 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const store = require("../lib/sessionStore");
-const { extractFeatures, extractActorFeatures } = require("../lib/featureExtractor");
+const { classify } = require("../lib/classifier");
+const {
+  extractFeatures,
+  extractActorFeatures,
+  extractResolvedActorFeatures,
+} = require("../lib/featureExtractor");
 
 const browserHeaders = {
   "user-agent": "Mozilla/5.0 TestBrowser/1.0",
@@ -89,6 +94,97 @@ test("IP Entry는 Actor를 합쳐 관찰하지만 Session과 Actor 요청 수는
   assert.equal(ipEntry.actorIds.size, 2);
   assert.equal(browserSession.requests.length, 1);
   assert.equal(store.getActor(browserSession.actorId).totalRequests, 1);
+});
+
+test("IP가 바뀐 고유사도 Candidate는 Client Flow 요청으로 중복 없이 자동 집계된다", () => {
+  const headers = {
+    "user-agent": "curl/99.42.1",
+    accept: "*/*",
+    "accept-language": "ko-KR",
+    "accept-encoding": "gzip, br",
+  };
+  const first = record("similarity-integration-a", "203.0.113.81", "/step/one", headers);
+  const second = record("similarity-integration-b", "198.51.100.82", "/step/two", headers);
+  assert.notEqual(first.actorId, second.actorId);
+
+  const aggregate = store.getClientFlowAggregate(first.actorId);
+  assert.equal(aggregate.aggregationEnabled, true);
+  assert.equal(aggregate.aggregationPolicy, "FINGERPRINT_CLIENT_FLOW_AUTO");
+  assert.equal(aggregate.candidateCount, 2);
+  assert.equal(aggregate.totalRequests, 2);
+  assert.equal(new Set(aggregate.requests.map((request) => request.requestId)).size, 2);
+  assert.equal(extractResolvedActorFeatures(aggregate).totalRequests, 2);
+});
+
+test("dlsid와 dcid가 모두 바뀌어도 같은 Candidate의 요청은 하나의 Client Flow로 이어진다", () => {
+  const headers = {
+    "user-agent": "FlowBrowser/71.3",
+    accept: "text/html",
+    "accept-language": "ko-KR",
+    "accept-encoding": "gzip, br",
+  };
+  const first = store.recordRequest("client-flow-cookie-a", "203.0.113.171", {
+    method: "GET",
+    url: "/flow/one",
+    status: 200,
+    headers,
+    tags: [],
+    authGroupId: null,
+    clientIdentity: {
+      valid: true,
+      continuityVerified: true,
+      source: "verified",
+      clientId: "dcid:client-flow-a",
+    },
+  });
+  const second = store.recordRequest("client-flow-cookie-b", "203.0.113.171", {
+    method: "GET",
+    url: "/flow/two",
+    status: 200,
+    headers,
+    tags: [],
+    authGroupId: null,
+    clientIdentity: {
+      valid: true,
+      continuityVerified: true,
+      source: "verified",
+      clientId: "dcid:client-flow-b",
+    },
+  });
+
+  assert.equal(first.actorId, second.actorId);
+  assert.notEqual(first.resolvedActorId, second.resolvedActorId);
+  const flow = store.getClientFlowAggregate(first.actorId);
+  assert.equal(flow.flowLinked, true);
+  assert.equal(flow.candidateCount, 1);
+  assert.equal(flow.sessionCount, 2);
+  assert.equal(flow.verifiedClientCount, 2);
+  assert.equal(flow.totalRequests, 2);
+  assert.deepEqual(flow.conflicts, []);
+});
+
+test("Candidate에 분산된 IDOR 흐름은 Client Flow 요청에서 Attack Score를 다시 계산한다", () => {
+  const headers = {
+    "user-agent": "curl/98.7.1",
+    accept: "*/*",
+    "accept-language": "ko-KR",
+    "accept-encoding": "gzip, br",
+  };
+  const first = record("similarity-score-a", "203.0.113.91", "/api/orders/1", headers);
+  const second = record("similarity-score-b", "198.51.100.92", "/api/orders/2", headers);
+  record("similarity-score-b", "198.51.100.92", "/api/orders/3", headers);
+
+  const firstActor = store.getActor(first.actorId);
+  const secondActor = store.getActor(second.actorId);
+  const aggregate = store.getClientFlowAggregate(first.actorId);
+  const candidateMaximum = Math.max(
+    classify(extractActorFeatures(firstActor, store.getSession)).attackScore,
+    classify(extractActorFeatures(secondActor, store.getSession)).attackScore
+  );
+  const mergedFeatures = extractResolvedActorFeatures(aggregate);
+  const merged = classify(mergedFeatures);
+  assert.equal(mergedFeatures.attack.idorWalk.maxDistinctIdsPerResource, 3);
+  assert.ok(merged.attackScore > candidateMaximum);
 });
 
 test("확장 요청 레코드는 식별자와 operation을 저장하고 민감 헤더를 보존하지 않는다", () => {

@@ -17,7 +17,7 @@ const {
   extractIpFeatures,
 } = require("./lib/featureExtractor");
 const { classify } = require("./lib/classifier");
-const { selectEffectiveDetection } = require("./lib/detectionPolicy");
+const { selectClientId, selectEffectiveDetection } = require("./lib/detectionPolicy");
 const {
   assessDetection,
   normalizeDetectionLevel,
@@ -59,11 +59,12 @@ const {
   PRODUCTS_ITEM_PATH,
 } = require("./lib/priceIntegrity");
 const schemaLearning = require("./lib/schemaLearning");
-const { applyPolicyHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
+const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
+const { applyDefensePlan, loadPolicyRules } = require("./lib/policyEngine");
 const { createProxyCore } = require("./lib/proxyCore");
 
 const PORT = process.env.PORT || 8080;
-const TARGET = process.env.TARGET_URL || process.env.JUICE_SHOP_URL || "http://localhost:3000";
+const TARGET = process.env.TARGET_URL || "http://localhost:3000";
 // 2026-09-01 추가: HTML(index.html) 하나만 보는 정찰 대신, 자주 조회되는
 // 정적 텍스트 응답에도 기만 신호를 심는다 — deceptionEngine.injectSignalsPlaintext 참고.
 const PLAINTEXT_BAIT_PATHS = new Set([
@@ -91,6 +92,7 @@ const crsScanner = new CrsScanner();
 const deceptionEngine = new DeceptionEngine();
 const dcidManager = new DcidManager();
 const accountIdentityResolver = new AccountIdentityResolver();
+const policyRules = loadPolicyRules();
 
 const app = express();
 app.disable("x-powered-by");
@@ -160,6 +162,23 @@ function analyzeResolvedActor(aggregate) {
   };
 }
 
+function analyzeClientFlow(aggregate) {
+  const features = extractResolvedActorFeatures(aggregate);
+  const analysis = classify(features);
+  return {
+    ...analysis,
+    detection: assessDetection(
+      { ...analysis, maxAttackScore: aggregate.attackHistory?.maxAttackScore },
+      { level: DETECTION_LEVEL }
+    ),
+    features,
+    agenticEvidence: computeAgenticEvidence(aggregate.requests),
+  };
+}
+
+// Client Flow는 동일 클라이언트 확정 객체가 아니라 Session/Candidate 요청을
+// 시간순으로 이어 보는 휴리스틱 집계다.
+
 /**
  * Policy는 요청을 전달하기 전에 위험도 헤더가 필요하지만, 이 탐지기의 일부
  * 신호(CRS 결과, 응답 상태)는 upstream 응답이 끝난 뒤 확정된다. 따라서 현재
@@ -182,11 +201,18 @@ function buildPriorPolicyDecision(req) {
   const resolvedActor = session?.resolvedActorId
     ? store.getResolvedActorAggregate(session.resolvedActorId)
     : null;
+  // 전체 집계는 멤버 세션의 요청을 모두 훑고 정렬하므로 요청 수에 대해 제곱으로
+  // 커진다. 실제로 Flow가 병합된 경우에만 계산하고, 그 외에는 O(1) 상태만 본다.
+  const clientFlowState = store.getClientFlowState(actorId);
+  const clientFlow = clientFlowState?.aggregationEnabled
+    ? store.getClientFlowAggregate(actorId)
+    : null;
 
   const analyses = {
     session: session ? analyzeSession(session) : null,
-    candidate: actor ? analyzeActor(actor) : null,
+    candidate: actor && clientFlowState?.status !== "CONFLICT" ? analyzeActor(actor) : null,
     authGroup: authGroup ? analyzeAuthGroup(authGroup) : null,
+    clientFlow: clientFlow ? analyzeClientFlow(clientFlow) : null,
     resolved: resolvedActor ? analyzeResolvedActor(resolvedActor) : null,
   };
   if (!Object.values(analyses).some(Boolean)) {
@@ -194,7 +220,11 @@ function buildPriorPolicyDecision(req) {
   }
 
   const [source, analysis] = selectEffectiveDetection(analyses);
-  const clientId = source === "confirmed-resolved-actor" ? resolvedActor.id : actorId;
+  const clientId = selectClientId(analyses, {
+    actorId,
+    resolvedActorId: resolvedActor?.id,
+    clientFlowId: clientFlowState?.id,
+  });
   return buildPolicyDecision({ source, analysis, clientId });
 }
 
@@ -397,20 +427,28 @@ function recordCompletedRequest(req, {
     ? store.getResolvedActorAggregate(resolvedActorId)
     : null;
   const resolvedActorAnalysis = resolvedActor ? analyzeResolvedActor(resolvedActor) : null;
+  const clientFlowId = session.requests.at(-1)?.clientFlowId;
+  const clientFlowState = clientFlowId ? store.getClientFlowState(clientFlowId) : null;
+  const clientFlowAnalysis = clientFlowState?.aggregationEnabled
+    ? analyzeClientFlow(store.getClientFlowAggregate(clientFlowId))
+    : null;
   const [effectiveDetectionSource, effectiveDetectionAnalysis] = selectEffectiveDetection({
     session: sessionAnalysis,
-    candidate: actorAnalysis,
+    candidate: clientFlowState?.status === "CONFLICT" ? null : actorAnalysis,
     authGroup: authGroupAnalysis,
+    clientFlow: clientFlowAnalysis,
     resolved: resolvedActorAnalysis,
   });
   store.updateAttackScoreHistory({
     sessionId: session.id,
     actorId,
     authGroupId: req.authGroupId,
+    clientFlowId,
     scores: {
       session: sessionAnalysis.attackScore,
       actor: actorAnalysis.attackScore,
       authGroup: authGroupAnalysis?.attackScore,
+      clientFlow: clientFlowAnalysis?.attackScore,
     },
   });
   return {
@@ -418,6 +456,7 @@ function recordCompletedRequest(req, {
     sessionAnalysis,
     actorAnalysis,
     authGroupAnalysis,
+    clientFlowAnalysis,
     resolvedActorAnalysis,
     effectiveDetectionSource,
     effectiveDetectionAnalysis,
@@ -508,6 +547,7 @@ app.get("/__detection/api/sessions", (req, res) => {
       sessionId: s.id,
       actorId: s.actorId,
       resolvedActorId: s.resolvedActorId,
+      clientFlowId: s.clientFlowId,
       ip: s.ip,
       ...analyzeSession(s),
       attackHistory: s.attackHistory,
@@ -528,6 +568,7 @@ app.get("/__detection/api/sessions/:id", (req, res) => {
     actorIds: Array.from(s.actorIds),
     resolvedActorId: s.resolvedActorId,
     resolutionMembershipId: s.resolutionMembershipId,
+    clientFlowId: s.clientFlowId,
     ip: s.ip,
     ...analyzeSession(s),
     attackHistory: s.attackHistory,
@@ -616,13 +657,83 @@ app.get("/__detection/api/resolved-actors/:id/memberships", (req, res) => {
   res.json({ resolvedActorId: req.params.id, memberships });
 });
 
+function clientFlowJson(aggregate, { includeRequests = false } = {}) {
+  const analysis = analyzeClientFlow(aggregate);
+  const candidates = aggregate.candidateIds.map((candidateId) => store.getActor(candidateId)).filter(Boolean);
+  const candidateAnalyses = candidates.map(analyzeActor);
+  const result = {
+    clientFlowId: aggregate.id,
+    status: aggregate.status,
+    confidence: aggregate.confidence,
+    similarityVersion: aggregate.similarityVersion,
+    aggregationPolicy: aggregate.aggregationPolicy,
+    aggregationEnabled: aggregate.aggregationEnabled,
+    flowLinked: aggregate.flowLinked,
+    verifiedClientCount: aggregate.verifiedClientCount,
+    scoringApplied: aggregate.aggregationEnabled,
+    anchorCandidateId: aggregate.anchorCandidateId,
+    candidateIds: aggregate.candidateIds,
+    candidateCount: aggregate.candidateCount,
+    sessionIds: aggregate.sessionIds,
+    sessionCount: aggregate.sessionCount,
+    resolvedActorIds: [...new Set(aggregate.requests.map((request) => request.resolvedActorId).filter(Boolean))],
+    observedIps: aggregate.observedIps,
+    links: aggregate.links,
+    conflicts: aggregate.conflicts,
+    clientObservation: aggregate.clientObservation,
+    firstSeen: aggregate.firstSeen,
+    lastSeen: aggregate.lastSeen,
+    totalRequests: aggregate.totalRequests,
+    preMergeAutomationScore: Math.max(0, ...candidateAnalyses.map((item) => item.automationScore || 0)),
+    preMergeAttackScore: Math.max(0, ...candidateAnalyses.map((item) => item.attackScore || 0)),
+    attackHistory: aggregate.attackHistory,
+    deceptionHistory: aggregate.deceptionHistory,
+    ...analysis,
+  };
+  if (includeRequests) result.requests = aggregate.requests;
+  return result;
+}
+
+app.get("/__detection/api/client-flows", (_req, res) => {
+  res.json(store.getAllClientFlowAggregates().map((aggregate) => clientFlowJson(aggregate)));
+});
+
+app.get("/__detection/api/client-flows/:id", (req, res) => {
+  const aggregate = store.getClientFlowAggregate(req.params.id);
+  if (!aggregate) return res.status(404).json({ error: "not found" });
+  res.json(clientFlowJson(aggregate, { includeRequests: true }));
+});
+
+app.get("/__detection/api/client-flows/:id/path", (req, res) => {
+  const aggregate = store.getClientFlowAggregate(req.params.id);
+  if (!aggregate) return res.status(404).json({ error: "not found" });
+  res.json({
+    clientFlowId: aggregate.id,
+    aggregationPolicy: aggregate.aggregationPolicy,
+    candidateIds: aggregate.candidateIds,
+    sessionIds: aggregate.sessionIds,
+    links: aggregate.links,
+    requests: aggregate.requests,
+  });
+});
+
 app.get("/__detection/api/actors", (req, res) => {
   const result = store.getAllActors().map((actor) => {
+    const flow = store.getClientFlowState(actor.id);
     return {
       actorId: actor.id,
       resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
       ip: actor.ip,
       fingerprint: actor.fingerprint,
+      clientObservation: actor.clientObservation,
+      clientFlow: flow && flow.flowLinked ? {
+        clientFlowId: flow.id,
+        status: flow.status,
+        aggregationEnabled: flow.aggregationEnabled,
+        candidateCount: flow.candidateCount,
+        sessionCount: flow.sessionCount,
+        links: flow.links,
+      } : null,
       ...analyzeActor(actor),
       attackHistory: actor.attackHistory,
       deceptionHistory: actor.deceptionHistory,
@@ -638,11 +749,22 @@ app.get("/__detection/api/actors", (req, res) => {
 app.get("/__detection/api/actors/:id", (req, res) => {
   const actor = store.getActor(req.params.id);
   if (!actor) return res.status(404).json({ error: "not found" });
+  const flow = store.getClientFlowState(actor.id);
   res.json({
     actorId: actor.id,
     resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
     ip: actor.ip,
     fingerprint: actor.fingerprint,
+    clientObservation: actor.clientObservation,
+    clientFlow: flow && flow.flowLinked ? {
+      clientFlowId: flow.id,
+      status: flow.status,
+      aggregationEnabled: flow.aggregationEnabled,
+      candidateIds: flow.candidateIds,
+      sessionIds: flow.sessionIds,
+      links: flow.links,
+      conflicts: flow.conflicts,
+    } : null,
     ...analyzeActor(actor),
     attackHistory: actor.attackHistory,
     deceptionHistory: actor.deceptionHistory,
@@ -778,6 +900,7 @@ app.get("/__detection/api/export", (req, res) => {
       sessionId: s.id,
       actorId: s.actorId,
       resolvedActorId: s.resolvedActorId,
+      clientFlowId: s.clientFlowId,
       ip: s.ip,
       userAgent: s.userAgent,
       firstSeen: s.firstSeen,
@@ -869,7 +992,12 @@ const detectionHook = {
     // RUBY Policy 계약: 외부 입력을 제거하고, 완료된 탐지 이력에서 계산한
     // 0~1 risk score와 가명 client id만 내부 헤더로 전달한다.
     req.rubyPolicyDecision = buildPriorPolicyDecision(req);
-    applyPolicyHeaders(proxyReq, req.rubyPolicyDecision);
+    stripDetectionHeaders(proxyReq);
+    applyDefensePlan(proxyReq, {
+      riskScore: req.rubyPolicyDecision.riskScore,
+      rules: policyRules,
+    });
+    proxyReq.setHeader("X-Client-Id", req.rubyPolicyDecision.clientId);
     // Ground truth용 헤더는 탐지 프록시에서 소비하고 RUBY Policy에는 전달하지 않는다.
     proxyReq.removeHeader(EXPERIMENT_RUN_HEADER);
     // ModSecurity/CRS 검사는 응답을 차단하지 않으며 결과만 비동기로 기록한다.
@@ -958,8 +1086,8 @@ const detectionHook = {
   },
 };
 
-// 공통 Express 프록시 코어에 탐지 훅을 장착한다. Policy/Defense는 이 뒤의
-// 독립 계층으로 유지되며, 추가 탐지·로깅 훅도 배열에 순서대로 붙일 수 있다.
+// 공통 Express 프록시 코어에 탐지와 정책 훅을 함께 장착한다. TARGET_URL은
+// Defense 또는 보호할 애플리케이션을 직접 가리키며, 별도 Policy 프록시는 없다.
 app.use("/", createProxyCore({ target: TARGET, hooks: [detectionHook] }));
 
 app.listen(PORT, () => {
