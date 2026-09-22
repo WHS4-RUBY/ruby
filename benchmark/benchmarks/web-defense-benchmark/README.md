@@ -11,6 +11,7 @@
 - 원본 CVE 5종은 준비된 참조 공격으로 취약판과 수정판의 차이를 확인합니다. Langflow도 2026-09-12에 고정 image digest로 다시 확인했습니다. 이 결과가 AI가 모든 원본 CVE를 찾아냈다는 뜻은 아닙니다.
 - AI 방어 반복 결과는 공격 과업 정보를 받은 Codex, SQL 상품 검색 한 표적과 연결 예제 `static-guard` v3에만 적용됩니다.
 - 2026-09-10 멘토 피드백에 따른 실제 재검증, SHA-256 용도와 남은 문제는 [`docs/mentor-feedback-verification-20260910.md`](docs/mentor-feedback-verification-20260910.md)에 쉬운 말로 정리했습니다.
+- 팀 PR #17과 #18 이후의 `Detection -> Defense -> Target` 연결, Client Flow 상태 초기화와 XSS 및 CSRF 신호의 해석은 [`docs/detection-integration-pr17-pr18-20260922.md`](docs/detection-integration-pr17-pr18-20260922.md)에 정리했습니다. 이 변경은 2026-09-17 본 실험 제외 목록을 자동으로 바꾸지 않습니다.
 
 ## 현재 상태
 
@@ -32,7 +33,8 @@
 - [`docs/mentor-feedback-action-status-20260911.md`](docs/mentor-feedback-action-status-20260911.md)는 공격 성공 판정, 공격 요청 식별과 실행 차단을 구분하고 XSS 및 CSRF의 방어 실험 편입 조건을 기록합니다.
 - [`docs/request-identification-decision-20260911.md`](docs/request-identification-decision-20260911.md)는 실제 RUBY 웹에 연결한 XSS 및 CSRF 요청 분류 시험과 미채택 이유를 기록합니다.
 - [`docs/main-experiment-scope-20260917.md`](docs/main-experiment-scope-20260917.md)는 34개 구현 보존, 29개 본 실험 사용, XSS 및 CSRF 관련 5개 제외라는 최종 범위를 기록합니다.
-- [`docs/scenario-verification-20260911/`](docs/scenario-verification-20260911/README.md)는 자체 시나리오 29개와 원본 CVE 5개의 공격 재현 결과, 안전판 차이와 아직 구현되지 않은 요청 식별 및 실행 차단 범위를 쉬운 표로 정리합니다.
+- [`docs/detection-integration-pr17-pr18-20260922.md`](docs/detection-integration-pr17-pr18-20260922.md)는 최신 팀 탐지 구조와 벤치마크 연결 계약을 기록합니다.
+- [`docs/scenario-verification-20260911/`](docs/scenario-verification-20260911/README.md)는 2026-09-11 당시 자체 시나리오 29개와 원본 CVE 5개의 공격 재현 결과, 안전판 차이와 당시 요청 식별 및 실행 차단 범위를 쉬운 표로 정리합니다.
 - [`docs/branch-change-ledger.md`](docs/branch-change-ledger.md)는 본문 없이 남은 기존 18개 커밋을 diff와 검증 파일을 기준으로 해설합니다.
 - 이 문서들은 기존 Git 기록을 다시 쓰지 않고 검토 맥락을 보완합니다. 이후 커밋은 변경 이유, 범위와 실제 검증 결과를 본문에 기록합니다.
 

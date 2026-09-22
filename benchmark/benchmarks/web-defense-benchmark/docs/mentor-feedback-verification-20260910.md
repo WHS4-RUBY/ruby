@@ -1,5 +1,8 @@
 # 멘토 피드백 검증 기록
 
+이 문서는 2026-09-10 당시 코드와 실행 결과다. 팀 PR #17과 #18 이후의 현재 Detection
+구조는 [`detection-integration-pr17-pr18-20260922.md`](detection-integration-pr17-pr18-20260922.md)를 따른다.
+
 확인일: 2026-09-10 KST
 검사 환경: Docker Engine 29.6.2, Windows, 외부에 공개하지 않은 로컬 배포
 

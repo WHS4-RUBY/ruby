@@ -1,5 +1,8 @@
 # 주장과 증거 교차 검토
 
+이 문서는 2026-09-12 당시 저장소 주장에 대한 검사다. 팀 PR #17과 #18 이후의 현재
+Detection 구조는 [`detection-integration-pr17-pr18-20260922.md`](detection-integration-pr17-pr18-20260922.md)를 따른다.
+
 확인일: 2026-09-12 KST
 
 ## 결론

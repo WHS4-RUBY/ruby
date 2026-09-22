@@ -1,5 +1,8 @@
 # XSS와 CSRF 요청 식별 채택 판단
 
+이 문서는 2026-09-11에 시험한 분류기의 채택 판단이다. 팀 PR #17과 #18의 Detection은
+별도 구현이며 현재 해석은 [`detection-integration-pr17-pr18-20260922.md`](detection-integration-pr17-pr18-20260922.md)에 기록한다.
+
 ## 결론
 
 실험용 XSS와 CSRF 요청 분류기는 채택하지 않는다. 실제 RUBY 웹에 연결한 시험에서 준비된 공격 요청은 분류했지만 정상 비실행 HTML 문서도 XSS로 오분류했다. CSRF는 같은 요청만 보고 사용자의 의도와 공격 유도를 구분할 수 없다.

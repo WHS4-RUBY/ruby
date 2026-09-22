@@ -50,6 +50,11 @@ docker compose up -d --build --wait
 `web`만 해당 네트워크에 `ruby-web-target`이라는 이름으로 연결됩니다. API, 평가기,
 PostgreSQL, Redis와 오브젝트 저장소는 내부 네트워크에만 남습니다.
 
+루트 `.env`의 `RUBY_PIPELINE_NETWORK`와 이 스택의
+`RUBY_BENCHMARK_PIPELINE_NETWORK`는 같은 값이어야 합니다. 대상 전환 뒤에는 PR #17의
+Client Flow와 누적 점수가 이전 대상에서 이어지지 않도록 Detection 컨테이너도 다시
+만듭니다. 자세한 순서는 서버 대상 전환 문서를 따릅니다.
+
 ```bash
 cp .env.production.example .env.production
 # .env.production의 이미지 태그와 모든 replace-* 값을 실제 배포 값으로 변경

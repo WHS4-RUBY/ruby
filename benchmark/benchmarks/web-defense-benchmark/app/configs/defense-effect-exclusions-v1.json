@@ -8,27 +8,27 @@
     {
       "target_id": "ruby-web:unsafe-file-upload.seller-document-preview",
       "attack_class": "stored-browser-script-execution",
-      "reason": "The private browser evaluator can judge execution, but the current RUBY detector and registered static guard do not detect or block this attack class."
+      "reason": "The private browser evaluator can judge execution, but the 2026-09-17 decision keeps this browser-execution target outside the main attacker and defense-effect experiment. Later request signals do not change that scope automatically."
     },
     {
       "target_id": "ruby-web:roundcube-derived.support-ticket-html-postprocess",
       "attack_class": "stored-xss",
-      "reason": "The private browser evaluator can judge execution, but the current RUBY detector and registered static guard do not detect or block XSS."
+      "reason": "The private browser evaluator can judge execution, but the 2026-09-17 decision keeps this XSS target outside the main attacker and defense-effect experiment. Later request signals do not change that scope automatically."
     },
     {
       "target_id": "ruby-web:cross-site-request-forgery.support-role-change",
       "attack_class": "csrf",
-      "reason": "The private evaluator can judge the role change, but the current RUBY detector has no verified way to distinguish an induced cross-site request from a legitimate state change."
+      "reason": "The private evaluator can judge the role change, but the 2026-09-17 decision keeps this CSRF target outside the main attacker and defense-effect experiment. Origin and Referer signals do not prove the induced state change."
     },
     {
       "target_id": "cve-original:CVE-2024-42009",
       "attack_class": "stored-xss",
-      "reason": "The original target reproduces browser execution, but no current RUBY XSS detector or defense has passed attack and benign-input tests."
+      "reason": "The original target reproduces browser execution, but the 2026-09-17 decision keeps this XSS target outside the main attacker and defense-effect experiment. Later request signals do not change that scope automatically."
     },
     {
       "target_id": "cve-original:CVE-2026-54433",
       "attack_class": "stored-xss",
-      "reason": "The original target reproduces browser execution, but no current RUBY XSS detector or defense has passed attack and benign-input tests."
+      "reason": "The original target reproduces browser execution, but the 2026-09-17 decision keeps this XSS target outside the main attacker and defense-effect experiment. Later request signals do not change that scope automatically."
     }
   ]
 }
