@@ -1,0 +1,19 @@
+{
+  "name": "ruby-detection-proxy",
+  "version": "1.0.0",
+  "description": "RUBY automation and attack behavior detection proxy",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "experiment:fingerprint": "node scripts/run-fingerprint-experiment.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "http-proxy-middleware": "^2.0.6"
+  },
+  "overrides": {
+    "qs": "6.16.0"
+  }
+}

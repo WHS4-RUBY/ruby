@@ -1,0 +1,1741 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<!-- 대시보드/뷰어 탭이 /favicon.ico를 Juice Shop 프록시로 보내 열람자가 탐지 대상으로
+     기록되는 것을 막는다. 빈 data URI는 일부 브라우저가 무시하므로 실제 SVG를 넣는다. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23243b53'/%3E%3Cpath d='M8 3l3.6 1.6v3.1c0 2.2-1.5 4-3.6 4.7-2.1-.7-3.6-2.5-3.6-4.7V4.6z' fill='%23e8eef4'/%3E%3C/svg%3E" />
+<title>트래픽 탐지 대시보드</title>
+<style>
+  :root {
+    color-scheme:light;
+    --bg:#f4f6f8; --surface:#ffffff; --surface-muted:#f8f9fb;
+    --border:#d9dee5; --border-strong:#c3cad3; --text:#1f2933; --muted:#66717f;
+    --navy:#243b53; --blue:#2f6f9f; --amber:#a15c00; --red:#b42318;
+    --green:#20744a; --hover:#f2f5f8;
+    --select-bg:#e7f0f7; --select-border:#2f6f9f;
+    --badge-confirmed-bg:#e4f1ea; --badge-confirmed-fg:#1a6340; --badge-confirmed-border:#a8cfba;
+    --badge-candidate-bg:#fdf1de; --badge-candidate-fg:#8a5000; --badge-candidate-border:#e3c58c;
+  }
+  html[data-theme="dark"] {
+    color-scheme:dark;
+    --bg:#11161c; --surface:#171d24; --surface-muted:#1c232b;
+    --border:#303943; --border-strong:#46515d; --text:#dce2e8; --muted:#96a1ac;
+    --navy:#c9d5df; --blue:#7da6c4; --amber:#d79a4b; --red:#e0736b;
+    --green:#72bd91; --hover:#202832;
+    --select-bg:#1e2d3a; --select-border:#7da6c4;
+    --badge-confirmed-bg:#1b2f26; --badge-confirmed-fg:#79c79c; --badge-confirmed-border:#2f5943;
+    --badge-candidate-bg:#33270f; --badge-candidate-fg:#dfae62; --badge-candidate-border:#5c4720;
+  }
+  * { box-sizing:border-box; }
+  body { font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); margin:0; font-size:14px; height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+  button,a,input,select { font:inherit; }
+  code { font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; color:var(--blue); font-size:.92em; }
+  .app-header { flex-shrink:0; background:var(--surface); border-bottom:1px solid var(--border); }
+  .header-inner,.page { width:min(1760px,calc(100% - 48px)); margin:0 auto; }
+  .header-inner { min-height:66px; display:flex; align-items:center; gap:28px; }
+  .product-label { margin:0 0 3px; color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+  h1 { margin:0; color:var(--text); font-size:19px; line-height:1.3; font-weight:650; }
+  .header-actions { display:flex; align-items:center; gap:18px; }
+  .refresh-note { color:var(--muted); font-size:12px; white-space:nowrap; }
+  .header-button,.export-link { color:var(--navy); font-size:13px; font-weight:600; text-decoration:none; padding:8px 11px; border:1px solid var(--border-strong); background:var(--surface); }
+  .header-button { cursor:pointer; min-width:112px; }
+  .header-button:hover,
+  .export-link:hover { background:var(--hover); }
+  .page { flex:1; min-height:0; display:flex; flex-direction:column; padding:16px 0 20px; }
+  .notice { margin:0 0 18px; padding:11px 13px; border-left:3px solid #607d98; background:var(--surface-muted); color:var(--muted); font-size:13.5px; line-height:1.55; }
+  .header-stats { display:flex; align-items:baseline; gap:18px; margin-left:auto; color:var(--muted); font-size:12.5px; }
+  .header-stats b { margin-right:3px; color:var(--text); font-size:19px; font-weight:650; font-variant-numeric:tabular-nums; }
+  .header-stats-sub { color:var(--muted); font-size:11.5px; }
+  .workspace { flex:1; min-height:0; display:flex; flex-direction:column; border:1px solid var(--border); background:var(--surface); }
+  .tabs { flex-shrink:0; display:flex; overflow-x:auto; border-bottom:1px solid var(--border); background:var(--surface-muted); }
+  .tab-button { position:relative; appearance:none; border:0; border-right:1px solid var(--border); background:transparent; color:#52606d; padding:12px 18px; cursor:pointer; white-space:nowrap; font-size:13px; font-weight:600; }
+  html[data-theme="dark"] .tab-button { color:var(--muted); }
+  .tab-button:hover { background:var(--hover); color:var(--text); }
+  .tab-button.active { background:var(--surface); color:var(--text); }
+  .tab-button.active::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:#315f7d; }
+  .tab-count { margin-left:7px; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .tab-panel { display:none; }
+  .tab-panel.active { flex:1; min-height:0; display:flex; flex-direction:column; }
+  .section-head { flex-shrink:0; display:flex; justify-content:space-between; align-items:flex-start; gap:20px; padding:16px 20px 12px; }
+  h2 { margin:0; color:var(--text); font-size:16px; line-height:1.4; font-weight:650; }
+  h3 { margin:24px 0 10px; color:var(--text); font-size:13px; font-weight:700; }
+  h4 { margin:0 0 8px; color:var(--muted); font-size:11.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+  .sub { color:var(--muted); margin:5px 0 0; font-size:13px; line-height:1.55; }
+  .observation { display:inline-block; margin-left:7px; color:#525f6d; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; border:1px solid var(--border-strong); padding:2px 6px; vertical-align:2px; }
+  html[data-theme="dark"] .observation { color:var(--muted); }
+  .table-wrap { width:100%; flex:1; min-height:0; overflow:auto; border-top:1px solid var(--border); }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th,td { text-align:left; padding:11px 13px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  th { color:#52606d; background:var(--surface-muted); font-size:11.5px; font-weight:700; letter-spacing:.01em; }
+  html[data-theme="dark"] th { color:var(--muted); }
+  tbody tr:last-child td { border-bottom:0; }
+  tr.clickable { cursor:pointer; }
+  tr.clickable:hover { background:var(--hover); }
+  .score { display:inline-flex; align-items:center; gap:8px; min-width:102px; font-variant-numeric:tabular-nums; font-weight:650; }
+  .score-bar { background:var(--border); overflow:hidden; width:68px; height:6px; display:inline-block; }
+  .score-fill { display:block; height:100%; }
+  .score-fill.automation { background:#b06b16; }
+  .score-fill.attack { background:#b83a32; }
+  .detection-badge { display:inline-block; margin-left:6px; padding:2px 5px; border:1px solid var(--border-strong); font-size:10px; font-weight:750; letter-spacing:.03em; white-space:nowrap; }
+  .detection-badge.automation { color:var(--amber); border-color:var(--amber); }
+  .detection-badge.attack { color:var(--red); border-color:var(--red); }
+  .threshold-control { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; font-weight:650; white-space:nowrap; }
+  .threshold-control select { padding:7px 9px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); }
+
+  /* ── 용어 도움말 ─────────────────────────────────────────────── */
+  .hint { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; margin-left:5px; border:1px solid var(--border-strong); border-radius:50%; color:var(--muted); font-size:9px; font-weight:700; cursor:help; vertical-align:1px; }
+  .hint:hover { background:var(--hover); color:var(--text); }
+  [data-tip] { position:relative; }
+
+  /* ── 식별자 칩(클릭 복사) ────────────────────────────────────── */
+  .idchip { display:inline-flex; align-items:center; gap:6px; max-width:100%; padding:3px 8px; border:1px solid var(--border-strong); background:var(--surface-muted); color:var(--blue); font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:12.5px; cursor:pointer; }
+  .idchip:hover { background:var(--hover); border-color:var(--select-border); }
+  .idchip::after { content:"⧉"; color:var(--muted); font-size:10px; }
+  .idchip.copied { border-color:var(--green); color:var(--green); }
+  .idchip.copied::after { content:"복사됨"; font-family:inherit; color:var(--green); }
+
+  /* ── 클라이언트 흐름(Client Flows) 워크스페이스 ─────────────────────────────── */
+  .users-layout { flex:1; min-height:0; display:grid; grid-template-columns:minmax(384px,440px) minmax(0,1fr); border-top:1px solid var(--border); }
+  .users-list-pane { border-right:1px solid var(--border); background:var(--surface-muted); display:flex; flex-direction:column; min-height:0; }
+  .list-toolbar { padding:12px 16px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
+  .search-input,.select-input { width:100%; padding:8px 10px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); }
+  .search-input::placeholder { color:var(--muted); }
+  .toolbar-row { display:flex; gap:8px; }
+  .toolbar-row > * { flex:1; min-width:0; }
+  .filter-chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip-button { padding:5px 10px; border:1px solid var(--border-strong); background:var(--surface); color:var(--muted); font-size:12px; font-weight:600; cursor:pointer; }
+  .chip-button:hover { background:var(--hover); color:var(--text); }
+  .chip-button.active { background:var(--select-bg); border-color:var(--select-border); color:var(--text); }
+  .list-meta { padding:9px 16px; border-bottom:1px solid var(--border); color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+  .user-list { flex:1; min-height:0; overflow-y:auto; }
+  .user-card { display:block; width:100%; text-align:left; padding:12px 16px 13px; border:0; border-bottom:1px solid var(--border); border-left:3px solid transparent; background:transparent; color:var(--text); cursor:pointer; }
+  .user-card:hover { background:var(--hover); }
+  .user-card.selected { background:var(--surface); border-left-color:var(--select-border); box-shadow:inset 0 0 0 1px var(--select-border); }
+  .user-card-top { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:7px; }
+  .user-card-id { display:block; margin-bottom:9px; font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:13.5px; color:var(--text); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .badge { flex-shrink:0; padding:3px 8px; border:1px solid var(--border-strong); font-size:11px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; }
+  .badge.confirmed { background:var(--badge-confirmed-bg); color:var(--badge-confirmed-fg); border-color:var(--badge-confirmed-border); }
+  .badge.candidate { background:var(--badge-candidate-bg); color:var(--badge-candidate-fg); border-color:var(--badge-candidate-border); }
+  .badge.neutral { background:var(--surface-muted); color:var(--muted); }
+  .badge.danger { background:transparent; color:var(--red); border-color:var(--red); }
+  .user-card-scores { display:grid; grid-template-columns:1fr 1fr; gap:6px 14px; margin-bottom:8px; }
+  .mini-score { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--muted); }
+  .mini-score .mini-label { width:40px; flex-shrink:0; font-weight:700; }
+  .mini-score .score-bar { width:100%; }
+  .mini-score .mini-value { width:27px; text-align:right; font-variant-numeric:tabular-nums; font-weight:650; color:var(--text); }
+  .user-card-facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:3px 12px; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .user-card-facts b { color:var(--text); font-weight:650; }
+
+  .user-detail-pane { padding:0; overflow:hidden; display:flex; flex-direction:column; min-height:0; }
+  .detail-empty { padding:64px 24px; text-align:center; color:var(--muted); }
+  .detail-head { flex-shrink:0; padding:14px 22px 12px; border-bottom:1px solid var(--border); }
+  .detail-title-row { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:10px; }
+  .detail-title { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .detail-title h2 { font-size:15px; }
+  .detail-links { display:flex; align-items:center; gap:12px; }
+  .link-button { padding:6px 10px; border:1px solid var(--border-strong); background:var(--surface); color:var(--navy); font-size:12px; font-weight:600; text-decoration:none; cursor:pointer; }
+  .link-button:hover { background:var(--hover); }
+  .detail-stats { display:flex; flex-wrap:wrap; align-items:center; gap:6px 22px; }
+  .detail-stats .ds { display:inline-flex; align-items:center; gap:7px; font-size:13px; }
+  .detail-stats .ds i { color:var(--muted); font-style:normal; font-size:12px; font-weight:600; }
+  .detail-stats .ds b { color:var(--text); font-size:16px; font-weight:650; font-variant-numeric:tabular-nums; }
+  .detail-stats .score { min-width:auto; }
+
+  .relation { flex-shrink:0; padding:8px 22px 10px; border-bottom:1px solid var(--border); }
+  .relation-row { display:flex; align-items:baseline; gap:12px; padding:5px 0; }
+  .relation-key { flex-shrink:0; width:112px; color:var(--muted); font-size:12px; font-weight:600; }
+  .relation-chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .relation-note { margin:0; color:var(--muted); font-size:12px; line-height:1.55; }
+  .connection-disclosure { flex-shrink:0; border-bottom:1px solid var(--border); }
+  .connection-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 22px; color:var(--text); cursor:pointer; list-style:none; user-select:none; }
+  .connection-summary::-webkit-details-marker { display:none; }
+  .connection-summary:hover { background:var(--hover); }
+  .connection-summary-main { display:flex; align-items:center; gap:9px; min-width:0; }
+  .connection-summary-title { font-size:13px; font-weight:700; }
+  .connection-summary-meta { color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .connection-summary-toggle { flex-shrink:0; color:var(--navy); font-size:12px; font-weight:650; }
+  .connection-summary-toggle::before { content:"▸"; display:inline-block; margin-right:5px; transition:transform .15s ease; }
+  .connection-disclosure[open] .connection-summary-toggle::before { transform:rotate(90deg); }
+  .connection-disclosure[open] .connection-summary-toggle::after { content:"접기"; }
+  .connection-disclosure:not([open]) .connection-summary-toggle::after { content:"펼치기"; }
+  .node-chip { display:inline-flex; align-items:center; gap:6px; padding:5px 9px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:12.5px; cursor:pointer; }
+  .node-chip:hover { background:var(--hover); border-color:var(--select-border); }
+  .node-chip.active { background:var(--select-bg); border-color:var(--select-border); }
+  .node-chip .dot { width:8px; height:8px; flex-shrink:0; }
+  .node-chip .chip-status { font-family:inherit; font-size:11px; color:var(--muted); }
+
+  .timeline-head { flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; padding:12px 22px 10px; border-bottom:1px solid var(--border); }
+  .timeline-filters { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .timeline-filters .search-input { width:240px; }
+  .timeline-filters .select-input { width:auto; }
+  .timeline-body { flex:1; min-height:0; overflow-y:auto; padding:6px 22px 18px; }
+  .timeline-row { display:grid; grid-template-columns:88px 12px minmax(0,1fr); gap:0 12px; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px; }
+  .timeline-row:last-child { border-bottom:0; }
+  .timeline-row.flagged { background:rgba(184,58,50,.07); }
+  .timeline-row.background { opacity:.82; }
+  .timeline-background-group { display:flex; align-items:center; gap:10px; margin:8px 0; padding:10px 12px; border:1px dashed var(--border); border-radius:10px; background:var(--surface-muted); color:var(--muted); font-size:12px; }
+  .timeline-background-group b { color:var(--text); font-size:13px; }
+  .tag.background { color:#3f78a7; border-color:rgba(79,140,201,.38); background:rgba(79,140,201,.10); }
+  .timeline-time { color:var(--muted); font-size:12.5px; font-variant-numeric:tabular-nums; padding-top:1px; }
+  .timeline-rail { position:relative; }
+  .timeline-rail::before { content:""; position:absolute; left:5px; top:-9px; bottom:-10px; width:1px; background:var(--border); }
+  .timeline-rail .dot { position:relative; z-index:1; display:block; width:9px; height:9px; margin:4px 0 0 1px; border:1px solid var(--surface); }
+  .timeline-main .line1 { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:3px; }
+  .timeline-main .url { color:var(--text); font-size:13.5px; font-weight:600; line-height:1.45; word-break:break-all; }
+  .timeline-main .meta { color:var(--muted); font-size:12px; margin-top:3px; word-break:break-all; }
+  .method { font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:13px; font-weight:700; color:var(--navy); }
+  .session-marker { display:inline-flex; align-items:center; gap:5px; padding:2px 7px; border:1px solid var(--border); background:var(--surface-muted); color:var(--muted); font-size:11.5px; font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; }
+  .session-divider { display:flex; align-items:center; gap:10px; margin:16px 0 7px; color:var(--muted); font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+  .session-divider::after { content:""; flex:1; height:1px; background:var(--border); }
+
+  .modal-backdrop { display:none; position:fixed; inset:0; background:rgba(30,39,48,.55); z-index:10; padding:24px; }
+  .modal { width:min(1120px,100%); max-height:calc(100vh - 48px); overflow:auto; margin:0 auto; background:var(--surface); border:1px solid var(--border-strong); box-shadow:0 12px 36px rgba(0,0,0,.28); }
+  .modal-header { position:sticky; top:0; z-index:2; display:flex; justify-content:space-between; align-items:flex-start; gap:20px; padding:18px 22px; border-bottom:1px solid var(--border); background:var(--surface); }
+  .modal-header h2 { word-break:break-all; }
+  .modal-actions { display:flex; align-items:center; gap:14px; flex-shrink:0; }
+  .modal-actions .toolbar { margin:0; }
+  .modal-actions a { color:var(--blue); text-decoration:none; font-size:12px; }
+  .close { appearance:none; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); padding:6px 10px; cursor:pointer; font-size:12px; }
+  .close:hover { background:var(--hover); }
+  #detailContent { padding:22px; }
+  .score-grid,.feature-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-bottom:18px; }
+  .feature-grid { grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); }
+  .panel { border:1px solid var(--border); background:var(--surface); padding:14px 15px; margin-bottom:14px; }
+  .panel h3 { margin:0 0 10px; padding-bottom:9px; border-bottom:1px solid var(--border); color:var(--text); }
+  .metric { display:flex; justify-content:space-between; gap:20px; padding:6px 0; font-size:12px; border-bottom:1px solid var(--border); }
+  .metric:last-child { border-bottom:0; }
+  .metric .key { color:#5d6875; word-break:break-word; }
+  html[data-theme="dark"] .metric .key { color:var(--muted); }
+  .metric .value { color:var(--text); text-align:right; word-break:break-word; font-variant-numeric:tabular-nums; }
+  .section-title { margin:24px 0 10px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+  .sequence { margin:0; padding-left:24px; font-size:12px; }
+  .sequence li { padding:4px 0; }
+  .path-item { border-left:2px solid #b9c3cc; padding:7px 0 9px 13px; margin:0 0 7px; font-size:12px; }
+  .path-item .meta { color:#6b7682; }
+  html[data-theme="dark"] .path-item .meta { color:var(--muted); }
+  .path-item .url { color:var(--text); font-weight:600; word-break:break-all; }
+  .path-item .operation { color:var(--blue); margin-top:2px; }
+  .path-item .body { color:var(--blue); margin-top:3px; word-break:break-all; }
+  .status-error { color:var(--red); font-weight:700; }
+  .status-success { color:var(--green); font-weight:700; }
+  .tag { display:inline-block; background:#f7e7e5; border:1px solid #e7c3bf; color:#8f2f28; font-size:11px; padding:2px 6px; margin-left:6px; }
+  html[data-theme="dark"] .tag { background:#33211f; border-color:#5c3733; color:#e0938c; }
+  .empty { color:var(--muted); padding:16px 0; margin:0; }
+  .toast { position:fixed; right:24px; bottom:24px; z-index:20; padding:10px 14px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); font-size:12px; box-shadow:0 8px 20px rgba(0,0,0,.22); opacity:0; transform:translateY(6px); transition:opacity .15s,transform .15s; pointer-events:none; }
+  .toast.visible { opacity:1; transform:translateY(0); }
+
+  @media (max-width:1280px) {
+    .users-layout { grid-template-columns:minmax(320px,360px) minmax(0,1fr); }
+  }
+  @media (max-width:900px) {
+    body { height:auto; overflow:auto; display:block; }
+    .page { display:block; }
+    .workspace { display:block; }
+    .tab-panel.active { display:block; }
+    .header-inner,.page { width:min(100% - 24px,1760px); }
+    .header-inner { align-items:flex-start; padding:15px 0; }
+    .header-inner { flex-wrap:wrap; }
+    .header-stats { margin-left:0; }
+    .header-actions { flex-direction:column; align-items:flex-end; gap:8px; }
+    .users-layout { grid-template-columns:minmax(0,1fr); }
+    .users-list-pane { border-right:0; border-bottom:1px solid var(--border); }
+    .user-list { max-height:340px; }
+    .timeline-body { max-height:60vh; }
+    .relation-row { flex-direction:column; gap:4px; }
+    .score-grid { grid-template-columns:1fr; }
+    .modal-backdrop { padding:8px; }
+    .modal { max-height:calc(100vh - 16px); }
+    .modal-header { padding:14px; }
+    #detailContent { padding:14px; }
+  }
+</style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div>
+        <p class="product-label">보안 모니터링</p>
+        <h1>트래픽 탐지 대시보드</h1>
+      </div>
+      <div class="header-stats">
+        <span><b id="summaryResolvedActors">—</b> 흐름</span>
+        <span><b id="summarySessions">—</b> 세션</span>
+        <span><b id="summaryRequests">—</b> 요청 <small id="summaryRequestsSub" class="summary-sub"></small></span>
+        <span class="header-stats-sub" id="summaryResolvedActorsSub"></span>
+      </div>
+      <div class="header-actions">
+        <label class="threshold-control" for="detectionLevel">판정 기준
+          <select id="detectionLevel">
+            <option value="low">LOW · 30점</option>
+            <option value="medium" selected>MEDIUM · 50점</option>
+            <option value="high">HIGH · 70점</option>
+          </select>
+        </label>
+        <span class="refresh-note">2초 간격 자동 갱신</span>
+        <button class="header-button" type="button" id="themeToggle" aria-pressed="true">라이트 모드</button>
+        <button class="export-link" type="button" id="exportButton" title="전체 Session 로그를 JSON 파일로 저장합니다.">Session 로그 내보내기 (JSON)</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="workspace">
+      <nav class="tabs" role="tablist" aria-label="집계 단위">
+        <button class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="panel-users" data-tab="users">클라이언트 흐름<span class="tab-count" id="usersTabCount">0</span></button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-actors" data-tab="actors">후보 클라이언트<span class="tab-count" id="actorTabCount">0</span></button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-sessions" data-tab="sessions">세션<span class="tab-count" id="sessionTabCount">0</span></button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-auth" data-tab="auth">인증 그룹<span class="tab-count" id="authTabCount">0</span></button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-ip" data-tab="ip">IP 관찰<span class="tab-count" id="ipTabCount">0</span></button>
+      </nav>
+
+      <div class="tab-panel active" id="panel-users" role="tabpanel">
+        <div class="users-layout">
+          <aside class="users-list-pane">
+            <div class="list-toolbar">
+              <input class="search-input" type="search" id="userSearch" placeholder="ID · IP 검색" aria-label="클라이언트 흐름 검색" />
+              <div class="toolbar-row">
+                <select class="select-input" id="userSort" aria-label="정렬 기준">
+                  <option value="lastSeen">최근 활동 순</option>
+                  <option value="firstSeen">최초 활동 순</option>
+                  <option value="attack">공격 점수 순</option>
+                  <option value="automation">자동화 점수 순</option>
+                  <option value="requests">요청 수 순</option>
+                  <option value="sessions">세션 수 순</option>
+                </select>
+                <select class="select-input" id="userRisk" aria-label="위험 신호 필터">
+                  <option value="all">위험 신호 전체</option>
+                  <option value="automation-detected">AI 접근 식별</option>
+                  <option value="attack-detected">공격 식별</option>
+                  <option value="both-detected">AI 접근 + 공격 식별</option>
+                  <option value="attack">공격 이력만</option>
+                  <option value="honey">허니 신호만</option>
+                </select>
+              </div>
+              <div class="filter-chips" id="userIdentityFilters" role="group" aria-label="확인 상태 필터">
+                <button class="chip-button active" type="button" data-identity="all">전체</button>
+                <button class="chip-button" type="button" data-identity="confirmed">연속성 확정</button>
+                <button class="chip-button" type="button" data-identity="heuristic">휴리스틱 흐름</button>
+              </div>
+            </div>
+            <p class="list-meta" id="userListMeta">—</p>
+            <div class="user-list" id="userList"></div>
+          </aside>
+          <section class="user-detail-pane" id="userDetail">
+            <p class="detail-empty">왼쪽 목록에서 클라이언트 흐름을 선택하면 세션 관계와 요청 흐름이 표시됩니다.</p>
+          </section>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="panel-actors" role="tabpanel" hidden>
+        <div class="section-head"><div><h2>후보 클라이언트</h2><p class="sub">IP와 HTTP 헤더 지문으로 묶은 추정 클라이언트이며 실제 사용자 식별자가 아닙니다.</p></div></div>
+        <div class="table-wrap"><table><thead><tr>
+          <th>후보 클라이언트</th><th>IP</th><th>클라이언트 특징 · 연관 판정</th><th title="확률이 아닌 휴리스틱 지표입니다. 35%는 허니 신호 배점입니다.">자동화 점수</th><th title="확률이 아닌 휴리스틱 지표입니다. 22%는 허니 신호 배점입니다.">공격 점수</th><th>허니 신호</th><th>누적 공격 이력</th>
+          <th>요청</th><th>세션</th><th>최초 관찰</th><th>최근 관찰</th>
+        </tr></thead><tbody id="actorRows"></tbody></table></div>
+      </div>
+
+      <div class="tab-panel" id="panel-sessions" role="tabpanel" hidden>
+        <div class="section-head"><div><h2>세션</h2><p class="sub">단일 dlsid 흐름만 표시하며 IP 전체 요청은 섞이지 않습니다.</p></div></div>
+        <div class="table-wrap"><table><thead><tr>
+          <th>세션</th><th>IP</th><th title="확률이 아닌 휴리스틱 지표입니다. 35%는 허니 신호 배점입니다.">자동화 점수</th><th title="확률이 아닌 휴리스틱 지표입니다. 22%는 허니 신호 배점입니다.">공격 점수</th><th>허니 신호</th><th>누적 공격 이력</th>
+          <th>요청</th><th>평균 간격(ms)</th><th>2초 최대</th><th>10초 요청</th><th>404 비율</th><th>접근 거부 비율</th>
+        </tr></thead><tbody id="sessionRows"></tbody></table></div>
+      </div>
+
+      <div class="tab-panel" id="panel-auth" role="tabpanel" hidden>
+        <div class="section-head"><div><h2>인증 그룹</h2><p class="sub">동일 Bearer 토큰의 SHA-256 해시 기준이며 토큰 원문은 저장하지 않습니다.</p></div></div>
+        <div class="table-wrap"><table><thead><tr>
+          <th>인증 그룹</th><th title="확률이 아닌 휴리스틱 지표입니다. 35%는 허니 신호 배점입니다.">자동화 점수</th><th title="확률이 아닌 휴리스틱 지표입니다. 22%는 허니 신호 배점입니다.">공격 점수</th><th>허니 신호</th><th>누적 공격 이력</th>
+          <th>요청</th><th>세션</th><th>후보 클라이언트</th><th>최근 관찰</th>
+        </tr></thead><tbody id="authRows"></tbody></table></div>
+      </div>
+
+      <div class="tab-panel" id="panel-ip" role="tabpanel" hidden>
+        <div class="section-head"><div><h2>IP 관찰 <span class="observation">관찰 전용</span></h2><p class="sub">NAT/Docker 환경에서는 여러 클라이언트가 섞일 수 있어 탐지 점수와 차단 기준에는 쓰지 않습니다.</p></div></div>
+        <div class="table-wrap"><table><thead><tr>
+          <th>IP</th><th>요청</th><th>세션</th><th>후보 클라이언트</th><th>고유 경로</th><th>최근 관찰</th>
+        </tr></thead><tbody id="ipRows"></tbody></table></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="backdrop">
+    <div class="modal" id="modal">
+      <div class="modal-header">
+        <div><p class="product-label">탐지 상세</p><h2 id="modalTitle">상세 분석</h2></div>
+        <div class="modal-actions"><div class="toolbar" id="modalExport"></div><button class="close" type="button" id="closeButton">닫기</button></div>
+      </div>
+      <div id="detailContent"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const state = {
+  timer: null,
+  activeTab: 'users',
+  modalOpen: false,
+  users: [],
+  selected: null,          // { kind, id }
+  userSelectionTouched: false, // 사용자가 직접 목록을 고른 뒤에는 자동 선택하지 않는다.
+  userDetail: null,        // 선택된 흐름의 상세 응답
+  userQuery: '',
+  userSort: 'lastSeen',
+  identityFilter: 'all',
+  riskFilter: 'all',
+  detectionLevel: localStorage.getItem('detectionLevel') || 'medium',
+  timelineQuery: '',
+  timelineSession: 'all',
+  timelineFlaggedOnly: false,
+  timelineBackgroundExpanded: false,
+  connectionDetailsExpanded: false,
+};
+
+/* 세션마다 고정된 색을 배정해 타임라인에서 흐름을 구분한다. */
+const SESSION_PALETTE = ['#4f8cc9','#c9803a','#4fa07a','#a678c4','#c25f6b','#3f9aa6','#8a9b3d','#c07ba0'];
+
+function applyTheme(theme) {
+  const dark = theme === 'dark';
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const button = document.getElementById('themeToggle');
+  button.textContent = dark ? '라이트 모드' : '다크 모드';
+  button.setAttribute('aria-pressed', String(dark));
+  button.setAttribute('aria-label', dark ? '라이트 모드로 전환' : '다크 모드로 전환');
+}
+
+function initializeTheme() {
+  let savedTheme = 'dark';
+  try {
+    savedTheme = localStorage.getItem('detection-dashboard-theme') || 'dark';
+  } catch (_) {
+    // 저장소 접근이 제한된 환경에서도 기본 다크 모드로 동작한다.
+  }
+  applyTheme(savedTheme === 'light' ? 'light' : 'dark');
+}
+
+function toggleTheme() {
+  const nextTheme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  applyTheme(nextTheme);
+  try {
+    localStorage.setItem('detection-dashboard-theme', nextTheme);
+  } catch (_) {
+    // 테마 전환 자체는 저장 실패와 무관하게 유지한다.
+  }
+}
+
+const entityLabels = {
+  'resolved-actors': '행위자 흐름 (Resolved Actor)',
+  'client-flows': '클라이언트 흐름 (Client Flow)',
+  sessions: '세션 (Session)',
+  actors: '후보 클라이언트 (Actor Candidate)',
+  'auth-groups': '인증 그룹 (Auth Group)',
+  'ip-entries': 'IP 관찰 (IP Observation)'
+};
+
+const metricLabels = {
+  timingRegularity: '요청 시간 규칙성 (Timing Regularity)',
+  requestIntensity: '요청 집중도 (Request Intensity)',
+  repeatedOperation: '반복 작업 (Repeated Operation)',
+  sessionChurn: '세션 변경 (Session Churn)',
+  headerAnomaly: '헤더 이상 (Header Anomaly)',
+  browserInteraction: '브라우저 상호작용 (Browser Interaction)',
+  payloadSignature: '공격 페이로드 서명 (Payload Signature)',
+  notFoundExploration: '404 탐색 (404 Exploration)',
+  accessDeniedExploration: '접근 거부 탐색 (Access Denied Exploration)',
+  idorWalk: 'IDOR 순차 접근 (IDOR Walk)',
+  loginBruteForce: '로그인·비밀번호 재설정 남용 (Login/Reset Abuse)',
+  businessLogicViolation: '비즈니스 로직 위반 (Business Logic Violation)',
+  csrf: 'CSRF 헤더 위반 (CSRF)',
+  timingSampleSize: '시간 표본 수 (Timing Sample Size)',
+  avgIntervalMs: '평균 요청 간격, ms (Average Interval)',
+  intervalStdevMs: '간격 표준편차, ms (Interval Standard Deviation)',
+  intervalCV: '요청 간격 변동계수 (Interval CV)',
+  maxRequests2s: '2초 최대 요청 (Max Requests / 2s)',
+  requests10s: '10초 요청 (Requests / 10s)',
+  repeatSampleSize: '반복 표본 수 (Repeat Sample Size)',
+  repeatRatio: '동일 작업 반복 비율 (Repeat Ratio)',
+  maxConsecutiveRepeats: '최대 연속 반복 (Max Consecutive Repeats)',
+  diversitySampleSize: '경로 다양성 표본 수 (Diversity Sample Size)',
+  uniqueNormalizedPaths: '고유 정규화 경로 (Unique Normalized Paths)',
+  pathDiversity: '경로 다양성 (Path Diversity)',
+  sampleSize: '표본 수 (Sample Size)',
+  notFoundCount: '404 응답 수 (404 Count)',
+  notFoundRatio: '404 응답 비율 (404 Ratio)',
+  accessDeniedCount: '접근 거부 응답 수 (401/403 Count)',
+  accessDeniedRatio: '접근 거부 응답 비율 (401/403 Ratio)',
+  statusCounts: '상태 코드별 수 (Status Counts)',
+  headerObservationAvailable: '헤더 관찰 가능 (Header Observation Available)',
+  automationUA: '자동화 UA (Automation User-Agent)',
+  missingHeaderCount: '누락 헤더 수 (Missing Header Count)',
+  missingHeaders: '누락 헤더 (Missing Headers)',
+  mouseMoveCount: '마우스 이동 (Mouse Movement)',
+  scrollCount: '스크롤 (Scroll)',
+  routeChangeCount: 'SPA 화면 전환 (SPA Route Changes)',
+  domEventDiversity: 'DOM 이벤트 다양성 (DOM Event Diversity)',
+  pageLoads: '문서 로드 (Page Loads)',
+  currentUrl: '현재 화면 경로 (Current URL)',
+  hasTelemetry: '텔레메트리 수집 (Telemetry Available)',
+  payloadSignatureHits: '공격 서명 탐지 수 (Payload Signature Hits)',
+  distinctPayloadCategories: '공격 유형 수 (Distinct Payload Categories)',
+  payloadCategories: '공격 유형 (Payload Categories)',
+  crsSampleSize: 'CRS 관찰 요청 수 (CRS Sample Size)',
+  crsUnavailableCount: 'CRS 미관찰 요청 수 (CRS Unavailable)',
+  crsRuleHits: 'CRS 규칙 탐지 수 (CRS Rule Hits)',
+  maxCrsAnomalyScore: '최대 CRS 이상 점수 (Max CRS Anomaly Score)',
+  matchedRuleIds: '탐지된 CRS 규칙 ID (Matched CRS Rule IDs)',
+  maxDistinctIdsPerResource: '동일 자원 최대 고유 ID 수 (Max Distinct IDs)',
+  failedLoginCount: '실패한 로그인 수 (Failed Logins)',
+  resetPasswordAttemptCount: '비밀번호 재설정 시도 수 (Password Reset Attempts)',
+  securityQuestionProbeCount: '보안 질문 조회 수 (Security Question Probes)',
+  distinctEmailsAttempted: '시도한 고유 이메일 수 (Distinct Emails)',
+  maxAttemptsPerEmail: '이메일당 최대 시도 수 (Max Attempts / Email)',
+  businessLogicHits: '비즈니스 로직 위반 수 (Business Logic Hits)',
+  distinctBusinessLogicCategories: '비즈니스 로직 위반 유형 수 (Distinct Business Logic Categories)',
+  businessLogicCategories: '비즈니스 로직 위반 유형 (Business Logic Categories)',
+  csrfHits: 'CSRF 헤더 위반 수 (CSRF Hits)',
+  distinctCsrfCategories: 'CSRF 위반 유형 수 (Distinct CSRF Categories)',
+  csrfCategories: 'CSRF 위반 유형 (CSRF Categories)',
+  hasAttackHistory: '공격 이력 (Attack History)',
+  maxAttackScore: '과거 최고 공격 점수 (Historical Max Attack Score)',
+  cumulativeRuleHits: '누적 CRS 규칙 탐지 수 (Cumulative CRS Rule Hits)',
+  attackCategories: '누적 공격 유형 (Cumulative Attack Categories)',
+  firstAttackAt: '최초 탐지 시각 (First Attack At)',
+  lastAttackAt: '최근 탐지 시각 (Last Attack At)',
+  automationHoney: '자동화 허니 (Automation Honey)',
+  attackHoney: '공격 허니 (Attack Honey)',
+  recentUniqueApiPaths: '최근 고유 API 경로 (Recent Unique API Paths)',
+  coverageEligible: 'Coverage 점수 조건 (Coverage Scoring Eligible)',
+  errorToEndpointChangeCount: '오류 후 엔드포인트 변경 (Error → Endpoint Change)',
+  errorToMethodChangeCount: '오류 후 메서드 변경 (Error → Method Change)',
+  retryWithPayloadChangeCount: '페이로드 변경 재시도 (Retry + Payload Change)',
+  authAddedAfter401Count: '401 후 인증 추가 (401 → Authorization Added)',
+  failureChangeSuccessCount: '실패 후 변경 및 성공 (Failure → Change → Success)',
+  hasEvidence: '허니 신호 존재 (Honey Signal Present)',
+  totalEvents: '전체 미끼 이벤트 (Total Deception Events)',
+  distinctSignals: '고유 미끼 신호 (Distinct Deception Signals)',
+  distinctScoredSignals: '정규화 반영 신호 (Scored Deception Signals)',
+  signalCounts: '신호별 실제 횟수 (Signal Counts)',
+  strongestEvidenceLevel: '최고 근거 등급 (Strongest Evidence Level)',
+  firstEventAt: '최초 미끼 이벤트 (First Deception Event)',
+  lastEventAt: '최근 미끼 이벤트 (Last Deception Event)'
+};
+
+/* 상태/신뢰도 코드의 한국어 이름. API가 주는 코드 값 자체는 바꾸지 않고
+   화면에만 "연속성 확정 (CONFIRMED)"처럼 한국어와 원본 코드를 함께 보여 준다. */
+const statusNames = {
+  CONFIRMED: '연속성 확정',
+  PROVISIONAL: '잠정 연결',
+  SUGGESTED: '제안 연결',
+  CONFLICT: '근거 충돌',
+  INACTIVE: '비활성',
+  UNRESOLVED: '미확정',
+  PARTIALLY_CONFIRMED: '일부 확정',
+  AMBIGUOUS: '판단 보류',
+  FLOW_LINKED: '흐름 연결',
+  OBSERVED: '단일 흐름 관찰',
+  HIGH: '높음',
+  MEDIUM: '중간',
+  LOW: '낮음',
+  NONE: '없음',
+  MIXED: '혼합',
+};
+
+/* 화면에 노출되는 상태/신뢰도 코드에 붙는 한국어 설명. 데이터 값 자체는 바꾸지 않는다. */
+const statusHints = {
+  CONFIRMED: '서명된 Client ID로 동일 클라이언트 연속성이 확인된 상태',
+  PROVISIONAL: '보조 근거(인증/후보 연속성)로 잠정 연결된 상태',
+  // statusText/statusBadge에서 한국어 이름과 원본 코드를 함께 렌더링한다.
+  SUGGESTED: '약한 근거만 있어 제안 수준으로 연결된 상태',
+  CONFLICT: '서로 다른 Client ID 등 충돌 근거가 관찰된 상태',
+  INACTIVE: '현재 활성 Membership이 없는 상태',
+  UNRESOLVED: '확정된 Resolved Actor가 아직 없는 후보 흐름',
+  PARTIALLY_CONFIRMED: '같은 후보 안에 확정 흐름과 미확정 요청이 섞인 상태',
+  AMBIGUOUS: '한 후보에 연속성 확정 흐름이 둘 이상이라 단정할 수 없는 상태',
+  FLOW_LINKED: 'Fingerprint와 요청 연속성으로 세션을 한 흐름에 연결한 상태이며 동일 클라이언트 확정은 아님',
+  OBSERVED: '아직 다른 세션 또는 Candidate와 연결되지 않은 단일 요청 흐름',
+  HIGH: '높은 신뢰도', MEDIUM: '중간 신뢰도', LOW: '낮은 신뢰도',
+  NONE: '신뢰 근거 없음', MIXED: '확정과 미확정이 섞임',
+};
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, ch => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;'
+  })[ch]);
+}
+
+function scoreNumber(value) { return Math.round((Number(value) || 0) * 100); }
+const DETECTION_THRESHOLDS = { low: 30, medium: 50, high: 70 };
+function detectionThreshold() {
+  return DETECTION_THRESHOLDS[state.detectionLevel] || DETECTION_THRESHOLDS.medium;
+}
+function detectionFor(entity) {
+  const threshold = detectionThreshold();
+  const automationScore = scoreNumber(entity?.automationScore);
+  const currentAttackScore = scoreNumber(entity?.attackScore);
+  const maxAttackScore = Math.max(currentAttackScore, scoreNumber(entity?.attackHistory?.maxAttackScore));
+  return {
+    threshold,
+    automationScore,
+    currentAttackScore,
+    maxAttackScore,
+    automationDetected: automationScore >= threshold,
+    attackDetected: maxAttackScore >= threshold,
+  };
+}
+function detectionBadge(kind, detected) {
+  if (!detected) return '';
+  return `<span class="detection-badge ${kind}">${kind === 'automation' ? 'AI 접근 식별' : '공격 식별'}</span>`;
+}
+function scoreCell(value, kind, detected = false) {
+  const score = scoreNumber(value);
+  return `<span class="score"><span class="score-bar"><span class="score-fill ${kind}" style="width:${score}%"></span></span>${score}${detectionBadge(kind, detected)}</span>`;
+}
+function miniScore(label, value, kind, detected = false) {
+  const score = scoreNumber(value);
+  return `<span class="mini-score"><span class="mini-label">${escapeHtml(label)}</span>
+    <span class="score-bar"><span class="score-fill ${kind}" style="width:${score}%"></span></span>
+    <span class="mini-value">${score}</span>${detectionBadge(kind, detected)}</span>`;
+}
+function attackHistoryCell(history) {
+  if (!history?.hasAttackHistory) return '<span class="status-success">없음</span>';
+  return `<span class="status-error">있음</span> · 최고 ${scoreNumber(history.maxAttackScore)} · 규칙 ${Number(history.cumulativeRuleHits || 0)}건`;
+}
+function honeySignalsCell(history) {
+  if (!history?.hasEvidence) return '<span class="status-success">없음</span>';
+  const signals = history.distinctSignals || [];
+  return `${escapeHtml(signals.join(', ') || '관찰값')} · ${Number(history.totalEvents || 0)}건`;
+}
+function fixed(value, digits = 2) { return Number(value || 0).toFixed(digits); }
+function statusClass(status) {
+  if (status >= 400) return 'status-error';
+  if (status >= 200 && status < 400) return 'status-success';
+  return '';
+}
+
+function formatTime(ts) {
+  return Number.isFinite(Number(ts)) && Number(ts) > 0 ? new Date(Number(ts)).toLocaleString() : '—';
+}
+function formatClock(ts) {
+  return Number.isFinite(Number(ts)) && Number(ts) > 0 ? new Date(Number(ts)).toLocaleTimeString() : '—';
+}
+function formatRelative(ts) {
+  const value = Number(ts);
+  if (!Number.isFinite(value) || value <= 0) return '—';
+  const seconds = Math.max(0, Math.round((Date.now() - value) / 1000));
+  if (seconds < 60) return `${seconds}초 전`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}분 전`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}시간 전`;
+  return `${Math.round(seconds / 86400)}일 전`;
+}
+
+/* 긴 식별자는 앞부분만 보여 주고 전체 값은 클릭 복사로 넘긴다. */
+function shortId(value, head = 12) {
+  const text = String(value ?? '');
+  if (text.length <= head + 2) return text;
+  return `${text.slice(0, head)}…`;
+}
+function idChip(value, { head = 12, label = '' } = {}) {
+  const text = String(value ?? '');
+  if (!text) return '<span class="idchip">—</span>';
+  return `<button type="button" class="idchip" data-copy="${escapeHtml(text)}" title="클릭하면 전체 값을 복사합니다&#10;${escapeHtml(text)}">${escapeHtml(label ? `${label} ` : '')}${escapeHtml(shortId(text, head))}</button>`;
+}
+/* "연속성 확정 (CONFIRMED)" 형태의 표시 문자열. 한국어 이름이 없는 코드는 원본 그대로 둔다. */
+function statusText(code) {
+  if (!code) return '—';
+  return statusNames[code] ? `${statusNames[code]} (${code})` : String(code);
+}
+
+function statusBadge(code) {
+  if (!code) return '';
+  const hint = statusHints[code] ? ` title="${escapeHtml(statusHints[code])} · 원본 코드 ${escapeHtml(code)}"` : '';
+  const tone = code === 'CONFIRMED' || code === 'HIGH' ? 'confirmed'
+    : code === 'CONFLICT' ? 'danger'
+      : code === 'PROVISIONAL' || code === 'FLOW_LINKED' || code === 'PARTIALLY_CONFIRMED' || code === 'UNRESOLVED' || code === 'AMBIGUOUS' ? 'candidate'
+        : 'neutral';
+  return `<span class="badge ${tone}"${hint}>${escapeHtml(statusText(code))}</span>`;
+}
+
+function formatBytes(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  return Number.isFinite(Number(value)) ? `${Number(value).toLocaleString()} B` : '—';
+}
+
+function renderHttpMetadata(request) {
+  const requestObserved = formatBytes(request.requestBodyBytes);
+  const requestDeclared = formatBytes(request.requestContentLength);
+  const responseObserved = formatBytes(request.responseBodyBytes);
+  const responseDeclared = formatBytes(request.responseContentLength);
+  return `<div class="meta">요청 · 형식 <code>${escapeHtml(request.requestContentType || '—')}</code> · 선언 ${requestDeclared} · 관찰 ${requestObserved}</div>
+    <div class="meta">응답 · 형식 <code>${escapeHtml(request.responseContentType || '—')}</code> · 선언 ${responseDeclared} · 관찰 ${responseObserved}</div>`;
+}
+function rowAttrs(kind, id) {
+  return `class="clickable" data-kind="${escapeHtml(kind)}" data-id="${escapeHtml(id)}"`;
+}
+
+function setTab(tabName) {
+  state.activeTab = tabName;
+  document.querySelectorAll('.tab-button').forEach(button => {
+    const active = button.dataset.tab === tabName;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  document.querySelectorAll('.tab-panel').forEach(panel => {
+    const active = panel.id === `panel-${tabName}`;
+    panel.classList.toggle('active', active);
+    panel.hidden = !active;
+  });
+}
+
+function showToast(message) {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.classList.add('visible');
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => toast.classList.remove('visible'), 1600);
+}
+
+/* /__detection/api/* 를 브라우저 탭으로 직접 열면 그 탭이 GET /favicon.ico를
+   Juice Shop 프록시로 보내 대시보드 열람자가 새 Actor로 기록된다. 그래서 JSON은
+   about:blank 뷰어(자체 favicon 보유)나 파일 저장으로만 연다. */
+const VIEWER_FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23243b53'/%3E%3C/svg%3E";
+
+function downloadJson(text, filename) {
+  const blob = new Blob([text], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function openJsonViewer(url, title, filename) {
+  let viewer = null;
+  try { viewer = window.open('', '_blank'); } catch (_) { viewer = null; }
+  if (viewer) {
+    viewer.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8" />
+      <link rel="icon" type="image/svg+xml" href="${VIEWER_FAVICON}" />
+      <title>${escapeHtml(title)}</title>
+      <style>body{margin:0;background:#11161c;color:#dce2e8;font:13px/1.5 "SFMono-Regular",Consolas,monospace;}
+      header{padding:12px 16px;border-bottom:1px solid #303943;font-weight:700;}
+      pre{margin:0;padding:16px;white-space:pre-wrap;word-break:break-word;}</style></head>
+      <body><header>${escapeHtml(title)}</header><pre id="json">불러오는 중…</pre></body></html>`);
+    viewer.document.close();
+  }
+  fetch(url)
+    .then(response => response.json())
+    .then(data => {
+      const text = JSON.stringify(data, null, 2);
+      const target = viewer && !viewer.closed ? viewer.document.getElementById('json') : null;
+      if (target) target.textContent = text;
+      else downloadJson(text, filename);
+    })
+    .catch(() => {
+      if (viewer && !viewer.closed) {
+        const target = viewer.document.getElementById('json');
+        if (target) target.textContent = 'JSON을 불러오지 못했습니다.';
+      }
+      showToast('JSON을 불러오지 못했습니다.');
+    });
+}
+
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (_) {
+    // 보안 컨텍스트가 아닐 때는 아래 textarea 폴백으로 처리한다.
+  }
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(area);
+    return ok;
+  } catch (_) {
+    return false;
+  }
+}
+
+function buildActorFlowPresentation(resolvedActors, actors) {
+  const resolvedById = new Map(resolvedActors.map(actor => [actor.resolvedActorId, actor]));
+  const pendingIds = new Set(
+    resolvedActors.filter(actor => !actor.continuityConfirmed).map(actor => actor.resolvedActorId)
+  );
+  const suppressedConfirmedIds = new Set();
+  const mixedFlows = [];
+
+  for (const candidate of actors) {
+    const resolvedIds = [...new Set(candidate.resolvedActorIds || [])];
+    const hasPending = resolvedIds.some(id => pendingIds.has(id));
+    const confirmedActors = resolvedIds
+      .map(id => resolvedById.get(id))
+      .filter(actor => actor?.continuityConfirmed);
+    // 확정 Actor 하나만 존재하면 그 신원 경계를 그대로 대표 흐름으로 사용한다.
+    // 쿠키 삭제 등으로 확정 Actor가 여러 개 생겼거나 미확정 세션이 섞였을 때는
+    // 신원을 병합하지 않고 상위 Client Flow 한 행에서 하위 흐름으로 연결한다.
+    if (!hasPending && resolvedIds.length === 1 && confirmedActors.length === 1) continue;
+    for (const confirmed of confirmedActors) suppressedConfirmedIds.add(confirmed.resolvedActorId);
+    const confirmedRequests = Math.min(
+      Number(candidate.totalRequests) || 0,
+      confirmedActors.reduce((sum, actor) => sum + Number(actor.totalRequests || 0), 0)
+    );
+    const unresolvedRequests = Math.max(0, Number(candidate.totalRequests || 0) - confirmedRequests);
+    mixedFlows.push({ candidate, confirmedActors, confirmedRequests, unresolvedRequests });
+  }
+
+  return {
+    mixedFlows,
+    standaloneConfirmed: resolvedActors.filter(
+      actor => actor.continuityConfirmed && !suppressedConfirmedIds.has(actor.resolvedActorId)
+    ),
+  };
+}
+
+/* Resolved Actor는 신원 경계로 보존하고, Candidate/Fingerprint 연결은 상위 Client Flow로
+   표시한다. Client Flow는 동일인 확정이 아니라 시간순 요청 연속성 집계다. */
+function buildUserRows(resolvedActors, actors, clientFlows = []) {
+  const presentation = buildActorFlowPresentation(resolvedActors, actors);
+  const rows = [];
+
+  for (const actor of presentation.standaloneConfirmed) {
+    rows.push({
+      kind: 'resolved-actors',
+      id: actor.resolvedActorId,
+      identity: 'confirmed',
+      status: actor.status,
+      confidence: actor.confidence,
+      automationScore: actor.automationScore,
+      attackScore: actor.attackScore,
+      totalRequests: Number(actor.totalRequests || 0),
+      behaviorAnalyzedRequests: Number(actor.features?.behaviorAnalyzedRequests ?? actor.totalRequests ?? 0),
+      backgroundRequests: Number(actor.features?.backgroundRequests || 0),
+      sessionCount: Number(actor.sessionCount || 0),
+      candidateCount: Number(actor.candidateCount || 0),
+      ipCount: (actor.observedIps || []).length,
+      ips: actor.observedIps || [],
+      firstSeen: actor.firstSeen,
+      lastSeen: actor.lastSeen,
+      attackHistory: actor.attackHistory,
+      deceptionHistory: actor.deceptionHistory,
+      relatedIds: [
+        actor.resolvedActorId,
+        ...(actor.sessionIds || []),
+        ...(actor.candidateIds || []),
+        ...(actor.observedIps || []),
+      ],
+      note: '',
+    });
+  }
+
+  for (const flow of presentation.mixedFlows) {
+    const candidate = flow.candidate;
+    const status = flow.confirmedActors.length === 0
+      ? 'UNRESOLVED'
+      : flow.confirmedActors.length === 1
+        ? 'PARTIALLY_CONFIRMED'
+        : 'AMBIGUOUS';
+    rows.push({
+      kind: 'actors',
+      id: candidate.actorId,
+      identity: 'heuristic',
+      status: flow.confirmedActors.length > 1 ? 'FLOW_LINKED' : status,
+      confidence: flow.confirmedActors.length ? 'MEDIUM' : 'LOW',
+      automationScore: candidate.automationScore,
+      attackScore: candidate.attackScore,
+      totalRequests: Number(candidate.totalRequests || 0),
+      behaviorAnalyzedRequests: Number(candidate.features?.behaviorAnalyzedRequests ?? candidate.totalRequests ?? 0),
+      backgroundRequests: Number(candidate.features?.backgroundRequests || 0),
+      sessionCount: Number(candidate.sessionCount || 0),
+      candidateCount: 1,
+      ipCount: 1,
+      ips: [candidate.ip],
+      firstSeen: candidate.firstSeen,
+      lastSeen: candidate.lastSeen,
+      attackHistory: candidate.attackHistory,
+      deceptionHistory: candidate.deceptionHistory,
+      linkedResolvedIds: flow.confirmedActors.map(actor => actor.resolvedActorId),
+      confirmedRequests: flow.confirmedRequests,
+      unresolvedRequests: flow.unresolvedRequests,
+      fingerprint: candidate.fingerprint,
+      relatedIds: [
+        candidate.actorId,
+        candidate.ip,
+        candidate.fingerprint,
+        ...flow.confirmedActors.map(actor => actor.resolvedActorId),
+      ],
+      note: flow.confirmedActors.length > 1
+        ? `분리된 DCID 흐름 ${flow.confirmedActors.length}개를 요청 흐름으로 연결`
+        : `확정 ${flow.confirmedRequests} + 미확정 ${flow.unresolvedRequests}`,
+    });
+  }
+
+  const flowCandidateIds = new Set(
+    clientFlows.flatMap(group => group.flowLinked ? (group.candidateIds || []) : [])
+  );
+  const flowResolvedIds = new Set(
+    clientFlows.flatMap(group => group.flowLinked ? (group.resolvedActorIds || []) : [])
+  );
+  const visibleRows = rows.filter(row =>
+    !(row.kind === 'actors' && flowCandidateIds.has(row.id)) &&
+    !(row.kind === 'resolved-actors' && flowResolvedIds.has(row.id))
+  );
+  for (const group of clientFlows) {
+    if (!group.flowLinked && group.status !== 'CONFLICT') continue;
+    const scores = (group.links || []).map(link => Number(link.score || 0));
+    const lowestScore = scores.length ? Math.min(...scores) : 0;
+    visibleRows.push({
+      kind: 'client-flows',
+      id: group.clientFlowId,
+      identity: 'heuristic',
+      status: group.status,
+      confidence: group.confidence,
+      automationScore: group.automationScore,
+      attackScore: group.attackScore,
+      totalRequests: Number(group.totalRequests || 0),
+      behaviorAnalyzedRequests: Number(group.features?.behaviorAnalyzedRequests ?? group.totalRequests ?? 0),
+      backgroundRequests: Number(group.features?.backgroundRequests || 0),
+      sessionCount: Number(group.sessionCount || 0),
+      candidateCount: Number(group.candidateCount || 0),
+      ipCount: (group.observedIps || []).length,
+      ips: group.observedIps || [],
+      firstSeen: group.firstSeen,
+      lastSeen: group.lastSeen,
+      attackHistory: group.attackHistory,
+      deceptionHistory: group.deceptionHistory,
+      relatedIds: [group.clientFlowId, ...(group.candidateIds || []), ...(group.resolvedActorIds || []), ...(group.observedIps || [])],
+      note: group.status === 'CONFLICT'
+        ? 'Fingerprint 충돌 · 자동 합산 중단'
+        : group.candidateCount > 1
+          ? `Fingerprint 연관 ${lowestScore.toFixed(0)}점 이상 · 흐름 자동 연결`
+          : `동일 Candidate의 세션·DCID 흐름 연결`,
+    });
+  }
+  return visibleRows;
+}
+
+function filterAndSortUsers(rows) {
+  const query = state.userQuery.trim().toLowerCase();
+  const filtered = rows.filter(row => {
+    if (state.identityFilter !== 'all' && row.identity !== state.identityFilter) return false;
+    if (state.riskFilter === 'attack' && !row.attackHistory?.hasAttackHistory) return false;
+    if (state.riskFilter === 'honey' && !row.deceptionHistory?.hasEvidence) return false;
+    const detection = detectionFor(row);
+    if (state.riskFilter === 'automation-detected' && !detection.automationDetected) return false;
+    if (state.riskFilter === 'attack-detected' && !detection.attackDetected) return false;
+    if (state.riskFilter === 'both-detected' && !(detection.automationDetected && detection.attackDetected)) return false;
+    if (!query) return true;
+    return row.relatedIds.some(value => String(value || '').toLowerCase().includes(query));
+  });
+
+  const sorters = {
+    lastSeen: (a, b) => Number(b.lastSeen || 0) - Number(a.lastSeen || 0),
+    firstSeen: (a, b) => Number(a.firstSeen || 0) - Number(b.firstSeen || 0),
+    attack: (a, b) => (b.attackScore || 0) - (a.attackScore || 0),
+    automation: (a, b) => (b.automationScore || 0) - (a.automationScore || 0),
+    requests: (a, b) => b.totalRequests - a.totalRequests,
+    sessions: (a, b) => b.sessionCount - a.sessionCount,
+  };
+  return filtered.sort(sorters[state.userSort] || sorters.lastSeen);
+}
+
+function renderUserList() {
+  const rows = filterAndSortUsers(state.users);
+  const list = document.getElementById('userList');
+  const scrollTop = list.scrollTop;
+
+  document.getElementById('userListMeta').textContent = rows.length === state.users.length
+    ? `${rows.length.toLocaleString()}개 흐름`
+    : `${rows.length.toLocaleString()} / 전체 ${state.users.length.toLocaleString()}개 흐름`;
+
+  list.innerHTML = rows.map(row => {
+    const detection = detectionFor(row);
+    const selected = state.selected && state.selected.kind === row.kind && state.selected.id === row.id;
+    const badgeTitle = `확인 상태 ${statusText(row.status)}${row.note ? ` · ${row.note}` : ''}`;
+    const badge = row.identity === 'confirmed'
+      ? `<span class="badge confirmed" title="${escapeHtml(badgeTitle)}">연속성 확정</span>`
+      : `<span class="badge candidate" title="${escapeHtml(badgeTitle)}">클라이언트 흐름</span>`;
+    const flags = [
+      detection.automationDetected ? `<span class="badge neutral" title="현재 Automation Score ${detection.automationScore}점 ≥ ${detection.threshold}점">AI 접근 식별</span>` : '',
+      detection.attackDetected ? `<span class="badge danger" title="최고 Attack Score ${detection.maxAttackScore}점 ≥ ${detection.threshold}점">공격 식별</span>` : '',
+      row.deceptionHistory?.hasEvidence ? '<span class="badge neutral" title="허니 신호가 관찰되었습니다.">허니</span>' : '',
+    ].join('');
+    return `<button type="button" class="user-card${selected ? ' selected' : ''}" data-user-kind="${escapeHtml(row.kind)}" data-user-id="${escapeHtml(row.id)}" aria-pressed="${selected ? 'true' : 'false'}">
+      <span class="user-card-top">
+        ${badge}
+        ${flags}
+      </span>
+      <span class="user-card-id" title="${escapeHtml(row.id)}">${escapeHtml(shortId(row.id, 30))}</span>
+      <span class="user-card-scores">
+        ${miniScore('자동화', row.automationScore, 'automation', detection.automationDetected)}
+        ${miniScore('공격', detection.maxAttackScore / 100, 'attack', detection.attackDetected)}
+      </span>
+      <span class="user-card-facts">
+        <span>요청 <b>${row.totalRequests.toLocaleString()}</b></span>
+        <span>세션 <b>${row.sessionCount.toLocaleString()}</b></span>
+        <span>최초 <b>${escapeHtml(formatClock(row.firstSeen))}</b></span>
+        <span>최근 <b>${escapeHtml(formatRelative(row.lastSeen))}</b></span>
+      </span>
+      ${row.backgroundRequests > 0 ? `<span class="sub">점수 분석 ${row.behaviorAnalyzedRequests.toLocaleString()} · 백그라운드 ${row.backgroundRequests.toLocaleString()}</span>` : ''}
+    </button>`;
+  }).join('') || '<p class="empty" style="padding:20px 16px;">조건에 맞는 클라이언트 흐름이 없습니다.</p>';
+
+  list.scrollTop = scrollTop;
+  list.querySelectorAll('.user-card').forEach(card => {
+    card.addEventListener('click', () => {
+      state.userSelectionTouched = true;
+      selectUser(card.dataset.userKind, card.dataset.userId);
+    });
+  });
+}
+
+async function selectUser(kind, id, { keepTimelineFilters = false } = {}) {
+  state.selected = { kind, id };
+  state.connectionDetailsExpanded = false;
+  if (!keepTimelineFilters) {
+    state.timelineQuery = '';
+    state.timelineSession = 'all';
+    state.timelineFlaggedOnly = false;
+    state.timelineBackgroundExpanded = false;
+  }
+  renderUserList();
+  await loadUserDetail();
+}
+
+async function loadUserDetail() {
+  if (!state.selected) return;
+  const { kind, id } = state.selected;
+  try {
+    const response = await fetch(`/__detection/api/${kind}/${encodeURIComponent(id)}`);
+    if (!response.ok) {
+      state.userDetail = null;
+      document.getElementById('userDetail').innerHTML =
+        '<p class="detail-empty">선택한 흐름의 상세 데이터를 찾을 수 없습니다. 목록이 갱신되었을 수 있습니다.</p>';
+      return;
+    }
+    state.userDetail = await response.json();
+    renderUserDetail();
+  } catch (_) {
+    // 자동 갱신 중 일시적인 통신 오류는 기존 화면을 유지한다.
+  }
+}
+
+function sessionColor(index) { return SESSION_PALETTE[index % SESSION_PALETTE.length]; }
+
+/* 선택된 흐름의 Session 목록을 요청 타임라인과 Membership 정보로 함께 구성한다. */
+function buildSessionNodes(detail, kind) {
+  const requests = detail.requests || [];
+  const order = [];
+  const byId = new Map();
+  for (const request of requests) {
+    const sessionId = request.sessionId || '(unknown)';
+    if (!byId.has(sessionId)) {
+      byId.set(sessionId, { sessionId, requestCount: 0, firstSeen: request.ts, lastSeen: request.ts, status: null, confidence: null, candidateId: request.actorId || null });
+      order.push(sessionId);
+    }
+    const node = byId.get(sessionId);
+    node.requestCount += 1;
+    node.firstSeen = Math.min(node.firstSeen, request.ts);
+    node.lastSeen = Math.max(node.lastSeen, request.ts);
+  }
+  if (kind === 'resolved-actors') {
+    for (const membership of detail.memberships || []) {
+      if (!byId.has(membership.sessionId)) {
+        byId.set(membership.sessionId, {
+          sessionId: membership.sessionId,
+          requestCount: Number(membership.requestCount || 0),
+          firstSeen: membership.createdAt,
+          lastSeen: membership.updatedAt,
+          status: membership.status,
+          confidence: membership.confidence,
+          candidateId: membership.candidateId || null,
+        });
+        order.push(membership.sessionId);
+      } else {
+        const node = byId.get(membership.sessionId);
+        node.status = membership.status;
+        node.confidence = membership.confidence;
+        node.candidateId = node.candidateId || membership.candidateId || null;
+      }
+    }
+  }
+  const nodes = order.map(id => byId.get(id)).sort((a, b) => Number(a.firstSeen || 0) - Number(b.firstSeen || 0));
+  nodes.forEach((node, index) => { node.color = sessionColor(index); node.index = index + 1; });
+  return nodes;
+}
+
+function isFlaggedRequest(request) {
+  return Boolean(
+    (request.deceptionEvents || []).length ||
+    (request.tags || []).length ||
+    Number(request.attackDetection?.anomalyScore || 0) > 0 ||
+    Number(request.status) >= 400
+  );
+}
+
+function isBackgroundRequest(request) {
+  return request.backgroundTraffic?.isBackground === true;
+}
+
+/* 공격/오류 신호가 없는 연속 백그라운드 요청만 접는다. 신호가 있으면 개별 행으로 남긴다. */
+function collapseBackgroundRuns(requests) {
+  const entries = [];
+  let group = null;
+  for (const request of requests) {
+    if (isBackgroundRequest(request) && !isFlaggedRequest(request)) {
+      if (!group || group.sessionId !== request.sessionId) {
+        group = { type: 'background-group', sessionId: request.sessionId, requests: [] };
+        entries.push(group);
+      }
+      group.requests.push(request);
+    } else {
+      group = null;
+      entries.push({ type: 'request', request });
+    }
+  }
+  return entries;
+}
+
+function renderRelation(detail, kind, sessionNodes) {
+  const isResolved = kind === 'resolved-actors';
+  const isClientFlow = kind === 'client-flows';
+  const rootId = isResolved ? detail.resolvedActorId : isClientFlow ? detail.clientFlowId : detail.actorId;
+  const candidateIds = isResolved || isClientFlow ? (detail.candidateIds || []) : [detail.actorId];
+  const linkedResolvedIds = isResolved
+    ? []
+    : [...new Set((detail.requests || []).map(request => request.resolvedActorId).filter(Boolean))];
+
+  const candidateChips = candidateIds.map(id =>
+    `<button type="button" class="node-chip" data-open-kind="actors" data-open-id="${escapeHtml(id)}" title="후보 클라이언트 상세 열기&#10;${escapeHtml(id)}">${escapeHtml(shortId(id, 14))}</button>`
+  ).join('');
+
+  const sessionChips = sessionNodes.map(node => {
+    const active = state.timelineSession === node.sessionId;
+    const status = node.status ? `\n연결 상태 ${statusText(node.status)}` : '';
+    return `<button type="button" class="node-chip${active ? ' active' : ''}" data-session-filter="${escapeHtml(node.sessionId)}" title="이 세션만 타임라인에 표시&#10;${escapeHtml(node.sessionId)}${escapeHtml(status)}">
+      <span class="dot" style="background:${node.color}"></span>#${node.index} ${escapeHtml(shortId(node.sessionId, 8))}
+      <span class="chip-status">${node.requestCount}</span>
+    </button>`;
+  }).join('') || '<span class="relation-note">세션 기록이 없습니다.</span>';
+
+  // 후보가 하나뿐이면 흐름 자체와 같은 뜻이라 따로 나열하지 않는다.
+  const candidateRow = candidateIds.length > 1 || !isResolved
+    ? `<div class="relation-row"><span class="relation-key">후보 클라이언트 ${candidateIds.length}</span><span class="relation-chips">${candidateChips}</span></div>`
+    : '';
+  const linkedRow = linkedResolvedIds.length
+    ? `<div class="relation-row"><span class="relation-key">연결된 확정 흐름</span><span class="relation-chips">${linkedResolvedIds.map(id =>
+        `<button type="button" class="node-chip" data-open-kind="resolved-actors" data-open-id="${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(shortId(id, 14))}</button>`).join('')}</span></div>`
+    : '';
+
+  // 세션 하나 · 후보 하나짜리 흐름은 관계도가 같은 말을 반복할 뿐이라 통째로 접는다.
+  if (!candidateRow && !linkedRow && sessionNodes.length <= 1) return '';
+
+  return `<div class="relation">
+    ${candidateRow}
+    ${linkedRow}
+    <div class="relation-row">
+      <span class="relation-key">세션 ${sessionNodes.length}<span class="hint" title="브라우저 쿠키(dlsid) 단위의 방문 흐름입니다. 누르면 해당 세션 요청만 타임라인에 남습니다.">?</span></span>
+      <span class="relation-chips">${sessionChips}</span>
+    </div>
+  </div>`;
+}
+
+function renderFingerprintSimilarity(detail) {
+  const links = detail.links || detail.clientFlow?.links || [];
+  if (!links.length) return '';
+  const items = links.map(link => `<div class="path-item">
+    <div class="meta">Fingerprint 연관 점수 <b>${Number(link.score || 0).toFixed(1)}/100</b> · 판정 ${escapeHtml(link.decision || '—')} · ${escapeHtml(link.reason || '—')}</div>
+    <div class="url"><code>${escapeHtml(shortId(link.fromCandidateId, 18))}</code> → <code>${escapeHtml(shortId(link.toCandidateId, 18))}</code></div>
+    <div class="meta">일치: ${escapeHtml((link.matchedFields || []).join(', ') || '—')}</div>
+    <div class="meta">변경: ${escapeHtml((link.changedFields || []).join(', ') || '—')}</div>
+    <div class="meta">비교 제외: ${escapeHtml((link.ignoredFields || []).join(', ') || '—')}</div>
+  </div>`).join('');
+  const beforeAttack = detail.preMergeAttackScore === undefined ? ''
+    : `<p class="sub">연결 전 최고 Attack ${scoreNumber(detail.preMergeAttackScore)}점 → Client Flow 연결 후 ${scoreNumber(detail.attackScore)}점 · 연결 전 최고 Automation ${scoreNumber(detail.preMergeAutomationScore)}점 → 연결 후 ${scoreNumber(detail.automationScore)}점</p>`;
+  return `<div class="panel"><h3>Fingerprint 유사도 · ${escapeHtml(detail.similarityVersion || 'fingerprint-similarity-v1')}</h3>${beforeAttack}${items}</div>`;
+}
+
+/* 세션·연결 흐름이 많아도 요청 타임라인이 먼저 보이도록, 관계 근거는 접어서 제공한다. */
+function renderConnectionDetails(detail, kind, sessionNodes) {
+  const similarity = renderFingerprintSimilarity(detail);
+  const relation = renderRelation(detail, kind, sessionNodes);
+  if (!similarity && !relation) return '';
+
+  const isClientFlow = kind === 'client-flows';
+  const candidateCount = isClientFlow
+    ? (detail.candidateIds || []).length
+    : kind === 'resolved-actors'
+      ? (detail.candidateIds || []).length
+      : 1;
+  const linkedResolvedCount = isClientFlow
+    ? new Set((detail.requests || []).map(request => request.resolvedActorId).filter(Boolean)).size
+    : 0;
+  const summary = [
+    `세션 ${sessionNodes.length}`,
+    candidateCount ? `후보 ${candidateCount}` : '',
+    linkedResolvedCount ? `확정 흐름 ${linkedResolvedCount}` : '',
+    similarity ? `Fingerprint 연결 ${detail.links?.length || detail.clientFlow?.links?.length || 0}` : '',
+  ].filter(Boolean).join(' · ');
+
+  return `<details class="connection-disclosure" id="connectionDisclosure"${state.connectionDetailsExpanded ? ' open' : ''}>
+    <summary class="connection-summary">
+      <span class="connection-summary-main"><span class="connection-summary-title">연결 관계 · 유사도</span><span class="connection-summary-meta">${escapeHtml(summary)}</span></span>
+      <span class="connection-summary-toggle" aria-hidden="true"></span>
+    </summary>
+    ${similarity}
+    ${relation}
+  </details>`;
+}
+
+function renderTimeline(detail, sessionNodes) {
+  const colorBySession = new Map(sessionNodes.map(node => [node.sessionId, node]));
+  const query = state.timelineQuery.trim().toLowerCase();
+  const requests = [...(detail.requests || [])].sort((a, b) => a.ts - b.ts);
+  const filtered = requests.filter(request => {
+    if (state.timelineSession !== 'all' && request.sessionId !== state.timelineSession) return false;
+    if (state.timelineFlaggedOnly && !isFlaggedRequest(request)) return false;
+    if (!query) return true;
+    return [request.url, request.method, request.operation, request.status, request.sessionId]
+      .some(value => String(value ?? '').toLowerCase().includes(query));
+  });
+
+  const backgroundCount = filtered.filter(isBackgroundRequest).length;
+  const entries = state.timelineBackgroundExpanded
+    ? filtered.map(request => ({ type: 'request', request }))
+    : collapseBackgroundRuns(filtered);
+  const multiSession = sessionNodes.length > 1;
+  let lastSession = null;
+  const rows = entries.map(entry => {
+    if (entry.type === 'background-group') {
+      const grouped = entry.requests;
+      const first = grouped[0];
+      const last = grouped[grouped.length - 1];
+      const methods = grouped.reduce((counts, request) => {
+        const method = request.method || '—';
+        counts[method] = (counts[method] || 0) + 1;
+        return counts;
+      }, {});
+      const methodText = Object.entries(methods).map(([method, count]) => `${method} ${count}`).join(' · ');
+      const category = first.backgroundTraffic?.category === 'socket_io_polling' ? 'Socket.IO polling' : '백그라운드 통신';
+      lastSession = entry.sessionId;
+      return `<div class="timeline-background-group"><span class="tag background">백그라운드</span><b>${escapeHtml(category)} ${grouped.length.toLocaleString()}건</b><span>${escapeHtml(methodText)} · ${escapeHtml(formatClock(first.ts))}${last.ts !== first.ts ? `–${escapeHtml(formatClock(last.ts))}` : ''} · 자동화 행동 점수 제외</span></div>`;
+    }
+    const request = entry.request;
+    const node = colorBySession.get(request.sessionId) || { color: 'var(--muted)', index: '?' };
+    const divider = multiSession && request.sessionId !== lastSession
+      ? `<div class="session-divider"><span class="dot" style="display:inline-block;width:9px;height:9px;background:${node.color}"></span>세션 #${node.index} · ${escapeHtml(shortId(request.sessionId || '—', 8))} · ${escapeHtml(formatTime(request.ts))}</div>`
+      : '';
+    lastSession = request.sessionId;
+    const honeyTags = (request.deceptionEvents || [])
+      .map(event => `<span class="tag">honey:${escapeHtml(event.signal)}</span>`).join('');
+    const tags = (request.tags || []).map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('');
+    const backgroundTag = isBackgroundRequest(request) ? '<span class="tag background">백그라운드</span>' : '';
+    // CRS는 무언가 걸렸을 때만 적는다. 모든 행에 "이상 점수 0 · 규칙 —"을 깔면 읽을 게 늘기만 한다.
+    const detection = request.attackDetection;
+    const crsHits = (detection?.hits || []).map(hit => hit.ruleId);
+    const crs = !detection?.available
+      ? 'CRS 미관찰'
+      : Number(detection.anomalyScore || 0) > 0 || crsHits.length
+        ? `CRS 이상 점수 ${Number(detection.anomalyScore || 0)}${crsHits.length ? ` · 규칙 ${escapeHtml(crsHits.join(', '))}` : ''}`
+        : '';
+    const operation = request.operation && request.operation !== `${request.method} ${request.url}`
+      ? escapeHtml(request.operation) : '';
+    const metaParts = [operation, crs].filter(Boolean);
+    return `${divider}<div class="timeline-row${isFlaggedRequest(request) ? ' flagged' : ''}${isBackgroundRequest(request) ? ' background' : ''}">
+      <div class="timeline-time">${escapeHtml(formatClock(request.ts))}</div>
+      <div class="timeline-rail"><span class="dot" style="background:${node.color}"></span></div>
+      <div class="timeline-main">
+        <div class="line1">
+          <span class="method">${escapeHtml(request.method || '')}</span>
+          <span class="${statusClass(request.status)}">${escapeHtml(request.status)}</span>
+          ${multiSession ? `<span class="session-marker"><span class="dot" style="display:inline-block;width:7px;height:7px;background:${node.color}"></span>#${node.index} ${escapeHtml(shortId(request.sessionId || '—', 8))}</span>` : ''}
+          ${backgroundTag}${tags}${honeyTags}
+        </div>
+        <div class="url">${escapeHtml(request.url)}</div>
+        ${metaParts.length ? `<div class="meta">${metaParts.join(' · ')}</div>` : ''}
+        ${request.body ? `<div class="meta">본문: ${escapeHtml(typeof request.body === 'string' ? request.body : JSON.stringify(request.body))}</div>` : ''}
+        ${request.experimentRunId ? `<div class="meta">실험 실행 ID: ${escapeHtml(request.experimentRunId)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('') || '<p class="empty">조건에 맞는 요청이 없습니다.</p>';
+
+  const sessionOptions = ['<option value="all">모든 세션</option>']
+    .concat(sessionNodes.map(node =>
+      `<option value="${escapeHtml(node.sessionId)}"${state.timelineSession === node.sessionId ? ' selected' : ''}>#${node.index} ${escapeHtml(shortId(node.sessionId, 8))} (${node.requestCount}건)</option>`
+    )).join('');
+
+  return `<div class="timeline-head">
+      <div>
+        <h3 style="margin:0;">요청 흐름<span class="hint" title="선택한 흐름의 모든 세션 요청을 시간순으로 이어 붙였습니다. 색은 세션을 구분합니다.">?</span></h3>
+        ${filtered.length === requests.length ? '' : `<p class="sub">${filtered.length.toLocaleString()} / ${requests.length.toLocaleString()}건 표시</p>`}
+      </div>
+      <div class="timeline-filters">
+        <input class="search-input" type="search" id="timelineSearch" placeholder="URL·메서드·상태 검색" value="${escapeHtml(state.timelineQuery)}" aria-label="요청 검색" />
+        <select class="select-input" id="timelineSessionSelect" aria-label="세션 필터">${sessionOptions}</select>
+        <button class="chip-button${state.timelineFlaggedOnly ? ' active' : ''}" type="button" id="timelineFlaggedToggle" title="공격 태그·허니 신호·CRS 탐지·4xx/5xx 응답만 표시합니다.">신호 있는 요청만</button>
+        ${backgroundCount ? `<button class="chip-button${state.timelineBackgroundExpanded ? ' active' : ''}" type="button" id="timelineBackgroundToggle" title="Socket.IO 같은 백그라운드 통신은 기록에는 남지만 자동화 행동 점수에서는 제외됩니다.">${state.timelineBackgroundExpanded ? '백그라운드 접기' : `백그라운드 ${backgroundCount.toLocaleString()}건 펼치기`}</button>` : ''}
+      </div>
+    </div>
+    <div class="timeline-body" id="timelineBody">${rows}</div>`;
+}
+
+function renderUserDetail() {
+  const detail = state.userDetail;
+  const pane = document.getElementById('userDetail');
+  if (!detail || !state.selected) {
+    pane.innerHTML = '<p class="detail-empty">왼쪽 목록에서 클라이언트 흐름을 선택하면 세션 관계와 요청 흐름이 표시됩니다.</p>';
+    return;
+  }
+  const { kind, id } = state.selected;
+  const previousScroll = document.getElementById('timelineBody')?.scrollTop || 0;
+  // 2초 자동 갱신이 타임라인 검색 입력의 포커스/커서를 빼앗지 않게 한다.
+  const activeId = document.activeElement?.id || '';
+  const activeCaret = document.activeElement?.selectionStart ?? null;
+  const sessionNodes = buildSessionNodes(detail, kind);
+  const identityBadge = kind === 'resolved-actors'
+    ? '<span class="badge confirmed" title="서명된 클라이언트 ID로 동일 클라이언트 연속성이 확인된 흐름입니다(Continuity Confirmed).">연속성 확정</span>'
+    : kind === 'client-flows'
+      ? '<span class="badge candidate" title="Fingerprint와 요청 연속성으로 연결한 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>'
+      : '<span class="badge candidate" title="IP + HTTP 헤더 지문으로 묶은 요청 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>';
+  const detection = detectionFor(detail);
+
+  pane.innerHTML = `
+    <div class="detail-head">
+      <div class="detail-title-row">
+        <div class="detail-title">
+          ${identityBadge}
+          ${idChip(id, { head: 30 })}
+        </div>
+        <div class="detail-links">
+          <button class="link-button" type="button" id="openFullDetail">전체 탐지 상세 열기</button>
+          <button class="link-button" type="button" id="openDetailJson">상세 JSON</button>
+        </div>
+      </div>
+      <div class="detail-stats">
+        <span class="ds" title="전체 기록 / 자동화 행동 점수 분석 / 백그라운드 제외"><i>요청</i><b>${Number(detail.totalRequests || (detail.requests || []).length).toLocaleString()}</b>${Number(detail.features?.backgroundRequests || 0) > 0 ? `<small class="sub">분석 ${Number(detail.features?.behaviorAnalyzedRequests || 0).toLocaleString()} · 백그라운드 ${Number(detail.features.backgroundRequests).toLocaleString()}</small>` : ''}</span>
+        <span class="ds"><i>세션</i><b>${Number(detail.sessionCount ?? sessionNodes.length).toLocaleString()}</b></span>
+        <span class="ds" title="${escapeHtml(formatTime(detail.firstSeen))}"><i>최초</i><b>${escapeHtml(formatClock(detail.firstSeen))}</b></span>
+        <span class="ds" title="${escapeHtml(formatTime(detail.lastSeen))}"><i>최근</i><b>${escapeHtml(formatRelative(detail.lastSeen))}</b></span>
+        <span class="ds" title="현재 Automation Score를 선택 기준과 비교합니다."><i>자동화</i>${scoreCell(detail.automationScore, 'automation', detection.automationDetected)}</span>
+        <span class="ds" title="현재값이 아니라 과거 최고 Attack Score를 선택 기준과 비교합니다."><i>공격 최고</i>${scoreCell(detection.maxAttackScore / 100, 'attack', detection.attackDetected)}</span>
+      </div>
+      <p class="sub" style="margin-top:8px;">
+        ${detail.status ? `확인 상태 ${escapeHtml(statusText(detail.status))}${detail.confidence ? ` · 신뢰도 ${escapeHtml(statusText(detail.confidence))}` : ''} · ` : ''}
+        판정 기준 ${state.detectionLevel.toUpperCase()} ${detection.threshold}점 · 현재 Attack ${detection.currentAttackScore}점 ·
+        허니 신호 ${honeySignalsCell(detail.deceptionHistory)} ·
+        공격 이력 ${attackHistoryCell(detail.attackHistory)} ·
+        IP ${escapeHtml((detail.observedIps || (detail.ip ? [detail.ip] : [])).join(', ') || '—')}
+      </p>
+    </div>
+    ${renderConnectionDetails(detail, kind, sessionNodes)}
+    ${renderTimeline(detail, sessionNodes)}
+  `;
+
+  const body = document.getElementById('timelineBody');
+  if (body) body.scrollTop = previousScroll;
+  if (activeId) {
+    const restored = document.getElementById(activeId);
+    if (restored && typeof restored.focus === 'function') {
+      restored.focus();
+      if (activeCaret !== null && typeof restored.setSelectionRange === 'function') {
+        try { restored.setSelectionRange(activeCaret, activeCaret); } catch (_) { /* range 미지원 입력은 무시 */ }
+      }
+    }
+  }
+
+  pane.querySelectorAll('[data-open-kind]').forEach(chip => {
+    chip.addEventListener('click', () => openDetail(chip.dataset.openKind, chip.dataset.openId));
+  });
+  pane.querySelectorAll('[data-session-filter]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const value = chip.dataset.sessionFilter;
+      state.timelineSession = state.timelineSession === value ? 'all' : value;
+      renderUserDetail();
+    });
+  });
+  document.getElementById('openFullDetail')?.addEventListener('click', () => openDetail(kind, id));
+  document.getElementById('openDetailJson')?.addEventListener('click', () => {
+    openJsonViewer(`/__detection/api/${kind}/${encodeURIComponent(id)}`, `${entityLabels[kind] || kind} — ${id}`, `${kind}-detail.json`);
+  });
+  document.getElementById('connectionDisclosure')?.addEventListener('toggle', event => {
+    state.connectionDetailsExpanded = event.currentTarget.open;
+  });
+  const search = document.getElementById('timelineSearch');
+  if (search) {
+    search.addEventListener('input', () => {
+      state.timelineQuery = search.value;
+      renderUserDetail();
+    });
+  }
+  document.getElementById('timelineSessionSelect')?.addEventListener('change', event => {
+    state.timelineSession = event.target.value;
+    renderUserDetail();
+  });
+  document.getElementById('timelineFlaggedToggle')?.addEventListener('click', () => {
+    state.timelineFlaggedOnly = !state.timelineFlaggedOnly;
+    renderUserDetail();
+  });
+  document.getElementById('timelineBackgroundToggle')?.addEventListener('click', () => {
+    state.timelineBackgroundExpanded = !state.timelineBackgroundExpanded;
+    renderUserDetail();
+  });
+}
+
+function updateSummary(userRows, sessions, actors, authGroups, ipEntries) {
+  const totalRequests = sessions.reduce((sum, session) => sum + Number(session.features?.totalRequests || 0), 0);
+  const behaviorAnalyzedRequests = sessions.reduce((sum, session) => sum + Number(session.features?.behaviorAnalyzedRequests ?? session.features?.totalRequests ?? 0), 0);
+  const backgroundRequests = sessions.reduce((sum, session) => sum + Number(session.features?.backgroundRequests || 0), 0);
+  const confirmed = userRows.filter(row => row.identity === 'confirmed').length;
+  const heuristicFlows = userRows.length - confirmed;
+  document.getElementById('summaryResolvedActors').textContent = userRows.length.toLocaleString();
+  document.getElementById('summaryResolvedActorsSub').textContent =
+    `연속성 확정 ${confirmed.toLocaleString()} · 휴리스틱 흐름 ${heuristicFlows.toLocaleString()}`;
+  document.getElementById('summarySessions').textContent = sessions.length.toLocaleString();
+  document.getElementById('summaryRequests').textContent = totalRequests.toLocaleString();
+  document.getElementById('summaryRequestsSub').textContent = `분석 ${behaviorAnalyzedRequests.toLocaleString()} · 백그라운드 ${backgroundRequests.toLocaleString()}`;
+  document.getElementById('sessionTabCount').textContent = sessions.length.toLocaleString();
+  document.getElementById('actorTabCount').textContent = actors.length.toLocaleString();
+  document.getElementById('authTabCount').textContent = authGroups.length.toLocaleString();
+  document.getElementById('ipTabCount').textContent = ipEntries.length.toLocaleString();
+  document.getElementById('usersTabCount').textContent = userRows.length.toLocaleString();
+}
+
+async function refresh() {
+  const responses = await Promise.all([
+    fetch('/__detection/api/resolved-actors'), fetch('/__detection/api/sessions'), fetch('/__detection/api/actors'),
+    fetch('/__detection/api/auth-groups'), fetch('/__detection/api/ip-entries'), fetch('/__detection/api/client-flows')
+  ]);
+  const [resolvedActors, sessions, actors, authGroups, ipEntries, clientFlows] = await Promise.all(responses.map(r => r.json()));
+
+  state.users = buildUserRows(resolvedActors, actors, clientFlows);
+  updateSummary(state.users, sessions, actors, authGroups, ipEntries);
+  renderUserList();
+  // 데이터가 처음 들어온 순간에만 첫 흐름을 자동 선택한다. 사용자가 직접 고른
+  // 뒤에는 2초 자동 갱신이 선택을 옮기지 않는다.
+  if (!state.selected && !state.userSelectionTouched) {
+    const [first] = filterAndSortUsers(state.users);
+    if (first) {
+      await selectUser(first.kind, first.id);
+      return;
+    }
+  }
+  if (state.selected) await loadUserDetail();
+
+  document.getElementById('sessionRows').innerHTML = sessions
+    .sort((a,b) => Math.max(detectionFor(b).maxAttackScore,b.automationScore*100)-Math.max(detectionFor(a).maxAttackScore,a.automationScore*100))
+    .map(s => {
+      const detection = detectionFor(s);
+      return `<tr ${rowAttrs('sessions', s.sessionId)}>
+      <td><code>${escapeHtml(s.sessionId.slice(0,8))}</code></td><td>${escapeHtml(s.ip)}</td>
+      <td>${scoreCell(s.automationScore,'automation',detection.automationDetected)}</td><td>${scoreCell(detection.maxAttackScore/100,'attack',detection.attackDetected)}</td><td>${honeySignalsCell(s.deceptionHistory)}</td><td>${attackHistoryCell(s.attackHistory)}</td>
+      <td>${s.features.totalRequests}</td><td>${fixed(s.features.temporal.avgIntervalMs,0)}</td>
+      <td>${s.features.temporal.maxRequests2s}</td><td>${s.features.temporal.requests10s}</td>
+      <td>${fixed(s.features.exploration.notFoundRatio)}</td><td>${fixed(s.features.exploration.accessDeniedRatio)}</td>
+    </tr>`;
+    }).join('') || '<tr><td colspan="12" class="empty">관찰된 세션이 없습니다.</td></tr>';
+
+  document.getElementById('actorRows').innerHTML = actors
+    .sort((a,b) => Math.max(detectionFor(b).maxAttackScore,b.automationScore*100)-Math.max(detectionFor(a).maxAttackScore,a.automationScore*100))
+    .map(a => {
+      const detection = detectionFor(a);
+      const profile = a.clientObservation?.clientProfile || {};
+      const ua = profile.userAgent || {};
+      const relation = a.clientFlow?.links?.find(link => link.toCandidateId === a.actorId)
+        || a.clientFlow?.links?.[0];
+      const profileText = `${ua.family || 'unknown'}/${ua.version || ua.major || '0'} · ${profile.language?.primary || 'unknown'} · ${(profile.acceptEncoding?.tokens || []).join(', ') || 'none'}`;
+      const relationText = relation
+        ? `<div class="meta">연관 ${Number(relation.score || 0).toFixed(1)}/100 · ${escapeHtml(relation.decision || '—')} · 변경 ${escapeHtml((relation.changedFields || []).join(', ') || '없음')}</div>`
+        : '<div class="meta">연관 Candidate 없음</div>';
+      return `<tr ${rowAttrs('actors', a.actorId)}>
+      <td><code>${escapeHtml(a.actorId.slice(0,18))}…</code></td><td>${escapeHtml(a.ip)}</td>
+      <td><code>${escapeHtml(profileText)}</code>${relationText}</td>
+      <td>${scoreCell(a.automationScore,'automation',detection.automationDetected)}</td><td>${scoreCell(detection.maxAttackScore/100,'attack',detection.attackDetected)}</td><td>${honeySignalsCell(a.deceptionHistory)}</td><td>${attackHistoryCell(a.attackHistory)}</td>
+      <td>${a.totalRequests}</td><td>${a.sessionCount}</td><td>${escapeHtml(formatTime(a.firstSeen))}</td><td>${escapeHtml(formatTime(a.lastSeen))}</td>
+    </tr>`;
+    }).join('') || '<tr><td colspan="11" class="empty">관찰된 후보가 없습니다.</td></tr>';
+
+  document.getElementById('authRows').innerHTML = authGroups
+    .sort((a,b) => Math.max(detectionFor(b).maxAttackScore,b.automationScore*100)-Math.max(detectionFor(a).maxAttackScore,a.automationScore*100))
+    .map(g => {
+      const detection = detectionFor(g);
+      return `<tr ${rowAttrs('auth-groups', g.authGroupId)}>
+      <td><code>${escapeHtml(g.authGroupId.slice(0,17))}…</code></td>
+      <td>${scoreCell(g.automationScore,'automation',detection.automationDetected)}</td><td>${scoreCell(detection.maxAttackScore/100,'attack',detection.attackDetected)}</td><td>${honeySignalsCell(g.deceptionHistory)}</td><td>${attackHistoryCell(g.attackHistory)}</td>
+      <td>${g.totalRequests}</td><td>${g.sessionCount}</td><td>${g.actorCount}</td>
+      <td>${escapeHtml(formatTime(g.lastSeen))}</td>
+    </tr>`;
+    }).join('') || '<tr><td colspan="9" class="empty">관찰된 인증 그룹이 없습니다.</td></tr>';
+
+  document.getElementById('ipRows').innerHTML = ipEntries
+    .sort((a,b) => b.totalRequests-a.totalRequests)
+    .map(e => `<tr ${rowAttrs('ip-entries', e.ip)}>
+      <td><code>${escapeHtml(e.ip)}</code></td><td>${e.totalRequests}</td><td>${e.sessionCount}</td>
+      <td>${e.actorCandidateCount}</td><td>${e.features.behavior.uniqueNormalizedPaths}</td>
+      <td>${escapeHtml(formatTime(e.lastSeen))}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="empty">관찰된 IP가 없습니다.</td></tr>';
+
+  document.querySelectorAll('tr[data-kind]').forEach(row => {
+    row.addEventListener('click', () => openDetail(row.dataset.kind, row.dataset.id));
+  });
+}
+
+function flattenMetrics(object, prefix = '') {
+  const rows = [];
+  for (const [key, value] of Object.entries(object || {})) {
+    const name = prefix ? `${prefix}.${key}` : key;
+    if (Array.isArray(value)) rows.push([name, value.join(', ') || '—']);
+    else if (value && typeof value === 'object') rows.push(...flattenMetrics(value, name));
+    else rows.push([name, typeof value === 'number' ? fixed(value) : String(value ?? '—')]);
+  }
+  return rows;
+}
+
+function metricLabel(key) {
+  const segments = String(key).split('.');
+  const leaf = segments[segments.length - 1];
+  if (metricLabels[key]) return metricLabels[key];
+  if (metricLabels[leaf]) return metricLabels[leaf];
+  if (segments.length > 1 && segments[0] === 'statusCounts') return `HTTP ${leaf} 응답 수`;
+  return key;
+}
+
+function metricPanel(title, object) {
+  return `<div class="panel"><h3>${escapeHtml(title)}</h3>${flattenMetrics(object)
+    .map(([key,value]) => `<div class="metric"><span class="key">${escapeHtml(metricLabel(key))}</span><span class="value">${escapeHtml(value)}</span></div>`)
+    .join('')}</div>`;
+}
+
+function renderAttackHistory(history) {
+  const source = history || {};
+  return metricPanel('누적 공격 이력 (Attack History) · lifecycle 점수와 별도', {
+    hasAttackHistory: source.hasAttackHistory ? '있음' : '없음',
+    maxAttackScore: scoreNumber(source.maxAttackScore),
+    maxCrsAnomalyScore: source.maxCrsAnomalyScore || 0,
+    cumulativeRuleHits: source.cumulativeRuleHits || 0,
+    matchedRuleIds: source.matchedRuleIds || [],
+    attackCategories: source.attackCategories || [],
+    firstAttackAt: source.firstAttackAt ? new Date(source.firstAttackAt).toLocaleString() : '—',
+    lastAttackAt: source.lastAttackAt ? new Date(source.lastAttackAt).toLocaleString() : '—',
+  });
+}
+
+function renderDeceptionHistory(history) {
+  const source = history || {};
+  const summary = metricPanel('허니 신호 근거 (Honey Signals) · 자동화/공격 점수에 포함', {
+    hasEvidence: source.hasEvidence ? '있음' : '없음',
+    totalEvents: source.totalEvents || 0,
+    distinctSignals: source.distinctSignals || [],
+    signalCounts: source.signalCounts || {},
+    strongestEvidenceLevel: source.strongestEvidenceLevel || '—',
+    firstEventAt: source.firstEventAt ? new Date(source.firstEventAt).toLocaleString() : '—',
+    lastEventAt: source.lastEventAt ? new Date(source.lastEventAt).toLocaleString() : '—',
+  });
+  const events = (source.recentEvents || []).map(event => `<div class="path-item">
+    <div class="meta">${new Date(event.occurredAt).toLocaleString()} · <span class="tag">${escapeHtml(event.signal)}</span> · ${escapeHtml(event.evidenceLevel)}</div>
+    <div class="url">${escapeHtml(event.detail || '')}</div>
+    ${event.originSessionId ? `<div class="meta">발생 세션 <code>${escapeHtml(event.originSessionId.slice(0,8))}</code></div>` : ''}
+  </div>`).join('') || '<p class="empty">기록된 미끼 이벤트가 없습니다.</p>';
+  return `${summary}<div class="panel"><h3>최근 허니 이벤트 (Recent Honey Events)</h3>${events}</div>`;
+}
+
+function renderHoneyBreakdown(honeyBreakdown) {
+  const automation = honeyBreakdown?.automation || {};
+  const attack = honeyBreakdown?.attack || {};
+  return `<div class="feature-grid">
+    ${metricPanel('자동화 허니 배점 (Automation Honey) · 최대 35점', {
+      totalPoints: automation.totalPoints || 0,
+      maximumPoints: automation.maximumPoints || 35,
+      contributions: automation.contributions || {}
+    })}
+    ${metricPanel('공격 허니 배점 (Attack Honey) · 최대 35점', {
+      totalPoints: attack.totalPoints || 0,
+      maximumPoints: attack.maximumPoints || 35,
+      contributions: attack.contributions || {}
+    })}
+  </div>`;
+}
+
+function renderRequests(requests) {
+  return (requests || []).map((r,index) => `<div class="path-item">
+    <div class="meta">#${index+1} · ${new Date(r.ts).toLocaleTimeString()} · ${escapeHtml(r.method)}
+      <span class="${statusClass(r.status)}">${escapeHtml(r.status)}</span>
+      · 세션 <code>${escapeHtml((r.sessionId || '').slice(0,8))}</code>
+      ${isBackgroundRequest(r) ? '<span class="tag background">백그라운드 · 행동 점수 제외</span>' : ''}
+      ${(r.tags || []).map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}
+      ${(r.deceptionEvents || []).map(event => `<span class="tag">honey:${escapeHtml(event.signal)}</span>`).join('')}
+    </div>
+    <div class="operation">${escapeHtml(r.operation || '')}</div>
+    <div class="url">${escapeHtml(r.url)}</div>
+    ${r.attackDetection?.available ? `<div class="meta">OWASP CRS ${escapeHtml(r.attackDetection.crsVersion || '')} · 이상 점수 ${Number(r.attackDetection.anomalyScore || 0)} · 규칙 ${escapeHtml((r.attackDetection.hits || []).map(hit => hit.ruleId).join(', ') || '—')}</div>` : '<div class="meta">OWASP CRS · 미관찰 (legacy fallback)</div>'}
+    ${renderHttpMetadata(r)}
+    ${r.body ? `<div class="body">본문: ${escapeHtml(typeof r.body === 'string' ? r.body : JSON.stringify(r.body))}</div>` : ''}
+    ${r.experimentRunId ? `<div class="meta">실험 실행 ID: ${escapeHtml(r.experimentRunId)}</div>` : ''}
+  </div>`).join('') || '<p class="empty">기록된 요청이 없습니다.</p>';
+}
+
+function renderResolution(data) {
+  const affiliations = (data.accountAffiliations || []).map(item =>
+    `${item.accountId} (${item.verified ? 'verified' : 'unverified'})`
+  );
+  const memberships = (data.memberships || []).map(item => `<div class="path-item">
+    <div class="meta">${escapeHtml(statusText(item.status))} · 신뢰도 ${escapeHtml(statusText(item.confidence))} · ${item.active ? '활성' : '비활성'}</div>
+    <div class="url">세션 <code>${escapeHtml(item.sessionId)}</code></div>
+    <div class="meta">후보 클라이언트 <code>${escapeHtml(item.candidateId || '—')}</code></div>
+    <div class="meta">연결 근거: ${escapeHtml((item.reasonCodes || []).join(', ') || '—')}</div>
+    <div class="meta">충돌 근거: ${escapeHtml((item.conflicts || []).join(', ') || '—')}</div>
+  </div>`).join('') || '<p class="empty">연결 관계(Membership)가 없습니다.</p>';
+  return `${metricPanel('통합 근거 (Resolution Summary)', {
+    status: data.status,
+    confidence: data.confidence,
+    aggregationPolicy: data.aggregationPolicy,
+    sessions: data.sessionIds || [],
+    candidates: data.candidateIds || [],
+    observedIps: data.observedIps || [],
+    ipChangeCount: data.ipChangeCount || 0,
+    clientIds: data.clientIds || [],
+    accounts: affiliations,
+    authGroups: data.authGroupIds || [],
+    evidence: (data.evidence || []).map(item => item.code),
+    conflicts: (data.conflicts || []).map(item => item.code)
+  })}<div class="panel"><h3>연결 관계 (Resolution Memberships)</h3>${memberships}</div>`;
+}
+
+async function openDetail(kind, id) {
+  clearInterval(state.timer);
+  state.modalOpen = true;
+  const encodedId = encodeURIComponent(id);
+  const response = await fetch(`/__detection/api/${kind}/${encodedId}`);
+  const data = await response.json();
+  const observationOnly = kind === 'ip-entries';
+  const resolved = kind === 'resolved-actors';
+  document.getElementById('modalTitle').textContent = `${entityLabels[kind] || kind} 상세 — ${id}`;
+  document.getElementById('modalExport').innerHTML =
+    `<button class="close" type="button" id="modalJsonButton">상세 JSON 열기</button>`;
+  document.getElementById('modalJsonButton').addEventListener('click', () => {
+    openJsonViewer(`/__detection/api/${kind}/${encodedId}`, `${entityLabels[kind] || kind} — ${id}`, `${kind}-detail.json`);
+  });
+
+  const scoreHtml = observationOnly ? '<p class="notice">IP 관찰(IP Observation)은 관찰 전용이며 점수(Score) 및 차단 기준에 사용하지 않습니다.</p>' : `
+    <div class="score-grid">
+      ${metricPanel(`자동화 점수 (Automation Score) · ${scoreNumber(data.automationScore)}`, data.automationBreakdown)}
+      ${metricPanel(`공격 점수 (Attack Score) · ${scoreNumber(data.attackScore)}`, data.attackBreakdown)}
+    </div>`;
+  const features = data.features || {};
+  const sequence = features.behavior?.recentSequence || [];
+  const agentic = observationOnly ? null : data.agenticEvidence;
+  document.getElementById('detailContent').innerHTML = `
+    ${scoreHtml}
+    ${resolved ? renderResolution(data) : ''}
+    ${kind === 'client-flows' || data.clientFlow ? renderFingerprintSimilarity(data) : ''}
+    ${observationOnly ? '' : renderHoneyBreakdown(data.honeyBreakdown)}
+    ${observationOnly ? '' : renderAttackHistory(data.attackHistory)}
+    ${observationOnly ? '' : renderDeceptionHistory(data.deceptionHistory)}
+    <div class="feature-grid">
+      ${metricPanel('시간 특성 (Temporal Features)', features.temporal)}
+      ${metricPanel('요청 행동 특성 (Behavior Features)', Object.fromEntries(Object.entries(features.behavior || {}).filter(([key]) => key !== 'recentSequence')))}
+      ${metricPanel('탐색 특성 (Exploration Features)', features.exploration)}
+      ${metricPanel('클라이언트 특성 (Client Features)', features.client)}
+      ${metricPanel('허니 특성 (Honey Features)', features.deception)}
+      ${metricPanel('공격 특성 (Attack Features)', features.attack)}
+    </div>
+    <div class="panel"><h3>최근 요청 순서 (Recent Sequence) · 관찰 전용</h3><ol class="sequence">
+      ${sequence.map(operation => `<li><code>${escapeHtml(operation)}</code></li>`).join('') || '<li>—</li>'}
+    </ol></div>
+    ${agentic ? metricPanel('에이전트 행동 근거 (Agentic Evidence) · 관찰 전용, 미점수', agentic) : ''}
+    <h3 class="section-title">요청 타임라인 (Request Timeline)</h3>${renderRequests(data.requests)}
+  `;
+  document.getElementById('backdrop').style.display = 'block';
+}
+
+function closeModal() {
+  document.getElementById('backdrop').style.display = 'none';
+  state.modalOpen = false;
+  clearInterval(state.timer);
+  state.timer = setInterval(refresh, 2000);
+}
+
+document.getElementById('closeButton').addEventListener('click', closeModal);
+document.getElementById('backdrop').addEventListener('click', event => {
+  if (event.target.id === 'backdrop') closeModal();
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && state.modalOpen) closeModal();
+});
+document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+document.getElementById('exportButton').addEventListener('click', () => {
+  showToast('Session 로그를 내려받는 중입니다…');
+  fetch('/__detection/api/export')
+    .then(response => response.json())
+    .then(data => downloadJson(JSON.stringify(data, null, 2), 'detection-log-export.json'))
+    .catch(() => showToast('Session 로그를 내려받지 못했습니다.'));
+});
+document.querySelectorAll('.tab-button').forEach(button => {
+  button.addEventListener('click', () => setTab(button.dataset.tab));
+});
+
+/* 식별자 칩은 어디에 있든 클릭하면 전체 값을 복사한다. */
+document.addEventListener('click', async event => {
+  const chip = event.target.closest('[data-copy]');
+  if (!chip) return;
+  event.preventDefault();
+  const copied = await copyText(chip.dataset.copy);
+  showToast(copied ? `복사됨: ${chip.dataset.copy}` : '복사에 실패했습니다. 값을 직접 선택해 주세요.');
+  if (copied) {
+    chip.classList.add('copied');
+    setTimeout(() => chip.classList.remove('copied'), 1200);
+  }
+});
+
+document.getElementById('userSearch').addEventListener('input', event => {
+  state.userQuery = event.target.value;
+  renderUserList();
+});
+document.getElementById('userSort').addEventListener('change', event => {
+  state.userSort = event.target.value;
+  renderUserList();
+});
+document.getElementById('userIdentityFilters').addEventListener('click', event => {
+  const button = event.target.closest('[data-identity]');
+  if (!button) return;
+  state.identityFilter = button.dataset.identity;
+  document.querySelectorAll('#userIdentityFilters .chip-button').forEach(chip => {
+    chip.classList.toggle('active', chip === button);
+  });
+  renderUserList();
+});
+document.getElementById('userRisk').addEventListener('change', event => {
+  state.riskFilter = event.target.value;
+  renderUserList();
+});
+
+const detectionLevelSelect = document.getElementById('detectionLevel');
+if (!Object.hasOwn(DETECTION_THRESHOLDS, state.detectionLevel)) state.detectionLevel = 'medium';
+detectionLevelSelect.value = state.detectionLevel;
+detectionLevelSelect.addEventListener('change', event => {
+  state.detectionLevel = Object.hasOwn(DETECTION_THRESHOLDS, event.target.value)
+    ? event.target.value
+    : 'medium';
+  localStorage.setItem('detectionLevel', state.detectionLevel);
+  renderUserList();
+  renderUserDetail();
+  refresh();
+});
+
+initializeTheme();
+setTab('users');
+refresh();
+state.timer = setInterval(refresh, 2000);
+</script>
+</body>
+</html>

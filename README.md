@@ -8,8 +8,7 @@ RUBY는 웹 요청의 공격 가능성을 탐지하고, 위험도와 정책에 �
 RUBY/
 ├── benchmark/   # 실험 대상, 실행 환경, 결과 및 재현 자료
 ├── defense/     # 차단·변환·지연·기만 등 방어 계층
-├── detection/   # 요청 분석, 공격 탐지 및 위험도 산정 계층
-└── policy/      # 위험도와 정책에 따른 처리 전략 판단 계층
+├── detection/   # Node.js 탐지 프록시, ModSecurity/CRS, 대시보드, Policy
 ```
 
 ### `benchmark/`
@@ -26,20 +25,15 @@ RUBY/
 
 ### `detection/`
 
-요청의 특징을 추출하고 공격 가능성을 분석합니다. 규칙·모델 기반 탐지, 위험도 점수를 관리합니다.
+요청의 특징을 추출해 Automation/Attack 점수를 계산하고 `X-Risk-Score`로 변환합니다.
+ModSecurity/OWASP CRS, 행동 기반 휴리스틱, Honey/Deception 신호와 실시간 대시보드를 포함합니다.
+위험도 점수를 정책에 따라 해석하고 Defense에서 적용할 대응 전략을 선택합니다.
 
-자세한 내용은 [`detection/README.md`](detection/README.md)를 참고하세요.
-
-### `policy/`
-
-Detection이 산정한 위험도 점수를 정책에 따라 해석하고, 정상 전달 또는 Defense에서 적용할 대응 전략을 선택합니다.
-
-자세한 내용은 [`policy/README.md`](policy/README.md)를 참고하세요.
 
 ## 작업 방법
 
 1. 최신 `main`에서 작업 브랜치를 만듭니다.
-2. 변경 대상에 따라 `benchmark/`, `defense/`, `detection/`, `policy/`에서 작업합니다.
+2. 변경 대상에 따라 `benchmark/`, `defense/`, `detection/`에서 작업합니다.
 3. 관련 테스트와 재현 절차를 확인하고 문서화합니다.
 4. 비밀 정보와 개인정보가 포함되지 않았는지 확인합니다.
 5. Pull Request를 생성해 검토받은 뒤 병합합니다.
@@ -66,14 +60,17 @@ Docker Desktop을 실행한 뒤, 아래 명령으로 로컬 소스를 빌드해 
 docker compose -f docker-compose.local.yml up --build
 ```
 
-브라우저에서 `http://localhost:8081`로 접속하거나, 다음처럼 Detection → Policy → Defense → 벤치마크 대상의 전체 경로를 확인합니다.
+브라우저에서 `http://localhost:8081`로 접속하거나, 다음처럼 Detection → Defense → 벤치마크 대상의 전체 경로를 확인합니다.
 
 ```bash
 curl http://localhost:8081/healthz
 curl -I http://localhost:8081
 ```
 
-`detection/app`, `policy/app`, `policy/config.yaml`, `defense/app` 변경은 컨테이너가 자동으로 다시 불러옵니다. 종료 및 컨테이너 정리는 다음 명령을 사용합니다.
+`defense/app` 변경은 컨테이너가 자동으로 다시 불러옵니다. Detection은 Node.js와 네이티브 CRS scanner를
+포함하므로 변경 후 이미지를 다시 빌드해야 합니다. 첫 Detection 빌드는 ModSecurity와 CRS를 준비하므로 시간이 걸릴 수
+있습니다. 실시간 탐지 화면은 `http://localhost:8081/__detection/dashboard`에서 확인합니다.
+종료 및 컨테이너 정리는 다음 명령을 사용합니다.
 
 ```bash
 docker compose -f docker-compose.local.yml down
