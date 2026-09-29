@@ -96,7 +96,9 @@ test("Automation과 Attack 가중치는 각각 100%이고 Attack Honey는 22%다
   assert.equal(Number(sum(AUTOMATION_WEIGHTS).toFixed(3)), 1);
   assert.equal(Number(sum(ATTACK_WEIGHTS).toFixed(3)), 1);
   assert.equal(AUTOMATION_WEIGHTS.automationHoney, 0.35);
-  assert.equal(ATTACK_WEIGHTS.attackHoney, 0.22);
+  assert.equal(ATTACK_WEIGHTS.attackHoney, 0.17);
+  assert.equal(ATTACK_WEIGHTS.reflectedXss, 0.15);
+  assert.equal(ATTACK_WEIGHTS.payloadSignature, 0.2);
 });
 
 test("Automation Honey는 trap, no-asset, 조건부 coverage를 합쳐 최대 35점을 반영한다", () => {
