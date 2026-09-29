@@ -214,7 +214,7 @@ function canAutoAggregate(
     };
   }
   // IP가 다른 두 관찰을 묶는 경로는 오탐 시 무고한 사용자의 위험 점수를 합산시킨다.
-  // 오탐률이 측정되기 전까지 운영에서 끌 수 있도록 플래그를 둔다.
+  // 운영 환경의 연결 정책에 따라 IP 변경 연결을 끌 수 있도록 플래그를 둔다.
   if (!allowIpRotation) {
     return { eligible: false, reason: "ip_rotation_disabled" };
   }

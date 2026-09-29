@@ -717,6 +717,14 @@ function getResolutionStatus() {
   };
 }
 
+function clientFlowScoringState(group) {
+  const attackRepetition = clientFlowStore.attackRepetition(group.id);
+  return {
+    attackRepetition,
+    scoringApplied: Boolean(group.aggregationEnabled || attackRepetition.bonusPoints > 0 || group.maxAttackScore > 0),
+  };
+}
+
 function summarizeClientFlowGroup(group) {
   const flowLinked =
     group.sessionIds.size > 1 || group.candidateIds.size > 1 || group.verifiedClientIds.size > 1;
@@ -748,7 +756,7 @@ function summarizeClientFlowGroup(group) {
     candidateIds: [...group.candidateIds],
     candidateCount: group.candidateIds.size,
     totalRequests: group.totalRequests,
-    attackRepetition: clientFlowStore.attackRepetition(group.id),
+    ...clientFlowScoringState(group),
     sessionIds: [...group.sessionIds],
     sessionCount: group.sessionIds.size,
     links,
@@ -773,7 +781,7 @@ function getClientFlowPolicyState(idOrCandidateId) {
     id: group.id,
     status: group.conflicts.length ? "CONFLICT" : "FLOW_LINKED",
     aggregationEnabled: group.aggregationEnabled,
-    attackRepetition: clientFlowStore.attackRepetition(group.id),
+    ...clientFlowScoringState(group),
   };
 }
 
@@ -825,7 +833,7 @@ function getAllClientFlowAggregates() {
       group.sessionIds.size > 1 ||
       group.candidateIds.size > 1 ||
       group.verifiedClientIds.size > 1 ||
-      clientFlowStore.attackRepetition(group.id).bonusPoints > 0 ||
+      clientFlowScoringState(group).scoringApplied ||
       group.conflicts.length > 0
     )
     .map((group) => getClientFlowAggregate(group.id));

@@ -5,7 +5,9 @@ const ATTACK_BUCKET_MS = 60_000;
 
 function isQualifyingAttackRequest(request) {
   if (!request || request.backgroundTraffic?.isBackground) return false;
-  if ((request.tags || []).length || (request.blTags || []).length || (request.csrfTags || []).length) {
+  // Origin/Referer 부재만으로는 정상 CLI 요청과 공격을 구분할 수 없다.
+  const hasAttackCsrfTag = (request.csrfTags || []).some((tag) => tag !== "csrf:missing-origin");
+  if ((request.tags || []).length || (request.blTags || []).length || hasAttackCsrfTag) {
     return true;
   }
   if (request.attackDetection?.available && Number(request.attackDetection.anomalyScore) >= 5) {

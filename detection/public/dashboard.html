@@ -602,7 +602,12 @@ function miniScore(label, value, kind, detected = false) {
     <span class="mini-value">${score}</span>${detectionBadge(kind, detected)}</span>`;
 }
 function attackHistoryCell(history) {
-  if (!history?.hasAttackHistory) return '<span class="status-success">없음</span>';
+  if (!history?.hasAttackHistory) {
+    const peak = scoreNumber(history?.maxAttackScore);
+    return peak > 0
+      ? `<span>점수 이력</span> · 최고 ${peak}`
+      : '<span class="status-success">없음</span>';
+  }
   return `<span class="status-error">있음</span> · 최고 ${scoreNumber(history.maxAttackScore)} · 규칙 ${Number(history.cumulativeRuleHits || 0)}건`;
 }
 function honeySignalsCell(history) {
@@ -927,6 +932,8 @@ function buildUserRows(resolvedActors, actors, clientFlows = []) {
           ? `Fingerprint 연관 ${lowestScore.toFixed(0)}점 이상 · 흐름 자동 연결`
           : group.attackRepetition?.bonusPoints > 0
             ? `동일 Candidate의 최근 반복 공격 ${group.attackRepetition.qualifyingRequests}건`
+          : group.scoringApplied && !group.flowLinked
+            ? `동일 Candidate의 최고 공격 이력 유지`
           : `동일 Candidate의 세션·DCID 흐름 연결`,
     });
   }

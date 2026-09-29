@@ -43,13 +43,15 @@ class ClientFlowStore {
   }
 
   addSession(group, sessionId, candidateId) {
-    if (!sessionId) return;
+    if (!sessionId) return false;
+    const coreSessionAdded = group.coreCandidateIds.has(candidateId) && !group.coreSessionIds.has(sessionId);
     group.sessionIds.add(sessionId);
     if (group.coreCandidateIds.has(candidateId)) group.coreSessionIds.add(sessionId);
     if (!group.candidateSessionIds.has(candidateId)) group.candidateSessionIds.set(candidateId, new Set());
     group.candidateSessionIds.get(candidateId).add(sessionId);
     if (!this.sessionIndex.has(sessionId)) this.sessionIndex.set(sessionId, new Set());
     this.sessionIndex.get(sessionId).add(group.id);
+    return coreSessionAdded;
   }
 
   overlap(left, right) {
@@ -216,12 +218,11 @@ class ClientFlowStore {
       indexed.lastSeen = ts;
       indexed.totalRequests++;
       if (indexed.anchorCandidateId === candidateId) indexed.anchorObservation = observation;
-      const newSession = Boolean(sessionId && !indexed.sessionIds.has(sessionId));
-      this.addSession(indexed, sessionId, candidateId);
+      const coreSessionAdded = this.addSession(indexed, sessionId, candidateId);
       if (clientIdentity?.continuityVerified && clientIdentity.clientId) {
         indexed.verifiedClientIds.add(clientIdentity.clientId);
       }
-      return newSession ? this.mergeOverlaps(indexed, ts, sessionId) : indexed;
+      return coreSessionAdded ? this.mergeOverlaps(indexed, ts, sessionId) : indexed;
     }
 
     let best = null;
@@ -243,8 +244,7 @@ class ClientFlowStore {
     const { group, comparison, eligibility } = best;
     group.candidateIds.add(candidateId);
     group.coreCandidateIds.add(candidateId);
-    const newSession = Boolean(sessionId && !group.sessionIds.has(sessionId));
-    this.addSession(group, sessionId, candidateId);
+    const coreSessionAdded = this.addSession(group, sessionId, candidateId);
     if (clientIdentity?.continuityVerified && clientIdentity.clientId) {
       group.verifiedClientIds.add(clientIdentity.clientId);
     }
@@ -266,7 +266,7 @@ class ClientFlowStore {
     group.totalRequests++;
     group.aggregationEnabled = group.conflicts.length === 0 && group.candidateIds.size > 1;
     this.candidateIndex.set(candidateId, group.id);
-    return newSession ? this.mergeOverlaps(group, ts, sessionId) : group;
+    return coreSessionAdded ? this.mergeOverlaps(group, ts, sessionId) : group;
   }
 
   updateAttackScore(groupId, score) {

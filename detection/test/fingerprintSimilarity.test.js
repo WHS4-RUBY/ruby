@@ -209,6 +209,48 @@ test("중간 Flow와만 80% 겹치는 세 번째 Flow는 연쇄 병합하지 않
   assert.notEqual(store.getByCandidate("actor:0")?.id, store.getByCandidate("actor:2")?.id);
 });
 
+for (const newCandidate of [false, true]) {
+  test(`이미 알려진 세션을 ${newCandidate ? "새 지문 연결 Candidate" : "기존 핵심 Candidate"}가 사용해도 병합을 재검사한다`, () => {
+    const start = 1_700_000_000_000;
+    const store = new ClientFlowStore();
+    const agents = ["curl/8.10.1", "Mozilla/5.0 Firefox/142.0", "python-requests/2.31.0", "curl/8.10.1", "curl/8.10.1"];
+    let ts = start;
+    function observe(client, session) {
+      ts++;
+      return store.observe({
+        candidateId: `actor:${client}`,
+        observation: observation({
+          ip: client >= 3 ? `198.51.100.${client}` : "203.0.113.10",
+          headers: { ...baseHeaders, "user-agent": agents[client] }, ts,
+        }),
+        sessionId: `session:${session}`,
+        ts,
+      });
+    }
+    for (let session = 0; session < 10; session++) observe(0, session);
+    for (let session = 2; session < 12; session++) observe(1, session);
+    for (const session of [12, 13, 10, 11, 2, 3, 4, 5, 6, 7, 8, 9]) observe(2, session);
+    const oldThirdId = store.getByCandidate("actor:2").id;
+    assert.equal(store.getAll().length, 2);
+    // 병합으로 들어온 Candidate의 새 세션은 핵심 세션을 확장하지 않는다.
+    observe(1, 12);
+    observe(1, 13);
+    assert.equal(store.getByCandidate("actor:0").coreSessionIds.size, 10);
+    assert.equal(store.getAll().length, 2);
+    observe(newCandidate ? 3 : 0, 10);
+    assert.equal(store.getAll().length, 2);
+    observe(newCandidate ? 4 : 0, 11);
+    // 새로운 지문 Candidate를 사용하는 경우 같은 앵커 프로필을 유지한다.
+    assert.equal(store.getAll().length, 1);
+    const merged = store.getByCandidate("actor:0");
+    assert.equal(store.getByCandidate("actor:2").id, merged.id);
+    assert.equal(store.get(oldThirdId).id, merged.id);
+    assert.ok(merged.links.some((link) => link.reason === "shared_session_continuity"
+      && link.sharedSessionCount === 10
+      && link.sourceCoverage >= 0.8 && link.targetCoverage >= 0.8));
+  });
+}
+
 test("Candidate 128개가 한 Flow로 연결되며 설정된 옛 3개 상한은 분리에 쓰이지 않는다", () => {
   const store = new ClientFlowStore({ ttlMs: 60_000, maxCandidates: 3 });
   const start = 1_700_000_000_000;

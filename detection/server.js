@@ -208,9 +208,9 @@ function buildPriorPolicyDecision(req) {
   const resolvedActor = session?.resolvedActorId
     ? store.getResolvedActorAggregate(session.resolvedActorId)
     : null;
-  // 전체 집계는 요청을 훑으므로 병합 또는 반복 공격 근거가 있을 때만 계산한다.
+  // 전체 집계는 병합, 반복 가산 또는 보존한 최고 공격 점수가 있을 때 계산한다.
   const clientFlowState = store.getClientFlowPolicyState(actorId);
-  const clientFlow = clientFlowState?.aggregationEnabled || clientFlowState?.attackRepetition?.bonusPoints > 0
+  const clientFlow = clientFlowState?.scoringApplied
     ? store.getClientFlowAggregate(actorId)
     : null;
 
@@ -435,7 +435,7 @@ function recordCompletedRequest(req, {
   const resolvedActorAnalysis = resolvedActor ? analyzeResolvedActor(resolvedActor) : null;
   const clientFlowId = session.requests.at(-1)?.clientFlowId;
   const clientFlowState = clientFlowId ? store.getClientFlowPolicyState(clientFlowId) : null;
-  const clientFlowAnalysis = clientFlowState?.aggregationEnabled || clientFlowState?.attackRepetition?.bonusPoints > 0
+  const clientFlowAnalysis = clientFlowState?.scoringApplied
     ? analyzeClientFlow(store.getClientFlowAggregate(clientFlowId))
     : null;
   const [effectiveDetectionSource, effectiveDetectionAnalysis] = selectEffectiveDetection({
@@ -676,7 +676,7 @@ function clientFlowJson(aggregate, { includeRequests = false } = {}) {
     aggregationEnabled: aggregate.aggregationEnabled,
     flowLinked: aggregate.flowLinked,
     verifiedClientCount: aggregate.verifiedClientCount,
-    scoringApplied: aggregate.aggregationEnabled || aggregate.attackRepetition?.bonusPoints > 0,
+    scoringApplied: aggregate.scoringApplied,
     anchorCandidateId: aggregate.anchorCandidateId,
     candidateIds: aggregate.candidateIds,
     candidateCount: aggregate.candidateCount,
