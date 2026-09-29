@@ -148,7 +148,9 @@
   .relation-chips { display:flex; flex-wrap:wrap; gap:6px; }
   .relation-note { margin:0; color:var(--muted); font-size:12px; line-height:1.55; }
   .connection-disclosure { flex-shrink:0; border-bottom:1px solid var(--border); }
-  .connection-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 22px; color:var(--text); cursor:pointer; list-style:none; user-select:none; }
+  .connection-disclosure[open] { display:flex; flex-direction:column; max-height:min(45vh, 440px); }
+  .connection-disclosure[open] .connection-content { max-height:min(35vh, 360px); overflow-y:auto; overscroll-behavior:contain; }
+  .connection-summary { flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 22px; color:var(--text); cursor:pointer; list-style:none; user-select:none; }
   .connection-summary::-webkit-details-marker { display:none; }
   .connection-summary:hover { background:var(--hover); }
   .connection-summary-main { display:flex; align-items:center; gap:9px; min-width:0; }
@@ -296,6 +298,7 @@
               <input class="search-input" type="search" id="userSearch" placeholder="ID · IP 검색" aria-label="클라이언트 흐름 검색" />
               <div class="toolbar-row">
                 <select class="select-input" id="userSort" aria-label="정렬 기준">
+                  <option value="linkedRecent">결합 흐름 우선 · 최근 순</option>
                   <option value="lastSeen">최근 활동 순</option>
                   <option value="firstSeen">최초 활동 순</option>
                   <option value="attack">공격 점수 순</option>
@@ -382,7 +385,7 @@ const state = {
   userSelectionTouched: false, // 사용자가 직접 목록을 고른 뒤에는 자동 선택하지 않는다.
   userDetail: null,        // 선택된 흐름의 상세 응답
   userQuery: '',
-  userSort: 'lastSeen',
+  userSort: 'linkedRecent',
   identityFilter: 'all',
   riskFilter: 'all',
   detectionLevel: localStorage.getItem('detectionLevel') || 'medium',
@@ -882,19 +885,20 @@ function buildUserRows(resolvedActors, actors, clientFlows = []) {
   }
 
   const flowCandidateIds = new Set(
-    clientFlows.flatMap(group => group.flowLinked ? (group.candidateIds || []) : [])
+    clientFlows.flatMap(group => group.flowLinked || group.scoringApplied ? (group.candidateIds || []) : [])
   );
   const flowResolvedIds = new Set(
-    clientFlows.flatMap(group => group.flowLinked ? (group.resolvedActorIds || []) : [])
+    clientFlows.flatMap(group => group.flowLinked || group.scoringApplied ? (group.resolvedActorIds || []) : [])
   );
   const visibleRows = rows.filter(row =>
     !(row.kind === 'actors' && flowCandidateIds.has(row.id)) &&
     !(row.kind === 'resolved-actors' && flowResolvedIds.has(row.id))
   );
   for (const group of clientFlows) {
-    if (!group.flowLinked && group.status !== 'CONFLICT') continue;
-    const scores = (group.links || []).map(link => Number(link.score || 0));
+    if (!group.flowLinked && !group.scoringApplied && group.status !== 'CONFLICT') continue;
+    const scores = (group.links || []).map(link => Number(link.score)).filter(Number.isFinite);
     const lowestScore = scores.length ? Math.min(...scores) : 0;
+    const strongestSharedSessions = Number(group.maxSharedSessionCount || 0);
     visibleRows.push({
       kind: 'client-flows',
       id: group.clientFlowId,
@@ -917,8 +921,12 @@ function buildUserRows(resolvedActors, actors, clientFlows = []) {
       relatedIds: [group.clientFlowId, ...(group.candidateIds || []), ...(group.resolvedActorIds || []), ...(group.observedIps || [])],
       note: group.status === 'CONFLICT'
         ? 'Fingerprint 충돌 · 자동 합산 중단'
+        : strongestSharedSessions
+          ? `최대 공통 세션 ${strongestSharedSessions}개 · 흐름 연결`
         : group.candidateCount > 1
           ? `Fingerprint 연관 ${lowestScore.toFixed(0)}점 이상 · 흐름 자동 연결`
+          : group.attackRepetition?.bonusPoints > 0
+            ? `동일 Candidate의 최근 반복 공격 ${group.attackRepetition.qualifyingRequests}건`
           : `동일 Candidate의 세션·DCID 흐름 연결`,
     });
   }
@@ -940,6 +948,11 @@ function filterAndSortUsers(rows) {
   });
 
   const sorters = {
+    linkedRecent: (a, b) => {
+      const linkedA = a.kind === 'client-flows' && a.candidateCount > 1 ? 1 : 0;
+      const linkedB = b.kind === 'client-flows' && b.candidateCount > 1 ? 1 : 0;
+      return linkedB - linkedA || Number(b.lastSeen || 0) - Number(a.lastSeen || 0);
+    },
     lastSeen: (a, b) => Number(b.lastSeen || 0) - Number(a.lastSeen || 0),
     firstSeen: (a, b) => Number(a.firstSeen || 0) - Number(b.firstSeen || 0),
     attack: (a, b) => (b.attackScore || 0) - (a.attackScore || 0),
@@ -977,6 +990,7 @@ function renderUserList() {
         ${flags}
       </span>
       <span class="user-card-id" title="${escapeHtml(row.id)}">${escapeHtml(shortId(row.id, 30))}</span>
+      ${row.kind === 'client-flows' && row.candidateCount > 1 ? `<span class="sub">${escapeHtml(row.note)}</span>` : ''}
       <span class="user-card-scores">
         ${miniScore('자동화', row.automationScore, 'automation', detection.automationDetected)}
         ${miniScore('공격', detection.maxAttackScore / 100, 'attack', detection.attackDetected)}
@@ -1025,6 +1039,10 @@ async function loadUserDetail() {
       return;
     }
     state.userDetail = await response.json();
+    if (kind === 'client-flows' && state.userDetail.clientFlowId && state.userDetail.clientFlowId !== id) {
+      state.selected.id = state.userDetail.clientFlowId;
+      renderUserList();
+    }
     renderUserDetail();
   } catch (_) {
     // 자동 갱신 중 일시적인 통신 오류는 기존 화면을 유지한다.
@@ -1112,6 +1130,10 @@ function renderRelation(detail, kind, sessionNodes) {
   const isClientFlow = kind === 'client-flows';
   const rootId = isResolved ? detail.resolvedActorId : isClientFlow ? detail.clientFlowId : detail.actorId;
   const candidateIds = isResolved || isClientFlow ? (detail.candidateIds || []) : [detail.actorId];
+  const totalSessionCount = Number(detail.sessionCount || sessionNodes.length);
+  const visibleSessionLabel = totalSessionCount > sessionNodes.length
+    ? `세션 ${sessionNodes.length}/${totalSessionCount} 표시`
+    : `세션 ${sessionNodes.length}`;
   const linkedResolvedIds = isResolved
     ? []
     : [...new Set((detail.requests || []).map(request => request.resolvedActorId).filter(Boolean))];
@@ -1134,7 +1156,7 @@ function renderRelation(detail, kind, sessionNodes) {
     ? `<div class="relation-row"><span class="relation-key">후보 클라이언트 ${candidateIds.length}</span><span class="relation-chips">${candidateChips}</span></div>`
     : '';
   const linkedRow = linkedResolvedIds.length
-    ? `<div class="relation-row"><span class="relation-key">연결된 확정 흐름</span><span class="relation-chips">${linkedResolvedIds.map(id =>
+    ? `<div class="relation-row"><span class="relation-key">연결된 Actor 흐름</span><span class="relation-chips">${linkedResolvedIds.map(id =>
         `<button type="button" class="node-chip" data-open-kind="resolved-actors" data-open-id="${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(shortId(id, 14))}</button>`).join('')}</span></div>`
     : '';
 
@@ -1145,7 +1167,7 @@ function renderRelation(detail, kind, sessionNodes) {
     ${candidateRow}
     ${linkedRow}
     <div class="relation-row">
-      <span class="relation-key">세션 ${sessionNodes.length}<span class="hint" title="브라우저 쿠키(dlsid) 단위의 방문 흐름입니다. 누르면 해당 세션 요청만 타임라인에 남습니다.">?</span></span>
+      <span class="relation-key">${visibleSessionLabel}<span class="hint" title="브라우저 쿠키(dlsid) 단위의 방문 흐름입니다. 누르면 해당 세션 요청만 타임라인에 남습니다.">?</span></span>
       <span class="relation-chips">${sessionChips}</span>
     </div>
   </div>`;
@@ -1154,8 +1176,11 @@ function renderRelation(detail, kind, sessionNodes) {
 function renderFingerprintSimilarity(detail) {
   const links = detail.links || detail.clientFlow?.links || [];
   if (!links.length) return '';
-  const items = links.map(link => `<div class="path-item">
-    <div class="meta">Fingerprint 연관 점수 <b>${Number(link.score || 0).toFixed(1)}/100</b> · 판정 ${escapeHtml(link.decision || '—')} · ${escapeHtml(link.reason || '—')}</div>
+  const visibleLinks = links.slice(-200);
+  const items = visibleLinks.map(link => `<div class="path-item">
+    <div class="meta">${link.reason === 'shared_session_continuity'
+      ? `공통 세션 <b>${Number(link.sharedSessionCount || 0)}개</b> · 양쪽 비율 ${Math.round(Number(link.sourceCoverage || 0) * 100)}% / ${Math.round(Number(link.targetCoverage || 0) * 100)}%`
+      : `Fingerprint 연관 점수 <b>${Number(link.score || 0).toFixed(1)}/100</b> · 판정 ${escapeHtml(link.decision || '—')} · ${escapeHtml(link.reason || '—')}`}</div>
     <div class="url"><code>${escapeHtml(shortId(link.fromCandidateId, 18))}</code> → <code>${escapeHtml(shortId(link.toCandidateId, 18))}</code></div>
     <div class="meta">일치: ${escapeHtml((link.matchedFields || []).join(', ') || '—')}</div>
     <div class="meta">변경: ${escapeHtml((link.changedFields || []).join(', ') || '—')}</div>
@@ -1163,7 +1188,7 @@ function renderFingerprintSimilarity(detail) {
   </div>`).join('');
   const beforeAttack = detail.preMergeAttackScore === undefined ? ''
     : `<p class="sub">연결 전 최고 Attack ${scoreNumber(detail.preMergeAttackScore)}점 → Client Flow 연결 후 ${scoreNumber(detail.attackScore)}점 · 연결 전 최고 Automation ${scoreNumber(detail.preMergeAutomationScore)}점 → 연결 후 ${scoreNumber(detail.automationScore)}점</p>`;
-  return `<div class="panel"><h3>Fingerprint 유사도 · ${escapeHtml(detail.similarityVersion || 'fingerprint-similarity-v1')}</h3>${beforeAttack}${items}</div>`;
+  return `<div class="panel"><h3>Client Flow 연결 근거 · ${escapeHtml(detail.similarityVersion || 'fingerprint-similarity-v1')}</h3>${beforeAttack}${links.length > visibleLinks.length ? `<p class="sub">최근 ${visibleLinks.length} / 전체 ${links.length}개 연결 표시</p>` : ''}${items}</div>`;
 }
 
 /* 세션·연결 흐름이 많아도 요청 타임라인이 먼저 보이도록, 관계 근거는 접어서 제공한다. */
@@ -1182,10 +1207,12 @@ function renderConnectionDetails(detail, kind, sessionNodes) {
     ? new Set((detail.requests || []).map(request => request.resolvedActorId).filter(Boolean)).size
     : 0;
   const summary = [
-    `세션 ${sessionNodes.length}`,
+    `세션 ${Number(detail.sessionCount || sessionNodes.length)}`,
     candidateCount ? `후보 ${candidateCount}` : '',
-    linkedResolvedCount ? `확정 흐름 ${linkedResolvedCount}` : '',
-    similarity ? `Fingerprint 연결 ${detail.links?.length || detail.clientFlow?.links?.length || 0}` : '',
+    linkedResolvedCount ? `Actor 흐름 ${linkedResolvedCount}` : '',
+    detail.maxSharedSessionCount
+      ? `공통 세션 최대 ${detail.maxSharedSessionCount} · 연결 ${detail.sharedSessionLinks || 0}`
+      : similarity ? `Fingerprint 연결 ${detail.links?.length || detail.clientFlow?.links?.length || 0}` : '',
   ].filter(Boolean).join(' · ');
 
   return `<details class="connection-disclosure" id="connectionDisclosure"${state.connectionDetailsExpanded ? ' open' : ''}>
@@ -1193,15 +1220,18 @@ function renderConnectionDetails(detail, kind, sessionNodes) {
       <span class="connection-summary-main"><span class="connection-summary-title">연결 관계 · 유사도</span><span class="connection-summary-meta">${escapeHtml(summary)}</span></span>
       <span class="connection-summary-toggle" aria-hidden="true"></span>
     </summary>
-    ${similarity}
-    ${relation}
+    <div class="connection-content" id="connectionContent">
+      ${similarity}
+      ${relation}
+    </div>
   </details>`;
 }
 
 function renderTimeline(detail, sessionNodes) {
   const colorBySession = new Map(sessionNodes.map(node => [node.sessionId, node]));
   const query = state.timelineQuery.trim().toLowerCase();
-  const requests = [...(detail.requests || [])].sort((a, b) => a.ts - b.ts);
+  const requests = [...(detail.requests || [])].sort((a, b) => b.ts - a.ts);
+  const totalRequestCount = Number(detail.totalRequests || requests.length);
   const filtered = requests.filter(request => {
     if (state.timelineSession !== 'all' && request.sessionId !== state.timelineSession) return false;
     if (state.timelineFlaggedOnly && !isFlaggedRequest(request)) return false;
@@ -1229,7 +1259,7 @@ function renderTimeline(detail, sessionNodes) {
       const methodText = Object.entries(methods).map(([method, count]) => `${method} ${count}`).join(' · ');
       const category = first.backgroundTraffic?.category === 'socket_io_polling' ? 'Socket.IO polling' : '백그라운드 통신';
       lastSession = entry.sessionId;
-      return `<div class="timeline-background-group"><span class="tag background">백그라운드</span><b>${escapeHtml(category)} ${grouped.length.toLocaleString()}건</b><span>${escapeHtml(methodText)} · ${escapeHtml(formatClock(first.ts))}${last.ts !== first.ts ? `–${escapeHtml(formatClock(last.ts))}` : ''} · 자동화 행동 점수 제외</span></div>`;
+      return `<div class="timeline-background-group"><span class="tag background">백그라운드</span><b>${escapeHtml(category)} ${grouped.length.toLocaleString()}건</b><span>${escapeHtml(methodText)} · ${escapeHtml(formatClock(last.ts))}${last.ts !== first.ts ? `–${escapeHtml(formatClock(first.ts))}` : ''} · 자동화 행동 점수 제외</span></div>`;
     }
     const request = entry.request;
     const node = colorBySession.get(request.sessionId) || { color: 'var(--muted)', index: '?' };
@@ -1277,8 +1307,9 @@ function renderTimeline(detail, sessionNodes) {
 
   return `<div class="timeline-head">
       <div>
-        <h3 style="margin:0;">요청 흐름<span class="hint" title="선택한 흐름의 모든 세션 요청을 시간순으로 이어 붙였습니다. 색은 세션을 구분합니다.">?</span></h3>
-        ${filtered.length === requests.length ? '' : `<p class="sub">${filtered.length.toLocaleString()} / ${requests.length.toLocaleString()}건 표시</p>`}
+        <h3 style="margin:0;">요청 흐름 · 최신순<span class="hint" title="선택한 흐름의 세션 요청을 최근 순으로 표시합니다. 색은 세션을 구분합니다.">?</span></h3>
+        ${totalRequestCount > requests.length ? `<p class="sub">최근 ${requests.length.toLocaleString()} / 전체 ${totalRequestCount.toLocaleString()}건 요청 상세 제공</p>` : ''}
+        ${filtered.length === requests.length ? '' : `<p class="sub">현재 조건 ${filtered.length.toLocaleString()} / 상세 ${requests.length.toLocaleString()}건 표시</p>`}
       </div>
       <div class="timeline-filters">
         <input class="search-input" type="search" id="timelineSearch" placeholder="URL·메서드·상태 검색" value="${escapeHtml(state.timelineQuery)}" aria-label="요청 검색" />
@@ -1299,6 +1330,7 @@ function renderUserDetail() {
   }
   const { kind, id } = state.selected;
   const previousScroll = document.getElementById('timelineBody')?.scrollTop || 0;
+  const previousConnectionScroll = document.getElementById('connectionContent')?.scrollTop || 0;
   // 2초 자동 갱신이 타임라인 검색 입력의 포커스/커서를 빼앗지 않게 한다.
   const activeId = document.activeElement?.id || '';
   const activeCaret = document.activeElement?.selectionStart ?? null;
@@ -1335,6 +1367,7 @@ function renderUserDetail() {
         판정 기준 ${state.detectionLevel.toUpperCase()} ${detection.threshold}점 · 현재 Attack ${detection.currentAttackScore}점 ·
         허니 신호 ${honeySignalsCell(detail.deceptionHistory)} ·
         공격 이력 ${attackHistoryCell(detail.attackHistory)} ·
+        ${detail.attackRepetition ? `최근 60분 공격 요청 ${Number(detail.attackRepetition.qualifyingRequests || 0)}건 · 반복 가산 ${Number(detail.attackRepetition.bonusPoints || 0)}점 · ` : ''}
         IP ${escapeHtml((detail.observedIps || (detail.ip ? [detail.ip] : [])).join(', ') || '—')}
       </p>
     </div>
@@ -1344,6 +1377,8 @@ function renderUserDetail() {
 
   const body = document.getElementById('timelineBody');
   if (body) body.scrollTop = previousScroll;
+  const connectionContent = document.getElementById('connectionContent');
+  if (connectionContent) connectionContent.scrollTop = previousConnectionScroll;
   if (activeId) {
     const restored = document.getElementById(activeId);
     if (restored && typeof restored.focus === 'function') {
@@ -1433,7 +1468,7 @@ async function refresh() {
   if (state.selected) await loadUserDetail();
 
   document.getElementById('sessionRows').innerHTML = sessions
-    .sort((a,b) => Math.max(detectionFor(b).maxAttackScore,b.automationScore*100)-Math.max(detectionFor(a).maxAttackScore,a.automationScore*100))
+    .sort((a,b) => Number(b.lastSeen || 0)-Number(a.lastSeen || 0))
     .map(s => {
       const detection = detectionFor(s);
       return `<tr ${rowAttrs('sessions', s.sessionId)}>
@@ -1446,7 +1481,7 @@ async function refresh() {
     }).join('') || '<tr><td colspan="12" class="empty">관찰된 세션이 없습니다.</td></tr>';
 
   document.getElementById('actorRows').innerHTML = actors
-    .sort((a,b) => Math.max(detectionFor(b).maxAttackScore,b.automationScore*100)-Math.max(detectionFor(a).maxAttackScore,a.automationScore*100))
+    .sort((a,b) => Number(b.lastSeen || 0)-Number(a.lastSeen || 0))
     .map(a => {
       const detection = detectionFor(a);
       const profile = a.clientObservation?.clientProfile || {};
@@ -1466,7 +1501,7 @@ async function refresh() {
     }).join('') || '<tr><td colspan="11" class="empty">관찰된 후보가 없습니다.</td></tr>';
 
   document.getElementById('authRows').innerHTML = authGroups
-    .sort((a,b) => Math.max(detectionFor(b).maxAttackScore,b.automationScore*100)-Math.max(detectionFor(a).maxAttackScore,a.automationScore*100))
+    .sort((a,b) => Number(b.lastSeen || 0)-Number(a.lastSeen || 0))
     .map(g => {
       const detection = detectionFor(g);
       return `<tr ${rowAttrs('auth-groups', g.authGroupId)}>
@@ -1478,7 +1513,7 @@ async function refresh() {
     }).join('') || '<tr><td colspan="9" class="empty">관찰된 인증 그룹이 없습니다.</td></tr>';
 
   document.getElementById('ipRows').innerHTML = ipEntries
-    .sort((a,b) => b.totalRequests-a.totalRequests)
+    .sort((a,b) => Number(b.lastSeen || 0)-Number(a.lastSeen || 0))
     .map(e => `<tr ${rowAttrs('ip-entries', e.ip)}>
       <td><code>${escapeHtml(e.ip)}</code></td><td>${e.totalRequests}</td><td>${e.sessionCount}</td>
       <td>${e.actorCandidateCount}</td><td>${e.features.behavior.uniqueNormalizedPaths}</td>
@@ -1567,7 +1602,7 @@ function renderHoneyBreakdown(honeyBreakdown) {
 }
 
 function renderRequests(requests) {
-  return (requests || []).map((r,index) => `<div class="path-item">
+  return [...(requests || [])].sort((a, b) => b.ts - a.ts).map((r,index) => `<div class="path-item">
     <div class="meta">#${index+1} · ${new Date(r.ts).toLocaleTimeString()} · ${escapeHtml(r.method)}
       <span class="${statusClass(r.status)}">${escapeHtml(r.status)}</span>
       · 세션 <code>${escapeHtml((r.sessionId || '').slice(0,8))}</code>
@@ -1630,7 +1665,13 @@ async function openDetail(kind, id) {
     <div class="score-grid">
       ${metricPanel(`자동화 점수 (Automation Score) · ${scoreNumber(data.automationScore)}`, data.automationBreakdown)}
       ${metricPanel(`공격 점수 (Attack Score) · ${scoreNumber(data.attackScore)}`, data.attackBreakdown)}
-    </div>`;
+    </div>
+    ${data.attackRepetition ? metricPanel('최근 60분 반복 공격 가산', {
+      공격요청: data.attackRepetition.qualifyingRequests,
+      기본공격점수: scoreNumber(data.baseAttackScore),
+      반복가산점: data.attackRepetition.bonusPoints,
+      최종공격점수: scoreNumber(data.attackScore)
+    }) : ''}`;
   const features = data.features || {};
   const sequence = features.behavior?.recentSequence || [];
   const agentic = observationOnly ? null : data.agenticEvidence;

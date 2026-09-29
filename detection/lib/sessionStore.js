@@ -363,6 +363,7 @@ function recordRequest(
   if (s.requests.length > MAX_REQUESTS_PER_SESSION) {
     s.requests.shift();
   }
+  clientFlowStore.recordAttackRequest(clientFlow.id, requestRecord);
 
   const resolution = actorResolver.observe({
     sessionId,
@@ -719,6 +720,19 @@ function getResolutionStatus() {
 function summarizeClientFlowGroup(group) {
   const flowLinked =
     group.sessionIds.size > 1 || group.candidateIds.size > 1 || group.verifiedClientIds.size > 1;
+  const links = group.links.map((link) => {
+    if (link.reason !== "shared_session_continuity") return { ...link };
+    const sourceSessions = new Set((link.sourceCandidateIds || [link.toCandidateId])
+      .flatMap((candidateId) => [...(group.candidateSessionIds.get(candidateId) || [])]));
+    let shared = 0;
+    for (const sessionId of sourceSessions) if (group.coreSessionIds.has(sessionId)) shared++;
+    return {
+      ...link,
+      sharedSessionCount: shared,
+      sourceCoverage: sourceSessions.size ? shared / sourceSessions.size : 0,
+      targetCoverage: group.coreSessionIds.size ? shared / group.coreSessionIds.size : 0,
+    };
+  });
   return {
     id: group.id,
     status: group.conflicts.length ? "CONFLICT" : flowLinked ? "FLOW_LINKED" : "OBSERVED",
@@ -733,23 +747,34 @@ function summarizeClientFlowGroup(group) {
     anchorCandidateId: group.anchorCandidateId,
     candidateIds: [...group.candidateIds],
     candidateCount: group.candidateIds.size,
+    totalRequests: group.totalRequests,
+    attackRepetition: clientFlowStore.attackRepetition(group.id),
     sessionIds: [...group.sessionIds],
     sessionCount: group.sessionIds.size,
-    links: group.links.map((link) => ({ ...link })),
+    links,
+    sharedSessionLinks: group.sharedSessionLinks,
+    maxSharedSessionCount: Math.max(group.maxSharedSessionCount, ...links.map((link) => Number(link.sharedSessionCount) || 0)),
     conflicts: [...group.conflicts],
     firstSeen: group.firstSeen,
     lastSeen: group.lastSeen,
   };
 }
 
-/**
- * 프록시 핫패스에서 매 요청 호출되는 O(1) 조회.
- * 전체 집계(getClientFlowAggregate)는 멤버 세션의 요청을 전부 훑고 정렬하므로
- * 실제로 Flow가 병합된 경우에만 호출한다.
- */
+/** Flow 상세 조회용 요약. 요청 경로의 정책 판단에는 경량 상태 조회를 사용한다. */
 function getClientFlowState(idOrCandidateId) {
   const group = clientFlowStore.get(idOrCandidateId) || clientFlowStore.getByCandidate(idOrCandidateId);
   return group ? summarizeClientFlowGroup(group) : null;
+}
+
+function getClientFlowPolicyState(idOrCandidateId) {
+  const group = clientFlowStore.get(idOrCandidateId) || clientFlowStore.getByCandidate(idOrCandidateId);
+  if (!group || Date.now() - group.lastSeen > clientFlowStore.ttlMs) return null;
+  return {
+    id: group.id,
+    status: group.conflicts.length ? "CONFLICT" : "FLOW_LINKED",
+    aggregationEnabled: group.aggregationEnabled,
+    attackRepetition: clientFlowStore.attackRepetition(group.id),
+  };
 }
 
 function getClientFlowAggregate(idOrCandidateId) {
@@ -778,16 +803,14 @@ function getClientFlowAggregate(idOrCandidateId) {
   const includedSessionIds = new Set(includedRequests.map((request) => request.sessionId));
   const includedSessions = memberSessions.filter((session) => includedSessionIds.has(session.id));
   const attackHistory = aggregateAttackHistory(includedSessions);
-  if (group.aggregationEnabled) {
-    attackHistory.maxAttackScore = Math.max(attackHistory.maxAttackScore, group.maxAttackScore || 0);
-  }
+  attackHistory.maxAttackScore = Math.max(attackHistory.maxAttackScore, group.maxAttackScore || 0);
   return {
     ...summary,
-    sessionIds: [...includedSessionIds],
-    sessionCount: includedSessionIds.size,
+    sessionIds: [...group.sessionIds],
+    sessionCount: group.sessionIds.size,
     observedIps: [...new Set(requests.map((request) => request.ip).filter(Boolean))],
     clientObservation: group.anchorObservation,
-    totalRequests: includedRequests.length,
+    totalRequests: group.totalRequests,
     requests: includedRequests,
     memberSessions: includedSessions,
     attackHistory,
@@ -802,9 +825,14 @@ function getAllClientFlowAggregates() {
       group.sessionIds.size > 1 ||
       group.candidateIds.size > 1 ||
       group.verifiedClientIds.size > 1 ||
+      clientFlowStore.attackRepetition(group.id).bonusPoints > 0 ||
       group.conflicts.length > 0
     )
     .map((group) => getClientFlowAggregate(group.id));
+}
+
+function pruneExpiredClientFlows(now = Date.now()) {
+  clientFlowStore.cleanup(now);
 }
 
 module.exports = {
@@ -826,7 +854,9 @@ module.exports = {
   getResolutionStatus,
   getClientFlowAggregate,
   getAllClientFlowAggregates,
+  pruneExpiredClientFlows,
   getClientFlowState,
+  getClientFlowPolicyState,
   updateAttackScoreHistory,
   emptyAttackHistory,
   emptyDeceptionHistory,

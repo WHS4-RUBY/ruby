@@ -137,3 +137,106 @@ test("같은 Candidate에서 서로 다른 verified DCID가 확인돼도 Client 
   assert.equal(conflicted.verifiedClientIds.size, 2);
   assert.deepEqual(conflicted.conflicts, []);
 });
+
+test("59/60 공통 세션은 UA가 다른 네 Flow를 연결하고 이전 ID도 조회된다", () => {
+  const start = 1_700_000_000_000;
+  const store = new ClientFlowStore({ ttlMs: 60 * 60_000, similarityWindowMs: 30 * 60_000 });
+  const headers = [
+    baseHeaders,
+    { ...baseHeaders, "user-agent": "Mozilla/5.0 Firefox/142.0" },
+    { ...baseHeaders, "user-agent": "python-requests/2.31.0" },
+    { ...baseHeaders, "user-agent": "wget/1.21.4" },
+  ];
+  const ids = [];
+  for (let client = 0; client < headers.length; client++) {
+    for (let session = 0; session < (client === 0 ? 60 : 59); session++) {
+      const ts = start + client * 100_000 + session * 100;
+      const group = store.observe({
+        candidateId: `actor:${client}`,
+        observation: observation({ headers: headers[client], ts }),
+        sessionId: `session:${session}`,
+        ts,
+      });
+      if (session === 0) ids.push(group.id);
+    }
+  }
+  const groups = store.getAll();
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].candidateIds.size, 4);
+  assert.equal(groups[0].sessionIds.size, 60);
+  assert.equal(groups[0].candidateSessionIds.get("actor:1").size, 59);
+  assert.equal([...groups[0].candidateSessionIds.get("actor:1")]
+    .filter((sessionId) => groups[0].coreSessionIds.has(sessionId)).length, 59);
+  for (const id of ids) assert.equal(store.get(id)?.id, groups[0].id);
+});
+
+test("공통 세션 하나와 UA 변경만으로는 Flow를 합치지 않는다", () => {
+  const store = new ClientFlowStore({ ttlMs: 60_000 });
+  const start = 1_700_000_000_000;
+  for (let client = 0; client < 2; client++) {
+    store.observe({
+      candidateId: `actor:${client}`,
+      observation: observation({
+        headers: client ? { ...baseHeaders, "user-agent": "Mozilla/5.0 Firefox/142.0" } : baseHeaders,
+        ts: start + client * 100,
+      }),
+      sessionId: "session:shared",
+      ts: start + client * 100,
+    });
+  }
+  assert.equal(store.getAll().length, 2);
+});
+
+test("중간 Flow와만 80% 겹치는 세 번째 Flow는 연쇄 병합하지 않는다", () => {
+  const start = 1_700_000_000_000;
+  const store = new ClientFlowStore({ ttlMs: 60_000 });
+  const agents = ["curl/8.10.1", "Mozilla/5.0 Firefox/142.0", "python-requests/2.31.0"];
+  const sessionRanges = [[0, 10], [2, 12], [4, 14]];
+  for (let client = 0; client < agents.length; client++) {
+    const [first, end] = sessionRanges[client];
+    for (let session = first; session < end; session++) {
+      const ts = start + client * 1000 + session;
+      store.observe({
+        candidateId: `actor:${client}`,
+        observation: observation({ headers: { ...baseHeaders, "user-agent": agents[client] }, ts }),
+        sessionId: `session:${session}`,
+        ts,
+      });
+    }
+  }
+  assert.equal(store.getAll().length, 2);
+  assert.equal(store.getByCandidate("actor:0")?.id, store.getByCandidate("actor:1")?.id);
+  assert.notEqual(store.getByCandidate("actor:0")?.id, store.getByCandidate("actor:2")?.id);
+});
+
+test("Candidate 128개가 한 Flow로 연결되며 설정된 옛 3개 상한은 분리에 쓰이지 않는다", () => {
+  const store = new ClientFlowStore({ ttlMs: 60_000, maxCandidates: 3 });
+  const start = 1_700_000_000_000;
+  for (let index = 0; index < 128; index++) {
+    store.observe({
+      candidateId: `actor:${index}`,
+      observation: observation({ ts: start + index }),
+      sessionId: `session:${index}`,
+      ts: start + index,
+    });
+  }
+  assert.equal(store.getAll().length, 1);
+  assert.equal(store.getAll()[0].candidateIds.size, 128);
+});
+
+test("마지막 요청 이후 60분이 지나면 동일 Candidate의 Flow 이력이 새로 시작된다", () => {
+  const start = 1_700_000_000_000;
+  const store = new ClientFlowStore({ ttlMs: 60 * 60_000 });
+  store.observe({ candidateId: "actor:a", observation: observation({ ts: start }), sessionId: "session:old", ts: start });
+  store.observe({
+    candidateId: "actor:a", observation: observation({ ts: start + 59 * 60_000 }),
+    sessionId: "session:still-active", ts: start + 59 * 60_000,
+  });
+  assert.equal(store.getByCandidate("actor:a")?.sessionIds.size, 2);
+  store.observe({
+    candidateId: "actor:a", observation: observation({ ts: start + 120 * 60_000 }),
+    sessionId: "session:new", ts: start + 120 * 60_000,
+  });
+  assert.deepEqual([...store.getByCandidate("actor:a").sessionIds], ["session:new"]);
+  assert.equal(store.getByCandidate("actor:a")?.firstSeen, start + 120 * 60_000);
+});

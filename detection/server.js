@@ -164,7 +164,14 @@ function analyzeResolvedActor(aggregate) {
 
 function analyzeClientFlow(aggregate) {
   const features = extractResolvedActorFeatures(aggregate);
-  const analysis = classify(features);
+  const baseAnalysis = classify(features);
+  const repetitionBonusPoints = Number(aggregate.attackRepetition?.bonusPoints) || 0;
+  const analysis = {
+    ...baseAnalysis,
+    baseAttackScore: baseAnalysis.attackScore,
+    attackScore: Math.min(1, Number((baseAnalysis.attackScore + repetitionBonusPoints / 100).toFixed(3))),
+    attackRepetition: aggregate.attackRepetition,
+  };
   return {
     ...analysis,
     detection: assessDetection(
@@ -201,10 +208,9 @@ function buildPriorPolicyDecision(req) {
   const resolvedActor = session?.resolvedActorId
     ? store.getResolvedActorAggregate(session.resolvedActorId)
     : null;
-  // 전체 집계는 멤버 세션의 요청을 모두 훑고 정렬하므로 요청 수에 대해 제곱으로
-  // 커진다. 실제로 Flow가 병합된 경우에만 계산하고, 그 외에는 O(1) 상태만 본다.
-  const clientFlowState = store.getClientFlowState(actorId);
-  const clientFlow = clientFlowState?.aggregationEnabled
+  // 전체 집계는 요청을 훑으므로 병합 또는 반복 공격 근거가 있을 때만 계산한다.
+  const clientFlowState = store.getClientFlowPolicyState(actorId);
+  const clientFlow = clientFlowState?.aggregationEnabled || clientFlowState?.attackRepetition?.bonusPoints > 0
     ? store.getClientFlowAggregate(actorId)
     : null;
 
@@ -428,8 +434,8 @@ function recordCompletedRequest(req, {
     : null;
   const resolvedActorAnalysis = resolvedActor ? analyzeResolvedActor(resolvedActor) : null;
   const clientFlowId = session.requests.at(-1)?.clientFlowId;
-  const clientFlowState = clientFlowId ? store.getClientFlowState(clientFlowId) : null;
-  const clientFlowAnalysis = clientFlowState?.aggregationEnabled
+  const clientFlowState = clientFlowId ? store.getClientFlowPolicyState(clientFlowId) : null;
+  const clientFlowAnalysis = clientFlowState?.aggregationEnabled || clientFlowState?.attackRepetition?.bonusPoints > 0
     ? analyzeClientFlow(store.getClientFlowAggregate(clientFlowId))
     : null;
   const [effectiveDetectionSource, effectiveDetectionAnalysis] = selectEffectiveDetection({
@@ -670,10 +676,12 @@ function clientFlowJson(aggregate, { includeRequests = false } = {}) {
     aggregationEnabled: aggregate.aggregationEnabled,
     flowLinked: aggregate.flowLinked,
     verifiedClientCount: aggregate.verifiedClientCount,
-    scoringApplied: aggregate.aggregationEnabled,
+    scoringApplied: aggregate.aggregationEnabled || aggregate.attackRepetition?.bonusPoints > 0,
     anchorCandidateId: aggregate.anchorCandidateId,
     candidateIds: aggregate.candidateIds,
     candidateCount: aggregate.candidateCount,
+    sharedSessionLinks: aggregate.sharedSessionLinks,
+    maxSharedSessionCount: aggregate.maxSharedSessionCount,
     sessionIds: aggregate.sessionIds,
     sessionCount: aggregate.sessionCount,
     resolvedActorIds: [...new Set(aggregate.requests.map((request) => request.resolvedActorId).filter(Boolean))],
@@ -695,16 +703,19 @@ function clientFlowJson(aggregate, { includeRequests = false } = {}) {
 }
 
 app.get("/__detection/api/client-flows", (_req, res) => {
+  store.pruneExpiredClientFlows();
   res.json(store.getAllClientFlowAggregates().map((aggregate) => clientFlowJson(aggregate)));
 });
 
 app.get("/__detection/api/client-flows/:id", (req, res) => {
+  store.pruneExpiredClientFlows();
   const aggregate = store.getClientFlowAggregate(req.params.id);
   if (!aggregate) return res.status(404).json({ error: "not found" });
   res.json(clientFlowJson(aggregate, { includeRequests: true }));
 });
 
 app.get("/__detection/api/client-flows/:id/path", (req, res) => {
+  store.pruneExpiredClientFlows();
   const aggregate = store.getClientFlowAggregate(req.params.id);
   if (!aggregate) return res.status(404).json({ error: "not found" });
   res.json({

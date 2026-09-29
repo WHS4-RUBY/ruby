@@ -41,6 +41,13 @@ Detection은 다음 두 점수를 각각 0~1로 계산합니다.
 - `automationScore`: 요청 간격, 반복, 헤더, 브라우저 상호작용, Honey 신호
 - `attackScore`: CRS/페이로드, 탐색, IDOR, 인증 남용, 비즈니스 로직, CSRF, Deception 신호
 
+Client Flow의 공격 점수에는 최근 60분 동안 공격 근거가 있는 요청의 반복 가산점(최대
+50점)을 더합니다. 첫 요청은 가산하지 않고, 같은 시간 안에 2/4/8/16/32건이 되면
+각각 10/20/30/40/50점을 더합니다. 페이로드·비즈니스 로직·CSRF 태그, 공격 대상
+Deception 신호, CRS 이상 점수 5점 이상의 요청만 셉니다. 단순 404나 정상 요청 반복은
+가산하지 않습니다. 이 가산점은 현재값에 적용되며 기존 과거 최고 Attack 이력은 별도로
+유지됩니다.
+
 두 점수는 아래 식으로 하나의 0~1 위험도로 합쳐집니다.
 
 ```text
@@ -108,8 +115,9 @@ npm test
 | `DECEPTION_ENABLED` | `true` | Honey/Deception 신호 활성화 |
 | `TRUST_PROXY` | `false` | 신뢰할 리버스 프록시가 있을 때만 설정 |
 | `FINGERPRINT_SIMILARITY_TTL_MS` | `1800000` | Fingerprint Client Flow 비교 시간, 기본 30분 |
+| `CLIENT_FLOW_IDLE_TTL_MS` | `3600000` | 마지막 요청 후 Client Flow 만료 시간, 기본 60분 |
 | `FINGERPRINT_CLEANUP_INTERVAL_MS` | `60000` | 만료된 Client Flow 정리 주기 |
-| `FINGERPRINT_MAX_FLOW_CANDIDATES` | `3` | 한 Client Flow에 자동 연결할 Candidate 상한 |
+| `FINGERPRINT_MAX_FLOW_CANDIDATES` | 사용 안 함 | 이전 설정과의 호환을 위해 남겨 둔 값. Candidate 수로 Flow를 분리하지 않음 |
 | `MAX_CLIENT_FLOWS` | `5000` | 메모리에 유지할 Client Flow 상한 |
 | `FINGERPRINT_IP_ROTATION_ENABLED` | `true` | IP가 다른 관찰의 자동 연결 허용 여부 |
 
@@ -120,9 +128,14 @@ npm test
 UA 종류 25, UA 버전 15, 언어 10, Accept-Encoding 10, Client Hints 7, 헤더 순서 3입니다.
 
 같은 IP에서는 UA 종류와 주 버전이 같고 총점이 85점 이상일 때, IP가 다르면 나머지
-프로필이 거의 완전히 일치하고 총점이 70점 이상일 때 하나의 Client Flow로 최대 3개
-Candidate를 연결합니다. IP가 다른 경로는 오탐 시 무고한 사용자의 위험 점수를
-합산시키므로 `FINGERPRINT_IP_ROTATION_ENABLED=false`로 끌 수 있습니다. 공격 점수는 기존 Candidate 점수를 더하지 않고 고유
+프로필이 거의 완전히 일치하고 총점이 70점 이상일 때 하나의 Client Flow로
+Candidate를 연결합니다. 별도 Flow라도 공통 세션이 5개 이상이며 양쪽 세션의 80%
+이상을 차지하면 UA가 달라도 연결합니다. 기존 Flow ID는 병합된 Flow를 조회할 수
+있는 별칭으로 유지합니다. IP가 다른 Fingerprint 경로는 오탐 시 무고한 사용자의 위험
+점수를 합산시키므로 `FINGERPRINT_IP_ROTATION_ENABLED=false`로 끌 수 있습니다.
+이 플래그는 Fingerprint 기반 IP 변경 연결에 적용되며, 공통 세션으로 확인된 연결은
+별도 근거로 처리합니다.
+공격 점수는 기존 Candidate 점수를 더하지 않고 고유
 `requestId` 요청 집합에서 Feature를 다시 추출해 계산합니다. signed DCID는 별도의
 `CONFIRMED` Resolved Actor 경계를 유지한다. 서로 다른 DCID가 같은 Flow에 나타나도
 신원을 합치지 않고 하위 흐름으로 함께 표시합니다. 이 연관 점수는 동일 사용자 확률이
