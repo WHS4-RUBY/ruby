@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="ko" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RUBY 방어 대시보드</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg:#f4f6f8; --surface:#fff; --surface-subtle:#f8fafb; --text:#17202a;
+      --muted:#697684; --border:#dce2e7; --border-strong:#bcc6cf; --blue:#276aa5;
+      --green:#23845f; --orange:#bd6b24; --red:#b9473f; --hover:#edf3f8;
+      --header:#111b24; --header-text:#f4f7fa;
+    }
+    html[data-theme="dark"] {
+      color-scheme:dark; --bg:#11171d; --surface:#182129; --surface-subtle:#141c23;
+      --text:#edf2f6; --muted:#94a3af; --border:#2c3943; --border-strong:#42515d;
+      --blue:#67a9e4; --green:#67c49d; --orange:#e1a160; --red:#e47f77;
+      --hover:#202c35; --header:#0c1217; --header-text:#f5f8fa;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; min-width:320px; background:var(--bg); color:var(--text); font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    button,input { font:inherit; }
+    button { border:1px solid var(--border-strong); background:var(--surface); color:var(--text); cursor:pointer; }
+    button:hover { background:var(--hover); }
+    .app-header { background:var(--header); color:var(--header-text); border-bottom:1px solid #25323c; }
+    .header-inner { width:min(100% - 40px,1760px); min-height:94px; margin:auto; display:flex; align-items:center; gap:34px; }
+    .product-label { margin:0 0 3px; color:#8dbbe0; font-size:11px; font-weight:700; text-transform:uppercase; }
+    h1 { margin:0; font-size:23px; letter-spacing:0; }
+    .header-stats { display:flex; gap:0; margin-left:18px; border-left:1px solid #33424d; }
+    .header-stats span { min-width:104px; padding:5px 20px; border-right:1px solid #33424d; color:#aebac4; font-size:12px; }
+    .header-stats b { display:block; color:#fff; font-size:20px; font-variant-numeric:tabular-nums; }
+    .header-actions { margin-left:auto; display:flex; align-items:center; gap:10px; }
+    .refresh-note { color:#9cabb6; font-size:12px; }
+    .header-button { padding:7px 11px; border-color:#485866; background:transparent; color:#e8eef2; }
+    .page { width:min(100% - 40px,1760px); margin:0 auto; padding:24px 0 36px; }
+    .workspace { border:1px solid var(--border); background:var(--surface); }
+    .section-head { min-height:61px; padding:13px 18px; display:flex; align-items:center; justify-content:space-between; gap:20px; border-bottom:1px solid var(--border); }
+    .section-head h2 { margin:0; font-size:15px; }
+    .section-head p { margin:3px 0 0; color:var(--muted); font-size:12px; }
+    .status-line { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; }
+    .status-dot { width:8px; height:8px; border-radius:50%; background:var(--green); }
+    .status-dot.error { background:var(--red); }
+    .kpis { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); border-bottom:1px solid var(--border); }
+    .kpi { min-height:96px; padding:17px 18px; border-right:1px solid var(--border); }
+    .kpi:last-child { border-right:0; }
+    .kpi-label { color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase; }
+    .kpi-value { margin-top:5px; font-size:27px; font-weight:700; font-variant-numeric:tabular-nums; }
+    .kpi-sub { margin-top:2px; color:var(--muted); font-size:11px; }
+    .overview { display:grid; grid-template-columns:minmax(0,2fr) minmax(260px,1fr); border-bottom:1px solid var(--border); }
+    .pane { min-width:0; padding:18px; }
+    .pane + .pane { border-left:1px solid var(--border); }
+    .pane h3 { margin:0 0 13px; font-size:13px; }
+    .timeline { height:190px; display:grid; grid-template-columns:repeat(48,minmax(2px,1fr)); align-items:end; gap:3px; padding:18px 0 25px; border-bottom:1px solid var(--border); position:relative; }
+    .bar { min-height:1px; background:var(--blue); position:relative; }
+    .bar.defended { background:var(--orange); }
+    .bar.blocked { box-shadow:inset 0 4px var(--red); }
+    .bar:hover::after { content:attr(data-label); position:absolute; z-index:2; left:50%; bottom:calc(100% + 7px); transform:translateX(-50%); white-space:nowrap; padding:5px 7px; background:var(--header); color:var(--header-text); font-size:10px; }
+    .legend { display:flex; gap:16px; margin-top:10px; color:var(--muted); font-size:11px; }
+    .legend i { display:inline-block; width:8px; height:8px; margin-right:5px; }
+    .action-list { min-height:190px; }
+    .action-row { display:grid; grid-template-columns:minmax(90px,1fr) 3fr 44px; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); }
+    .action-row:last-child { border-bottom:0; }
+    .action-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+    .action-track { height:8px; background:var(--surface-subtle); border:1px solid var(--border); }
+    .action-fill { height:100%; background:var(--blue); }
+    .action-count { text-align:right; font-variant-numeric:tabular-nums; }
+    .table-toolbar { padding:12px 18px; display:flex; gap:10px; border-bottom:1px solid var(--border); background:var(--surface-subtle); }
+    .search-input { width:min(360px,100%); padding:7px 9px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); }
+    .table-wrap { overflow:auto; }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th { position:sticky; top:0; z-index:1; padding:9px 12px; background:var(--surface-subtle); color:var(--muted); text-align:left; white-space:nowrap; border-bottom:1px solid var(--border-strong); }
+    td { padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
+    tbody tr:hover { background:var(--hover); }
+    .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .path { max-width:520px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .badge { display:inline-block; padding:2px 6px; border:1px solid var(--border-strong); background:var(--surface-subtle); color:var(--muted); font-size:10px; margin:0 4px 2px 0; }
+    .badge.active { border-color:#a8733f; color:var(--orange); }
+    .outcome-blocked { color:var(--red); font-weight:700; }
+    .outcome-error { color:var(--red); }
+    .outcome-forwarded { color:var(--green); }
+    .empty { padding:28px 18px; color:var(--muted); text-align:center; }
+    .login-backdrop { position:fixed; inset:0; z-index:20; display:none; align-items:center; justify-content:center; padding:18px; background:rgba(5,9,12,.78); }
+    .login-backdrop.visible { display:flex; }
+    .login-dialog { width:min(390px,100%); border:1px solid var(--border-strong); background:var(--surface); box-shadow:0 18px 60px rgba(0,0,0,.4); }
+    .login-dialog header { padding:18px; border-bottom:1px solid var(--border); }
+    .login-dialog h2 { margin:0; font-size:17px; }
+    .login-form { padding:18px; }
+    .login-form label { display:block; margin-bottom:7px; color:var(--muted); font-size:12px; }
+    .login-form input { width:100%; padding:9px; border:1px solid var(--border-strong); background:var(--surface-subtle); color:var(--text); }
+    .login-actions { display:flex; justify-content:flex-end; margin-top:14px; }
+    .primary { padding:8px 14px; border-color:#2e6d9e; background:#2e6d9e; color:#fff; }
+    .login-error { min-height:20px; margin-top:8px; color:var(--red); font-size:12px; }
+    @media (max-width:1050px) {
+      .header-inner { flex-wrap:wrap; padding:15px 0; gap:16px; }
+      .header-stats { order:3; width:100%; margin-left:0; }
+      .header-actions { margin-left:auto; }
+      .kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .kpi { border-bottom:1px solid var(--border); }
+      .overview { grid-template-columns:1fr; }
+      .pane + .pane { border-left:0; border-top:1px solid var(--border); }
+    }
+    @media (max-width:620px) {
+      .header-inner,.page { width:min(100% - 20px,1760px); }
+      .header-stats { overflow:auto; }
+      .header-stats span { min-width:95px; padding:5px 12px; }
+      .header-actions { width:100%; justify-content:space-between; }
+      .kpis { grid-template-columns:1fr; }
+      .kpi { border-right:0; }
+      .section-head { align-items:flex-start; flex-direction:column; }
+      .timeline { gap:1px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div>
+        <p class="product-label">보안 대응</p>
+        <h1>트래픽 방어 대시보드</h1>
+      </div>
+      <div class="header-stats">
+        <span><b id="headerTotal">0</b> 요청</span>
+        <span><b id="headerDefended">0</b> 방어 적용</span>
+        <span><b id="headerBlocked">0</b> 차단</span>
+      </div>
+      <div class="header-actions">
+        <span class="refresh-note">3초 간격 자동 갱신</span>
+        <button class="header-button" type="button" id="themeToggle">라이트 모드</button>
+        <button class="header-button" type="button" id="logoutButton" hidden>로그아웃</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="workspace">
+      <div class="section-head">
+        <div><h2>Defense Proxy</h2><p id="strategyText">전략 정보를 불러오는 중입니다.</p></div>
+        <div class="status-line"><i class="status-dot" id="statusDot"></i><span id="statusText">연결 확인 중</span></div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi"><div class="kpi-label">전체 요청</div><div class="kpi-value" id="totalRequests">0</div><div class="kpi-sub">보관 범위 내 누적</div></div>
+        <div class="kpi"><div class="kpi-label">방어 적용</div><div class="kpi-value" id="defendedRequests">0</div><div class="kpi-sub" id="defendedRate">0%</div></div>
+        <div class="kpi"><div class="kpi-label">차단 응답</div><div class="kpi-value" id="blockedRequests">0</div><div class="kpi-sub">백엔드 전달 중단</div></div>
+        <div class="kpi"><div class="kpi-label">오류</div><div class="kpi-value" id="errorRequests">0</div><div class="kpi-sub">업스트림 연결 실패</div></div>
+        <div class="kpi"><div class="kpi-label">평균 처리 시간</div><div class="kpi-value" id="averageDuration">0 ms</div><div class="kpi-sub">방어 지연 포함</div></div>
+      </div>
+
+      <div class="overview">
+        <section class="pane">
+          <h3>최근 1시간 요청 흐름</h3>
+          <div class="timeline" id="timeline"></div>
+          <div class="legend"><span><i style="background:var(--blue)"></i>일반 전달</span><span><i style="background:var(--orange)"></i>방어 적용</span><span><i style="background:var(--red)"></i>차단</span></div>
+        </section>
+        <section class="pane">
+          <h3>전략 적용 분포</h3>
+          <div class="action-list" id="actionList"></div>
+        </section>
+      </div>
+
+      <div class="section-head"><div><h2>최근 요청</h2><p id="requestMeta">0건</p></div></div>
+      <div class="table-toolbar"><input class="search-input" id="requestSearch" type="search" placeholder="경로 · 클라이언트 · 전략 검색" aria-label="최근 요청 검색" /></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>시각</th><th>클라이언트</th><th>요청</th><th>경로</th><th>상태</th><th>전략</th><th>결과</th><th>처리 시간</th></tr></thead>
+          <tbody id="requestRows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div class="login-backdrop" id="loginBackdrop">
+    <section class="login-dialog" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <header><p class="product-label">RUBY Defense</p><h2 id="loginTitle">대시보드 로그인</h2></header>
+      <form class="login-form" id="loginForm">
+        <label for="password">비밀번호</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+        <div class="login-error" id="loginError" role="alert"></div>
+        <div class="login-actions"><button class="primary" type="submit">로그인</button></div>
+      </form>
+    </section>
+  </div>
+
+  <script>
+    const state = { requests: [], authEnabled: false, timer: null };
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+    }
+
+    function applyTheme(theme) {
+      const dark = theme === 'dark';
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      document.getElementById('themeToggle').textContent = dark ? '라이트 모드' : '다크 모드';
+      localStorage.setItem('defense-dashboard-theme', dark ? 'dark' : 'light');
+    }
+
+    function formatTime(timestamp) {
+      return new Date(timestamp * 1000).toLocaleTimeString('ko-KR', { hour12:false });
+    }
+
+    async function api(path, options) {
+      const response = await fetch(`/__defense/api/${path}`, options);
+      if (response.status === 401) {
+        if (path !== 'login') showLogin();
+        throw new Error(path === 'login' ? 'invalid credentials' : 'authentication required');
+      }
+      if (response.status === 429) throw new Error('login rate limited');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (response.status === 204) return null;
+      return response.json();
+    }
+
+    function showLogin(message = '') {
+      document.getElementById('loginBackdrop').classList.add('visible');
+      document.getElementById('loginError').textContent = message;
+      window.setTimeout(() => document.getElementById('password').focus(), 0);
+    }
+
+    function hideLogin() {
+      document.getElementById('loginBackdrop').classList.remove('visible');
+      document.getElementById('password').value = '';
+      document.getElementById('loginError').textContent = '';
+    }
+
+    function renderSummary(summary, config) {
+      const total = summary.totalRequests || 0;
+      const defended = summary.defendedRequests || 0;
+      document.getElementById('headerTotal').textContent = total.toLocaleString();
+      document.getElementById('headerDefended').textContent = defended.toLocaleString();
+      document.getElementById('headerBlocked').textContent = (summary.blockedRequests || 0).toLocaleString();
+      document.getElementById('totalRequests').textContent = total.toLocaleString();
+      document.getElementById('defendedRequests').textContent = defended.toLocaleString();
+      document.getElementById('blockedRequests').textContent = (summary.blockedRequests || 0).toLocaleString();
+      document.getElementById('errorRequests').textContent = (summary.errorRequests || 0).toLocaleString();
+      document.getElementById('averageDuration').textContent = `${Math.round(summary.averageDurationMs || 0).toLocaleString()} ms`;
+      document.getElementById('defendedRate').textContent = `${total ? ((defended / total) * 100).toFixed(1) : '0.0'}%`;
+      const available = config.availableStrategies || [];
+      document.getElementById('strategyText').textContent = `사용 가능 전략: ${available.join(', ') || '없음'}`;
+    }
+
+    function renderTimeline(data) {
+      const root = document.getElementById('timeline');
+      const buckets = data.buckets || [];
+      const max = Math.max(1, ...buckets.map(bucket => bucket.total));
+      root.innerHTML = buckets.map(bucket => {
+        const height = Math.max(bucket.total ? 4 : 1, (bucket.total / max) * 145);
+        const cls = bucket.blocked ? 'bar blocked' : bucket.defended ? 'bar defended' : 'bar';
+        const label = `${formatTime(bucket.start)} · 전체 ${bucket.total} · 방어 ${bucket.defended} · 차단 ${bucket.blocked}`;
+        return `<div class="${cls}" style="height:${height}px" data-label="${escapeHtml(label)}"></div>`;
+      }).join('');
+    }
+
+    function renderActions(data) {
+      const root = document.getElementById('actionList');
+      const actions = data.actions || [];
+      if (!actions.length) {
+        root.innerHTML = '<p class="empty">아직 기록된 요청이 없습니다.</p>';
+        return;
+      }
+      const max = Math.max(...actions.map(action => action.count), 1);
+      root.innerHTML = actions.map(action => `
+        <div class="action-row">
+          <span class="action-name mono" title="${escapeHtml(action.name)}">${escapeHtml(action.name)}</span>
+          <span class="action-track"><span class="action-fill" style="display:block;width:${(action.count / max) * 100}%"></span></span>
+          <span class="action-count">${action.count}</span>
+        </div>`).join('');
+    }
+
+    function renderRequests() {
+      const query = document.getElementById('requestSearch').value.trim().toLowerCase();
+      const filtered = state.requests.filter(event => [event.path, event.clientId, ...(event.strategies || [])].join(' ').toLowerCase().includes(query));
+      document.getElementById('requestMeta').textContent = `${filtered.length.toLocaleString()}건 표시`;
+      const root = document.getElementById('requestRows');
+      if (!filtered.length) {
+        root.innerHTML = '<tr><td colspan="8" class="empty">조건에 맞는 요청이 없습니다.</td></tr>';
+        return;
+      }
+      root.innerHTML = filtered.map(event => {
+        const strategies = event.strategies?.length
+          ? event.strategies.map(name => `<span class="badge active mono">${escapeHtml(name)}</span>`).join('')
+          : '<span class="badge">none</span>';
+        return `<tr>
+          <td class="mono">${formatTime(event.timestamp)}</td>
+          <td class="mono">${escapeHtml(event.clientId)}</td>
+          <td><b>${escapeHtml(event.method)}</b></td>
+          <td class="path mono" title="${escapeHtml(event.path)}">${escapeHtml(event.path)}</td>
+          <td class="mono">${event.status}</td>
+          <td>${strategies}</td>
+          <td class="outcome-${escapeHtml(event.outcome)}">${escapeHtml(event.outcome)}</td>
+          <td class="mono">${Math.round(event.durationMs).toLocaleString()} ms</td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function refresh() {
+      try {
+        const snapshot = await api('snapshot?limit=250&buckets=48');
+        state.requests = snapshot.requests || [];
+        renderSummary(snapshot.summary, snapshot.config);
+        renderTimeline({ buckets:snapshot.timeline });
+        renderActions({ actions:snapshot.actions });
+        renderRequests();
+        document.getElementById('statusDot').classList.remove('error');
+        document.getElementById('statusText').textContent = '정상 연결';
+      } catch (error) {
+        if (String(error.message).includes('authentication')) return;
+        document.getElementById('statusDot').classList.add('error');
+        document.getElementById('statusText').textContent = '연결 오류';
+      }
+    }
+
+    async function initialize() {
+      applyTheme(localStorage.getItem('defense-dashboard-theme') || 'dark');
+      const status = await api('auth/status');
+      state.authEnabled = status.enabled;
+      document.getElementById('logoutButton').hidden = !status.enabled;
+      if (status.enabled && !status.authenticated) showLogin();
+      else await refresh();
+      state.timer = window.setInterval(refresh, 3000);
+    }
+
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+    });
+    document.getElementById('requestSearch').addEventListener('input', renderRequests);
+    document.getElementById('loginForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      try {
+        await api('login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ password:document.getElementById('password').value }) });
+        hideLogin();
+        await refresh();
+      } catch (error) {
+        if (String(error.message).includes('rate limited')) {
+          showLogin('로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.');
+        } else if (!String(error.message).includes('authentication')) {
+          showLogin('로그인에 실패했습니다.');
+        }
+      }
+    });
+    document.getElementById('logoutButton').addEventListener('click', async () => {
+      await api('logout', { method:'POST' });
+      showLogin();
+    });
+    initialize().catch(() => {
+      document.getElementById('statusDot').classList.add('error');
+      document.getElementById('statusText').textContent = '초기화 오류';
+    });
+  </script>
+</body>
+</html>

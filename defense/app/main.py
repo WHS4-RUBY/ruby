@@ -1,17 +1,21 @@
-"""
-Defense Proxy - 스텁 버전.
-Policy Engine이 X-Defense-Plan 헤더로 넘긴 방어 전략 계획을 실제로 실행하고
-(delay 재우기, rate_limit 차단 등), 이후 최종 백엔드로 요청을 전달한다.
+"""RUBY Defense proxy."""
 
-TODO: strategy별 실제 요청/응답 변형 로직 구현.
-"""
+from contextlib import asynccontextmanager
+import asyncio
 import json
 import os
+import re
+import time
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
-from fastapi import FastAPI, Request
-from starlette.responses import Response
+import websockets
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from starlette.responses import Response, StreamingResponse
+from websockets.exceptions import ConnectionClosed
 
+from .dashboard import router as dashboard_router
+from .monitoring import event_store
 from .strategies.registry import STRATEGY_REGISTRY
 
 BENCHMARK_TARGET_URL = os.getenv("BENCHMARK_TARGET_URL", "http://localhost:9000")
@@ -34,17 +38,41 @@ _RESPONSE_SKIP = {
     "transfer-encoding",
     "content-encoding",
     "content-length",
-    # Uvicorn이 현재 hop의 값을 생성한다. upstream 값을 전달하면 프록시
-    # 계층 수만큼 Date/Server 헤더가 중복된다.
     "date",
     "server",
 }
-# Policy Engine이 내부 통신용으로 붙인 헤더는 여기서 소비하고, 실제 백엔드에는
-# 전달하지 않는다 (백엔드가 몰라도 되는 내부 파이프라인 정보이므로).
-_DEFENSE_INTERNAL_HEADERS = {"x-defense-plan"}
-_REQUEST_SKIP = _HOP_BY_HOP | {"accept-encoding"} | _DEFENSE_INTERNAL_HEADERS
+_DEFENSE_INTERNAL_HEADERS = {"x-defense-plan", "x-defense-management-client"}
+_FORWARDED_HEADERS = {"forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"}
+_REQUEST_SKIP = _HOP_BY_HOP | {"accept-encoding"} | _DEFENSE_INTERNAL_HEADERS | _FORWARDED_HEADERS
+_STREAM_RESPONSE_SKIP = _HOP_BY_HOP | {"date", "server"}
+_WEBSOCKET_SKIP = _HOP_BY_HOP | {
+    "sec-websocket-accept",
+    "sec-websocket-extensions",
+    "sec-websocket-key",
+    "sec-websocket-protocol",
+    "sec-websocket-version",
+} | _DEFENSE_INTERNAL_HEADERS | _FORWARDED_HEADERS
 
-app = FastAPI(title="Defense Proxy (stub)")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        app.state.http_client = client
+        yield
+
+
+app = FastAPI(title="RUBY Defense Proxy", lifespan=lifespan)
+app.include_router(dashboard_router)
+
+
+@app.middleware("http")
+async def secure_dashboard_responses(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/__defense" or request.url.path.startswith("/__defense/"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+    return response
 
 
 def parse_plan(raw: str | None) -> list[dict]:
@@ -55,7 +83,6 @@ def parse_plan(raw: str | None) -> list[dict]:
     except (TypeError, ValueError):
         return []
     return plan if isinstance(plan, list) else []
-
 
 
 def _header_value(value) -> str:
@@ -73,6 +100,13 @@ def build_upstream_headers(request: Request, extra: dict) -> dict[str, str]:
             continue
         headers[key] = _header_value(value)
     headers["accept-encoding"] = "identity"
+    headers["x-forwarded-for"] = request.headers.get("x-forwarded-for") or (
+        request.client.host if request.client else "unknown"
+    )
+    headers["x-forwarded-host"] = request.headers.get("x-forwarded-host") or request.headers.get(
+        "host", ""
+    )
+    headers["x-forwarded-proto"] = request.headers.get("x-forwarded-proto") or request.url.scheme
     for key, value in extra.items():
         if key.lower() in _HOP_BY_HOP:
             continue
@@ -80,24 +114,174 @@ def build_upstream_headers(request: Request, extra: dict) -> dict[str, str]:
     return headers
 
 
-def proxy_response(upstream: httpx.Response) -> Response:
-    response = Response(content=upstream.content, status_code=upstream.status_code)
+def _public_origin(request: Request) -> str:
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme).split(",", 1)[0].strip()
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", ""))
+    return f"{scheme}://{host}" if host else ""
 
-    # dict로 변환하면 Set-Cookie처럼 같은 이름을 여러 번 쓰는 헤더가 하나로
-    # 합쳐진다. 원본 순서와 중복을 보존해 각 헤더를 ASGI raw_headers에 추가한다.
+
+def _rewrite_response_header(key: str, value: str, request: Request | None) -> str:
+    if request is None:
+        return value
+    if key.lower() == "location":
+        target = BENCHMARK_TARGET_URL.rstrip("/")
+        if value == target or value.startswith(f"{target}/"):
+            return f"{_public_origin(request)}{value[len(target):]}"
+    if key.lower() == "set-cookie":
+        return re.sub(r";\s*Domain=[^;]+", "", value, flags=re.IGNORECASE)
+    return value
+
+
+def proxy_response(upstream: httpx.Response, request: Request | None = None) -> Response:
+    response = Response(content=upstream.content, status_code=upstream.status_code)
     for key, value in upstream.headers.multi_items():
         if key.lower() in _RESPONSE_SKIP:
             continue
         response.raw_headers.append(
-            (key.encode("latin-1"), _header_value(value).encode("latin-1"))
+            (
+                key.encode("latin-1"),
+                _rewrite_response_header(key, _header_value(value), request).encode("latin-1"),
+            )
         )
-
     return response
+
+
+async def _stream_body(upstream: httpx.Response):
+    try:
+        async for chunk in upstream.aiter_raw():
+            yield chunk
+    finally:
+        await upstream.aclose()
+
+
+def streaming_proxy_response(upstream: httpx.Response, request: Request) -> StreamingResponse:
+    response = StreamingResponse(_stream_body(upstream), status_code=upstream.status_code)
+    for key, value in upstream.headers.multi_items():
+        if key.lower() in _STREAM_RESPONSE_SKIP:
+            continue
+        response.raw_headers.append(
+            (
+                key.encode("latin-1"),
+                _rewrite_response_header(key, _header_value(value), request).encode("latin-1"),
+            )
+        )
+    return response
+
+
+def _websocket_target(full_path: str, query: str) -> str:
+    target = urlsplit(BENCHMARK_TARGET_URL)
+    scheme = "wss" if target.scheme == "https" else "ws"
+    base_path = target.path.rstrip("/")
+    path = f"{base_path}/{full_path}" if full_path else (base_path or "/")
+    return urlunsplit((scheme, target.netloc, path, query, ""))
+
+
+def _websocket_headers(websocket: WebSocket, extra: dict[str, str]) -> dict[str, str]:
+    headers = {
+        key: value
+        for key, value in websocket.headers.items()
+        if key.lower() not in _WEBSOCKET_SKIP
+    }
+    headers["x-forwarded-for"] = websocket.headers.get("x-forwarded-for") or (
+        websocket.client.host if websocket.client else "unknown"
+    )
+    headers["x-forwarded-host"] = websocket.headers.get("x-forwarded-host") or websocket.headers.get(
+        "host", ""
+    )
+    headers["x-forwarded-proto"] = websocket.headers.get("x-forwarded-proto") or (
+        "https" if websocket.url.scheme == "wss" else "http"
+    )
+    headers.update(extra)
+    return headers
 
 
 @app.get("/healthz")
 async def healthz():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "defense"}
+
+
+@app.websocket("/{full_path:path}")
+async def websocket_proxy(websocket: WebSocket, full_path: str):
+    started_at = time.perf_counter()
+    plan = parse_plan(websocket.headers.get("x-defense-plan"))
+    applied_names: list[str] = []
+    extra_headers: dict[str, str] = {}
+
+    for step in plan:
+        name = step.get("name")
+        strategy_impl = STRATEGY_REGISTRY.get(name)
+        if strategy_impl is None:
+            continue
+        result = await strategy_impl.apply(websocket, step.get("params") or {})
+        applied_names.append(name)
+        extra_headers.update(result.extra_headers)
+        if result.short_circuit is not None:
+            await websocket.close(code=1008, reason="request blocked by defense policy")
+            return
+
+    extra_headers["X-Defense-Applied"] = ",".join(applied_names) or "none"
+    requested_protocols = [
+        protocol.strip()
+        for protocol in websocket.headers.get("sec-websocket-protocol", "").split(",")
+        if protocol.strip()
+    ]
+    status = 101
+    outcome = "forwarded"
+    try:
+        async with websockets.connect(
+            _websocket_target(full_path, websocket.url.query),
+            extra_headers=_websocket_headers(websocket, extra_headers),
+            subprotocols=requested_protocols or None,
+            max_size=None,
+        ) as upstream:
+            await websocket.accept(subprotocol=upstream.subprotocol)
+
+            async def client_to_upstream():
+                while True:
+                    message = await websocket.receive()
+                    if message["type"] == "websocket.disconnect":
+                        return
+                    payload = message.get("bytes")
+                    if payload is None:
+                        payload = message.get("text", "")
+                    await upstream.send(payload)
+
+            async def upstream_to_client():
+                async for payload in upstream:
+                    if isinstance(payload, bytes):
+                        await websocket.send_bytes(payload)
+                    else:
+                        await websocket.send_text(payload)
+
+            tasks = {
+                asyncio.create_task(client_to_upstream()),
+                asyncio.create_task(upstream_to_client()),
+            }
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+            for task in done:
+                task.result()
+    except (WebSocketDisconnect, ConnectionClosed):
+        pass
+    except Exception:
+        status = 502
+        outcome = "error"
+        try:
+            await websocket.close(code=1011, reason="upstream websocket unavailable")
+        except RuntimeError:
+            pass
+    finally:
+        event_store.record(
+            method="WEBSOCKET",
+            path=websocket.url.path,
+            status=status,
+            strategies=applied_names,
+            outcome=outcome,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            client_id=websocket.headers.get("x-client-id"),
+        )
 
 
 @app.api_route(
@@ -105,17 +289,15 @@ async def healthz():
     methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 async def catch_all(request: Request, full_path: str):
+    started_at = time.perf_counter()
     plan = parse_plan(request.headers.get("x-defense-plan"))
-
     applied_names: list[str] = []
     extra_headers: dict[str, str] = {}
-
 
     for step in plan:
         name = step.get("name")
         strategy_impl = STRATEGY_REGISTRY.get(name)
         if strategy_impl is None:
-            # TODO: registry에 없는 전략 이름이 들어온 경우 처리 정책 확정 (지금은 skip)
             continue
 
         result = await strategy_impl.apply(request, step.get("params") or {})
@@ -123,28 +305,51 @@ async def catch_all(request: Request, full_path: str):
         extra_headers.update(result.extra_headers)
 
         if result.short_circuit is not None:
-            # rate_limit(429) 등 백엔드까지 갈 필요 없이 여기서 응답 종료
-            for k, v in extra_headers.items():
-                result.short_circuit.headers[k] = v
+            for key, value in extra_headers.items():
+                result.short_circuit.headers[key] = value
             result.short_circuit.headers["X-Defense-Applied"] = ",".join(applied_names)
+            event_store.record(
+                method=request.method,
+                path=request.url.path,
+                status=result.short_circuit.status_code,
+                strategies=applied_names,
+                outcome="blocked",
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                client_id=request.headers.get("x-client-id"),
+            )
             return result.short_circuit
 
     extra_headers["X-Defense-Applied"] = ",".join(applied_names) or "none"
-
-    body = await request.body()
     headers = build_upstream_headers(request, extra_headers)
 
-
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            upstream = await client.request(
-                method=request.method,
-                url=f"{BENCHMARK_TARGET_URL.rstrip('/')}/{full_path}",
-                headers=headers,
-                content=body,
-                params=list(request.query_params.multi_items()),
-            )
+        upstream_request = request.app.state.http_client.build_request(
+            method=request.method,
+            url=f"{BENCHMARK_TARGET_URL.rstrip('/')}/{full_path}",
+            headers=headers,
+            content=request.stream() if request.method not in {"GET", "HEAD"} else None,
+            params=list(request.query_params.multi_items()),
+        )
+        upstream = await request.app.state.http_client.send(upstream_request, stream=True)
     except httpx.RequestError as exc:
+        event_store.record(
+            method=request.method,
+            path=request.url.path,
+            status=502,
+            strategies=applied_names,
+            outcome="error",
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            client_id=request.headers.get("x-client-id"),
+        )
         return Response(content=str(exc).encode(), status_code=502)
 
-    return proxy_response(upstream)
+    event_store.record(
+        method=request.method,
+        path=request.url.path,
+        status=upstream.status_code,
+        strategies=applied_names,
+        outcome="forwarded",
+        duration_ms=(time.perf_counter() - started_at) * 1000,
+        client_id=request.headers.get("x-client-id"),
+    )
+    return streaming_proxy_response(upstream, request)

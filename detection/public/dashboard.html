@@ -224,6 +224,16 @@
   .empty { color:var(--muted); padding:16px 0; margin:0; }
   .toast { position:fixed; right:24px; bottom:24px; z-index:20; padding:10px 14px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); font-size:12px; box-shadow:0 8px 20px rgba(0,0,0,.22); opacity:0; transform:translateY(6px); transition:opacity .15s,transform .15s; pointer-events:none; }
   .toast.visible { opacity:1; transform:translateY(0); }
+  .login-backdrop { position:fixed; inset:0; z-index:30; display:none; align-items:center; justify-content:center; padding:18px; background:rgba(5,9,12,.8); }
+  .login-backdrop.visible { display:flex; }
+  .login-dialog { width:min(390px,100%); border:1px solid var(--border-strong); background:var(--surface); box-shadow:0 18px 60px rgba(0,0,0,.4); }
+  .login-dialog header { padding:18px; border-bottom:1px solid var(--border); }
+  .login-dialog h2 { margin:0; font-size:17px; }
+  .login-form { padding:18px; }
+  .login-form label { display:block; margin-bottom:7px; color:var(--muted); font-size:12px; }
+  .login-form input { width:100%; padding:9px; border:1px solid var(--border-strong); background:var(--surface-muted); color:var(--text); }
+  .login-actions { display:flex; justify-content:flex-end; margin-top:14px; }
+  .login-error { min-height:20px; margin-top:8px; color:var(--red); font-size:12px; }
 
   @media (max-width:1280px) {
     .users-layout { grid-template-columns:minmax(320px,360px) minmax(0,1fr); }
@@ -275,6 +285,7 @@
         <span class="refresh-note">2초 간격 자동 갱신</span>
         <button class="header-button" type="button" id="themeToggle" aria-pressed="true">라이트 모드</button>
         <button class="export-link" type="button" id="exportButton" title="전체 Session 로그를 JSON 파일로 저장합니다.">Session 로그 내보내기 (JSON)</button>
+        <button class="header-button" type="button" id="logoutButton" hidden>로그아웃</button>
       </div>
     </div>
   </header>
@@ -372,7 +383,38 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <div class="login-backdrop" id="loginBackdrop">
+    <section class="login-dialog" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <header><p class="product-label">RUBY Detection</p><h2 id="loginTitle">대시보드 로그인</h2></header>
+      <form class="login-form" id="loginForm">
+        <label for="dashboardPassword">비밀번호</label>
+        <input id="dashboardPassword" type="password" autocomplete="current-password" required />
+        <div class="login-error" id="loginError" role="alert"></div>
+        <div class="login-actions"><button class="header-button" type="submit">로그인</button></div>
+      </form>
+    </section>
+  </div>
+
 <script>
+const nativeFetch = window.fetch.bind(window);
+
+function showLogin(message = '') {
+  clearInterval(state.timer);
+  state.timer = null;
+  document.getElementById('loginBackdrop').classList.add('visible');
+  document.getElementById('loginError').textContent = message;
+  window.setTimeout(() => document.getElementById('dashboardPassword').focus(), 0);
+}
+
+window.fetch = async (...args) => {
+  const response = await nativeFetch(...args);
+  if (response.status === 401) {
+    showLogin('로그인이 필요합니다.');
+    throw new Error('dashboard authentication required');
+  }
+  return response;
+};
+
 const state = {
   timer: null,
   activeTab: 'users',
@@ -1673,6 +1715,30 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && state.modalOpen) closeModal();
 });
 document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+document.getElementById('loginForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const password = document.getElementById('dashboardPassword').value;
+  const response = await nativeFetch('/__detection/api/login', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({password}),
+  });
+  if (!response.ok) {
+    const messages = {401:'비밀번호가 올바르지 않습니다.', 426:'HTTPS 연결에서만 로그인할 수 있습니다.', 429:'로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.'};
+    showLogin(messages[response.status] || `로그인 실패 (HTTP ${response.status})`);
+    return;
+  }
+  document.getElementById('dashboardPassword').value = '';
+  document.getElementById('loginBackdrop').classList.remove('visible');
+  document.getElementById('logoutButton').hidden = false;
+  await refresh();
+  state.timer = setInterval(() => refresh().catch(() => {}), 2000);
+});
+document.getElementById('logoutButton').addEventListener('click', async () => {
+  await nativeFetch('/__detection/api/logout', {method:'POST'});
+  document.getElementById('logoutButton').hidden = true;
+  showLogin();
+});
 document.getElementById('exportButton').addEventListener('click', () => {
   showToast('Session 로그를 내려받는 중입니다…');
   fetch('/__detection/api/export')
@@ -1734,8 +1800,19 @@ detectionLevelSelect.addEventListener('change', event => {
 
 initializeTheme();
 setTab('users');
-refresh();
-state.timer = setInterval(refresh, 2000);
+nativeFetch('/__detection/api/auth/status')
+  .then(response => response.json())
+  .then(status => {
+    document.getElementById('logoutButton').hidden = !status.enabled;
+    if (status.enabled && !status.authenticated) {
+      showLogin();
+      return;
+    }
+    return refresh().then(() => {
+      state.timer = setInterval(() => refresh().catch(() => {}), 2000);
+    });
+  })
+  .catch(() => showLogin('인증 상태를 확인하지 못했습니다.'));
 </script>
 </body>
 </html>

@@ -62,6 +62,14 @@ const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
 const { applyDefensePlan, loadPolicyRules } = require("./lib/policyEngine");
 const { createProxyCore } = require("./lib/proxyCore");
+const {
+  DashboardAuthManager,
+  installDashboardRoutes,
+} = require("./lib/dashboardAuth");
+const {
+  applyDefenseManagementHeaders,
+  isDefenseManagementPath,
+} = require("./lib/managementPaths");
 
 const PORT = process.env.PORT || 8080;
 const TARGET = process.env.TARGET_URL || "http://localhost:3000";
@@ -79,6 +87,24 @@ const ENABLE_EXPERIMENT_RUN_ID = process.env.ENABLE_EXPERIMENT_RUN_ID === "true"
 const EXPERIMENT_RUN_HEADER = "x-experiment-run-id";
 const configuredPayloadFingerprintKey = process.env.PAYLOAD_FINGERPRINT_KEY;
 const PAYLOAD_FINGERPRINT_KEY = configuredPayloadFingerprintKey || crypto.randomBytes(32);
+const DETECTION_DASHBOARD_SESSION_COOKIE = "detection_dashboard_session";
+const DETECTION_DASHBOARD_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const DETECTION_DASHBOARD_COOKIE_SECURE =
+  process.env.DETECTION_DASHBOARD_COOKIE_SECURE === "true";
+const DETECTION_DASHBOARD_REQUIRE_HTTPS =
+  process.env.DETECTION_DASHBOARD_REQUIRE_HTTPS === "true";
+if (process.env.NODE_ENV === "production") {
+  const missing = [
+    "PAYLOAD_FINGERPRINT_KEY",
+    "DCID_HMAC_SECRET",
+    "ACCOUNT_ID_HASH_KEY",
+    "DETECTION_DASHBOARD_PASSWORD",
+  ].filter((name) => !process.env[name]);
+  if (missing.length) throw new Error(`missing production secrets: ${missing.join(", ")}`);
+  if (!DETECTION_DASHBOARD_COOKIE_SECURE || !DETECTION_DASHBOARD_REQUIRE_HTTPS) {
+    throw new Error("production dashboard authentication requires HTTPS and Secure cookies");
+  }
+}
 const CSRF_ALLOWED_ORIGINS = buildAllowedOrigins(
   (process.env.CSRF_ALLOWED_ORIGINS || `http://localhost:${PORT},http://127.0.0.1:${PORT}`)
     .split(",")
@@ -94,15 +120,49 @@ const dcidManager = new DcidManager();
 const accountIdentityResolver = new AccountIdentityResolver();
 const policyRules = loadPolicyRules();
 
+function positiveInt(name, fallback) {
+  const value = Number.parseInt(process.env[name] || "", 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+const dashboardAuth = new DashboardAuthManager({
+  password: process.env.DETECTION_DASHBOARD_PASSWORD || "",
+  sessionTtlMs: DETECTION_DASHBOARD_SESSION_TTL_MS,
+  maxSessions: positiveInt("DETECTION_DASHBOARD_MAX_SESSIONS", 1000),
+  maxAttempts: positiveInt("DETECTION_DASHBOARD_LOGIN_ATTEMPTS", 5),
+  attemptWindowMs: positiveInt("DETECTION_DASHBOARD_LOGIN_WINDOW_SECONDS", 300) * 1000,
+});
+
 const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", parseTrustProxy());
 app.use(cookieParser());
+app.use((req, res, next) => {
+  if (req.path === "/__detection" || req.path.startsWith("/__detection/")) {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+  }
+  next();
+});
 
 // Docker Compose와 운영 오케스트레이터가 Detection 자체의 준비 상태를
 // downstream 애플리케이션과 독립적으로 확인할 수 있는 엔드포인트다.
 app.get("/healthz", (_req, res) => {
   res.json({ status: "ok", service: "detection" });
+});
+
+// Defense 운영 화면은 보호 대상 트래픽이 아니다. 일반 탐지 훅을 통과시키면
+// 대시보드의 주기적 폴링이 자동화 점수와 요청 통계를 오염시키므로 그대로 전달한다.
+const defenseManagementProxy = createProxyCore({
+  target: TARGET,
+  hooks: [{ onRequest: ({ proxyReq, req }) => applyDefenseManagementHeaders(proxyReq, req) }],
+});
+app.use((req, res, next) => {
+  if (isDefenseManagementPath(req.path)) {
+    return defenseManagementProxy(req, res, next);
+  }
+  return next();
 });
 
 function analyzeSession(session) {
@@ -491,13 +551,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// --- 탐지 레이어 자체 엔드포인트들 (프록시보다 먼저 매칭) ---
-app.use("/__detection/static", express.static(require("path").join(__dirname, "public")));
-
-app.get("/__detection/dashboard", (req, res) => {
-  res.sendFile(require("path").join(__dirname, "public", "dashboard.html"));
-});
-
 function captureParsedBodyBytes(req, _res, buffer) {
   req.detectionRequestBodyBytes = buffer.length;
   req.detectionRequestBodyBuffer = Buffer.from(buffer);
@@ -507,6 +560,16 @@ function captureParsedBodyBytes(req, _res, buffer) {
 // 파싱된 body는 onProxyReq에서 fixRequestBody()로 다시 스트림에 실어 upstream으로 전달한다.
 app.use(express.json({ limit: "5mb", verify: captureParsedBodyBytes }));
 app.use(express.urlencoded({ extended: true, limit: "5mb", verify: captureParsedBodyBytes }));
+
+// 대상 페이지에 삽입되는 telemetry만 공개하고, 운영 UI/API는 별도 세션으로 보호한다.
+installDashboardRoutes({
+  app,
+  authManager: dashboardAuth,
+  cookieName: DETECTION_DASHBOARD_SESSION_COOKIE,
+  sessionTtlMs: DETECTION_DASHBOARD_SESSION_TTL_MS,
+  secureCookie: DETECTION_DASHBOARD_COOKIE_SECURE,
+  requireHttps: DETECTION_DASHBOARD_REQUIRE_HTTPS,
+});
 
 // 팀원 Python 프록시의 미끼 라우트를 현재 Express 프록시 안에서 직접 처리한다.
 // 이 요청도 일반 요청과 동일하게 CRS, Session, Actor, Auth Group과 타임라인에 기록한다.
@@ -987,6 +1050,18 @@ app.use("/__detection", (req, res) => {
 const detectionHook = {
   name: "behavior-and-attack-detection",
 
+  onWebSocketRequest({ proxyReq, req }) {
+    req.originalUrl ||= req.url;
+    req.authGroupId = deriveAuthGroupId(req.headers.authorization);
+    req.rubyPolicyDecision = buildPriorPolicyDecision(req);
+    stripDetectionHeaders(proxyReq);
+    applyDefensePlan(proxyReq, {
+      riskScore: req.rubyPolicyDecision.riskScore,
+      rules: policyRules,
+    });
+    proxyReq.setHeader("X-Client-Id", req.rubyPolicyDecision.clientId);
+  },
+
   onRequest({ proxyReq, req }) {
     prepareRequestObservation(req);
     // RUBY Policy 계약: 외부 입력을 제거하고, 완료된 탐지 이력에서 계산한
@@ -1088,9 +1163,10 @@ const detectionHook = {
 
 // 공통 Express 프록시 코어에 탐지와 정책 훅을 함께 장착한다. TARGET_URL은
 // Defense 또는 보호할 애플리케이션을 직접 가리키며, 별도 Policy 프록시는 없다.
-app.use("/", createProxyCore({ target: TARGET, hooks: [detectionHook] }));
+const mainProxy = createProxyCore({ target: TARGET, hooks: [detectionHook] });
+app.use("/", mainProxy);
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[detection-proxy] listening on :${PORT} -> proxying ${TARGET}`);
   console.log(`[detection-proxy] dashboard: http://localhost:${PORT}/__detection/dashboard`);
   console.log(
@@ -1110,3 +1186,4 @@ app.listen(PORT, () => {
     );
   }
 });
+server.on("upgrade", mainProxy.upgrade);
