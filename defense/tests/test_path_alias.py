@@ -9,12 +9,13 @@ from starlette.testclient import TestClient
 
 from defense.app import main, path_alias as pa
 
-CFG = pa.PathAliasConfig(mode="enforce", secret=b"test-only-key", epoch_s=10, grace_epochs=1)
+SEC = "sixteen-byte-key"  # exactly MIN_SECRET_BYTES
+CFG = pa.PathAliasConfig(mode="enforce", secret=b"test-only-key-16b", epoch_s=10, grace_epochs=1)
 NOW = 100.25  # epoch 10
 
 
 def alias(epoch=10, prefix="/rest/"):
-    return pa.alias_for(CFG.secret, epoch, prefix)
+    return pa.alias_for(CFG.secret, CFG.app_id, epoch, prefix)
 
 
 class ConfigTests(unittest.TestCase):
@@ -33,33 +34,45 @@ class ConfigTests(unittest.TestCase):
             {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_PREFIXES": "/rest"},
             {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_PREFIXES": "/"},
             {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_PREFIXES": " , "},
+            {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_PREFIXES": "/café/"},  # non-ASCII would crash alias_for
+            {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_APP_ID": "café"},
+            {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_SECRET": "short"},     # below MIN_SECRET_BYTES
         ):
             with self.subTest(env=env), self.assertRaises(ValueError):
-                pa.PathAliasConfig.from_env({"PATH_ALIAS_SECRET": "k", **env})
+                pa.PathAliasConfig.from_env({"PATH_ALIAS_SECRET": SEC, **env})
+
+    def test_enforce_requires_secret(self):
+        with self.assertRaises(ValueError):
+            pa.PathAliasConfig.from_env({"PATH_ALIAS_MODE": "enforce"})
 
     def test_prefixes_are_normalized_and_longest_first(self):
-        cfg = pa.PathAliasConfig.from_env({"PATH_ALIAS_MODE": "OBSERVE", "PATH_ALIAS_SECRET": "k",
+        cfg = pa.PathAliasConfig.from_env({"PATH_ALIAS_MODE": "OBSERVE", "PATH_ALIAS_SECRET": SEC,
                                            "PATH_ALIAS_PREFIXES": " /API/ ,/api/v2/,/rest/"})
         self.assertEqual(cfg.mode, "observe")
         self.assertEqual(cfg.prefixes, ("/api/v2/", "/rest/", "/api/"))
 
-    def test_empty_secret_generates_key_with_warning(self):
+    def test_empty_secret_in_observe_generates_key_with_warning(self):
         output = io.StringIO()
         with patch.object(pa.sys, "stdout", output):
             pa.logging.getLogger(pa.LOGGER_NAME).handlers.clear()
-            cfg = pa.PathAliasConfig.from_env({"PATH_ALIAS_MODE": "enforce"})
+            cfg = pa.PathAliasConfig.from_env({"PATH_ALIAS_MODE": "observe"})
         self.assertEqual(len(cfg.secret), 32)
         self.assertIn("PATH_ALIAS_SECRET is empty", output.getvalue())
         pa.logging.getLogger(pa.LOGGER_NAME).handlers.clear()
 
+    def test_app_id_changes_alias_for_same_secret(self):
+        a = pa.alias_for(CFG.secret, "app-one", 10, "/rest/")
+        b = pa.alias_for(CFG.secret, "app-two", 10, "/rest/")
+        self.assertNotEqual(a, b)
+
 
 class AliasTests(unittest.TestCase):
     def test_alias_is_deterministic_and_rotates(self):
-        self.assertRegex(alias(), r"^/p[a-z2-7]{10}/$")
+        self.assertRegex(alias(), r"^/__ruby_alias_[a-z2-7]{16}/$")
         self.assertEqual(alias(), alias())
         self.assertNotEqual(alias(10), alias(11))
         self.assertNotEqual(alias(10, "/rest/"), alias(10, "/api/"))
-        self.assertNotEqual(alias(), pa.alias_for(b"other-key", 10, "/rest/"))
+        self.assertNotEqual(alias(), pa.alias_for(b"other-key-16byte", CFG.app_id, 10, "/rest/"))
 
     def test_resolve_alias_states(self):
         cases = [
@@ -76,8 +89,14 @@ class AliasTests(unittest.TestCase):
                          "/api/Products/1")
         self.assertEqual(pa.resolve(alias(10).rstrip("/"), NOW, CFG).upstream_path, "/rest/")
 
+    def test_forward_skew_alias_is_accepted(self):
+        # One epoch ahead (issuer's clock slightly faster) is still served.
+        result = pa.resolve(alias(11) + "x", NOW, CFG)
+        self.assertEqual((result.kind, result.alias_state), ("alias", "current"))
+
     def test_future_or_unknown_alias_is_not_translated(self):
-        for path in (alias(11) + "x", "/pzzzzzzzzzz/x", alias(10 - 1 - pa.STALE_LOOKBACK_EPOCHS - 1) + "x"):
+        for path in (alias(12) + "x", "/__ruby_alias_zzzzzzzzzzzzzzzz/x",
+                     alias(10 - 1 - pa.STALE_LOOKBACK_EPOCHS - 1) + "x"):
             with self.subTest(path=path):
                 self.assertEqual(pa.resolve(path, NOW, CFG).kind, "other")
 

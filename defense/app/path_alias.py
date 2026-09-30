@@ -18,11 +18,16 @@ from urllib.parse import urlsplit, urlunsplit
 LOGGER_NAME = "ruby.defense.path_alias"
 DEFAULT_PREFIXES = ("/rest/", "/api/")
 STALE_LOOKBACK_EPOCHS = 12
+FUTURE_SKEW_EPOCHS = 1  # accept aliases from an instance whose clock is one epoch ahead
+MIN_SECRET_BYTES = 16
 REWRITABLE_TYPES = frozenset({
     "text/html", "application/javascript", "text/javascript",
     "application/x-javascript", "application/json",
 })
-_ALIAS_PATH = re.compile(r"/(p[a-z2-7]{10})(/.*)?", re.S)
+# Long, app-unlikely namespace so generated aliases cannot collide with a real
+# app route (Codex review #2): 16 base32 chars = 80 bits under a reserved marker.
+_ALIAS_MARKER = "__ruby_alias_"
+_ALIAS_PATH = re.compile(r"/" + re.escape(_ALIAS_MARKER) + r"([a-z2-7]{16})(/.*)?", re.S)
 
 
 def _configure_logger() -> logging.Logger:
@@ -44,6 +49,8 @@ def _parse_prefixes(raw: str) -> tuple[str, ...]:
             continue
         if not (item.startswith("/") and item.endswith("/")) or item == "/":
             raise ValueError("PATH_ALIAS_PREFIXES entries must look like /name/")
+        if not item.isascii():
+            raise ValueError("PATH_ALIAS_PREFIXES entries must be ASCII")
         prefixes.append(item)
     if not prefixes:
         raise ValueError("PATH_ALIAS_PREFIXES must not be empty")
@@ -59,6 +66,7 @@ class PathAliasConfig:
     grace_epochs: int = 1
     prefixes: tuple[str, ...] = DEFAULT_PREFIXES
     max_rewrite_bytes: int = 8 * 1024 * 1024
+    app_id: str = ""  # mixed into the alias so reusing one secret across apps yields different aliases
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] = os.environ) -> "PathAliasConfig":
@@ -76,23 +84,33 @@ class PathAliasConfig:
         if epoch_s < 1 or not 0 <= grace <= 10 or max_bytes < 1:
             raise ValueError("Path alias requires epoch >= 1, grace 0..10 and a positive size limit")
         prefixes = _parse_prefixes(environ.get("PATH_ALIAS_PREFIXES", ",".join(DEFAULT_PREFIXES)))
+        app_id = environ.get("PATH_ALIAS_APP_ID", "").strip()
+        if not app_id.isascii():
+            raise ValueError("PATH_ALIAS_APP_ID must be ASCII")
         secret = environ.get("PATH_ALIAS_SECRET", "").encode("utf-8")
         logger = _configure_logger()
+        if secret and len(secret) < MIN_SECRET_BYTES:
+            raise ValueError(f"PATH_ALIAS_SECRET must be at least {MIN_SECRET_BYTES} bytes")
         if not secret:
+            # enforce blocks requests, so a stable, strong key is mandatory; observe only logs.
+            if mode == "enforce":
+                raise ValueError("PATH_ALIAS_SECRET is required when PATH_ALIAS_MODE=enforce")
             secret = secrets.token_bytes(32)
-            logger.warning("PATH_ALIAS_SECRET is empty; generated an ephemeral key (restart invalidates aliases)")
-        return cls(mode, secret, epoch_s, grace, prefixes, max_bytes)
+            logger.warning("PATH_ALIAS_SECRET is empty; generated an ephemeral key "
+                           "(restart invalidates aliases; not shared across processes)")
+        return cls(mode, secret, epoch_s, grace, prefixes, max_bytes, app_id)
 
 
 @lru_cache(maxsize=512)
-def alias_for(secret: bytes, epoch: int, prefix: str) -> str:
-    digest = hmac.new(secret, f"alias|{epoch}|{prefix}".encode("ascii"), hashlib.sha256).digest()
-    return "/p" + base64.b32encode(digest).decode("ascii").lower()[:10] + "/"
+def alias_for(secret: bytes, app_id: str, epoch: int, prefix: str) -> str:
+    material = f"alias|{app_id}|{epoch}|{prefix}".encode("ascii")
+    digest = hmac.new(secret, material, hashlib.sha256).digest()
+    return "/" + _ALIAS_MARKER + base64.b32encode(digest).decode("ascii").lower()[:16] + "/"
 
 
 def current_aliases(cfg: PathAliasConfig, now: float) -> dict[str, str]:
     epoch = math.floor(now / cfg.epoch_s)
-    return {prefix: alias_for(cfg.secret, epoch, prefix) for prefix in cfg.prefixes}
+    return {prefix: alias_for(cfg.secret, cfg.app_id, epoch, prefix) for prefix in cfg.prefixes}
 
 
 def _normalize(path: str) -> str:
@@ -125,13 +143,14 @@ def resolve(path: str, now: float, cfg: PathAliasConfig) -> Resolution:
         return Resolution("other", path)
     match = _ALIAS_PATH.fullmatch(path)
     if match:
-        segment = f"/{match.group(1)}/"
+        segment = f"/{_ALIAS_MARKER}{match.group(1)}/"
         rest = (match.group(2) or "/")[1:]
         epoch = math.floor(now / cfg.epoch_s)
-        for age in range(cfg.grace_epochs + STALE_LOOKBACK_EPOCHS + 1):
+        # age < 0 covers an instance whose clock is a little behind the one that issued it.
+        for age in range(-FUTURE_SKEW_EPOCHS, cfg.grace_epochs + STALE_LOOKBACK_EPOCHS + 1):
             for prefix in cfg.prefixes:
-                if hmac.compare_digest(alias_for(cfg.secret, epoch - age, prefix), segment):
-                    state = "current" if age == 0 else "grace" if age <= cfg.grace_epochs else "stale"
+                if hmac.compare_digest(alias_for(cfg.secret, cfg.app_id, epoch - age, prefix), segment):
+                    state = "current" if age <= 0 else "grace" if age <= cfg.grace_epochs else "stale"
                     return Resolution("stale" if state == "stale" else "alias", prefix + rest, prefix, state)
     normalized = _normalize(path)
     for prefix in cfg.prefixes:
