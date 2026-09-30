@@ -1,0 +1,11 @@
+# 실행 산출물 — 커밋 금지
+*.db
+*.db-shm
+*.db-wal
+*.log
+__pycache__/
+.venv/
+
+# codex 트랜스크립트 (실제 공격 로그)
+codex-result*.txt
+codex*.jsonl

@@ -86,3 +86,45 @@ jobs:
 
       - name: Test ${{ matrix.service }}
         run: python -m unittest discover -s ${{ matrix.service }}/tests -p 'test_*.py'
+
+  integration-check:
+    runs-on: ubuntu-26.04
+    needs: [detection-check, python-check]
+    env:
+      DETECTION_DASHBOARD_PASSWORD: integration-password
+      DEFENSE_DASHBOARD_PASSWORD: integration-password
+      PAYLOAD_FINGERPRINT_KEY: integration-payload-key
+      DCID_HMAC_SECRET: integration-dcid-secret
+      ACCOUNT_ID_HASH_KEY: integration-account-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Detection, Defense and target
+        run: docker compose -f docker-compose.local.yml up -d --build --wait --wait-timeout 180
+
+      - name: Verify public traffic and protected management paths
+        run: |
+          set -Eeuo pipefail
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8081/__detection/api/sessions)" = "401"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{}' http://127.0.0.1:8081/__detection/telemetry)" = "204"
+
+          curl --fail --silent --show-error -c detection.cookies \
+            -H 'Content-Type: application/json' --data '{"password":"integration-password"}' \
+            http://127.0.0.1:8081/__detection/api/login >/dev/null
+          curl --fail --silent --show-error -b detection.cookies \
+            http://127.0.0.1:8081/__detection/api/sessions >/dev/null
+
+          curl --fail --silent --show-error -c defense.cookies \
+            -H 'Content-Type: application/json' --data '{"password":"integration-password"}' \
+            http://127.0.0.1:8081/__defense/api/login >/dev/null
+          curl --fail --silent --show-error -b defense.cookies \
+            http://127.0.0.1:8081/__defense/api/snapshot >/dev/null
+          curl --fail --silent --show-error http://127.0.0.1:8081/ >/dev/null
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.local.yml logs --no-color
+
+      - name: Stop integration stack
+        if: always()
+        run: docker compose -f docker-compose.local.yml down -v

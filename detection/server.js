@@ -45,6 +45,9 @@ const {
 const { checkIdentityMismatch, decodeClaimedIdentity, extractToken } = require("./lib/identityMismatch");
 const { checkRoleGatedAccess, isHardcodedSensitiveRoute } = require("./lib/roleGatedAccess");
 const { checkCsrf, buildAllowedOrigins } = require("./lib/csrfDetection");
+const { analyzeExchange: analyzeXssExchange, extractCandidates: extractXssCandidates } = require("./lib/xssReflection");
+const { XssCandidateStore } = require("./lib/xssCandidateStore");
+const { attributeStoredFindings } = require("./lib/xssAttribution");
 const { extractLoginAttemptEmail } = require("./lib/loginBruteForce");
 const {
   extractResetPasswordEmail,
@@ -62,6 +65,14 @@ const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
 const { applyDefensePlan, loadPolicyRules } = require("./lib/policyEngine");
 const { createProxyCore } = require("./lib/proxyCore");
+const {
+  DashboardAuthManager,
+  installDashboardRoutes,
+} = require("./lib/dashboardAuth");
+const {
+  applyDefenseManagementHeaders,
+  isDefenseManagementPath,
+} = require("./lib/managementPaths");
 
 const PORT = process.env.PORT || 8080;
 const TARGET = process.env.TARGET_URL || "http://localhost:3000";
@@ -79,6 +90,31 @@ const ENABLE_EXPERIMENT_RUN_ID = process.env.ENABLE_EXPERIMENT_RUN_ID === "true"
 const EXPERIMENT_RUN_HEADER = "x-experiment-run-id";
 const configuredPayloadFingerprintKey = process.env.PAYLOAD_FINGERPRINT_KEY;
 const PAYLOAD_FINGERPRINT_KEY = configuredPayloadFingerprintKey || crypto.randomBytes(32);
+const DETECTION_DASHBOARD_SESSION_COOKIE = "detection_dashboard_session";
+const DETECTION_DASHBOARD_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const DETECTION_DASHBOARD_COOKIE_SECURE =
+  process.env.DETECTION_DASHBOARD_COOKIE_SECURE === "true";
+const DETECTION_DASHBOARD_REQUIRE_HTTPS =
+  process.env.DETECTION_DASHBOARD_REQUIRE_HTTPS === "true";
+const ALLOW_INSECURE_DASHBOARD_HTTP =
+  process.env.ALLOW_INSECURE_DASHBOARD_HTTP === "true";
+if (process.env.NODE_ENV === "production") {
+  const missing = [
+    "PAYLOAD_FINGERPRINT_KEY",
+    "DCID_HMAC_SECRET",
+    "ACCOUNT_ID_HASH_KEY",
+    "DETECTION_DASHBOARD_PASSWORD",
+  ].filter((name) => !process.env[name]);
+  if (missing.length) throw new Error(`missing production secrets: ${missing.join(", ")}`);
+  if (ALLOW_INSECURE_DASHBOARD_HTTP &&
+      (DETECTION_DASHBOARD_COOKIE_SECURE || DETECTION_DASHBOARD_REQUIRE_HTTPS)) {
+    throw new Error("HTTP dashboard mode requires HTTPS enforcement and Secure cookies to be disabled");
+  }
+  if (!ALLOW_INSECURE_DASHBOARD_HTTP &&
+      (!DETECTION_DASHBOARD_COOKIE_SECURE || !DETECTION_DASHBOARD_REQUIRE_HTTPS)) {
+    throw new Error("production dashboard authentication requires HTTPS and Secure cookies");
+  }
+}
 const CSRF_ALLOWED_ORIGINS = buildAllowedOrigins(
   (process.env.CSRF_ALLOWED_ORIGINS || `http://localhost:${PORT},http://127.0.0.1:${PORT}`)
     .split(",")
@@ -94,15 +130,49 @@ const dcidManager = new DcidManager();
 const accountIdentityResolver = new AccountIdentityResolver();
 const policyRules = loadPolicyRules();
 
+function positiveInt(name, fallback) {
+  const value = Number.parseInt(process.env[name] || "", 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+const dashboardAuth = new DashboardAuthManager({
+  password: process.env.DETECTION_DASHBOARD_PASSWORD || "",
+  sessionTtlMs: DETECTION_DASHBOARD_SESSION_TTL_MS,
+  maxSessions: positiveInt("DETECTION_DASHBOARD_MAX_SESSIONS", 1000),
+  maxAttempts: positiveInt("DETECTION_DASHBOARD_LOGIN_ATTEMPTS", 5),
+  attemptWindowMs: positiveInt("DETECTION_DASHBOARD_LOGIN_WINDOW_SECONDS", 300) * 1000,
+});
+
 const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", parseTrustProxy());
 app.use(cookieParser());
+app.use((req, res, next) => {
+  if (req.path === "/__detection" || req.path.startsWith("/__detection/")) {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+  }
+  next();
+});
 
 // Docker Compose와 운영 오케스트레이터가 Detection 자체의 준비 상태를
 // downstream 애플리케이션과 독립적으로 확인할 수 있는 엔드포인트다.
 app.get("/healthz", (_req, res) => {
   res.json({ status: "ok", service: "detection" });
+});
+
+// Defense 운영 화면은 보호 대상 트래픽이 아니다. 일반 탐지 훅을 통과시키면
+// 대시보드의 주기적 폴링이 자동화 점수와 요청 통계를 오염시키므로 그대로 전달한다.
+const defenseManagementProxy = createProxyCore({
+  target: TARGET,
+  hooks: [{ onRequest: ({ proxyReq, req }) => applyDefenseManagementHeaders(proxyReq, req) }],
+});
+app.use((req, res, next) => {
+  if (isDefenseManagementPath(req.path)) {
+    return defenseManagementProxy(req, res, next);
+  }
+  return next();
 });
 
 function analyzeSession(session) {
@@ -364,6 +434,72 @@ function prepareRequestObservation(req) {
   });
 }
 
+// Stored XSS 대조용 저장소: 쓰기 요청에서 관찰한 값을 나중 응답과 대조한다.
+const xssCandidateStore = new XssCandidateStore({
+  ttlMs: process.env.XSS_CANDIDATE_TTL_MS,
+  maxEntries: process.env.XSS_MAX_CANDIDATES,
+  maxBytes: process.env.XSS_MAX_CANDIDATE_BYTES,
+  maxValueBytes: process.env.XSS_MAX_VALUE_BYTES,
+});
+// XSS 반영 검사에 넘길 응답 본문 최대 크기(과대 응답은 body 검사 생략, 헤더 검사만).
+const configuredXssBodyBytes = Number(process.env.XSS_MAX_BODY_BYTES);
+const XSS_MAX_BODY_BYTES = Number.isSafeInteger(configuredXssBodyBytes) && configuredXssBodyBytes > 0
+  ? configuredXssBodyBytes : 2_000_000;
+const XSS_WRITE_METHODS = new Set(["POST", "PUT", "PATCH"]);
+
+// Reflected/Stored XSS: 요청 값이 이 응답에 이스케이프 없이 반영됐는지 검사한다.
+function computeXssDetection(req, responseBuffer, responseHeaders) {
+  try {
+    const method = String(req.method || "").toUpperCase();
+    const xssReq = {
+      method,
+      url: req.originalUrl,
+      body: req.body,
+      contentType: req.headers["content-type"],
+      responseContentType: responseHeaders && responseHeaders["content-type"],
+    };
+    const body =
+      Buffer.isBuffer(responseBuffer) && responseBuffer.length <= XSS_MAX_BODY_BYTES
+        ? responseBuffer.toString("utf8")
+        : "";
+    const result = analyzeXssExchange(xssReq, body, responseHeaders || {}, xssCandidateStore);
+    attributeStoredFindings(result.findings, {
+      attachFinding: store.attachStoredXssFinding,
+      refreshOrigin: refreshXssOriginScores,
+    });
+    return result.reflected;
+  } catch {
+    return { tags: [], maxRisk: 0 };
+  }
+}
+
+function refreshXssOriginScores(origin) {
+  const session = store.getSession(origin.sessionId);
+  const actor = store.getActor(origin.actorId);
+  const authGroup = store.getAuthGroup(origin.authGroupId);
+  const flow = store.getClientFlowAggregate(origin.clientFlowId);
+  store.updateAttackScoreHistory({
+    ...origin,
+    scores: {
+      session: session ? analyzeSession(session).attackScore : undefined,
+      actor: actor ? analyzeActor(actor).attackScore : undefined,
+      authGroup: authGroup ? analyzeAuthGroup(authGroup).attackScore : undefined,
+      clientFlow: flow?.aggregationEnabled ? analyzeClientFlow(flow).attackScore : undefined,
+    },
+  });
+}
+
+function observeXssWrite(req, session, status) {
+  if (!XSS_WRITE_METHODS.has(String(req.method).toUpperCase()) || status < 200 || status >= 400) return;
+  const origin = session.requests.at(-1);
+  if (!origin) return;
+  xssCandidateStore.observe(extractXssCandidates({
+    url: req.originalUrl,
+    body: req.body,
+    contentType: req.headers["content-type"],
+  }), normalizePath(req.originalUrl), origin);
+}
+
 function recordCompletedRequest(req, {
   status,
   responseContentType = null,
@@ -392,6 +528,8 @@ function recordCompletedRequest(req, {
     tags,
     blTags: req.blTags,
     csrfTags: req.csrfTags,
+    xssTags: req.xssTags,
+    xssMaxRisk: Number.isFinite(req.xssMaxRisk) ? req.xssMaxRisk : 0,
     loginAttemptEmail: req.loginAttemptEmail,
     resetPasswordEmail: req.resetPasswordEmail,
     securityQuestionEmail: req.securityQuestionEmail,
@@ -491,13 +629,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// --- 탐지 레이어 자체 엔드포인트들 (프록시보다 먼저 매칭) ---
-app.use("/__detection/static", express.static(require("path").join(__dirname, "public")));
-
-app.get("/__detection/dashboard", (req, res) => {
-  res.sendFile(require("path").join(__dirname, "public", "dashboard.html"));
-});
-
 function captureParsedBodyBytes(req, _res, buffer) {
   req.detectionRequestBodyBytes = buffer.length;
   req.detectionRequestBodyBuffer = Buffer.from(buffer);
@@ -507,6 +638,16 @@ function captureParsedBodyBytes(req, _res, buffer) {
 // 파싱된 body는 onProxyReq에서 fixRequestBody()로 다시 스트림에 실어 upstream으로 전달한다.
 app.use(express.json({ limit: "5mb", verify: captureParsedBodyBytes }));
 app.use(express.urlencoded({ extended: true, limit: "5mb", verify: captureParsedBodyBytes }));
+
+// 대상 페이지에 삽입되는 telemetry만 공개하고, 운영 UI/API는 별도 세션으로 보호한다.
+installDashboardRoutes({
+  app,
+  authManager: dashboardAuth,
+  cookieName: DETECTION_DASHBOARD_SESSION_COOKIE,
+  sessionTtlMs: DETECTION_DASHBOARD_SESSION_TTL_MS,
+  secureCookie: DETECTION_DASHBOARD_COOKIE_SECURE,
+  requireHttps: DETECTION_DASHBOARD_REQUIRE_HTTPS,
+});
 
 // 팀원 Python 프록시의 미끼 라우트를 현재 Express 프록시 안에서 직접 처리한다.
 // 이 요청도 일반 요청과 동일하게 CRS, Session, Actor, Auth Group과 타임라인에 기록한다.
@@ -987,6 +1128,18 @@ app.use("/__detection", (req, res) => {
 const detectionHook = {
   name: "behavior-and-attack-detection",
 
+  onWebSocketRequest({ proxyReq, req }) {
+    req.originalUrl ||= req.url;
+    req.authGroupId = deriveAuthGroupId(req.headers.authorization);
+    req.rubyPolicyDecision = buildPriorPolicyDecision(req);
+    stripDetectionHeaders(proxyReq);
+    applyDefensePlan(proxyReq, {
+      riskScore: req.rubyPolicyDecision.riskScore,
+      rules: policyRules,
+    });
+    proxyReq.setHeader("X-Client-Id", req.rubyPolicyDecision.clientId);
+  },
+
   onRequest({ proxyReq, req }) {
     prepareRequestObservation(req);
     // RUBY Policy 계약: 외부 입력을 제거하고, 완료된 탐지 이력에서 계산한
@@ -1011,6 +1164,9 @@ const detectionHook = {
     const attackDetection = req.crsScanPromise
       ? await req.crsScanPromise
       : { available: false, error: "scan was not started", categories: [], hits: [] };
+    const xssDetection = computeXssDetection(req, responseBuffer, proxyRes.headers);
+    req.xssTags = xssDetection.tags;
+    req.xssMaxRisk = xssDetection.maxRisk;
     const {
       session,
       effectiveDetectionSource,
@@ -1022,6 +1178,7 @@ const detectionHook = {
       responseBodyBytes: responseBuffer.length,
       attackDetection,
     });
+    observeXssWrite(req, session, proxyRes.statusCode);
 
     // 실험 검증 전에는 BLOCK_MODE도 log-only다. 응답 상태나 body를 변경하지 않는다.
     if (BLOCK_MODE) {
@@ -1088,9 +1245,10 @@ const detectionHook = {
 
 // 공통 Express 프록시 코어에 탐지와 정책 훅을 함께 장착한다. TARGET_URL은
 // Defense 또는 보호할 애플리케이션을 직접 가리키며, 별도 Policy 프록시는 없다.
-app.use("/", createProxyCore({ target: TARGET, hooks: [detectionHook] }));
+const mainProxy = createProxyCore({ target: TARGET, hooks: [detectionHook] });
+app.use("/", mainProxy);
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[detection-proxy] listening on :${PORT} -> proxying ${TARGET}`);
   console.log(`[detection-proxy] dashboard: http://localhost:${PORT}/__detection/dashboard`);
   console.log(
@@ -1110,3 +1268,4 @@ app.listen(PORT, () => {
     );
   }
 });
+server.on("upgrade", mainProxy.upgrade);
