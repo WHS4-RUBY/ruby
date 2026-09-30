@@ -381,7 +381,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
 async def catch_all(request: Request, full_path: str):
     alias = path_alias.resolve(request.url.path, time.time(), PATH_ALIAS)
     alias_decision = path_alias.decide(alias, PATH_ALIAS)
-    translated = alias.kind in ("alias", "stale")
+    translated = alias.kind == "alias"
     record_path = alias.upstream_path if translated else request.url.path
 
     gate = None

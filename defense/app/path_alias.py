@@ -13,11 +13,10 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
-from urllib.parse import unquote, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 LOGGER_NAME = "ruby.defense.path_alias"
 DEFAULT_PREFIXES = ("/rest/", "/api/")
-STALE_LOOKBACK_EPOCHS = 12
 FUTURE_SKEW_EPOCHS = 1  # accept aliases from an instance whose clock is one epoch ahead
 MIN_SECRET_BYTES = 16
 REWRITABLE_TYPES = frozenset({
@@ -28,6 +27,8 @@ REWRITABLE_TYPES = frozenset({
 # app route (Codex review #2): 16 base32 chars = 80 bits under a reserved marker.
 _ALIAS_MARKER = "__ruby_alias_"
 _ALIAS_PATH = re.compile(r"/" + re.escape(_ALIAS_MARKER) + r"([a-z2-7]{16})(/.*)?", re.S)
+# Unreserved path characters only; anything else makes backend routing ambiguous.
+_SAFE_PATH = re.compile(r"^[A-Za-z0-9/\-._~]*$")
 
 
 def _configure_logger() -> logging.Logger:
@@ -113,40 +114,33 @@ def current_aliases(cfg: PathAliasConfig, now: float) -> dict[str, str]:
     return {prefix: alias_for(cfg.secret, cfg.app_id, epoch, prefix) for prefix in cfg.prefixes}
 
 
-def _normalize(path: str) -> str:
-    """Conservatively fold every variant some backend might route to the same path.
+def _is_ambiguous(path: str) -> bool:
+    """A path the backend might re-interpret differently than we do.
 
-    Over-blocking is intended (finding #2 decision): a memorized real path must not
-    slip past direct-detection by re-encoding it, even if that means the occasional
-    benign lookalike is refused. The observe-mode validation is what catches those.
-    Covers case, % -encoding (incl. %2f, %2e), backslash separators, // , . , .. ,
-    and trailing dot/space folding.
+    Rather than trying to out-normalize an unknown backend (an unwinnable arms race),
+    we refuse anything that isn't already a single unambiguous form: only unreserved
+    path characters, no percent-encoding, no // , and no "." , ".." or trailing-dot
+    segment. What passes is clean enough that the backend has nothing left to re-decode
+    or re-route. Legitimate traffic reaches the API through aliases, which are clean.
     """
-    decoded = unquote(path).replace("\\", "/")
-    parts: list[str] = []
-    for segment in decoded.split("/"):
-        if segment in ("", "."):
-            continue
-        if segment == "..":
-            if parts:
-                parts.pop()
-            continue
-        segment = segment.rstrip(". ")  # IIS/Windows fold "rest." and "rest " to "rest"
-        if not segment:
-            continue
-        parts.append(segment)
-    normalized = "/" + "/".join(parts)
-    if parts and (decoded.endswith("/") or path.endswith("/")):
-        normalized += "/"
-    return normalized.lower()
+    if not _SAFE_PATH.match(path):  # %, \, ;, :, space, non-ASCII, control chars ...
+        return True
+    segments = path.split("/")
+    for index, segment in enumerate(segments):
+        if segment == "" and 0 < index < len(segments) - 1:  # internal empty segment = //
+            return True
+        if segment.endswith("."):  # "." , ".." , and IIS-folded "rest."
+            return True
+    return False
 
 
 @dataclass(frozen=True)
 class Resolution:
-    kind: str  # alias | stale | direct | other
+    kind: str  # alias | direct | reject | other
     upstream_path: str
     prefix: str | None = None
-    alias_state: str | None = None  # current | grace | stale
+    alias_state: str | None = None  # current | grace
+    reason: str | None = None
 
 
 def resolve(path: str, now: float, cfg: PathAliasConfig) -> Resolution:
@@ -155,17 +149,24 @@ def resolve(path: str, now: float, cfg: PathAliasConfig) -> Resolution:
     match = _ALIAS_PATH.fullmatch(path)
     if match:
         segment = f"/{_ALIAS_MARKER}{match.group(1)}/"
-        rest = (match.group(2) or "/")[1:]
+        tail = match.group(2) or "/"
+        # The tail is forwarded as-is, so it must be clean too (blocks alias + ../ escape).
+        if _is_ambiguous(tail):
+            return Resolution("reject", path, reason="ambiguous_alias_tail")
         epoch = math.floor(now / cfg.epoch_s)
         # age < 0 covers an instance whose clock is a little behind the one that issued it.
-        for age in range(-FUTURE_SKEW_EPOCHS, cfg.grace_epochs + STALE_LOOKBACK_EPOCHS + 1):
+        for age in range(-FUTURE_SKEW_EPOCHS, cfg.grace_epochs + 1):
             for prefix in cfg.prefixes:
                 if hmac.compare_digest(alias_for(cfg.secret, cfg.app_id, epoch - age, prefix), segment):
-                    state = "current" if age <= 0 else "grace" if age <= cfg.grace_epochs else "stale"
-                    return Resolution("stale" if state == "stale" else "alias", prefix + rest, prefix, state)
-    normalized = _normalize(path)
+                    state = "current" if age <= 0 else "grace"
+                    return Resolution("alias", prefix + tail[1:], prefix, state)
+        # Alias-shaped but matches no live epoch: expired or forged. Refuse, never forward.
+        return Resolution("reject", path, reason="unknown_alias")
+    if _is_ambiguous(path):
+        return Resolution("reject", path, reason="ambiguous")
+    low = path.lower()
     for prefix in cfg.prefixes:
-        if normalized == prefix.rstrip("/") or normalized.startswith(prefix):
+        if low == prefix.rstrip("/") or low.startswith(prefix):
             return Resolution("direct", path, prefix)
     return Resolution("other", path)
 
@@ -173,7 +174,7 @@ def resolve(path: str, now: float, cfg: PathAliasConfig) -> Resolution:
 def decide(resolution: Resolution, cfg: PathAliasConfig) -> str:
     if resolution.kind == "alias":
         return "translate"
-    if resolution.kind in ("direct", "stale"):
+    if resolution.kind in ("direct", "reject"):
         return "block" if cfg.mode == "enforce" else "would_block"
     return "pass"
 

@@ -75,15 +75,11 @@ class AliasTests(unittest.TestCase):
         self.assertNotEqual(alias(), pa.alias_for(b"other-key-16byte", CFG.app_id, 10, "/rest/"))
 
     def test_resolve_alias_states(self):
-        cases = [
-            (alias(10) + "products/search", "alias", "current"),
-            (alias(9) + "products/search", "alias", "grace"),
-            (alias(8) + "products/search", "stale", "stale"),
-        ]
-        for path, kind, state in cases:
+        for path, state in ((alias(10) + "products/search", "current"),
+                            (alias(9) + "products/search", "grace")):
             with self.subTest(path=path):
                 result = pa.resolve(path, NOW, CFG)
-                self.assertEqual((result.kind, result.alias_state), (kind, state))
+                self.assertEqual((result.kind, result.alias_state), ("alias", state))
                 self.assertEqual(result.upstream_path, "/rest/products/search")
         self.assertEqual(pa.resolve(alias(10, "/api/") + "Products/1", NOW, CFG).upstream_path,
                          "/api/Products/1")
@@ -94,27 +90,39 @@ class AliasTests(unittest.TestCase):
         result = pa.resolve(alias(11) + "x", NOW, CFG)
         self.assertEqual((result.kind, result.alias_state), ("alias", "current"))
 
-    def test_future_or_unknown_alias_is_not_translated(self):
-        for path in (alias(12) + "x", "/__ruby_alias_zzzzzzzzzzzzzzzz/x",
-                     alias(10 - 1 - pa.STALE_LOOKBACK_EPOCHS - 1) + "x"):
+    def test_expired_or_forged_alias_is_rejected(self):
+        # Alias-shaped but matching no live epoch must be refused, never forwarded.
+        for path in (alias(8) + "x", alias(12) + "x", "/__ruby_alias_zzzzzzzzzzzzzzzz/x"):
             with self.subTest(path=path):
-                self.assertEqual(pa.resolve(path, NOW, CFG).kind, "other")
+                result = pa.resolve(path, NOW, CFG)
+                self.assertEqual(result.kind, "reject")
+                self.assertEqual(result.reason, "unknown_alias")
 
-    def test_direct_real_path_variants_are_detected(self):
-        # Conservative over-block: any encoding some backend could route to a protected
-        # prefix must count as a direct hit.
-        for path in ("/rest/products/search", "/REST/products", "/Rest/Products/Search", "//rest/x",
-                     "/./rest/x", "/foo/../rest/x", "/rest", "/rest/", "/api/Products/1", "/API/Products",
-                     "/%72est/products", "/rest%2fx", "/api%2f..%2fapi/x", "/rest./x", "/rest%2e/x",
-                     r"\rest\x", "/%2e/rest/x", "/api%2FProducts"):
+    def test_alias_with_traversal_tail_is_rejected(self):
+        result = pa.resolve(alias(10, "/api/") + "../rest/secret", NOW, CFG)
+        self.assertEqual((result.kind, result.reason), ("reject", "ambiguous_alias_tail"))
+
+    def test_clean_protected_paths_are_direct(self):
+        # A clean path on a protected prefix is a direct hit (case-insensitive).
+        for path in ("/rest/products/search", "/REST/products", "/Rest/Products/Search",
+                     "/rest", "/rest/", "/api/Products/1", "/API/Products"):
             with self.subTest(path=path):
                 result = pa.resolve(path, NOW, CFG)
                 self.assertEqual(result.kind, "direct")
                 self.assertEqual(result.upstream_path, path)
 
+    def test_ambiguous_variants_are_rejected(self):
+        # Anything a backend might re-route (encoding, //, .., backslash, trailing dot) is refused
+        # instead of guessed at.
+        for path in ("//rest/x", "/./rest/x", "/foo/../rest/x", "/%72est/products", "/rest%2fx",
+                     "/api%2f..%2fapi/x", "/rest./x", "/rest%2e/x", r"\rest\x", "/%2e/rest/x",
+                     "/api%2FProducts", "/rest;x=1/users", "/rest/\u0000", "/ｒｅｓｔ/x"):
+            with self.subTest(path=path):
+                self.assertEqual(pa.resolve(path, NOW, CFG).kind, "reject")
+
     def test_unrelated_paths_pass(self):
         for path in ("/", "/restaurant", "/api-docs/", "/socket.io/", "/assets/i18n/en.json",
-                     "/foo/rest/x", "/ftp/legal.md"):
+                     "/foo/rest/x", "/ftp/legal.md", "/main.js"):
             with self.subTest(path=path):
                 self.assertEqual(pa.resolve(path, NOW, CFG).kind, "other")
 
@@ -124,13 +132,13 @@ class AliasTests(unittest.TestCase):
     def test_decide_by_mode(self):
         observe = replace(CFG, mode="observe")
         direct = pa.resolve("/rest/x", NOW, CFG)
-        stale = pa.resolve(alias(8) + "x", NOW, CFG)
+        reject = pa.resolve(alias(8) + "x", NOW, CFG)
         current = pa.resolve(alias() + "x", NOW, CFG)
         self.assertEqual(pa.decide(current, CFG), "translate")
         self.assertEqual(pa.decide(direct, CFG), "block")
-        self.assertEqual(pa.decide(stale, CFG), "block")
+        self.assertEqual(pa.decide(reject, CFG), "block")
         self.assertEqual(pa.decide(direct, observe), "would_block")
-        self.assertEqual(pa.decide(stale, observe), "would_block")
+        self.assertEqual(pa.decide(reject, observe), "would_block")
         self.assertEqual(pa.decide(pa.resolve("/", NOW, CFG), CFG), "pass")
 
 
@@ -269,8 +277,9 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual((log["kind"], log["alias_state"], log["decision"]), ("alias", "current", "translate"))
         self.assertEqual(log["real_path"], "/rest/products/search")
 
-    def test_enforce_blocks_direct_and_stale_without_forwarding(self):
-        for path in ("/rest/products/search", "/REST/products", "/API/Products", alias(8) + "x"):
+    def test_enforce_blocks_direct_reject_and_ambiguous_without_forwarding(self):
+        for path in ("/rest/products/search", "/REST/products", "/API/Products",
+                     alias(8) + "x", "/rest%2fx", "/rest%2e%2e/x"):
             with self.subTest(path=path):
                 self.calls.clear()
                 response = self.client.get(path)
@@ -280,15 +289,14 @@ class IntegrationTests(unittest.TestCase):
                 self.assertEqual(self.calls, [])
                 self.assertEqual(self.logs()[-1]["decision"], "block")
 
-    def test_observe_forwards_direct_and_stale_with_would_block(self):
+    def test_observe_forwards_direct_and_reject_with_would_block(self):
         with patch.object(main, "PATH_ALIAS", replace(CFG, mode="observe")):
             direct = self.client.get("/rest/products/search")
-            stale = self.client.get(alias(8) + "x")
-        self.assertEqual([direct.status_code, stale.status_code], [200, 200])
+            reject = self.client.get("/rest;probe")  # ";" survives ASGI decoding, stays ambiguous
+        self.assertEqual([direct.status_code, reject.status_code], [200, 200])
         self.assertTrue(self.calls[0]["url"].endswith("/rest/products/search"))
-        self.assertTrue(self.calls[1]["url"].endswith("/rest/x"))
         self.assertEqual([log["decision"] for log in self.logs()], ["would_block", "would_block"])
-        self.assertEqual([log["kind"] for log in self.logs()], ["direct", "stale"])
+        self.assertEqual([log["kind"] for log in self.logs()], ["direct", "reject"])
 
     def test_json_api_response_is_rewritten(self):
         self.upstream = (200, [("content-type", "application/json")], b'{"next":"/api/Products/2"}')
