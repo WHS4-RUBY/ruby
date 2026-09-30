@@ -101,9 +101,12 @@ class AliasTests(unittest.TestCase):
                 self.assertEqual(pa.resolve(path, NOW, CFG).kind, "other")
 
     def test_direct_real_path_variants_are_detected(self):
-        # Express routes these to the same handler, so each must count as a direct hit.
+        # Conservative over-block: any encoding some backend could route to a protected
+        # prefix must count as a direct hit.
         for path in ("/rest/products/search", "/REST/products", "/Rest/Products/Search", "//rest/x",
-                     "/./rest/x", "/foo/../rest/x", "/rest", "/rest/", "/api/Products/1", "/API/Products"):
+                     "/./rest/x", "/foo/../rest/x", "/rest", "/rest/", "/api/Products/1", "/API/Products",
+                     "/%72est/products", "/rest%2fx", "/api%2f..%2fapi/x", "/rest./x", "/rest%2e/x",
+                     r"\rest\x", "/%2e/rest/x", "/api%2FProducts"):
             with self.subTest(path=path):
                 result = pa.resolve(path, NOW, CFG)
                 self.assertEqual(result.kind, "direct")

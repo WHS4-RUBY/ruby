@@ -13,7 +13,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 LOGGER_NAME = "ruby.defense.path_alias"
 DEFAULT_PREFIXES = ("/rest/", "/api/")
@@ -114,18 +114,29 @@ def current_aliases(cfg: PathAliasConfig, now: float) -> dict[str, str]:
 
 
 def _normalize(path: str) -> str:
-    """Collapse the variants Express treats as the same route: case, //, . and .."""
+    """Conservatively fold every variant some backend might route to the same path.
+
+    Over-blocking is intended (finding #2 decision): a memorized real path must not
+    slip past direct-detection by re-encoding it, even if that means the occasional
+    benign lookalike is refused. The observe-mode validation is what catches those.
+    Covers case, % -encoding (incl. %2f, %2e), backslash separators, // , . , .. ,
+    and trailing dot/space folding.
+    """
+    decoded = unquote(path).replace("\\", "/")
     parts: list[str] = []
-    for segment in path.split("/"):
+    for segment in decoded.split("/"):
         if segment in ("", "."):
             continue
         if segment == "..":
             if parts:
                 parts.pop()
             continue
+        segment = segment.rstrip(". ")  # IIS/Windows fold "rest." and "rest " to "rest"
+        if not segment:
+            continue
         parts.append(segment)
     normalized = "/" + "/".join(parts)
-    if parts and path.endswith("/"):
+    if parts and (decoded.endswith("/") or path.endswith("/")):
         normalized += "/"
     return normalized.lower()
 
