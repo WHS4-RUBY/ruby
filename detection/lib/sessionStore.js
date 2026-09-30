@@ -26,6 +26,100 @@ const MAX_REQUESTS_PER_AUTH_GROUP = MAX_REQUESTS_PER_SESSION * 2;
 const MAX_REQUESTS_PER_IP_ENTRY = MAX_REQUESTS_PER_SESSION * 2;
 const MAX_REQUESTS_PER_RESOLVED_ACTOR = MAX_REQUESTS_PER_SESSION * 2;
 
+// 엔티티 "개수" 상한 + idle TTL.
+// 위의 MAX_REQUESTS_*는 엔티티 하나가 쥔 요청 이력(링버퍼)만 제한할 뿐,
+// sessions/actors/authGroups/ipEntries Map 자체의 크기(고유 접속자 수)는 제한하지 않는다.
+// 그래서 고유 세션/지문이 계속 늘면(세션 회전 공격·장기 운영) 메모리가 무제한 증가한다.
+// actorResolver가 이미 쓰는 cleanup(TTL)+enforceLimits(LRU) 패턴을 동일하게 적용한다.
+function positiveInt(value, fallback) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+const ENTITY_IDLE_TTL_MS = positiveInt(process.env.DETECTION_ENTITY_TTL_MS, 30 * 60_000); // 평범한 신원: 30분 미활동 시 제거
+const RISKY_ENTITY_TTL_MS = positiveInt(process.env.RISKY_ENTITY_TTL_MS, 24 * 60 * 60_000); // 위험 신원: 훨씬 오래 보존(기본 24시간)
+const MAX_SESSIONS = positiveInt(process.env.MAX_SESSIONS, 50_000);
+const MAX_ACTORS = positiveInt(process.env.MAX_ACTORS, 50_000);
+const MAX_AUTH_GROUPS = positiveInt(process.env.MAX_AUTH_GROUPS, 50_000);
+const MAX_IP_ENTRIES = positiveInt(process.env.MAX_IP_ENTRIES, 50_000);
+const ENTITY_SWEEP_INTERVAL_MS = positiveInt(process.env.DETECTION_ENTITY_SWEEP_MS, 60_000);
+let lastEntitySweepAt = 0;
+
+// 위험 신원 판정: CRS 공격 이력 또는 기만(Honey) 증거가 하나라도 있으면 위험으로 본다.
+// 이미 엔티티에 쌓여 있는 attackHistory/deceptionHistory를 그대로 사용한다.
+function isRiskyEntity(entity) {
+  const a = entity.attackHistory;
+  const d = entity.deceptionHistory;
+  return Boolean(
+    (a &&
+      (a.hasAttackHistory ||
+        (Number(a.maxAttackScore) || 0) > 0 ||
+        (Number(a.maxCrsAnomalyScore) || 0) > 0)) ||
+    (d && d.hasEvidence)
+  );
+}
+
+// 상한 초과 시 제거 우선순위: (1) 위험하지 않은 것 먼저, (2) 그중 lastSeen 오래된 것 먼저.
+// → 위험 신원은 조용해도 마지막까지 남고, 평범한 신원만 밀려난다.
+// 단 위험 신원만 남아 상한을 넘으면 그때는 가장 오래된 위험 신원부터 제거(메모리는 끝까지 유계).
+// 배치로 목표치(상한의 90%)까지 비워 매 삽입마다 정렬하지 않는다.
+function evictOverCap(map, max, protectedKey) {
+  if (map.size <= max) return false;
+  const target = Math.max(1, Math.floor(max * 0.9));
+  const pairs = [...map.entries()].filter(([key]) => key !== protectedKey).sort((a, b) => {
+    const ra = isRiskyEntity(a[1]) ? 1 : 0;
+    const rb = isRiskyEntity(b[1]) ? 1 : 0;
+    if (ra !== rb) return ra - rb; // 평범한 것(0)을 먼저 제거
+    return (a[1].lastSeen || 0) - (b[1].lastSeen || 0); // 그다음 오래된 것부터
+  });
+  const removeCount = map.size - target;
+  for (let i = 0; i < removeCount && i < pairs.length; i++) map.delete(pairs[i][0]);
+  return true;
+}
+
+// 오래 활동이 없는 엔티티를 주기적으로 청소(요청마다 전체 스캔하지 않도록 간격 제한).
+// 위험 신원은 훨씬 긴 TTL을 적용해, 한탕 하고 잠수 타도 이력이 바로 지워지지 않는다.
+function sweepIdleEntities(now) {
+  if (now - lastEntitySweepAt < ENTITY_SWEEP_INTERVAL_MS) return false;
+  lastEntitySweepAt = now;
+  let changed = false;
+  for (const map of [sessions, actors, authGroups, ipEntries]) {
+    for (const [key, value] of map) {
+      const ttl = isRiskyEntity(value) ? RISKY_ENTITY_TTL_MS : ENTITY_IDLE_TTL_MS;
+      if (now - (value.lastSeen || 0) > ttl) {
+        map.delete(key);
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+function pruneEntityReferences() {
+  for (const map of [sessions, actors, authGroups, ipEntries]) {
+    for (const entity of map.values()) {
+      for (const id of entity.sessionIds || []) if (!sessions.has(id)) entity.sessionIds.delete(id);
+      for (const id of entity.actorIds || []) if (!actors.has(id)) entity.actorIds.delete(id);
+    }
+  }
+  clientFlowStore.pruneSessions((id) => sessions.has(id));
+  actorResolver.pruneSessions((id) => sessions.has(id));
+}
+
+function enforceEntityLimits(now, current = {}) {
+  // Evaluate every map, even when an earlier map has already changed.
+  const changed = [
+    sweepIdleEntities(now),
+    evictOverCap(sessions, MAX_SESSIONS, current.sessionId),
+    evictOverCap(actors, MAX_ACTORS, current.actorId),
+    evictOverCap(authGroups, MAX_AUTH_GROUPS, current.authGroupId),
+    evictOverCap(ipEntries, MAX_IP_ENTRIES, current.ip),
+  ].some(Boolean);
+  if (changed) pruneEntityReferences();
+}
+
+// Idle stores also expire when no further requests arrive. Do not keep Node alive.
+setInterval(() => enforceEntityLimits(Date.now()), ENTITY_SWEEP_INTERVAL_MS).unref();
+
 const SENSITIVE_DETECTION_HEADERS = new Set([
   "authorization",
   "proxy-authorization",
@@ -170,13 +264,13 @@ function deriveActorId(ip, fingerprint) {
   return `actor:${digest}`;
 }
 
-function getOrCreateSession(sessionId, ip) {
+function getOrCreateSession(sessionId, ip, now = Date.now(), enforce = true) {
   if (!sessions.has(sessionId)) {
     sessions.set(sessionId, {
       id: sessionId,
       ip,
-      firstSeen: Date.now(),
-      lastSeen: Date.now(),
+      firstSeen: now,
+      lastSeen: now,
       requests: [], // { ts, method, url, status }
       headerSample: null,
       fingerprint: null,
@@ -200,7 +294,8 @@ function getOrCreateSession(sessionId, ip) {
     });
   }
   const s = sessions.get(sessionId);
-  s.lastSeen = Date.now();
+  s.lastSeen = now;
+  if (enforce) enforceEntityLimits(now, { sessionId });
   return s;
 }
 
@@ -229,6 +324,8 @@ function recordRequest(
     tags,
     blTags,
     csrfTags,
+    xssTags,
+    xssMaxRisk,
     loginAttemptEmail,
     resetPasswordEmail,
     securityQuestionEmail,
@@ -251,8 +348,8 @@ function recordRequest(
     ts,
   }
 ) {
-  const s = getOrCreateSession(sessionId, ip);
   const now = Number.isFinite(ts) ? ts : Date.now();
+  const s = getOrCreateSession(sessionId, ip, now, false);
   const legacyFingerprint = headerFingerprint(headers);
   const legacyActorId = deriveActorId(ip, legacyFingerprint);
   const httpFingerprint = buildHttpFingerprint({
@@ -342,6 +439,8 @@ function recordRequest(
     body: truncateBody(body),
     blTags: blTags || [],
     csrfTags: csrfTags || [],
+    xssTags: xssTags || [],
+    xssMaxRisk: Number.isFinite(xssMaxRisk) ? xssMaxRisk : 0,
     loginAttemptEmail: loginAttemptEmail || null,
     resetPasswordEmail: resetPasswordEmail || null,
     securityQuestionEmail: securityQuestionEmail || null,
@@ -465,6 +564,9 @@ function recordRequest(
   recordDeceptionHistory(actor, deceptionEvents, now);
   if (authGroupId) recordDeceptionHistory(authGroups.get(authGroupId), deceptionEvents, now);
 
+  // 엔티티 목록이 무제한으로 커지지 않도록 개수 상한 + idle TTL 적용(위험 신원 우선 보존).
+  enforceEntityLimits(now, { sessionId, actorId, authGroupId, ip });
+
   return s;
 }
 
@@ -481,11 +583,28 @@ function recordTelemetry(sessionId, ip, payload) {
   t.mouseMoveCount += payload.mouseMoveCount || 0;
   t.scrollCount += payload.scrollCount || 0;
   t.routeChangeCount += payload.routeChangeCount || 0;
-  (payload.domEventTypes || []).forEach((ev) => t.domEventTypes.add(ev));
+  // Event names are a small browser vocabulary, not an unbounded label store.
+  for (const ev of Array.isArray(payload.domEventTypes) ? payload.domEventTypes : []) {
+    if (typeof ev === "string" && ev.length <= 64 && t.domEventTypes.size < 32) t.domEventTypes.add(ev);
+  }
   t.pageLoads += payload.pageLoad ? 1 : 0;
   if (typeof payload.url === "string") t.currentUrl = payload.url.slice(0, 2048);
   t.lastTelemetryAt = Date.now();
   return s;
+}
+
+function attachStoredXssFinding(origin, tags, maxRisk) {
+  if (!origin?.requestId) return false;
+  const session = sessions.get(origin.sessionId);
+  if (!session?.requests.some((request) => request.requestId === origin.requestId)) return false;
+  for (const entity of [session, actors.get(origin.actorId), authGroups.get(origin.authGroupId), ipEntries.get(origin.ip)]) {
+    for (const request of entity?.requests || []) {
+      if (request.requestId !== origin.requestId) continue;
+      request.xssTags = [...new Set([...(request.xssTags || []), ...tags])];
+      request.xssMaxRisk = Math.max(request.xssMaxRisk || 0, maxRisk);
+    }
+  }
+  return true;
 }
 
 function getSession(sessionId) {
@@ -828,6 +947,7 @@ module.exports = {
   getAllClientFlowAggregates,
   getClientFlowState,
   updateAttackScoreHistory,
+  attachStoredXssFinding,
   emptyAttackHistory,
   emptyDeceptionHistory,
   recordDeceptionHistory,

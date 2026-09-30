@@ -45,6 +45,9 @@ const {
 const { checkIdentityMismatch, decodeClaimedIdentity, extractToken } = require("./lib/identityMismatch");
 const { checkRoleGatedAccess, isHardcodedSensitiveRoute } = require("./lib/roleGatedAccess");
 const { checkCsrf, buildAllowedOrigins } = require("./lib/csrfDetection");
+const { analyzeExchange: analyzeXssExchange, extractCandidates: extractXssCandidates } = require("./lib/xssReflection");
+const { XssCandidateStore } = require("./lib/xssCandidateStore");
+const { attributeStoredFindings } = require("./lib/xssAttribution");
 const { extractLoginAttemptEmail } = require("./lib/loginBruteForce");
 const {
   extractResetPasswordEmail,
@@ -93,6 +96,8 @@ const DETECTION_DASHBOARD_COOKIE_SECURE =
   process.env.DETECTION_DASHBOARD_COOKIE_SECURE === "true";
 const DETECTION_DASHBOARD_REQUIRE_HTTPS =
   process.env.DETECTION_DASHBOARD_REQUIRE_HTTPS === "true";
+const ALLOW_INSECURE_DASHBOARD_HTTP =
+  process.env.ALLOW_INSECURE_DASHBOARD_HTTP === "true";
 if (process.env.NODE_ENV === "production") {
   const missing = [
     "PAYLOAD_FINGERPRINT_KEY",
@@ -101,7 +106,12 @@ if (process.env.NODE_ENV === "production") {
     "DETECTION_DASHBOARD_PASSWORD",
   ].filter((name) => !process.env[name]);
   if (missing.length) throw new Error(`missing production secrets: ${missing.join(", ")}`);
-  if (!DETECTION_DASHBOARD_COOKIE_SECURE || !DETECTION_DASHBOARD_REQUIRE_HTTPS) {
+  if (ALLOW_INSECURE_DASHBOARD_HTTP &&
+      (DETECTION_DASHBOARD_COOKIE_SECURE || DETECTION_DASHBOARD_REQUIRE_HTTPS)) {
+    throw new Error("HTTP dashboard mode requires HTTPS enforcement and Secure cookies to be disabled");
+  }
+  if (!ALLOW_INSECURE_DASHBOARD_HTTP &&
+      (!DETECTION_DASHBOARD_COOKIE_SECURE || !DETECTION_DASHBOARD_REQUIRE_HTTPS)) {
     throw new Error("production dashboard authentication requires HTTPS and Secure cookies");
   }
 }
@@ -424,6 +434,72 @@ function prepareRequestObservation(req) {
   });
 }
 
+// Stored XSS 대조용 저장소: 쓰기 요청에서 관찰한 값을 나중 응답과 대조한다.
+const xssCandidateStore = new XssCandidateStore({
+  ttlMs: process.env.XSS_CANDIDATE_TTL_MS,
+  maxEntries: process.env.XSS_MAX_CANDIDATES,
+  maxBytes: process.env.XSS_MAX_CANDIDATE_BYTES,
+  maxValueBytes: process.env.XSS_MAX_VALUE_BYTES,
+});
+// XSS 반영 검사에 넘길 응답 본문 최대 크기(과대 응답은 body 검사 생략, 헤더 검사만).
+const configuredXssBodyBytes = Number(process.env.XSS_MAX_BODY_BYTES);
+const XSS_MAX_BODY_BYTES = Number.isSafeInteger(configuredXssBodyBytes) && configuredXssBodyBytes > 0
+  ? configuredXssBodyBytes : 2_000_000;
+const XSS_WRITE_METHODS = new Set(["POST", "PUT", "PATCH"]);
+
+// Reflected/Stored XSS: 요청 값이 이 응답에 이스케이프 없이 반영됐는지 검사한다.
+function computeXssDetection(req, responseBuffer, responseHeaders) {
+  try {
+    const method = String(req.method || "").toUpperCase();
+    const xssReq = {
+      method,
+      url: req.originalUrl,
+      body: req.body,
+      contentType: req.headers["content-type"],
+      responseContentType: responseHeaders && responseHeaders["content-type"],
+    };
+    const body =
+      Buffer.isBuffer(responseBuffer) && responseBuffer.length <= XSS_MAX_BODY_BYTES
+        ? responseBuffer.toString("utf8")
+        : "";
+    const result = analyzeXssExchange(xssReq, body, responseHeaders || {}, xssCandidateStore);
+    attributeStoredFindings(result.findings, {
+      attachFinding: store.attachStoredXssFinding,
+      refreshOrigin: refreshXssOriginScores,
+    });
+    return result.reflected;
+  } catch {
+    return { tags: [], maxRisk: 0 };
+  }
+}
+
+function refreshXssOriginScores(origin) {
+  const session = store.getSession(origin.sessionId);
+  const actor = store.getActor(origin.actorId);
+  const authGroup = store.getAuthGroup(origin.authGroupId);
+  const flow = store.getClientFlowAggregate(origin.clientFlowId);
+  store.updateAttackScoreHistory({
+    ...origin,
+    scores: {
+      session: session ? analyzeSession(session).attackScore : undefined,
+      actor: actor ? analyzeActor(actor).attackScore : undefined,
+      authGroup: authGroup ? analyzeAuthGroup(authGroup).attackScore : undefined,
+      clientFlow: flow?.aggregationEnabled ? analyzeClientFlow(flow).attackScore : undefined,
+    },
+  });
+}
+
+function observeXssWrite(req, session, status) {
+  if (!XSS_WRITE_METHODS.has(String(req.method).toUpperCase()) || status < 200 || status >= 400) return;
+  const origin = session.requests.at(-1);
+  if (!origin) return;
+  xssCandidateStore.observe(extractXssCandidates({
+    url: req.originalUrl,
+    body: req.body,
+    contentType: req.headers["content-type"],
+  }), normalizePath(req.originalUrl), origin);
+}
+
 function recordCompletedRequest(req, {
   status,
   responseContentType = null,
@@ -452,6 +528,8 @@ function recordCompletedRequest(req, {
     tags,
     blTags: req.blTags,
     csrfTags: req.csrfTags,
+    xssTags: req.xssTags,
+    xssMaxRisk: Number.isFinite(req.xssMaxRisk) ? req.xssMaxRisk : 0,
     loginAttemptEmail: req.loginAttemptEmail,
     resetPasswordEmail: req.resetPasswordEmail,
     securityQuestionEmail: req.securityQuestionEmail,
@@ -1086,6 +1164,9 @@ const detectionHook = {
     const attackDetection = req.crsScanPromise
       ? await req.crsScanPromise
       : { available: false, error: "scan was not started", categories: [], hits: [] };
+    const xssDetection = computeXssDetection(req, responseBuffer, proxyRes.headers);
+    req.xssTags = xssDetection.tags;
+    req.xssMaxRisk = xssDetection.maxRisk;
     const {
       session,
       effectiveDetectionSource,
@@ -1097,6 +1178,7 @@ const detectionHook = {
       responseBodyBytes: responseBuffer.length,
       attackDetection,
     });
+    observeXssWrite(req, session, proxyRes.statusCode);
 
     // 실험 검증 전에는 BLOCK_MODE도 log-only다. 응답 상태나 body를 변경하지 않는다.
     if (BLOCK_MODE) {

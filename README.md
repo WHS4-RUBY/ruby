@@ -44,7 +44,7 @@ ModSecurity/OWASP CRS, 행동 기반 휴리스틱, Honey/Deception 신호와 실
 
 서버에서는 [`.env.example`](.env.example)을 `.env`로 복사한 뒤 `IMAGE_PREFIX`와 배포할 `IMAGE_TAG`를 설정합니다. 운영 Compose는 두 대시보드 비밀번호와 `PAYLOAD_FINGERPRINT_KEY`, `DCID_HMAC_SECRET`, `ACCOUNT_ID_HASH_KEY`가 없으면 시작하지 않습니다. GitHub Actions 배포에서는 `DEFENSE_DASHBOARD_PASSWORD`를 두 대시보드에 사용하고 나머지 세 값을 같은 이름의 Repository Secret에서 가져옵니다.
 
-운영 대시보드 로그인은 HTTPS에서만 허용되며 쿠키에도 Secure 속성이 적용됩니다. 서버 앞의 HTTPS reverse proxy는 원래 프로토콜을 `X-Forwarded-Proto`로 전달해야 합니다. HTTP로 직접 접속하면 일반 보호 대상 서비스는 열리지만 대시보드 로그인은 거부됩니다. Actions의 Deploy workflow는 `main` CI가 성공한 커밋만 SHA 태그로 배포하고, health 및 인증 smoke test 실패 시 직전 SHA로 복구합니다.
+운영 대시보드는 기본적으로 HTTPS와 Secure 쿠키가 필요합니다. 서버 앞에 HTTPS reverse proxy를 두는 경우 원래 프로토콜을 `X-Forwarded-Proto`로 전달해야 합니다. 현재 IP 주소의 포트 80으로 접속하는 서버는 배포 workflow에서 `ALLOW_INSECURE_DASHBOARD_HTTP=true`와 두 대시보드의 HTTPS/Secure 쿠키 설정 및 `DCID_COOKIE_SECURE=false`를 명시해 HTTP 로그인을 허용합니다. 이때 비밀번호와 세션 쿠키는 전송 중 암호화되지 않으므로 접근 IP를 제한해야 합니다. Actions의 Deploy workflow는 `main` CI가 성공한 커밋만 SHA 태그로 배포하고, health 및 인증 smoke test 실패 시 직전 SHA로 복구합니다.
 
 ```bash
 cp .env.example .env

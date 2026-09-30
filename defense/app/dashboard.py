@@ -32,10 +32,13 @@ def _positive_int(name: str, default: int) -> int:
 
 DASHBOARD_COOKIE_SECURE = os.getenv("DEFENSE_DASHBOARD_COOKIE_SECURE", "false").lower() == "true"
 DASHBOARD_REQUIRE_HTTPS = os.getenv("DEFENSE_DASHBOARD_REQUIRE_HTTPS", "false").lower() == "true"
+ALLOW_INSECURE_DASHBOARD_HTTP = os.getenv("ALLOW_INSECURE_DASHBOARD_HTTP", "false").lower() == "true"
 if os.getenv("RUBY_ENV") == "production":
     if not os.getenv("DEFENSE_DASHBOARD_PASSWORD"):
         raise RuntimeError("DEFENSE_DASHBOARD_PASSWORD is required in production")
-    if not DASHBOARD_COOKIE_SECURE or not DASHBOARD_REQUIRE_HTTPS:
+    if ALLOW_INSECURE_DASHBOARD_HTTP and (DASHBOARD_COOKIE_SECURE or DASHBOARD_REQUIRE_HTTPS):
+        raise RuntimeError("HTTP dashboard mode requires HTTPS enforcement and Secure cookies to be disabled")
+    if not ALLOW_INSECURE_DASHBOARD_HTTP and (not DASHBOARD_COOKIE_SECURE or not DASHBOARD_REQUIRE_HTTPS):
         raise RuntimeError("production dashboard authentication requires HTTPS and Secure cookies")
 auth_manager = DashboardAuthManager(
     password=os.getenv("DEFENSE_DASHBOARD_PASSWORD", ""),

@@ -81,6 +81,7 @@ class ClientFlowStore {
       if (sessionId) indexed.sessionIds.add(sessionId);
       if (clientIdentity?.continuityVerified && clientIdentity.clientId) {
         indexed.verifiedClientIds.add(clientIdentity.clientId);
+        while (indexed.verifiedClientIds.size > 100) indexed.verifiedClientIds.delete(indexed.verifiedClientIds.values().next().value);
       }
       return indexed;
     }
@@ -107,6 +108,7 @@ class ClientFlowStore {
     if (sessionId) group.sessionIds.add(sessionId);
     if (clientIdentity?.continuityVerified && clientIdentity.clientId) {
       group.verifiedClientIds.add(clientIdentity.clientId);
+      while (group.verifiedClientIds.size > 100) group.verifiedClientIds.delete(group.verifiedClientIds.values().next().value);
     }
     group.links.push({
       fromCandidateId: group.anchorCandidateId,
@@ -143,6 +145,12 @@ class ClientFlowStore {
 
   getAll() {
     return [...this.groups.values()];
+  }
+
+  pruneSessions(isRetained) {
+    for (const group of this.groups.values()) {
+      for (const id of group.sessionIds) if (!isRetained(id)) group.sessionIds.delete(id);
+    }
   }
 
   cleanupIfDue(now = Date.now()) {
