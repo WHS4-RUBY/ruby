@@ -39,6 +39,13 @@ Detection 프록시를 통해 `http://localhost:8081/__defense/dashboard`에서 
 
 새 방어 기법은 `DefenseStrategy`를 구현해 Registry에 등록하면 대시보드에 자동으로 집계됩니다.
 
+## 경로 별칭 (별칭 기법 2b단계, 2026-09-30)
+
+`/rest/`, `/api/` 같은 보호 접두사를 주기마다 바뀌는 별칭(`/pxxxxxxxxxx/`)으로 바꿔 공급합니다.
+Defense가 HTML·JS·JSON 응답의 경로를 별칭으로 바꿔 쓰고, 들어온 별칭 요청을 원래 경로로 되돌려 전달합니다.
+외워 둔 원래 경로로 바로 온 요청은 `observe`에서 기록하고, `enforce`에서 404로 막습니다.
+기본값은 `PATH_ALIAS_MODE=off`이며, 설계·설정·검증 결과·한계는 [경로 별칭 기획](docs/path-alias-plan.md)을 참고하세요.
+
 ## 토큰 관찰과 CRS 차단 (2026-09-30)
 
 토큰이 없거나 만료·변조되었다는 이유만으로 요청을 차단하지 않습니다.

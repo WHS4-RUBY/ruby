@@ -17,9 +17,10 @@ from websockets.exceptions import ConnectionClosed
 from .dashboard import router as dashboard_router
 from .monitoring import event_store
 from .strategies.registry import STRATEGY_REGISTRY
-from . import token_gate
+from . import path_alias, token_gate
 
 TOKEN_GATE = token_gate.TokenGateConfig.from_env()
+PATH_ALIAS = path_alias.PathAliasConfig.from_env()
 
 BENCHMARK_TARGET_URL = os.getenv("BENCHMARK_TARGET_URL", "http://localhost:9000")
 
@@ -48,6 +49,9 @@ _DEFENSE_INTERNAL_HEADERS = {"x-defense-plan", "x-defense-management-client"}
 _FORWARDED_HEADERS = {"forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"}
 _REQUEST_SKIP = _HOP_BY_HOP | {"accept-encoding"} | _DEFENSE_INTERNAL_HEADERS | _FORWARDED_HEADERS
 _STREAM_RESPONSE_SKIP = _HOP_BY_HOP | {"date", "server"}
+# Cached copies of a rewritten body would carry expired aliases.
+_CONDITIONAL_REQUEST_HEADERS = {"if-none-match", "if-modified-since"}
+_REWRITTEN_RESPONSE_SKIP = _RESPONSE_SKIP | {"etag", "last-modified", "cache-control"}
 _WEBSOCKET_SKIP = _HOP_BY_HOP | {
     "sec-websocket-accept",
     "sec-websocket-extensions",
@@ -168,8 +172,8 @@ async def _stream_body(upstream: httpx.Response):
         await upstream.aclose()
 
 
-def streaming_proxy_response(upstream: httpx.Response, request: Request) -> StreamingResponse:
-    response = StreamingResponse(_stream_body(upstream), status_code=upstream.status_code)
+def streaming_proxy_response(upstream: httpx.Response, request: Request, body=None) -> StreamingResponse:
+    response = StreamingResponse(body or _stream_body(upstream), status_code=upstream.status_code)
     for key, value in upstream.headers.multi_items():
         if key.lower() in _STREAM_RESPONSE_SKIP:
             continue
@@ -180,6 +184,78 @@ def streaming_proxy_response(upstream: httpx.Response, request: Request) -> Stre
             )
         )
     return response
+
+
+def _log_alias(request: Request, resolution: path_alias.Resolution, decision: str,
+               upstream_status: int | None = None, rewrites: int = 0,
+               skipped: str | None = None) -> None:
+    if PATH_ALIAS.mode == "off" or (resolution.kind == "other" and not rewrites and skipped is None):
+        return
+    path_alias.emit(path_alias.build_log(
+        resolution, decision, now=time.time(), mode=PATH_ALIAS.mode, method=request.method,
+        path=request.url.path, headers=request.headers, upstream_status=upstream_status,
+        rewrites=rewrites, rewrite_skipped=skipped,
+        ua_family=token_gate.ua_family(request.headers.get("user-agent")),
+    ))
+
+
+def _alias_not_found() -> Response:
+    return Response(content=b'{"error":"not_found"}', status_code=404,
+                    media_type="application/json", headers={"Cache-Control": "no-store"})
+
+
+async def _replay_body(consumed: list[bytes], rest, upstream: httpx.Response):
+    try:
+        for chunk in consumed:
+            yield chunk
+        async for chunk in rest:
+            yield chunk
+    finally:
+        await upstream.aclose()
+
+
+async def alias_proxy_response(upstream: httpx.Response, request: Request) -> tuple[Response, int, str | None]:
+    """Serve an upstream response with protected prefixes replaced by the current aliases."""
+    aliases = path_alias.current_aliases(PATH_ALIAS, time.time())
+    rewrites, skipped = 0, None
+    if not path_alias.rewritable(upstream.headers.get("content-type", ""),
+                                 upstream.headers.get("content-encoding", ""),
+                                 upstream.status_code, request.method):
+        response = streaming_proxy_response(upstream, request)
+    else:
+        consumed, size = [], 0
+        stream = upstream.aiter_raw()
+        async for chunk in stream:
+            consumed.append(chunk)
+            size += len(chunk)
+            if size > PATH_ALIAS.max_rewrite_bytes:
+                break
+        if size > PATH_ALIAS.max_rewrite_bytes:
+            skipped = "too_large"
+            response = streaming_proxy_response(upstream, request, _replay_body(consumed, stream, upstream))
+        else:
+            await upstream.aclose()
+            body, rewrites = path_alias.rewrite_body(b"".join(consumed), aliases)
+            skip = _REWRITTEN_RESPONSE_SKIP if rewrites else _RESPONSE_SKIP
+            response = Response(content=body, status_code=upstream.status_code)
+            for key, value in upstream.headers.multi_items():
+                if key.lower() in skip:
+                    continue
+                response.raw_headers.append(
+                    (
+                        key.encode("latin-1"),
+                        _rewrite_response_header(key, _header_value(value), request).encode("latin-1"),
+                    )
+                )
+            if rewrites:
+                response.headers["cache-control"] = "no-store"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    response.raw_headers = [
+        (key, path_alias.rewrite_location(value.decode("latin-1"), aliases, host).encode("latin-1"))
+        if key.lower() == b"location" else (key, value)
+        for key, value in response.raw_headers
+    ]
+    return response, rewrites, skipped
 
 
 def _websocket_target(full_path: str, query: str) -> str:
@@ -303,6 +379,11 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
     methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 async def catch_all(request: Request, full_path: str):
+    alias = path_alias.resolve(request.url.path, time.time(), PATH_ALIAS)
+    alias_decision = path_alias.decide(alias, PATH_ALIAS)
+    translated = alias.kind in ("alias", "stale")
+    record_path = alias.upstream_path if translated else request.url.path
+
     gate = None
     if TOKEN_GATE.mode != "off":
         gate = token_gate.evaluate(
@@ -311,8 +392,22 @@ async def catch_all(request: Request, full_path: str):
         )
 
     started_at = time.perf_counter()
+    if alias_decision == "block":
+        _log_gate(request, gate)
+        _log_alias(request, alias, alias_decision)
+        event_store.record(
+            method=request.method,
+            path=record_path,
+            status=404,
+            strategies=["path_alias"],
+            outcome="blocked",
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            client_id=request.headers.get("x-client-id"),
+        )
+        return _alias_not_found()
+
     plan = parse_plan(request.headers.get("x-defense-plan"))
-    applied_names: list[str] = []
+    applied_names: list[str] = ["path_alias"] if alias.kind != "other" else []
     extra_headers: dict[str, str] = {}
 
     for step in plan:
@@ -332,7 +427,7 @@ async def catch_all(request: Request, full_path: str):
             _log_gate(request, gate)
             event_store.record(
                 method=request.method,
-                path=request.url.path,
+                path=record_path,
                 status=result.short_circuit.status_code,
                 strategies=applied_names,
                 outcome="blocked",
@@ -343,11 +438,15 @@ async def catch_all(request: Request, full_path: str):
 
     extra_headers["X-Defense-Applied"] = ",".join(applied_names) or "none"
     headers = build_upstream_headers(request, extra_headers)
+    if PATH_ALIAS.mode != "off":
+        headers = {key: value for key, value in headers.items()
+                   if key.lower() not in _CONDITIONAL_REQUEST_HEADERS}
+    upstream_path = alias.upstream_path.lstrip("/") if translated else full_path
 
     try:
         upstream_request = request.app.state.http_client.build_request(
             method=request.method,
-            url=f"{BENCHMARK_TARGET_URL.rstrip('/')}/{full_path}",
+            url=f"{BENCHMARK_TARGET_URL.rstrip('/')}/{upstream_path}",
             headers=headers,
             content=request.stream() if request.method not in {"GET", "HEAD"} else None,
             params=list(request.query_params.multi_items()),
@@ -355,9 +454,10 @@ async def catch_all(request: Request, full_path: str):
         upstream = await request.app.state.http_client.send(upstream_request, stream=True)
     except httpx.RequestError as exc:
         _log_gate(request, gate)
+        _log_alias(request, alias, alias_decision)
         event_store.record(
             method=request.method,
-            path=request.url.path,
+            path=record_path,
             status=502,
             strategies=applied_names,
             outcome="error",
@@ -368,18 +468,22 @@ async def catch_all(request: Request, full_path: str):
 
     event_store.record(
         method=request.method,
-        path=request.url.path,
+        path=record_path,
         status=upstream.status_code,
         strategies=applied_names,
         outcome="forwarded",
         duration_ms=(time.perf_counter() - started_at) * 1000,
         client_id=request.headers.get("x-client-id"),
     )
-    response = streaming_proxy_response(upstream, request)
+    if PATH_ALIAS.mode != "off":
+        response, rewrites, skipped = await alias_proxy_response(upstream, request)
+    else:
+        response, rewrites, skipped = streaming_proxy_response(upstream, request), 0, None
     if gate is not None and gate.issue_cookie and not 500 <= upstream.status_code < 600:
         response.raw_headers.append(
             (b"set-cookie", token_gate.build_set_cookie(TOKEN_GATE, time.time()).encode("latin-1"))
         )
         response.headers["cache-control"] = "no-store"
     _log_gate(request, gate, upstream.status_code, upstream.headers.get("content-type", ""))
+    _log_alias(request, alias, alias_decision, upstream.status_code, rewrites, skipped)
     return response
