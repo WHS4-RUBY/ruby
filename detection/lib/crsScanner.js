@@ -1,9 +1,11 @@
 const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const readline = require("node:readline");
+const { TextDecoder } = require("node:util");
 
 const EMPTY_RESULT = Object.freeze({
   available: false,
+  inspectionComplete: false,
   engine: "owasp-modsecurity",
   crsVersion: null,
   anomalyScore: 0,
@@ -59,7 +61,7 @@ class CrsScanner {
     this.rulesFile = rulesFile;
     this.timeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 2000;
     this.maximumBodyBytes = Number.isSafeInteger(maximumBodyBytes) && maximumBodyBytes > 0
-      ? maximumBodyBytes
+      ? Math.min(maximumBodyBytes, 1_048_576) // native scanner's configured hard limit
       : 1_048_576;
     this.spawnProcess = spawnProcess;
     this.pending = new Map();
@@ -115,7 +117,12 @@ class CrsScanner {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pending.delete(result.id);
-    pending.resolve({ ...EMPTY_RESULT, ...result });
+    pending.resolve({ ...EMPTY_RESULT, ...result,
+      bodyTruncated: pending.bodyTruncated,
+      inspectionBodyMode: pending.inspectionBodyMode,
+      inspectionComplete: result.available === true && !pending.bodyTruncated
+        && result.inspectionComplete === true,
+    });
   }
 
   scan(req, clientIp) {
@@ -128,18 +135,33 @@ class CrsScanner {
     }
 
     const id = randomUUID();
-    const body = requestBodyBuffer(req, this.maximumBodyBytes);
+    let body = req.detectionRequestBodyBuffer;
+    const headers = normalizeHeaderValues(req.headers);
+    const type = String(req.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
+    let inspectionBodyMode = "native";
+    if (type === "text/plain" && Buffer.isBuffer(body) && body.length) {
+      // CRS inspects ARGS; plain text otherwise has no body processor. Inspect
+      // the entire UTF-8 text as a JSON string, but forward the original bytes.
+      // This is content inspection, not an Engine.IO/Socket.IO protocol parser.
+      try {
+        body = Buffer.from(JSON.stringify({ ruby_raw_body: new TextDecoder("utf-8", { fatal: true }).decode(body) }));
+      } catch {
+        return Promise.resolve({ ...unavailableResult("Invalid UTF-8 body"), inspectionIssue: "unsupported_body_encoding" });
+      }
+      headers["content-type"] = "application/json";
+      headers["content-length"] = String(body.length);
+      inspectionBodyMode = "text_as_json_string";
+    }
+    const bodyTruncated = Buffer.isBuffer(body) && body.length > this.maximumBodyBytes;
     const payload = {
       id,
       method: req.method,
       uri: req.originalUrl || req.url || "/",
       protocol: req.httpVersion || "1.1",
       clientIp: clientIp || "127.0.0.1",
-      headers: normalizeHeaderValues(req.headers),
-      bodyBase64: body ? body.toString("base64") : "",
-      bodyTruncated: Buffer.isBuffer(req.detectionRequestBodyBuffer)
-        ? req.detectionRequestBodyBuffer.length > this.maximumBodyBytes
-        : false,
+      headers,
+      bodyBase64: Buffer.isBuffer(body) ? body.subarray(0, this.maximumBodyBytes).toString("base64") : "",
+      bodyTruncated,
     };
 
     return new Promise((resolve) => {
@@ -147,7 +169,7 @@ class CrsScanner {
         this.pending.delete(id);
         resolve(unavailableResult(`CRS scan timed out after ${this.timeoutMs}ms`));
       }, this.timeoutMs);
-      this.pending.set(id, { resolve, timer });
+      this.pending.set(id, { resolve, timer, bodyTruncated, inspectionBodyMode });
       this.child.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
         if (!error) return;
         clearTimeout(timer);
@@ -169,6 +191,7 @@ class CrsScanner {
 module.exports = {
   CrsScanner,
   EMPTY_RESULT,
+  unavailableResult,
   normalizeHeaderValues,
   requestBodyBuffer,
 };

@@ -15,7 +15,29 @@ RUBY의 방어 계층을 개발하는 영역입니다. Detection Proxy의 Policy
 
 ## 개발 상태
 
-현재는 저장소 기본 운영 규칙을 준비하는 단계입니다. 세부 폴더 구조와 기술 스택은 설계가 확정된 뒤 추가합니다.
+FastAPI 프록시와 지연·요청 빈도 제한 전략을 구현했습니다.
+
+### 토큰 관찰과 CRS 차단 (2026-09-30 수정)
+
+토큰이 없거나 만료·변조되었다는 이유만으로 요청을 차단하지 않습니다.
+`TOKEN_GATE_MODE=observe`는 쿠키 발급·갱신과 상태 기록만 수행하고, `off`는 이를 끕니다.
+예전 `enforce` 설정은 경고와 함께 `observe`로 처리합니다. 토큰은 접근 권한이나
+정상 사용자 증명이 아니며, 현재의 시간 구간별 공통 토큰은 개별 세션 식별에도 쓰지 않습니다.
+기록에는 Detection이 전달한 `X-Client-Id`를 사용합니다. 탐지 정확도 개선은 아직 미검증입니다.
+
+현재 요청의 SQL 인젝션 등 차단은 앞단 Detection의 `CRS_MODE=enforce`가 수행합니다.
+로컬 Compose는 CRS `enforce` + 토큰 `observe`가 기본입니다.
+검사 범위·실패 처리·설정은 [Detection README](../detection/README.md#전달-전-crs-검사-2026-09-30)를 참고하세요.
+
+`scripts/token_gate_smoke.py`는 정상 요청이 토큰 유무·만료와 관계없이 통과하는지 확인합니다.
+`scripts/verify_request_inspection.py`는 로컬 Compose 네트워크 안에서만 실행하는 Juice Shop 회귀 검사이며,
+직접 대상의 양성 대조군, 쿠키 전후 SQLi 차단, 정상 계정 생성·로그인·사용자 확인을 검사합니다.
+`--expiry-wait 21`은 테스트용 epoch 10초, grace 1 설정에서 만료 후 동작까지 확인합니다.
+`scripts/browser_inspection_regression.cjs`는 Playwright가 설치된 로컬 테스트 이미지에서 실행하며,
+화면 5단계와 모든 HTTP 4xx/5xx 응답을 함께 검사합니다. 결과 경로는 `/results`입니다.
+
+`docs/token-gate-plan.md`와 새벽 테스트 기록은 이전 설계의 이력입니다.
+이후 검증 결과는 [진행 기록](docs/token-gate-docker-progress.md)에 이어 기록합니다.
 
 ## 참여 방법
 

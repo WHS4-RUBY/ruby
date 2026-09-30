@@ -7,12 +7,16 @@ TODO: strategy별 실제 요청/응답 변형 로직 구현.
 """
 import json
 import os
+import time
 
 import httpx
 from fastapi import FastAPI, Request
 from starlette.responses import Response
 
 from .strategies.registry import STRATEGY_REGISTRY
+from . import token_gate
+
+TOKEN_GATE = token_gate.TokenGateConfig.from_env()
 
 BENCHMARK_TARGET_URL = os.getenv("BENCHMARK_TARGET_URL", "http://localhost:9000")
 
@@ -95,6 +99,17 @@ def proxy_response(upstream: httpx.Response) -> Response:
     return response
 
 
+def _log_gate(request: Request, decision: token_gate.GateDecision | None,
+              upstream_status: int | None = None, content_type: str = "") -> None:
+    if decision is None or decision.kind == "exempt":
+        return
+    token_gate.emit(token_gate.build_log(
+        decision, now=time.time(), mode=TOKEN_GATE.mode, method=request.method,
+        path=request.url.path, headers=request.headers, upstream_status=upstream_status,
+        observation=token_gate.observe_response(decision, request.method, upstream_status, content_type),
+    ))
+
+
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
@@ -105,6 +120,13 @@ async def healthz():
     methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 async def catch_all(request: Request, full_path: str):
+    gate = None
+    if TOKEN_GATE.mode != "off":
+        gate = token_gate.evaluate(
+            request.method, request.url.path, request.headers,
+            request.cookies.get(token_gate.COOKIE_NAME), time.time(), TOKEN_GATE,
+        )
+
     plan = parse_plan(request.headers.get("x-defense-plan"))
 
     applied_names: list[str] = []
@@ -127,6 +149,7 @@ async def catch_all(request: Request, full_path: str):
             for k, v in extra_headers.items():
                 result.short_circuit.headers[k] = v
             result.short_circuit.headers["X-Defense-Applied"] = ",".join(applied_names)
+            _log_gate(request, gate)
             return result.short_circuit
 
     extra_headers["X-Defense-Applied"] = ",".join(applied_names) or "none"
@@ -145,6 +168,14 @@ async def catch_all(request: Request, full_path: str):
                 params=list(request.query_params.multi_items()),
             )
     except httpx.RequestError as exc:
+        _log_gate(request, gate)
         return Response(content=str(exc).encode(), status_code=502)
 
-    return proxy_response(upstream)
+    response = proxy_response(upstream)
+    if gate is not None and gate.issue_cookie and not 500 <= upstream.status_code < 600:
+        response.raw_headers.append(
+            (b"set-cookie", token_gate.build_set_cookie(TOKEN_GATE, time.time()).encode("latin-1"))
+        )
+        response.headers["cache-control"] = "no-store"
+    _log_gate(request, gate, upstream.status_code, upstream.headers.get("content-type", ""))
+    return response

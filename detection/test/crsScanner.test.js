@@ -37,6 +37,7 @@ test("CRS scanner는 헤더와 제한된 원문 body를 JSONL helper에 전달�
       observed = request;
       return {
         available: true,
+        inspectionComplete: true,
         crsVersion: "test",
         anomalyScore: 5,
         ruleHitCount: 1,
@@ -67,6 +68,22 @@ test("CRS scanner는 헤더와 제한된 원문 body를 JSONL helper에 전달�
   assert.equal(observed.headers.cookie, undefined);
   assert.equal(Buffer.from(observed.bodyBase64, "base64").toString(), "abcd");
   assert.equal(observed.bodyTruncated, true);
+  assert.equal(result.bodyTruncated, true);
+  assert.equal(result.inspectionComplete, false);
+});
+
+test("scanner timeout remains unavailable, and an old helper cannot claim complete inspection", async () => {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.stdin = new PassThrough();
+  const scanner = new CrsScanner({ timeoutMs: 20, spawnProcess: () => child });
+  const timedOut = await scanner.scan({ method: "GET", headers: {} }, "127.0.0.1");
+  assert.equal(timedOut.available, false);
+  assert.equal(timedOut.inspectionComplete, false);
+  assert.match(timedOut.error, /timed out/);
+  const oldHelper = new CrsScanner({ spawnProcess: () => fakeScannerProcess(() => ({ available: true, anomalyScore: 0 })) });
+  assert.equal((await oldHelper.scan({ method: "GET", headers: {} })).inspectionComplete, false);
 });
 
 test("CRS 비활성화 시 helper를 실행하지 않고 unavailable 관찰값을 반환한다", async () => {
@@ -82,6 +99,26 @@ test("CRS 비활성화 시 helper를 실행하지 않고 unavailable 관찰값�
   assert.equal(spawned, false);
   assert.equal(result.available, false);
   assert.match(result.error, /disabled/);
+});
+
+test("plain text is fully inspected as a JSON string without altering original request bytes", async () => {
+  let observed;
+  const scanner = new CrsScanner({ spawnProcess: () => fakeScannerProcess((request) => {
+    observed = request;
+    return { available: true, inspectionComplete: true, anomalyScore: 0 };
+  }) });
+  const raw = Buffer.from('42["message", "한글"]');
+  const req = { method: "POST", headers: { "content-type": "text/plain;charset=UTF-8" }, detectionRequestBodyBuffer: raw };
+  const result = await scanner.scan(req);
+  assert.equal(JSON.parse(Buffer.from(observed.bodyBase64, "base64").toString()).ruby_raw_body, raw.toString());
+  assert.equal(observed.headers["content-type"], "application/json");
+  assert.equal(result.inspectionComplete, true);
+  assert.equal(result.inspectionBodyMode, "text_as_json_string");
+  assert.equal(req.headers["content-type"], "text/plain;charset=UTF-8");
+  assert.equal(req.detectionRequestBodyBuffer, raw);
+  const invalid = await scanner.scan({ ...req, detectionRequestBodyBuffer: Buffer.from([0xff]) });
+  assert.equal(invalid.inspectionComplete, false);
+  assert.equal(invalid.inspectionIssue, "unsupported_body_encoding");
 });
 
 test("헤더 정규화와 body 길이 제한 helper가 입력을 변형하지 않는다", () => {

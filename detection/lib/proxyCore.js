@@ -46,15 +46,31 @@ function createProxyCore({ target, hooks = [], changeOrigin = true }) {
     onProxyReq(proxyReq, req, res) {
       runRequestHooks(hookList, { proxyReq, req, res, target });
     },
-    onProxyRes: responseInterceptor(async (responseBuffer, proxyRes, req, res) => {
-      return runResponseHooks(hookList, {
-        responseBuffer,
-        proxyRes,
-        req,
-        res,
-        target,
-      });
-    }),
+    onProxyRes(proxyRes, req, res) {
+      // responseInterceptor copies upstream headers before running its callback.
+      // Snapshot this hop's cookies now, before that copy can replace them.
+      const currentCookies = res.getHeader("set-cookie");
+      const localCookies = currentCookies === undefined
+        ? []
+        : Array.isArray(currentCookies) ? [...currentCookies] : [String(currentCookies)];
+
+      return responseInterceptor(async (responseBuffer, proxyRes, req, res) => {
+        if (localCookies.length && proxyRes.headers["set-cookie"] !== undefined) {
+          // Read the copied cookies to preserve the interceptor's domain rewriting.
+          const copiedCookies = res.getHeader("set-cookie");
+          const upstreamCookies = Array.isArray(copiedCookies)
+            ? copiedCookies : copiedCookies === undefined ? [] : [String(copiedCookies)];
+          res.setHeader("set-cookie", [...localCookies, ...upstreamCookies]);
+        }
+        return runResponseHooks(hookList, {
+          responseBuffer,
+          proxyRes,
+          req,
+          res,
+          target,
+        });
+      })(proxyRes, req, res);
+    },
   });
 }
 

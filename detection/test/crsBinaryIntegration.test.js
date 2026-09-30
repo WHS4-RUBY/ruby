@@ -8,6 +8,10 @@ const SCANNER_PATH = process.env.MODSECURITY_SCANNER_PATH || "/app/bin/modsecuri
 const RULES_PATH = process.env.MODSECURITY_RULES_FILE
   || path.join(__dirname, "..", "scanner", "modsecurity.conf");
 
+if (process.env.REQUIRE_CRS_BINARY_TESTS === "true") {
+  assert.ok(existsSync(SCANNER_PATH) && existsSync(RULES_PATH), "Required native CRS test dependencies are missing");
+}
+
 function scannerRequest(id, contentType, body) {
   const bodyBuffer = Buffer.from(body);
   return {
@@ -85,6 +89,19 @@ test("실제 CRS 바이너리가 JSON·+json·URL-encoded SQLi를 탐지하고 �
   assert.ok(results["json-xss"].hits.some((hit) => hit.ruleId === "941100"));
 
   assert.equal(results["clean-json"].available, true);
+  assert.equal(results["clean-json"].inspectionComplete, true);
   assert.equal(results["clean-json"].anomalyScore, 0);
   assert.deepEqual(results["clean-json"].hits, []);
+});
+
+test("native parser errors and truncation are reported as incomplete inspection", {
+  skip: !existsSync(SCANNER_PATH) || !existsSync(RULES_PATH),
+}, () => {
+  const malformed = scannerRequest("malformed", "application/json", '{"value":');
+  const truncated = { ...scannerRequest("truncated", "application/json", '{"value":1}'), bodyTruncated: true };
+  for (const result of runScanner([malformed, truncated])) {
+    assert.equal(result.available, true);
+    assert.equal(result.inspectionComplete, false);
+    assert.ok(result.inspectionErrors.length > 0);
+  }
 });
