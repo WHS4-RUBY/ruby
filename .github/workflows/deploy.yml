@@ -80,11 +80,13 @@ jobs:
           IMAGE_TAG: ${{ env.DEPLOY_SHA }}
           DEFENSE_DASHBOARD_PASSWORD: ${{ secrets.DEFENSE_DASHBOARD_PASSWORD }}
           DETECTION_DASHBOARD_PASSWORD: ${{ secrets.DEFENSE_DASHBOARD_PASSWORD }}
-          DEFENSE_DASHBOARD_COOKIE_SECURE: "true"
-          DEFENSE_DASHBOARD_REQUIRE_HTTPS: "true"
-          DETECTION_DASHBOARD_COOKIE_SECURE: "true"
-          DETECTION_DASHBOARD_REQUIRE_HTTPS: "true"
-          DCID_COOKIE_SECURE: "true"
+          # This server currently exposes port 80 without a TLS proxy. Keep HTTP mode explicit.
+          ALLOW_INSECURE_DASHBOARD_HTTP: "true"
+          DEFENSE_DASHBOARD_COOKIE_SECURE: "false"
+          DEFENSE_DASHBOARD_REQUIRE_HTTPS: "false"
+          DETECTION_DASHBOARD_COOKIE_SECURE: "false"
+          DETECTION_DASHBOARD_REQUIRE_HTTPS: "false"
+          DCID_COOKIE_SECURE: "false"
           PAYLOAD_FINGERPRINT_KEY: ${{ secrets.PAYLOAD_FINGERPRINT_KEY }}
           DCID_HMAC_SECRET: ${{ secrets.DCID_HMAC_SECRET }}
           ACCOUNT_ID_HASH_KEY: ${{ secrets.ACCOUNT_ID_HASH_KEY }}
@@ -93,7 +95,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          envs: GHCR_TOKEN,GHCR_USER,IMAGE_PREFIX,IMAGE_TAG,DEFENSE_DASHBOARD_PASSWORD,DETECTION_DASHBOARD_PASSWORD,DEFENSE_DASHBOARD_COOKIE_SECURE,DEFENSE_DASHBOARD_REQUIRE_HTTPS,DETECTION_DASHBOARD_COOKIE_SECURE,DETECTION_DASHBOARD_REQUIRE_HTTPS,DCID_COOKIE_SECURE,PAYLOAD_FINGERPRINT_KEY,DCID_HMAC_SECRET,ACCOUNT_ID_HASH_KEY,TRUST_PROXY
+          envs: GHCR_TOKEN,GHCR_USER,IMAGE_PREFIX,IMAGE_TAG,DEFENSE_DASHBOARD_PASSWORD,DETECTION_DASHBOARD_PASSWORD,ALLOW_INSECURE_DASHBOARD_HTTP,DEFENSE_DASHBOARD_COOKIE_SECURE,DEFENSE_DASHBOARD_REQUIRE_HTTPS,DETECTION_DASHBOARD_COOKIE_SECURE,DETECTION_DASHBOARD_REQUIRE_HTTPS,DCID_COOKIE_SECURE,PAYLOAD_FINGERPRINT_KEY,DCID_HMAC_SECRET,ACCOUNT_ID_HASH_KEY,TRUST_PROXY
           script: |
             set -Eeuo pipefail
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
@@ -128,13 +130,13 @@ jobs:
             trap 'rm -f "$DETECTION_COOKIES" "$DEFENSE_COOKIES"' EXIT
             curl --fail --silent --show-error http://127.0.0.1/healthz >/dev/null
             curl --fail --silent --show-error -c "$DETECTION_COOKIES" \
-              -H 'X-Forwarded-Proto: https' -H 'Content-Type: application/json' \
+              -H 'Content-Type: application/json' \
               --data "$(printf '{"password":"%s"}' "$DETECTION_DASHBOARD_PASSWORD")" \
               http://127.0.0.1/__detection/api/login >/dev/null
             curl --fail --silent --show-error -b "$DETECTION_COOKIES" \
               http://127.0.0.1/__detection/api/sessions >/dev/null
             curl --fail --silent --show-error -c "$DEFENSE_COOKIES" \
-              -H 'X-Forwarded-Proto: https' -H 'Content-Type: application/json' \
+              -H 'Content-Type: application/json' \
               --data "$(printf '{"password":"%s"}' "$DEFENSE_DASHBOARD_PASSWORD")" \
               http://127.0.0.1/__defense/api/login >/dev/null
             curl --fail --silent --show-error -b "$DEFENSE_COOKIES" \

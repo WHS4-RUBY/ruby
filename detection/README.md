@@ -82,7 +82,7 @@ docker compose -f docker-compose.local.yml up --build
 - Detection 상태: http://localhost:8081/healthz
 - Detection 대시보드: http://localhost:8081/__detection/dashboard
 
-`DETECTION_DASHBOARD_PASSWORD`를 설정하면 대시보드 데이터, export와 스키마 학습 관리 API가 별도 로그인 세션으로 보호됩니다. 운영 Compose에서는 비밀번호와 HTTPS 로그인을 필수로 강제합니다. 대상 페이지의 브라우저 계측에 필요한 `/__detection/static/telemetry.js`와 `/__detection/telemetry`는 인증 없이 접근할 수 있습니다.
+`DETECTION_DASHBOARD_PASSWORD`를 설정하면 대시보드 데이터, export와 스키마 학습 관리 API가 별도 로그인 세션으로 보호됩니다. 운영에서는 기본적으로 HTTPS와 Secure 쿠키가 필요합니다. 현재 포트 80만 공개된 서버의 HTTP 로그인은 `ALLOW_INSECURE_DASHBOARD_HTTP=true`와 `DETECTION_DASHBOARD_REQUIRE_HTTPS=false`, `DETECTION_DASHBOARD_COOKIE_SECURE=false`를 함께 지정해야 가능합니다. 이 모드에서는 비밀번호와 세션 쿠키가 암호화되지 않으므로 접근 IP를 제한하고 HTTPS를 구성하면 세 설정을 되돌리세요. 대상 페이지의 브라우저 계측에 필요한 `/__detection/static/telemetry.js`와 `/__detection/telemetry`는 인증 없이 접근할 수 있습니다.
 - 세션 API: http://localhost:8081/__detection/api/sessions
 - Client Actor API: http://localhost:8081/__detection/api/actors
 - Client Flow API: http://localhost:8081/__detection/api/client-flows
@@ -134,3 +134,42 @@ Candidate를 연결합니다. IP가 다른 경로는 오탐 시 무고한 사용
 `ACCOUNT_ID_HASH_KEY`에 충분히 긴 고정 비밀값을 주입해야 합니다. 스키마 학습 결과는
 Docker volume에 유지되지만 요청·점수 이력은 현재 인메모리이므로 Detection 재시작 시
 초기화됩니다.
+
+## 신원 보존과 XSS 관찰
+
+Session, Candidate, Auth Group, IP 목록에는 각각 기본 50,000개 상한을 적용합니다.
+공격·기만 이력이 없는 신원은 30분, 이력이 있는 신원은 24시간 미활동 후 만료됩니다.
+HTTP 요청과 공개 telemetry 모두 상한을 적용하며, 주기적 청소가 만료된 세션의
+Actor·Auth Group·IP·Client Flow·Resolved Actor 참조도 정리합니다. 처리 중인 요청의
+신원은 상한 축출에서 보호합니다. 이력은 보존 상한 내의 관찰이며 영구 감사 로그가 아닙니다.
+
+Reflected XSS 관찰은 요청한 클라이언트에 반영합니다. Stored XSS 후보는 성공한
+POST/PUT/PATCH의 작성 요청 식별자를 보관하고, 나중 응답에서 발견되면 보존 중인
+작성자 요청과 점수만 갱신합니다. 조회자에게 공격 점수를 부여하지 않으며, 작성 요청이
+이미 만료되었으면 복원하지 않습니다. 탐지된 작성 요청의 후보만 제거하므로 다른
+작성자의 같은 값과 합치지 않습니다.
+
+문자열이 응답에 나타났다는 사실만으로 XSS로 판정하지 않습니다. 일반 이름의
+따옴표·괄호, 단순 서식 태그, 명시적인 평문 응답과 JSON script 데이터는 제외합니다.
+실행 가능 문맥과 마크업/속성 증거를 함께 보는 휴리스틱이며, 브라우저 실행 판정이나
+DOM XSS 탐지를 대체하지 않습니다. 본문 검사 상한을 넘으면 헤더만 검사합니다.
+
+| 환경 변수 | 기본값 | 설명 |
+|---|---:|---|
+| `DETECTION_ENTITY_TTL_MS` | 1800000 | 일반 신원의 idle TTL |
+| `RISKY_ENTITY_TTL_MS` | 86400000 | 공격·기만 이력이 있는 신원의 idle TTL |
+| `DETECTION_ENTITY_SWEEP_MS` | 60000 | 주기적 만료 청소 간격 |
+| `MAX_SESSIONS`, `MAX_ACTORS`, `MAX_AUTH_GROUPS`, `MAX_IP_ENTRIES` | 각 50000 | 종류별 신원 개수 상한 |
+| `XSS_MAX_BODY_BYTES` | 2000000 | 응답 본문 검사 바이트 상한 |
+| `XSS_CANDIDATE_TTL_MS` | 3600000 | Stored XSS 후보의 idle TTL |
+| `XSS_MAX_CANDIDATES` | 2000 | 후보 개수 상한 |
+| `XSS_MAX_CANDIDATE_BYTES` | 4194304 | 후보 직렬화 데이터의 총 바이트 상한 (힙 사용량 자체는 아님) |
+| `XSS_MAX_VALUE_BYTES` | 4096 | 후보 값 1개의 UTF-8 바이트 상한; 초과 값은 보관하지 않음 |
+
+운영·로컬 Compose 모두 위 설정을 컨테이너에 전달합니다. 환경 변수 변경 후에는
+컨테이너를 재생성해야 하며 동적으로 설정을 다시 읽지는 않습니다.
+
+XSS 서브스코어 가중치는 0.15이며 Payload Signature는 0.20, Attack Honey는 0.17입니다.
+XSS 단독 최고 기여도 0.15는 현재 지연 정책 시작점 0.20보다 낮습니다. 다른 공격·자동화
+신호와 결합해 정책을 결정하므로, 태그가 기록됐다는 사실과 방어가 발동했다는 사실은
+구분해야 합니다. 이 가중치는 확률이나 검증된 탐지율이 아니며 실험으로 보정해야 합니다.

@@ -91,7 +91,7 @@ test("신규 Attack 서브스코어 4개를 독립적으로 계산한다", () =>
   assert.equal(result.attackBreakdown.csrf, 0.7);
 });
 
-test("Automation과 Attack 가중치는 각각 100%이고 Attack Honey는 22%다", () => {
+test("Automation과 Attack 가중치는 각각 100%이고 XSS 가중치는 15%다", () => {
   const sum = (weights) => Object.values(weights).reduce((total, value) => total + value, 0);
   assert.equal(Number(sum(AUTOMATION_WEIGHTS).toFixed(3)), 1);
   assert.equal(Number(sum(ATTACK_WEIGHTS).toFixed(3)), 1);

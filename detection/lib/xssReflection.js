@@ -9,8 +9,8 @@
  * 판정 원리 (시그니처 매칭이 아니라 "실제 반영" 검사 — payloadSignatures.js와 다른 근거):
  *   payloadSignatures는 *요청*에 <script 같은 패턴이 있으면 플래그한다(요청만 봄).
  *   이 모듈은 *요청 값이 응답에 이스케이프 없이 그대로 반영됐는지*를 본다(요청+응답을 같이 봄).
- *   응답에 원본이 그대로 등장한다는 것 자체가 이스케이프가 안 됐다는 뜻이다(이스케이프됐다면
- *   '<'가 '&lt;'로 바뀌어 원본과 정확히 일치할 수 없음). 그래서 오탐이 매우 낮다.
+ *   원본 문자열의 존재만으로 XSS로 판정하지 않는다. 실행 가능한 HTML 문맥과
+ *   위험한 마크업/속성의 증거가 함께 있어야 하며, 이 판정은 휴리스틱이다.
  *
  *   1. 요청에서 공격자가 통제하는 값(query/body/json 필드)을 뽑는다.
  *   2. 메타문자(< > " ' ( ) ; `)가 없는 값은 XSS가 될 수 없으므로 건너뛴다.
@@ -32,7 +32,7 @@ function hasMetaChars(value) {
 }
 
 const SELF_CONTAINED_RE =
-  /<script\b|<\/script\s*>|on\w+\s*=|javascript:|<iframe\b|<svg\b|<img\b/i;
+  /<script\b|on\w+\s*=|javascript:/i;
 const HTML_HINT_RE = /<html\b|<body\b|<!doctype html/i;
 
 const SEVERITY_BY_CONTEXT = { script: 'critical', attribute: 'high', tag: 'high', text: 'medium' };
@@ -126,15 +126,9 @@ function extractCandidates(req) {
 function looksLikeHtml(contentType, body) {
   const ct = String(contentType || '').toLowerCase();
   if (ct.includes('html')) return true;
-  if (ct.includes('json') || ct.includes('xml')) return false;
+  if (ct) return false;
   const head = body.slice(0, 2000);
   return HTML_HINT_RE.test(head) || body.slice(0, 500).includes('<');
-}
-
-function escapeHtml(s) {
-  return s
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
 }
 
 function extractDangerousFragments(value) {
@@ -183,6 +177,41 @@ function classifyContext(text, index) {
     return 'tag';
   }
   return 'text';
+}
+
+function executableBodyMatch(text, match, context) {
+  const prefix = text.slice(0, match.index).toLowerCase();
+  if (prefix.lastIndexOf('<!--') > prefix.lastIndexOf('-->')) return false;
+  for (const name of ['textarea', 'title', 'style']) {
+    if (prefix.lastIndexOf(`<${name}`) > prefix.lastIndexOf(`</${name}`)) return false;
+  }
+  if (context === 'script') {
+    const scriptStart = prefix.lastIndexOf('<script');
+    const opening = text.slice(scriptStart, text.indexOf('>', scriptStart) + 1);
+    const type = opening.match(/\btype\s*=\s*["']?([^\s"'>]+)/i)?.[1];
+    if (type && !['module', 'text/javascript', 'application/javascript'].includes(type.toLowerCase())) return false;
+    // HTML-looking strings inside script contents do not themselves open HTML elements.
+    if (!/<\/script\s*>/i.test(match.matched)) return false;
+  }
+  // Ordinary quotes, formatting tags, and harmless parameter names are not execution evidence.
+  const scriptOpening = match.matched.match(/<script\b[^>]*>/i)?.[0];
+  if (scriptOpening && context !== 'attribute') {
+    const type = scriptOpening.match(/\btype\s*=\s*["']?([^\s"'>]+)/i)?.[1];
+    if (!type || ['module', 'text/javascript', 'application/javascript'].includes(type.toLowerCase())) return true;
+  }
+  let start = match.matched.startsWith('<') ? match.index : text.lastIndexOf('<', match.index);
+  const end = text.indexOf('>', start);
+  if (start < 0 || end < match.index) return false;
+  const tag = text.slice(start, end + 1);
+  if (/\bon\w+\s*=/i.test(match.matched) && /\s+on\w+\s*=/i.test(tag)) return true;
+  return /javascript:/i.test(match.matched) && /\s+(?:href|src|action|formaction)\s*=/i.test(tag);
+}
+
+function findingSummary(findings) {
+  return {
+    tags: [...new Set(findings.map((f) => `xss:${f.vulnerabilityType}-${f.severity}`))],
+    maxRisk: overallRisk(findings.map((f) => f.riskScore)),
+  };
 }
 
 function bodyFinding(cand, match, ctx, vulnType, storedMeta = {}) {
@@ -236,7 +265,7 @@ function lowerHeaders(headers) {
   const out = {};
   for (const [k, v] of Object.entries(headers || {})) {
     if (v === undefined || v === null) continue;
-    out[String(k)] = Array.isArray(v) ? v.join(', ') : String(v);
+    out[String(k).toLowerCase()] = Array.isArray(v) ? v.join(', ') : String(v);
   }
   return out;
 }
@@ -258,6 +287,7 @@ function analyze(candidates, responseBody, contentType, responseHeaders, storedC
       const match = findFragment(extractDangerousFragments(cand.value), responseBody);
       if (match) {
         const ctx = classifyContext(responseBody, match.index);
+        if (!executableBodyMatch(responseBody, match, ctx)) continue;
         findings.push(bodyFinding(cand, match, ctx, 'reflected'));
       }
     }
@@ -266,9 +296,9 @@ function analyze(candidates, responseBody, contentType, responseHeaders, storedC
   for (const cand of candidates) {
     if (!hasMetaChars(cand.value)) continue;
     for (const [hname, hval] of Object.entries(headers)) {
-      if (!hval) continue;
+      if (!HIGH_RISK_HEADERS.has(hname) || !/javascript:/i.test(hval)) continue;
       const match = findFragment(extractDangerousFragments(cand.value), hval);
-      if (match) {
+      if (match && /javascript:/i.test(match.matched)) {
         findings.push(headerFinding(cand, match, hname, hval, 'reflected'));
         break;
       }
@@ -282,6 +312,8 @@ function analyze(candidates, responseBody, contentType, responseHeaders, storedC
       const frags = extractDangerousFragments(sc.value);
       const scCand = { parameter: sc.parameter, source: sc.source, value: sc.value };
       const storedMeta = {
+        origin: sc.origin || null,
+        candidateKey: sc.candidateKey,
         storedFromEndpoint: sc.endpoint,
         storedSecondsAgo: Math.round((now - sc.firstSeen) / 100) / 10,
       };
@@ -289,17 +321,19 @@ function analyze(candidates, responseBody, contentType, responseHeaders, storedC
         const m = findFragment(frags, responseBody);
         if (m) {
           const ctx = classifyContext(responseBody, m.index);
-          findings.push(bodyFinding(scCand, m, ctx, 'stored', storedMeta));
-          matchedStored.push(sc.value);
-          continue;
+          if (executableBodyMatch(responseBody, m, ctx)) {
+            findings.push(bodyFinding(scCand, m, ctx, 'stored', storedMeta));
+            matchedStored.push(sc.candidateKey);
+            continue;
+          }
         }
       }
       for (const [hname, hval] of Object.entries(headers)) {
-        if (!hval) continue;
+        if (!HIGH_RISK_HEADERS.has(hname) || !/javascript:/i.test(hval)) continue;
         const m = findFragment(frags, hval);
-        if (m) {
+        if (m && /javascript:/i.test(m.matched)) {
           findings.push(headerFinding(scCand, m, hname, hval, 'stored', storedMeta));
-          matchedStored.push(sc.value);
+          matchedStored.push(sc.candidateKey);
           break;
         }
       }
@@ -328,7 +362,7 @@ function analyzeExchange(req, responseBody, responseHeaders, store) {
   if (store && result.matchedStored) {
     for (const v of result.matchedStored) store.delete(v);
   }
-  const tags = [...new Set(result.findings.map((f) => `xss:${f.vulnerabilityType}-${f.severity}`))];
+  const tags = findingSummary(result.findings).tags;
   return {
     tags,
     maxRisk: result.riskScore,
@@ -336,6 +370,7 @@ function analyzeExchange(req, responseBody, responseHeaders, store) {
     severity: result.severity,
     riskLevel: result.riskLevel,
     findings: result.findings,
+    reflected: findingSummary(result.findings.filter((finding) => finding.vulnerabilityType === 'reflected')),
   };
 }
 
@@ -348,5 +383,6 @@ module.exports = {
   riskLevel,
   overallRisk,
   looksLikeHtml,
+  findingSummary,
   META_CHARS,
 };

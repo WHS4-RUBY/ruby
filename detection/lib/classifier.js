@@ -206,6 +206,14 @@ function weightedScore(breakdown, weights) {
   );
 }
 
+function scoreReflectedXss(features) {
+  const attack = features.attack;
+  if (!attack.xssHits) return 0;
+  const risk = clamp((attack.maxXssRisk || 0) / 100);
+  const variety = clamp(((attack.distinctXssCategories || 1) - 1) / 3) * 0.15;
+  return clamp(risk + variety);
+}
+
 function classify(features) {
   const automationHoney = scoreAutomationHoney(features);
   const attackHoney = scoreAttackHoney(features);
@@ -218,16 +226,6 @@ function classify(features) {
     browserInteraction: scoreBrowserInteraction(features),
     automationHoney: automationHoney.score,
   };
-// Reflected/Stored XSS: xssReflection이 계산한 0~100 위험도를 그대로 0~1 서브스코어로 쓴다.
-// 위험도가 이미 severity/self-contained/stored를 반영하므로, 서로 다른 종류가 여럿이면 소폭 가산.
-function scoreReflectedXss(features) {
-  const attack = features.attack;
-  if (!attack.xssHits) return 0;
-  const risk = clamp((attack.maxXssRisk || 0) / 100);
-  const variety = clamp((attack.distinctXssCategories - 1) / 3) * 0.15;
-  return clamp(risk + variety);
-}
-
   const attackBreakdown = {
     payloadSignature: scorePayloadSignature(features),
     reflectedXss: scoreReflectedXss(features),

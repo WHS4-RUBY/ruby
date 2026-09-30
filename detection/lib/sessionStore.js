@@ -33,7 +33,7 @@ const MAX_REQUESTS_PER_RESOLVED_ACTOR = MAX_REQUESTS_PER_SESSION * 2;
 // actorResolver가 이미 쓰는 cleanup(TTL)+enforceLimits(LRU) 패턴을 동일하게 적용한다.
 function positiveInt(value, fallback) {
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 const ENTITY_IDLE_TTL_MS = positiveInt(process.env.DETECTION_ENTITY_TTL_MS, 30 * 60_000); // 평범한 신원: 30분 미활동 시 제거
 const RISKY_ENTITY_TTL_MS = positiveInt(process.env.RISKY_ENTITY_TTL_MS, 24 * 60 * 60_000); // 위험 신원: 훨씬 오래 보존(기본 24시간)
@@ -62,10 +62,10 @@ function isRiskyEntity(entity) {
 // → 위험 신원은 조용해도 마지막까지 남고, 평범한 신원만 밀려난다.
 // 단 위험 신원만 남아 상한을 넘으면 그때는 가장 오래된 위험 신원부터 제거(메모리는 끝까지 유계).
 // 배치로 목표치(상한의 90%)까지 비워 매 삽입마다 정렬하지 않는다.
-function evictOverCap(map, max) {
-  if (map.size <= max) return;
-  const target = Math.floor(max * 0.9);
-  const pairs = [...map.entries()].sort((a, b) => {
+function evictOverCap(map, max, protectedKey) {
+  if (map.size <= max) return false;
+  const target = Math.max(1, Math.floor(max * 0.9));
+  const pairs = [...map.entries()].filter(([key]) => key !== protectedKey).sort((a, b) => {
     const ra = isRiskyEntity(a[1]) ? 1 : 0;
     const rb = isRiskyEntity(b[1]) ? 1 : 0;
     if (ra !== rb) return ra - rb; // 평범한 것(0)을 먼저 제거
@@ -73,29 +73,52 @@ function evictOverCap(map, max) {
   });
   const removeCount = map.size - target;
   for (let i = 0; i < removeCount && i < pairs.length; i++) map.delete(pairs[i][0]);
+  return true;
 }
 
 // 오래 활동이 없는 엔티티를 주기적으로 청소(요청마다 전체 스캔하지 않도록 간격 제한).
 // 위험 신원은 훨씬 긴 TTL을 적용해, 한탕 하고 잠수 타도 이력이 바로 지워지지 않는다.
 function sweepIdleEntities(now) {
-  if (now - lastEntitySweepAt < ENTITY_SWEEP_INTERVAL_MS) return;
+  if (now - lastEntitySweepAt < ENTITY_SWEEP_INTERVAL_MS) return false;
   lastEntitySweepAt = now;
+  let changed = false;
   for (const map of [sessions, actors, authGroups, ipEntries]) {
     for (const [key, value] of map) {
       const ttl = isRiskyEntity(value) ? RISKY_ENTITY_TTL_MS : ENTITY_IDLE_TTL_MS;
-      if (now - (value.lastSeen || 0) > ttl) map.delete(key);
+      if (now - (value.lastSeen || 0) > ttl) {
+        map.delete(key);
+        changed = true;
+      }
     }
   }
+  return changed;
 }
 
-function enforceEntityLimits(now) {
-  sweepIdleEntities(now);
-  evictOverCap(sessions, MAX_SESSIONS);
-  evictOverCap(actors, MAX_ACTORS);
-  evictOverCap(authGroups, MAX_AUTH_GROUPS);
-  evictOverCap(ipEntries, MAX_IP_ENTRIES);
+function pruneEntityReferences() {
+  for (const map of [sessions, actors, authGroups, ipEntries]) {
+    for (const entity of map.values()) {
+      for (const id of entity.sessionIds || []) if (!sessions.has(id)) entity.sessionIds.delete(id);
+      for (const id of entity.actorIds || []) if (!actors.has(id)) entity.actorIds.delete(id);
+    }
+  }
+  clientFlowStore.pruneSessions((id) => sessions.has(id));
+  actorResolver.pruneSessions((id) => sessions.has(id));
 }
 
+function enforceEntityLimits(now, current = {}) {
+  // Evaluate every map, even when an earlier map has already changed.
+  const changed = [
+    sweepIdleEntities(now),
+    evictOverCap(sessions, MAX_SESSIONS, current.sessionId),
+    evictOverCap(actors, MAX_ACTORS, current.actorId),
+    evictOverCap(authGroups, MAX_AUTH_GROUPS, current.authGroupId),
+    evictOverCap(ipEntries, MAX_IP_ENTRIES, current.ip),
+  ].some(Boolean);
+  if (changed) pruneEntityReferences();
+}
+
+// Idle stores also expire when no further requests arrive. Do not keep Node alive.
+setInterval(() => enforceEntityLimits(Date.now()), ENTITY_SWEEP_INTERVAL_MS).unref();
 
 const SENSITIVE_DETECTION_HEADERS = new Set([
   "authorization",
@@ -241,13 +264,13 @@ function deriveActorId(ip, fingerprint) {
   return `actor:${digest}`;
 }
 
-function getOrCreateSession(sessionId, ip) {
+function getOrCreateSession(sessionId, ip, now = Date.now(), enforce = true) {
   if (!sessions.has(sessionId)) {
     sessions.set(sessionId, {
       id: sessionId,
       ip,
-      firstSeen: Date.now(),
-      lastSeen: Date.now(),
+      firstSeen: now,
+      lastSeen: now,
       requests: [], // { ts, method, url, status }
       headerSample: null,
       fingerprint: null,
@@ -271,7 +294,8 @@ function getOrCreateSession(sessionId, ip) {
     });
   }
   const s = sessions.get(sessionId);
-  s.lastSeen = Date.now();
+  s.lastSeen = now;
+  if (enforce) enforceEntityLimits(now, { sessionId });
   return s;
 }
 
@@ -324,8 +348,8 @@ function recordRequest(
     ts,
   }
 ) {
-  const s = getOrCreateSession(sessionId, ip);
   const now = Number.isFinite(ts) ? ts : Date.now();
+  const s = getOrCreateSession(sessionId, ip, now, false);
   const legacyFingerprint = headerFingerprint(headers);
   const legacyActorId = deriveActorId(ip, legacyFingerprint);
   const httpFingerprint = buildHttpFingerprint({
@@ -541,7 +565,7 @@ function recordRequest(
   if (authGroupId) recordDeceptionHistory(authGroups.get(authGroupId), deceptionEvents, now);
 
   // 엔티티 목록이 무제한으로 커지지 않도록 개수 상한 + idle TTL 적용(위험 신원 우선 보존).
-  enforceEntityLimits(now);
+  enforceEntityLimits(now, { sessionId, actorId, authGroupId, ip });
 
   return s;
 }
@@ -559,11 +583,28 @@ function recordTelemetry(sessionId, ip, payload) {
   t.mouseMoveCount += payload.mouseMoveCount || 0;
   t.scrollCount += payload.scrollCount || 0;
   t.routeChangeCount += payload.routeChangeCount || 0;
-  (payload.domEventTypes || []).forEach((ev) => t.domEventTypes.add(ev));
+  // Event names are a small browser vocabulary, not an unbounded label store.
+  for (const ev of Array.isArray(payload.domEventTypes) ? payload.domEventTypes : []) {
+    if (typeof ev === "string" && ev.length <= 64 && t.domEventTypes.size < 32) t.domEventTypes.add(ev);
+  }
   t.pageLoads += payload.pageLoad ? 1 : 0;
   if (typeof payload.url === "string") t.currentUrl = payload.url.slice(0, 2048);
   t.lastTelemetryAt = Date.now();
   return s;
+}
+
+function attachStoredXssFinding(origin, tags, maxRisk) {
+  if (!origin?.requestId) return false;
+  const session = sessions.get(origin.sessionId);
+  if (!session?.requests.some((request) => request.requestId === origin.requestId)) return false;
+  for (const entity of [session, actors.get(origin.actorId), authGroups.get(origin.authGroupId), ipEntries.get(origin.ip)]) {
+    for (const request of entity?.requests || []) {
+      if (request.requestId !== origin.requestId) continue;
+      request.xssTags = [...new Set([...(request.xssTags || []), ...tags])];
+      request.xssMaxRisk = Math.max(request.xssMaxRisk || 0, maxRisk);
+    }
+  }
+  return true;
 }
 
 function getSession(sessionId) {
@@ -906,6 +947,7 @@ module.exports = {
   getAllClientFlowAggregates,
   getClientFlowState,
   updateAttackScoreHistory,
+  attachStoredXssFinding,
   emptyAttackHistory,
   emptyDeceptionHistory,
   recordDeceptionHistory,
