@@ -13,6 +13,22 @@ function runRequestHooks(hooks, context) {
   }
 }
 
+function runWebSocketHooks(hooks, context) {
+  for (const hook of normalizedHooks(hooks)) {
+    if (typeof hook.onWebSocketRequest === "function") hook.onWebSocketRequest(context);
+  }
+}
+
+function applyForwardedHeaders(proxyReq, req) {
+  proxyReq.removeHeader("forwarded");
+  proxyReq.removeHeader("x-forwarded-for");
+  proxyReq.removeHeader("x-forwarded-host");
+  proxyReq.removeHeader("x-forwarded-proto");
+  proxyReq.setHeader("X-Forwarded-For", req.ip || req.socket?.remoteAddress || "unknown");
+  proxyReq.setHeader("X-Forwarded-Host", req.get?.("host") || req.headers?.host || "");
+  proxyReq.setHeader("X-Forwarded-Proto", req.protocol || "http");
+}
+
 async function runResponseHooks(hooks, context) {
   let responseBuffer = context.responseBuffer;
   for (const hook of normalizedHooks(hooks)) {
@@ -42,9 +58,15 @@ function createProxyCore({ target, hooks = [], changeOrigin = true }) {
   return createProxyMiddleware({
     target,
     changeOrigin,
+    ws: true,
     selfHandleResponse: true,
     onProxyReq(proxyReq, req, res) {
+      applyForwardedHeaders(proxyReq, req);
       runRequestHooks(hookList, { proxyReq, req, res, target });
+    },
+    onProxyReqWs(proxyReq, req, socket) {
+      applyForwardedHeaders(proxyReq, req);
+      runWebSocketHooks(hookList, { proxyReq, req, res: socket, target });
     },
     onProxyRes(proxyRes, req, res) {
       // responseInterceptor copies upstream headers before running its callback.
@@ -75,7 +97,9 @@ function createProxyCore({ target, hooks = [], changeOrigin = true }) {
 }
 
 module.exports = {
+  applyForwardedHeaders,
   createProxyCore,
   runRequestHooks,
   runResponseHooks,
+  runWebSocketHooks,
 };

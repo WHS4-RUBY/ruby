@@ -554,6 +554,19 @@ class ActorResolver {
     return Array.from(this.sessionMembershipIds.get(sessionId) || [], (id) => this.memberships.get(id)).filter(Boolean);
   }
 
+  pruneSessions(isRetained) {
+    for (const [sessionId, membershipIds] of this.sessionMembershipIds) {
+      if (isRetained(sessionId)) continue;
+      for (const membershipId of membershipIds) {
+        const membership = this.memberships.get(membershipId);
+        if (membership) this.actors.get(membership.resolvedActorId)?.membershipIds.delete(membershipId);
+        this.memberships.delete(membershipId);
+      }
+      this.sessionMembershipIds.delete(sessionId);
+      this.sessionPrimaryMembership.delete(sessionId);
+    }
+  }
+
   getPrimaryResolution(sessionId) {
     const membership = this.memberships.get(this.sessionPrimaryMembership.get(sessionId));
     if (!membership?.active) return null;
@@ -571,7 +584,9 @@ class ActorResolver {
     for (const membershipId of actor.membershipIds) {
       const membership = this.memberships.get(membershipId);
       if (membership) {
-        this.sessionMembershipIds.get(membership.sessionId)?.delete(membershipId);
+        const sessionMemberships = this.sessionMembershipIds.get(membership.sessionId);
+        sessionMemberships?.delete(membershipId);
+        if (sessionMemberships?.size === 0) this.sessionMembershipIds.delete(membership.sessionId);
         if (this.sessionPrimaryMembership.get(membership.sessionId) === membershipId) {
           this.sessionPrimaryMembership.delete(membership.sessionId);
         }

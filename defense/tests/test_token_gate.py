@@ -195,6 +195,14 @@ class TokenTests(unittest.TestCase):
         self.assertIsNone(tg.observe_response(replace(decision, kind="api"), "GET", 200, "application/json"))
 
 
+class _AsyncBody(httpx.AsyncByteStream):
+    def __init__(self, body: bytes):
+        self.body = body
+
+    async def __aiter__(self):
+        yield self.body
+
+
 class IntegrationTests(unittest.TestCase):
     def setUp(self):
         self.clock = NOW
@@ -205,24 +213,22 @@ class IntegrationTests(unittest.TestCase):
         case = self
 
         class FakeClient:
-            def __init__(self, **kwargs):
-                pass
+            def build_request(self, **kwargs):
+                return kwargs
 
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return False
-
-            async def request(self, **kwargs):
-                case.calls.append(kwargs)
+            async def send(self, request, stream=False):
+                case.calls.append(request)
                 if case.on_request:
                     await case.on_request()
                 if case.failure:
                     raise case.failure
-                return case.upstream
+                # Streamed bodies can be consumed once; hand each request a fresh copy.
+                upstream = case.upstream
+                return httpx.Response(upstream.status_code, headers=upstream.headers.multi_items(),
+                                      stream=_AsyncBody(upstream.read()))
 
-        self.fake_client = FakeClient
+        main.app.state.http_client = FakeClient()
+        self.addCleanup(delattr, main.app.state, "http_client")
         self.real_client = httpx.AsyncClient
         self.cfg_patch = patch.object(main, "TOKEN_GATE", CFG)
         self.cfg_patch.start()
@@ -239,8 +245,7 @@ class IntegrationTests(unittest.TestCase):
 
     def send(self, method="GET", path="/api", headers=None):
         self.client.cookies.clear()
-        with patch.object(main.httpx, "AsyncClient", self.fake_client):
-            return self.client.request(method, path, headers=headers or {"Accept": "*/*"})
+        return self.client.request(method, path, headers=headers or {"Accept": "*/*"})
 
     def test_full_decision_table_over_http(self):
         values = {"valid": tg.make_token(CFG.secret, 10), "grace": tg.make_token(CFG.secret, 9),
@@ -367,7 +372,7 @@ class IntegrationTests(unittest.TestCase):
 
     def test_options_and_exempt_requests_preserve_backend_and_skip_logging(self):
         self.upstream = httpx.Response(204, headers={"Allow": "GET, OPTIONS", "Access-Control-Allow-Origin": "*"})
-        for method, path in (("OPTIONS", "/api"), ("GET", "/__defense/test")):
+        for method, path in (("OPTIONS", "/api"), ("GET", "/__detection/test")):
             self.calls.clear()
             response = self.send(method, path)
             self.assertEqual(len(self.calls), 1)
@@ -420,11 +425,10 @@ class IntegrationTests(unittest.TestCase):
                 await asyncio.wait_for(ready.wait(), timeout=2)
             self.on_request = wait_for_other
             async with self.real_client(transport=httpx.ASGITransport(app=main.app), base_url="http://test") as client:
-                with patch.object(main.httpx, "AsyncClient", self.fake_client):
-                    return await asyncio.gather(*[
-                        client.get("/api", headers={"Cookie": f"{tg.COOKIE_NAME}={tg.make_token(CFG.secret, 9)}"})
-                        for _ in range(2)
-                    ])
+                return await asyncio.gather(*[
+                    client.get("/api", headers={"Cookie": f"{tg.COOKIE_NAME}={tg.make_token(CFG.secret, 9)}"})
+                    for _ in range(2)
+                ])
         responses = asyncio.run(simultaneous())
         self.assertEqual([r.status_code for r in responses], [200, 200])
         self.assertEqual([cookie(r).value for r in responses], [tg.make_token(CFG.secret, 10)] * 2)

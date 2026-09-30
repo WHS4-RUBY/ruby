@@ -12,14 +12,15 @@ const AUTOMATION_WEIGHTS = Object.freeze({
 });
 
 const ATTACK_WEIGHTS = Object.freeze({
-  payloadSignature: 0.3,
+  payloadSignature: 0.2,
+  reflectedXss: 0.15,
   notFoundExploration: 0.06,
   accessDeniedExploration: 0.06,
   idorWalk: 0.07,
   loginBruteForce: 0.08,
   businessLogicViolation: 0.12,
   csrf: 0.09,
-  attackHoney: 0.22,
+  attackHoney: 0.17,
 });
 
 const AUTOMATION_HONEY_MAX_POINTS = 35;
@@ -205,6 +206,14 @@ function weightedScore(breakdown, weights) {
   );
 }
 
+function scoreReflectedXss(features) {
+  const attack = features.attack;
+  if (!attack.xssHits) return 0;
+  const risk = clamp((attack.maxXssRisk || 0) / 100);
+  const variety = clamp(((attack.distinctXssCategories || 1) - 1) / 3) * 0.15;
+  return clamp(risk + variety);
+}
+
 function classify(features) {
   const automationHoney = scoreAutomationHoney(features);
   const attackHoney = scoreAttackHoney(features);
@@ -219,6 +228,7 @@ function classify(features) {
   };
   const attackBreakdown = {
     payloadSignature: scorePayloadSignature(features),
+    reflectedXss: scoreReflectedXss(features),
     notFoundExploration: scoreNotFoundExploration(features),
     accessDeniedExploration: scoreAccessDeniedExploration(features),
     idorWalk: scoreIdorWalk(features),

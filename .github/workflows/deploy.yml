@@ -1,15 +1,22 @@
 name: Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
-  workflow_dispatch: {}
 
 env:
   REGISTRY: ghcr.io
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
 
 jobs:
   build-and-push:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -19,6 +26,8 @@ jobs:
         service: [detection, defense]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Set image prefix (lowercase)
         run: echo "IMAGE_PREFIX=${REGISTRY}/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
@@ -37,7 +46,7 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
-            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ env.DEPLOY_SHA }}
 
   deploy:
     needs: build-and-push
@@ -47,6 +56,8 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Set image prefix (lowercase)
         run: echo "IMAGE_PREFIX=${REGISTRY}/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
@@ -66,20 +77,71 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
           IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
-          IMAGE_TAG: latest
+          IMAGE_TAG: ${{ env.DEPLOY_SHA }}
+          DEFENSE_DASHBOARD_PASSWORD: ${{ secrets.DEFENSE_DASHBOARD_PASSWORD }}
+          DETECTION_DASHBOARD_PASSWORD: ${{ secrets.DEFENSE_DASHBOARD_PASSWORD }}
+          # This server currently exposes port 80 without a TLS proxy. Keep HTTP mode explicit.
+          ALLOW_INSECURE_DASHBOARD_HTTP: "true"
+          DEFENSE_DASHBOARD_COOKIE_SECURE: "false"
+          DEFENSE_DASHBOARD_REQUIRE_HTTPS: "false"
+          DETECTION_DASHBOARD_COOKIE_SECURE: "false"
+          DETECTION_DASHBOARD_REQUIRE_HTTPS: "false"
+          DCID_COOKIE_SECURE: "false"
+          PAYLOAD_FINGERPRINT_KEY: ${{ secrets.PAYLOAD_FINGERPRINT_KEY }}
+          DCID_HMAC_SECRET: ${{ secrets.DCID_HMAC_SECRET }}
+          ACCOUNT_ID_HASH_KEY: ${{ secrets.ACCOUNT_ID_HASH_KEY }}
+          TRUST_PROXY: loopback,linklocal,uniquelocal
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          envs: GHCR_TOKEN,GHCR_USER,IMAGE_PREFIX,IMAGE_TAG
+          envs: GHCR_TOKEN,GHCR_USER,IMAGE_PREFIX,IMAGE_TAG,DEFENSE_DASHBOARD_PASSWORD,DETECTION_DASHBOARD_PASSWORD,ALLOW_INSECURE_DASHBOARD_HTTP,DEFENSE_DASHBOARD_COOKIE_SECURE,DEFENSE_DASHBOARD_REQUIRE_HTTPS,DETECTION_DASHBOARD_COOKIE_SECURE,DETECTION_DASHBOARD_REQUIRE_HTTPS,DCID_COOKIE_SECURE,PAYLOAD_FINGERPRINT_KEY,DCID_HMAC_SECRET,ACCOUNT_ID_HASH_KEY,TRUST_PROXY
           script: |
-            set -e
+            set -Eeuo pipefail
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 
             DEPLOY_DIR="${DEPLOY_DIR:-$HOME/ruby}"
             mkdir -p "$DEPLOY_DIR"
             cd "$DEPLOY_DIR"
 
+            for name in DEFENSE_DASHBOARD_PASSWORD DETECTION_DASHBOARD_PASSWORD PAYLOAD_FINGERPRINT_KEY DCID_HMAC_SECRET ACCOUNT_ID_HASH_KEY; do
+              if [ -z "${!name:-}" ]; then
+                echo "Required deployment secret is missing: $name" >&2
+                exit 1
+              fi
+            done
+
             export IMAGE_PREFIX IMAGE_TAG
+            PREVIOUS_TAG="$(cat .deployed-image-tag 2>/dev/null || true)"
+            rollback() {
+              if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "$IMAGE_TAG" ]; then
+                echo "Deployment failed; rolling back to $PREVIOUS_TAG" >&2
+                export IMAGE_TAG="$PREVIOUS_TAG"
+                docker compose -f docker-compose.yml up -d --wait --wait-timeout 120
+              fi
+            }
+            trap rollback ERR
+
             docker compose -f docker-compose.yml pull
-            docker compose -f docker-compose.yml up -d
+            docker compose -f docker-compose.yml up -d --wait --wait-timeout 120
+
+            DETECTION_COOKIES="$(mktemp)"
+            DEFENSE_COOKIES="$(mktemp)"
+            trap 'rm -f "$DETECTION_COOKIES" "$DEFENSE_COOKIES"' EXIT
+            curl --fail --silent --show-error http://127.0.0.1/healthz >/dev/null
+            curl --fail --silent --show-error -c "$DETECTION_COOKIES" \
+              -H 'Content-Type: application/json' \
+              --data "$(printf '{"password":"%s"}' "$DETECTION_DASHBOARD_PASSWORD")" \
+              http://127.0.0.1/__detection/api/login >/dev/null
+            curl --fail --silent --show-error -b "$DETECTION_COOKIES" \
+              http://127.0.0.1/__detection/api/sessions >/dev/null
+            curl --fail --silent --show-error -c "$DEFENSE_COOKIES" \
+              -H 'Content-Type: application/json' \
+              --data "$(printf '{"password":"%s"}' "$DEFENSE_DASHBOARD_PASSWORD")" \
+              http://127.0.0.1/__defense/api/login >/dev/null
+            curl --fail --silent --show-error -b "$DEFENSE_COOKIES" \
+              http://127.0.0.1/__defense/api/snapshot >/dev/null
+            curl --fail --silent --show-error http://127.0.0.1/ >/dev/null
+
+            printf '%s\n' "$IMAGE_TAG" > .deployed-image-tag
+            trap - ERR

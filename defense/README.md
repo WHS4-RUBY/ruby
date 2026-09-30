@@ -13,11 +13,33 @@ RUBY의 방어 계층을 개발하는 영역입니다. Detection Proxy의 Policy
 
 공격 탐지와 위험도·정책에 따른 전략 선택은 모두 [`detection/`](../detection/)에서 관리합니다 (구간별 전략은 `detection/config/policy.json`). 실험 및 벤치마크 기록은 [`benchmark/`](../benchmark/)에서 관리합니다.
 
-## 개발 상태
+## 대시보드
 
-FastAPI 프록시와 지연·요청 빈도 제한 전략을 구현했습니다.
+Detection 프록시를 통해 `http://localhost:8081/__defense/dashboard`에서 접근합니다. 배포 환경에서는 서비스 주소의 `/__defense/dashboard`를 사용합니다.
 
-### 토큰 관찰과 CRS 차단 (2026-09-30 수정)
+대시보드는 공용 Defense 프로세스가 실제로 처리한 요청만 표시합니다.
+
+- 전체·방어 적용·차단·오류 요청 수
+- 방어 지연을 포함한 평균 처리 시간
+- 최근 1시간 요청 흐름과 전략별 적용 횟수
+- 최근 요청의 클라이언트 ID, 경로, 적용 전략과 처리 결과
+
+`DEFENSE_DASHBOARD_PASSWORD`를 지정하면 관리 API가 로그인 세션으로 보호됩니다. 배포용 Compose는 이 값이 없으면 시작하지 않으며 GitHub Actions에서는 같은 이름의 Repository Secret을 전달합니다. 운영에서는 기본적으로 HTTPS와 Secure 쿠키가 필요합니다. 현재 포트 80만 공개된 서버에서 HTTP 로그인을 사용하려면 `ALLOW_INSECURE_DASHBOARD_HTTP=true`, `DEFENSE_DASHBOARD_REQUIRE_HTTPS=false`, `DEFENSE_DASHBOARD_COOKIE_SECURE=false`를 함께 지정해야 합니다. 이 모드에서는 비밀번호와 세션 쿠키가 암호화되지 않으므로 접근 IP를 제한하고 HTTPS를 구성하면 세 설정을 되돌리세요.
+
+로그인은 클라이언트별 실패 횟수를 제한하고, 세션은 만료 시간과 최대 개수에 따라 정리합니다. 이벤트는 요청 본문이나 인증 정보를 저장하지 않으며, 메모리에 최근 `DEFENSE_EVENT_LIMIT`건만 보관합니다. 단일 Uvicorn 프로세스의 운영 지표이므로 여러 worker로 확장할 때는 외부 저장소로 교체해야 합니다.
+
+## 구현 구조
+
+- `app/main.py`: `X-Defense-Plan` 실행과 Target 전달
+- `app/dashboard.py`: 관리 API와 대시보드 라우터
+- `app/dashboard_auth.py`: 로그인 제한과 세션 수명 관리
+- `app/strategies/`: 방어 전략 구현과 Registry
+- `app/monitoring.py`: 상한이 있는 요청 이벤트와 집계
+- `app/public/dashboard.html`: Detection 대시보드와 같은 형태의 운영 화면
+
+새 방어 기법은 `DefenseStrategy`를 구현해 Registry에 등록하면 대시보드에 자동으로 집계됩니다.
+
+## 토큰 관찰과 CRS 차단 (2026-09-30)
 
 토큰이 없거나 만료·변조되었다는 이유만으로 요청을 차단하지 않습니다.
 `TOKEN_GATE_MODE=observe`는 쿠키 발급·갱신과 상태 기록만 수행하고, `off`는 이를 끕니다.

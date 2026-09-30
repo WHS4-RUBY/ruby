@@ -42,7 +42,9 @@ ModSecurity/OWASP CRS, 행동 기반 휴리스틱, Honey/Deception 신호와 실
 
 ## 서버 배포
 
-서버에서는 [`.env.example`](.env.example)을 `.env`로 복사한 뒤 `IMAGE_PREFIX`에 배포 레지스트리 경로를, `IMAGE_TAG`에 배포할 태그를 설정합니다. `BENCHMARK_*` 변수는 기동할 벤치마크와 Defense의 내부 타깃 주소를 정합니다.
+서버에서는 [`.env.example`](.env.example)을 `.env`로 복사한 뒤 `IMAGE_PREFIX`와 배포할 `IMAGE_TAG`를 설정합니다. 운영 Compose는 두 대시보드 비밀번호와 `PAYLOAD_FINGERPRINT_KEY`, `DCID_HMAC_SECRET`, `ACCOUNT_ID_HASH_KEY`가 없으면 시작하지 않습니다. GitHub Actions 배포에서는 `DEFENSE_DASHBOARD_PASSWORD`를 두 대시보드에 사용하고 나머지 세 값을 같은 이름의 Repository Secret에서 가져옵니다.
+
+운영 대시보드는 기본적으로 HTTPS와 Secure 쿠키가 필요합니다. 서버 앞에 HTTPS reverse proxy를 두는 경우 원래 프로토콜을 `X-Forwarded-Proto`로 전달해야 합니다. 현재 IP 주소의 포트 80으로 접속하는 서버는 배포 workflow에서 `ALLOW_INSECURE_DASHBOARD_HTTP=true`와 두 대시보드의 HTTPS/Secure 쿠키 설정 및 `DCID_COOKIE_SECURE=false`를 명시해 HTTP 로그인을 허용합니다. 이때 비밀번호와 세션 쿠키는 전송 중 암호화되지 않으므로 접근 IP를 제한해야 합니다. Actions의 Deploy workflow는 `main` CI가 성공한 커밋만 SHA 태그로 배포하고, health 및 인증 smoke test 실패 시 직전 SHA로 복구합니다.
 
 ```bash
 cp .env.example .env
@@ -69,7 +71,7 @@ curl -I http://localhost:8081
 
 `defense/app` 변경은 컨테이너가 자동으로 다시 불러옵니다. Detection은 Node.js와 네이티브 CRS scanner를
 포함하므로 변경 후 이미지를 다시 빌드해야 합니다. 첫 Detection 빌드는 ModSecurity와 CRS를 준비하므로 시간이 걸릴 수
-있습니다. 실시간 탐지 화면은 `http://localhost:8081/__detection/dashboard`에서 확인합니다.
+있습니다. 실시간 탐지 화면은 `http://localhost:8081/__detection/dashboard`에서 확인합니다. 로컬 `.env`에 `DETECTION_DASHBOARD_PASSWORD`를 지정하면 탐지 관리 API도 로그인 세션으로 보호됩니다. 대상 페이지가 사용하는 `/__detection/static/telemetry.js`와 `/__detection/telemetry`는 계속 공개됩니다.
 종료 및 컨테이너 정리는 다음 명령을 사용합니다.
 
 ```bash

@@ -215,6 +215,12 @@ function extractStreamFeatures({
   const businessLogicCategories = Array.from(new Set(allBlTags));
   const allCsrfTags = attackRequests.flatMap((request) => request.csrfTags || []);
   const csrfCategories = Array.from(new Set(allCsrfTags));
+  const allXssTags = attackRequests.flatMap((request) => request.xssTags || []);
+  const xssCategories = Array.from(new Set(allXssTags));
+  const maxXssRisk = Math.max(
+    0,
+    ...attackRequests.map((request) => Number(request.xssMaxRisk) || 0)
+  );
   const crsResults = attackRequests
     .map((request) => request.attackDetection)
     .filter((result) => result?.available);
@@ -313,6 +319,10 @@ function extractStreamFeatures({
       businessLogicCategories,
       csrfHits: allCsrfTags.length,
       distinctCsrfCategories: csrfCategories.length,
+      xssHits: allXssTags.length,
+      distinctXssCategories: xssCategories.length,
+      xssCategories,
+      maxXssRisk,
       csrfCategories,
     },
   };
