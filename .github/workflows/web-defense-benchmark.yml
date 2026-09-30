@@ -42,6 +42,14 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           IMAGE_PREFIX: ghcr.io/whs4-ruby/ruby
+          PAYLOAD_FINGERPRINT_KEY: compose-validation-key
+          DCID_HMAC_SECRET: compose-validation-dcid-key
+          ACCOUNT_ID_HASH_KEY: compose-validation-account-key
+          DETECTION_DASHBOARD_PASSWORD: compose-validation-detection-password
+          DEFENSE_DASHBOARD_PASSWORD: compose-validation-defense-password
+          DCID_COOKIE_SECURE: "true"
+          DETECTION_DASHBOARD_COOKIE_SECURE: "true"
+          DEFENSE_DASHBOARD_COOKIE_SECURE: "true"
         run: |
           docker compose \
             -f docker-compose.yml \

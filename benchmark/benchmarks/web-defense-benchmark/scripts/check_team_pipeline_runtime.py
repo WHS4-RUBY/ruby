@@ -64,6 +64,8 @@ def main():
         "RUBY_WEB_VULNERABILITY_MODULES": "",
         "RUBY_WEB_TRIAL_ID": "",
         "RUBY_WEB_PREPARATION_SEED": "",
+        "DETECTION_DASHBOARD_PASSWORD": secrets.token_hex(24),
+        "ACCOUNT_ID_HASH_KEY": secrets.token_hex(32),
     })
     secret_names = ["POSTGRES_PASSWORD", "POSTGRES_APP_PASSWORD", "POSTGRES_UNTRUSTED_PASSWORD",
                     "POSTGRES_VERIFIER_PASSWORD", "RUBY_WEB_OBJECT_ACCESS_KEY", "RUBY_WEB_OBJECT_SECRET_KEY",
@@ -119,20 +121,25 @@ def main():
         env["PAYLOAD_FINGERPRINT_KEY"] = secrets.token_hex(32)
         docker("run", "-d", "--name", detection, "--label", f"ruby.integration-check={run_id}",
                "--network", network, "--network-alias", "detection", "-p", "127.0.0.1::8080",
-               "-e", "TARGET_URL=http://defense:8080", "-e", "PORT=8080", "-e", "BLOCK_MODE=false",
+               "-e", "NODE_ENV=production", "-e", "TARGET_URL=http://defense:8080",
+               "-e", "PORT=8080", "-e", "BLOCK_MODE=false",
                "-e", "DETECTION_LEVEL=medium", "-e", "CRS_ENABLED=true", "-e", "CRS_SCAN_TIMEOUT_MS=2000",
                "-e", "CRS_MAX_BODY_BYTES=1048576", "-e", "DECEPTION_ENABLED=true",
                "-e", "ENABLE_EXPERIMENT_RUN_ID=true", "-e", "TRUST_PROXY=false",
+               "-e", "ALLOW_INSECURE_DASHBOARD_HTTP=true",
+               "-e", "DETECTION_DASHBOARD_COOKIE_SECURE=false",
+               "-e", "DETECTION_DASHBOARD_REQUIRE_HTTPS=false",
                "-e", "CSRF_ALLOWED_ORIGINS=http://ruby-web-target:8080",
                "-e", "DCID_HMAC_SECRET", "-e", "PAYLOAD_FINGERPRINT_KEY",
+               "-e", "ACCOUNT_ID_HASH_KEY", "-e", "DETECTION_DASHBOARD_PASSWORD",
                f"{prefix}/detection:{sha[:12]}", env=env)
         containers.append(detection)
         inspection = json.loads(docker("inspect", detection))[0]
         port = inspection["NetworkSettings"]["Ports"]["8080/tcp"][0]["HostPort"]
         origin = "http://127.0.0.1:" + port
 
-        def http(path, *, client=None, headers=None):
-            req = urllib.request.Request(origin + path, headers=headers or {})
+        def http(path, *, client=None, headers=None, data=None):
+            req = urllib.request.Request(origin + path, headers=headers or {}, data=data)
             started = time.perf_counter()
             try:
                 response = (client or urllib.request.build_opener(urllib.request.ProxyHandler({}))).open(req, timeout=15)
@@ -152,6 +159,15 @@ def main():
         else:
             raise RuntimeError("isolated Detection did not become ready")
         browser = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(cookiejar.CookieJar()))
+        check("operator_api_rejects_anonymous_requests", http("/__detection/api/sessions")["status"] == 401, checks)
+        login = http(
+            "/__detection/api/login",
+            client=browser,
+            headers={"Content-Type": "application/json"},
+            data=json.dumps({"password": env["DETECTION_DASHBOARD_PASSWORD"]}).encode(),
+        )
+        check("operator_login_accepts_isolated_secret", login["status"] == 204, checks)
+        check("operator_api_accepts_authenticated_requests", http("/__detection/api/sessions", client=browser)["status"] == 200, checks)
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36",
                    "Accept-Language": "ko-KR", "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors",
                    "Sec-Fetch-Dest": "empty", "X-Experiment-Run-ID": run_id}
@@ -173,15 +189,15 @@ def main():
         marker = urllib.parse.urlencode({"q": "{{RUBY_TEST_TEXT}}", "ruby_check": "inert-marker"})
         response = http("/api/products?" + marker, client=automation, headers=automated_headers)
         check("inert_marker_keeps_normal_web_response", response["status"] == 200, checks)
-        observed = json.loads(http("/__detection/api/sessions")["body"])
+        observed = json.loads(http("/__detection/api/sessions", client=browser)["body"])
         summaries = []
         for session in observed:
             if not session.get("features", {}).get("totalRequests"):
                 continue
-            details = json.loads(http("/__detection/api/sessions/" + session["sessionId"])["body"])
+            details = json.loads(http("/__detection/api/sessions/" + session["sessionId"], client=browser)["body"])
             summaries.append({key: details.get(key) for key in ["automationScore", "attackScore", "detection", "attackHistory", "features", "requests"]})
         report["detection_observations"] = summaries
-        report["crs_status"] = json.loads(http("/__detection/api/crs-status")["body"])
+        report["crs_status"] = json.loads(http("/__detection/api/crs-status", client=browser)["body"])
         check("automation_score_recorded", any((s.get("automationScore") or 0) > 0.2 for s in summaries), checks)
         marker_records = [row for session in summaries for row in session.get("requests", [])
                           if "ruby_check=inert-marker" in row.get("url", "")]
