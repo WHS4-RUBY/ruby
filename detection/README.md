@@ -81,6 +81,8 @@ docker compose -f docker-compose.local.yml up --build
 - 애플리케이션: http://localhost:8081
 - Detection 상태: http://localhost:8081/healthz
 - Detection 대시보드: http://localhost:8081/__detection/dashboard
+
+`DETECTION_DASHBOARD_PASSWORD`를 설정하면 대시보드 데이터, export와 스키마 학습 관리 API가 별도 로그인 세션으로 보호됩니다. 운영 Compose에서는 비밀번호와 HTTPS 로그인을 필수로 강제합니다. 대상 페이지의 브라우저 계측에 필요한 `/__detection/static/telemetry.js`와 `/__detection/telemetry`는 인증 없이 접근할 수 있습니다.
 - 세션 API: http://localhost:8081/__detection/api/sessions
 - Client Actor API: http://localhost:8081/__detection/api/actors
 - Client Flow API: http://localhost:8081/__detection/api/client-flows
