@@ -1,4 +1,8 @@
 services:
+  gateway:
+    environment:
+      RUBY_PUBLIC_NAME: juice-shop
+
   defense:
     environment:
       BENCHMARK_TARGET_URL: http://benchmark-target:3000

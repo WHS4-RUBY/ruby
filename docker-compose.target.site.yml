@@ -1,7 +1,10 @@
 # Select an operator-owned website without starting the bundled Juice Shop.
-# The default docker-compose.yml and the existing target overlays retain their
-# current deployment behavior when this file is not selected.
+# The default docker-compose.yml selects Juice Shop when this file is absent.
 services:
+  gateway:
+    environment:
+      RUBY_PUBLIC_NAME: ${RUBY_PUBLIC_NAME:-site}
+
   detection:
     environment:
       TARGET_PROFILE_FILE: /app/config/target.json

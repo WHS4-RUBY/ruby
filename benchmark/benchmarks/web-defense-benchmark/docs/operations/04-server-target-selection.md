@@ -1,32 +1,24 @@
 # 서버 벤치마크 대상 전환
 
-팀 루트 스택은 기본적으로 Juice Shop을 사용합니다. 자체 취약점 웹은 별도 8개 서비스
-스택으로 실행하고 Defense의 전달 주소를 바꿉니다. 두 대상은 함께 실행할 수 있지만 한
-시험에서는 하나만 선택하고, 사용한 오버레이·대상 프로필·이미지 태그를 시험 설정에
-기록합니다. 다른 사용자의 사이트를 연결하는 절차는 [자신의 웹사이트 연결](05-connect-your-site.md)에
-있습니다.
+RUBY 공개 경로는 `방문자 → Gateway → Detection(정책 포함) → Defense → Target`입니다. 한 번에 **하나의 대상**을 고릅니다. 기본은 Juice Shop이고, RUBY Market으로 바꾸면 공개 화면 경로·탐지 프로필·Defense 전달 주소가 함께 바뀝니다. 이 변경은 전체 파이프라인을 재생성해야 하며 운영 서버에서는 결과 검토 뒤 별도로 수행합니다.
+
+| 선택 | 공개 화면 | Detection 프로필 | Defense 대상 |
+| --- | --- | --- | --- |
+| 기본 Juice Shop | `/juice-shop/` | 기존 기본 규칙 | `benchmark-target:3000` |
+| RUBY Market | `/ruby-market/` | `target-profiles/ruby-market.json` | `ruby-web-target:8080` |
+
+`/`는 선택한 화면으로 이동하고 선택되지 않은 기본 화면 경로는 404입니다. `/api/`, `/rest/`, `/assets/` 등 앱의 루트 절대 경로는 동일한 활성 파이프라인을 통과합니다. 대시보드는 대상에 관계없이 `/__detection/dashboard`, `/__defense/dashboard`입니다. 접두사를 제거한 원래 경로가 Detection 규칙과 기록에 사용됩니다.
 
 ## 사전 조건
 
-- 현재 경로는 `Detection -> Defense -> Target`입니다. 별도
-  Policy 서비스는 없으며 Detection이 `X-Defense-Plan`을 만들어 Defense로 전달합니다.
-- 루트 `.env`의 `RUBY_PIPELINE_NETWORK`와 자체 웹 `.env.production`의
-  `RUBY_BENCHMARK_PIPELINE_NETWORK`를 같은 값으로 둡니다. 기본값은 둘 다
-  `ruby_ai-defense-net`입니다.
-- 루트 스택의 해당 파이프라인 네트워크가 실행 중이어야 합니다.
-- 루트 운영 스택은 `main`의 #22와 #25 이후 두 대시보드 비밀번호, Detection의
-  `PAYLOAD_FINGERPRINT_KEY`, `DCID_HMAC_SECRET`, `ACCOUNT_ID_HASH_KEY` 및
-  대시보드 HTTPS·쿠키 설정이 필요합니다. HTTP 실험 환경은
-  `ALLOW_INSECURE_DASHBOARD_HTTP=true`와 두 대시보드의 HTTPS/Secure 쿠키 설정을
-  명시적으로 꺼야 합니다. 비밀값은 저장소에 기록하지 않습니다.
-- 자체 웹의 `.env.production`에는 실제 운영 비밀값과 커밋 SHA 이미지 태그를 넣습니다.
-- 외부 사용자가 보는 Detection 주소를 `CSRF_ALLOWED_ORIGINS`에 넣습니다. 내부 대상
-  주소인 `ruby-web-target`을 넣는 항목이 아닙니다.
-- 실제 `.env`와 `.env.production`은 커밋하지 않습니다.
+- 저장소 루트의 `.env`에 필수 배포값을 설정하고 비밀번호·키는 커밋하지 않습니다. 운영 HTTPS 및 쿠키 설정은 [루트 안내](../../../../../README.md)를 따릅니다.
+- RUBY Market 운영 스택의 웹 서비스만 파이프라인 네트워크에 `ruby-web-target` 별칭으로 연결합니다. 루트의 `RUBY_PIPELINE_NETWORK`와 Market의 `RUBY_BENCHMARK_PIPELINE_NETWORK`가 같아야 합니다. 기본값은 `ruby_ai-defense-net`입니다. 내부 API·평가기·데이터 서비스는 이 네트워크에 직접 노출하지 않습니다.
+- 대시보드와 CSRF가 사용하는 공개 origin을 `CSRF_ALLOWED_ORIGINS`에 지정합니다. 내부 `ruby-web-target` 주소가 아닙니다.
+- Market은 자체 프런트엔드의 원본 주소와 공개 경로에서 사용할 로그인·쿠키·리다이렉트 동작을 먼저 확인합니다.
 
-## 자체 취약점 웹 선택
+## RUBY Market 선택
 
-저장소 루트에서 자체 웹 운영 스택을 먼저 실행합니다.
+저장소 루트에서 Market 운영 스택을 먼저 시작합니다. 실제 비밀값과 같은 커밋의 Market 이미지 태그를 `.env.production`에 제공해야 합니다.
 
 ```bash
 docker compose \
@@ -39,67 +31,27 @@ docker compose \
   up -d --wait
 ```
 
-기존 `docker-compose.target.ruby-web.yml`은 Defense의 전달 주소만 바꾸며,
-Detection의 기존 Juice Shop 전용 경로 규칙은 유지합니다. 경로·권한 관측·미끼
-규칙까지 RUBY Market으로 바꾸려면 루트 `.env`에 다음 값을 지정하고 범용 대상
-오버레이로 전체 스택을 갱신합니다. 이 브랜치의 새 오버레이와 프로필 JSON이
-실행 호스트에 있어야 합니다. 기존 Deploy workflow는 이 두 파일을 복사하거나
-범용 대상 오버레이를 자동으로 선택하지 않습니다.
-
-```dotenv
-RUBY_TARGET_URL=http://ruby-web-target:8080
-RUBY_TARGET_PROFILE_FILE=./target-profiles/ruby-market.json
-```
+그 다음 루트 스택을 **Market 오버레이와 함께 전체 갱신**합니다. 오버레이는 번들 Juice Shop을 비활성화하고 Detection에 Market 프로필을 읽기 전용으로 마운트합니다. 이전에 쓰던 `--no-deps`로 Defense만 교체하는 명령은 공개 이름과 탐지 규칙을 전환하지 못하므로 사용하지 않습니다.
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.target.site.yml config --quiet
-docker compose -f docker-compose.yml -f docker-compose.target.site.yml \
+docker compose -f docker-compose.yml -f docker-compose.target.ruby-web.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.target.ruby-web.yml \
   up -d --wait --remove-orphans --force-recreate
+docker compose -f docker-compose.yml -f docker-compose.target.ruby-web.yml \
+  --profile bundled-juice-shop stop benchmark-target
 ```
 
-이 방법은 번들 Juice Shop을 실행하지 않고 Detection에 대상 프로필을 읽기 전용으로
-전달합니다. 새 경로가 실제로 선택됐는지는 아래 공개 진입점 검사로 확인합니다.
-
-기존 주소 전환 방식도 계속 지원합니다. 아래 명령은 Defense의 전달 주소만 바꾸고
-Detection의 대상별 경로 규칙은 전환하지 않습니다. Session,
-Resolved Actor와 Client Flow 상태는 Detection 메모리에 누적되므로 대상을 바꾸면서
-기존 프로세스를 재사용하면 이전 대상의 점수와 식별 상태가 섞입니다.
-
-```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.target.ruby-web.yml \
-  up -d --no-deps --force-recreate defense
-docker compose \
-  -f docker-compose.yml \
-  up -d --no-deps --force-recreate detection
-```
+기존 실행에서 번들 Juice Shop 컨테이너가 이미 있었다면 Compose 프로필만 바꾸어도 실행 중으로 남을 수 있어 마지막 명령으로 정지합니다. 처음부터 Market을 선택한 설치에서는 정지할 컨테이너가 없습니다. Detection의 메모리 점수·식별 상태는 재생성으로 분리됩니다. 스키마 학습 파일은 volume에 남으므로 대상별로 별도 volume을 쓰거나 시험 전에 어떤 상태를 유지할지 명시해야 합니다. `X-Experiment-Run-ID`는 기록 구분값이며 상태 초기화 수단이 아닙니다.
 
 ## Juice Shop 복귀
 
-범용 대상 오버레이에서 돌아올 때는 Juice Shop 오버레이로 전체 스택을 갱신합니다.
-Detection은 대상 프로필 없이 기존 Juice Shop 규칙으로 시작하고, 번들 대상이
-다시 실행됩니다.
-
 ```bash
+docker compose -f docker-compose.yml -f docker-compose.target.juice-shop.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.target.juice-shop.yml \
   up -d --wait --remove-orphans --force-recreate
 ```
 
-Defense 주소만 전환한 기존 구성에서는 아래의 최소 재생성 명령도 사용할 수 있습니다.
-
-```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.target.juice-shop.yml \
-  up -d --no-deps --force-recreate defense
-docker compose \
-  -f docker-compose.yml \
-  up -d --no-deps --force-recreate detection
-```
-
-자체 웹이 더 필요하지 않으면 해당 스택만 종료합니다. 데이터까지 지울 때만 `--volumes`를
-추가합니다.
+기본 구성은 기존 Juice Shop 경로 규칙을 사용합니다. Market 스택이 더 이상 필요 없다면 별도로 종료합니다. 데이터를 지울 목적이 있을 때만 `--volumes`를 추가합니다.
 
 ```bash
 docker compose \
@@ -108,36 +60,19 @@ docker compose \
   down
 ```
 
-## 격리 조건
+## 공개 진입점 검사
 
-외부 공개 진입점은 Detection입니다. 자체 웹의 `web` 서비스만 공유망에
-`ruby-web-target`으로 연결합니다. API, 평가기, 데이터 서비스와 관리 UI는 이 경로에
-연결하지 않습니다. 초기화와 판정 요청은 운영 제어 경로에서만 실행합니다.
+별도 공개 `:8088`의 Market 화면이 열리는지만으로 전환을 판단하지 않습니다. **RUBY 공개 origin**에서 선택한 이름 경로의 화면과 고유한 읽기 전용 API 응답을 확인하세요. 아래 예시의 `localhost`는 해당 서버에서 실행할 때의 주소입니다.
 
-`X-Experiment-Run-ID`는 실행 기록을 구분하는 관측값이며 Detection의 누적 상태를
-초기화하지 않습니다. 공식 시험은 실행별 격리 스택을 사용하거나 Detection을 재생성해
-이전 시험의 점수가 다음 시험에 들어가지 않게 합니다. 스키마 학습 파일은 별도 volume에
-남으므로 어떤 학습 파일을 사용했는지도 시험 설정에 기록합니다.
+```bash
+curl -i http://127.0.0.1/ruby-market/
+curl -i http://127.0.0.1/api/products
+curl -i http://127.0.0.1/__detection/api/sessions
+curl -i http://127.0.0.1/__defense/api/snapshot
+```
 
-루트 Deploy workflow는 기본 Juice Shop 파이프라인을 갱신하고 자체 웹 Compose와
-오버레이 파일을 서버에 복사합니다. 자체 웹 활성화와 취약점 모듈 선택은 자동으로 하지
-않습니다. `Web Defense Benchmark` workflow가 같은 커밋 SHA의 자체 웹 이미지 7종을
-발행한 뒤 위 절차로 명시적으로 전환합니다.
+두 관리 API는 익명 요청에서 인증을 요구해야 합니다. 같은 요청의 ID와 경로를 Detection·Defense 대시보드와 대상 웹의 읽기 전용 로그에서 대조합니다. 비밀번호나 쿠키는 검사 기록에 남기지 않습니다. `/ruby-market/`이 200이어도 API, 로그인, WebSocket 업그레이드와 프레임의 동작은 별도로 확인해야 합니다.
 
-현재 별도 호스트 포트로 열린 RUBY Market 화면이 보여도 Detection 진입점의 기본
-대상이 바뀐 것은 아닙니다. 외부 포트의 응답만으로 `Detection -> Defense -> RUBY Market`
-연결이나 내부 평가기 격리를 확인할 수 없습니다. 대상 전환 후 Detection 공개 주소에서
-RUBY Market 화면과 고유한 읽기 전용 API 응답을 확인하고, 익명 요청의
-`/__detection/api/sessions`와 `/__defense/api/snapshot`이 각각 인증을 요구하는지,
-정상 웹 요청이 계속 전달되는지 확인합니다. 동일 요청의 Detection·Defense 기록과
-대상 웹 접근 기록을 대조해야 실제 전달 경로를 확정할 수 있습니다. 대시보드 로그인에
-필요한 비밀번호와 세션 쿠키는 검사 기록에 남기지 않습니다.
+`main`의 Deploy workflow는 기본 Juice Shop 구성을 자동 선택합니다. 수동 Market 전환 이후 다음 자동 배포는 Juice Shop으로 복귀할 수 있으므로 지속 운영에는 배포 자동화의 대상 선택도 함께 설정해야 합니다. 새 게이트웨이 파일·Market 프로필이 서버로 복사되도록 workflow에 포함되어 있습니다. 이 문서와 브랜치 변경만으로 운영 전환이 발생하지는 않습니다.
 
-배포 전 로컬 왕복 검사는 벤치마크 루트에서 `./scripts/check_target_switch.sh`로 실행합니다.
-검사는 초기화, 비공개 성공 판정, 판정기 읽기 전용 권한과 네트워크 격리를 확인하고
-Defense를 자체 웹과 Juice Shop에 차례로 연결한 뒤 자신이 만든 임시 자원을 정리합니다.
-이 스크립트의 왕복 검사 지점은 Defense 주소이며, 공개 Detection 경로의 대상 선택은
-별도로 위 절차에 따라 검사해야 합니다.
-`scripts/check_team_pipeline_runtime.py`는 격리된 운영 모드 Detection에서 익명 관리 API
-거부, 로그인 후 접근, 정상 요청 전달과 지연 실행을 함께 검사합니다. Docker 엔진과
-이미지 빌드가 필요하며, 과거 실행 기록의 실패 판정을 소급 변경하지 않습니다.
+로컬의 기존 내부 대상 왕복 검사는 벤치마크 루트의 `./scripts/check_target_switch.sh`입니다. 이 스크립트는 Defense 주소에서 두 대상과 평가기 격리를 확인하며 **게이트웨이의 공개 경로 검사는 별도**입니다. 소규모 공개 서버 관측과 한계는 [2026-10-02 검증 기록](../team-pipeline-validation-20261002.md)에 있습니다.

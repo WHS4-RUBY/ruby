@@ -1,6 +1,6 @@
 # 자신의 웹사이트에 RUBY 연결
 
-RUBY의 공개 경로는 `방문자 → Detection → Defense → 웹 프런트엔드`입니다. 기본
+RUBY의 공개 경로는 `방문자 → Gateway → Detection → Defense → 웹 프런트엔드`입니다. 기본
 `docker-compose.yml`은 기존 배포와 CI를 위해 Juice Shop을 계속 대상으로 사용합니다.
 `docker-compose.target.site.yml`을 추가하면 자신의 웹사이트 주소와 탐지 규칙 파일을
 설정할 수 있습니다. 이 오버레이에서 번들 Juice Shop은 시작하지 않습니다.
@@ -10,7 +10,16 @@ RUBY의 공개 경로는 `방문자 → Detection → Defense → 웹 프런트�
 - `RUBY_TARGET_URL`: **Defense 컨테이너에서 접근 가능한** 웹 프런트엔드 origin.
   예를 들어 `https://shop.example.test` 또는 같은 Docker 네트워크의
   `http://web:8080`입니다. API·데이터베이스·평가기·관리 UI를 지정하지 마세요.
-- RUBY의 공개 주소: 방문자가 실제로 접근하는 Detection 주소입니다. 대상의 원래
+- `RUBY_PUBLIC_NAME`: 공개 화면의 이름 경로. 기본은 `/site/`이고 예를 들어
+  `my-shop`으로 지정하면 `/my-shop/`이 됩니다. 소문자로 시작하고 소문자·숫자·
+  하이픈만 사용하는 최대 40자 이름이어야 합니다. `api`, `assets`, `rest`,
+  `healthz`, `__detection`, `__defense`는 사용할 수 없습니다. 게이트웨이는 이름
+  접두사를 제거하고 Detection에 보내므로 대상 앱과 탐지 프로필에는 원래 경로가
+  보입니다. 앱이 쓰는 `/api/`, `/assets/` 같은 절대 경로도 같은 대상에 전달됩니다.
+  같은 공개 origin에서 두 대상을 동시에 구분해 운영하는 구성은 아닙니다.
+  대상 앱이 루트 절대 화면 링크나 `/` 리다이렉트를 사용하면 브라우저 주소에서
+  이름 경로가 사라질 수 있으므로 화면·로그인·리다이렉트를 직접 확인하세요.
+- RUBY의 공개 주소: 방문자가 실제로 접근하는 Gateway 주소입니다. 대상의 원래
   주소와 분리할 수 있지만, 로그인·리다이렉트·쿠키·CORS·CSRF에 사용하는 origin은
   이 공개 주소를 기준으로 대상 앱에서도 허용해야 합니다. Detection의
   `CSRF_ALLOWED_ORIGINS`에도 공개 origin을 설정합니다. `RUBY_TARGET_URL`에 RUBY
@@ -65,7 +74,9 @@ opaque 세션을 쓰므로
 ```dotenv
 RUBY_TARGET_URL=https://shop.example.test
 RUBY_TARGET_PROFILE_FILE=./target-profiles/site.example.json
+RUBY_PUBLIC_NAME=my-shop
 CSRF_ALLOWED_ORIGINS=https://ruby.shop.example.test
+RUBY_FORWARDED_PROTO=https
 ```
 
 대상 프로필 경로는 저장소 루트 기준 파일 경로입니다. 상대 경로를 쓸 때는 저장소
@@ -75,6 +86,7 @@ CSRF_ALLOWED_ORIGINS=https://ruby.shop.example.test
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.target.site.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.target.site.yml up -d --wait --remove-orphans --force-recreate
+docker compose -f docker-compose.yml -f docker-compose.target.site.yml --profile bundled-juice-shop stop benchmark-target
 ```
 
 Defense는 번들 대상의 존재를 필수 시작 조건으로 삼지 않습니다. 대신 `/readyz`가
@@ -86,7 +98,7 @@ Defense는 번들 대상의 존재를 필수 시작 조건으로 삼지 않습�
 
 소스를 직접 빌드하는 로컬 환경에서는 첫 파일을 `docker-compose.local.yml`로
 바꿉니다. 로컬 Compose는 기본적으로 포트 8081을 사용합니다. 대상 교체 시에는
-Detection도 재생성해 이전 사이트에서 누적된 세션·Flow 점수가 섞이지 않게
+Detection과 Gateway를 재생성해 이전 사이트에서 누적된 세션·Flow 점수가 섞이지 않게
 합니다. 스키마 학습 파일은 volume에 남으므로 서로 다른 사이트 실험에서는
 그 파일을 분리하거나 초기화해야 합니다. 프로필 변경만으로 학습 상태가 자동
 초기화되지는 않습니다.
@@ -101,7 +113,8 @@ Detection도 재생성해 이전 사이트에서 누적된 세션·Flow 점수�
 남기지 않습니다.
 
 ```bash
-curl -i https://ruby.shop.example.test/
+curl -i https://ruby.shop.example.test/my-shop/
+curl -i https://ruby.shop.example.test/api/products
 curl -i https://ruby.shop.example.test/__detection/api/sessions
 curl -i https://ruby.shop.example.test/__defense/api/snapshot
 ```
@@ -114,7 +127,7 @@ WebSocket 프레임 내용의 탐지·변형을 보장하지 않습니다.
 
 ## 5. 대상 전환과 배포 자동화
 
-기존 Juice Shop/RUBY Market 오버레이는 계속 사용할 수 있습니다. 현재
+Juice Shop/RUBY Market 오버레이는 화면 이름·대상 규칙·전달 주소를 함께 전환합니다. 현재
 `main` 배포 workflow는 기본 Juice Shop Compose를 실행합니다. 새 사이트
 오버레이는 운영자가 명시적으로 선택해야 하고, 이후 자동 배포에서도 같은
 오버레이·프로필을 유지하도록 배포 절차를 조정해야 합니다. 자동 배포가 새

@@ -70,6 +70,12 @@ jobs:
                 if (services.defense.environment.BENCHMARK_TARGET_URL !== "http://ruby-web-target:8080") {
                   throw new Error("RUBY web overlay did not select the public web target");
                 }
+                if (services.gateway.environment.RUBY_PUBLIC_NAME !== "ruby-market") {
+                  throw new Error("RUBY web overlay did not select the public path");
+                }
+                if (services.detection.environment.TARGET_PROFILE_FILE !== "/app/config/target.json") {
+                  throw new Error("RUBY web overlay did not select the detection profile");
+                }
                 if (config.networks["ai-defense-net"].name !== "ruby_ai-defense-net") {
                   throw new Error("root and RUBY web stacks do not share the fixed pipeline network");
                 }
@@ -133,7 +139,10 @@ jobs:
             http://127.0.0.1:8081/__defense/api/login >/dev/null
           curl --fail --silent --show-error -b defense.cookies \
             http://127.0.0.1:8081/__defense/api/snapshot >/dev/null
-          curl --fail --silent --show-error http://127.0.0.1:8081/ >/dev/null
+          test "$(curl --silent --output /dev/null --write-out '%{redirect_url}' http://127.0.0.1:8081/)" = "http://127.0.0.1:8081/juice-shop/"
+          curl --fail --silent --show-error http://127.0.0.1:8081/juice-shop/ >/dev/null
+          curl --fail --silent --show-error 'http://127.0.0.1:8081/rest/products/search?q=' >/dev/null
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8081/ruby-market/)" = "404"
 
       - name: Show service logs on failure
         if: failure()

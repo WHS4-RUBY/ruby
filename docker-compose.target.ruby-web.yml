@@ -1,4 +1,18 @@
 services:
+  gateway:
+    environment:
+      RUBY_PUBLIC_NAME: ruby-market
+
+  detection:
+    environment:
+      TARGET_PROFILE_FILE: /app/config/target.json
+    volumes:
+      - ./target-profiles/ruby-market.json:/app/config/target.json:ro
+
   defense:
     environment:
       BENCHMARK_TARGET_URL: http://ruby-web-target:8080
+
+  benchmark-target:
+    profiles:
+      - bundled-juice-shop

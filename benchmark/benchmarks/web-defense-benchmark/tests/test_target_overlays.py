@@ -34,19 +34,28 @@ def environment_map(service: dict) -> dict[str, str]:
 def test_juice_shop_overlay_selects_the_existing_target() -> None:
     overlay = load_overlay("juice-shop")
 
-    assert set(overlay["services"]) == {"defense"}
+    assert set(overlay["services"]) == {"gateway", "defense"}
+    assert environment_map(overlay["services"]["gateway"])["RUBY_PUBLIC_NAME"] == "juice-shop"
     assert overlay["services"]["defense"]["environment"] == {
         "BENCHMARK_TARGET_URL": "http://benchmark-target:3000"
     }
 
 
-def test_ruby_web_overlay_selects_only_the_public_web_service() -> None:
+def test_ruby_web_overlay_selects_the_whole_pipeline() -> None:
     overlay = load_overlay("ruby-web")
 
-    assert set(overlay["services"]) == {"defense"}
+    assert set(overlay["services"]) == {
+        "gateway", "detection", "defense", "benchmark-target"
+    }
+    assert environment_map(overlay["services"]["gateway"])["RUBY_PUBLIC_NAME"] == "ruby-market"
+    assert environment_map(overlay["services"]["detection"])["TARGET_PROFILE_FILE"] == "/app/config/target.json"
+    assert overlay["services"]["detection"]["volumes"] == [
+        "./target-profiles/ruby-market.json:/app/config/target.json:ro"
+    ]
     assert overlay["services"]["defense"]["environment"] == {
         "BENCHMARK_TARGET_URL": "http://ruby-web-target:8080"
     }
+    assert overlay["services"]["benchmark-target"]["profiles"] == ["bundled-juice-shop"]
     assert "evaluator" not in str(overlay)
     assert "postgres" not in str(overlay)
 
@@ -55,6 +64,7 @@ def test_current_team_pipeline_has_no_separate_policy_hop() -> None:
     for compose_path in (ROOT_COMPOSE_PATH, LOCAL_COMPOSE_PATH):
         services = load_yaml(compose_path)["services"]
         assert "policy" not in services
+        assert environment_map(services["gateway"])["RUBY_PUBLIC_NAME"] == "juice-shop"
         assert environment_map(services["detection"])["TARGET_URL"] == (
             "http://defense:8080"
         )
@@ -67,10 +77,17 @@ def test_current_team_pipeline_has_no_separate_policy_hop() -> None:
         assert services["detection"]["depends_on"]["defense"]["condition"] == (
             "service_healthy"
         )
+        assert services["gateway"]["depends_on"]["detection"]["condition"] == (
+            "service_healthy"
+        )
+        assert not services["detection"].get("ports")
 
 
 def test_site_overlay_uses_a_profile_and_disables_the_bundled_target() -> None:
     overlay = load_overlay("site")
+    assert environment_map(overlay["services"]["gateway"])["RUBY_PUBLIC_NAME"] == (
+        "${RUBY_PUBLIC_NAME:-site}"
+    )
     assert environment_map(overlay["services"]["detection"])["TARGET_PROFILE_FILE"] == (
         "/app/config/target.json"
     )
