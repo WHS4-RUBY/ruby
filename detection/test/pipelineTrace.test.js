@@ -1,0 +1,171 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const http = require("node:http");
+const crypto = require("node:crypto");
+const { spawn } = require("node:child_process");
+const path = require("node:path");
+
+function listen(server) {
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+}
+
+function request(port, method, route, { headers = {}, body = null } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: "127.0.0.1", port, method, path: route, headers }, (res) => {
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers,
+        body: Buffer.concat(chunks).toString("utf8") }));
+    });
+    req.on("error", reject);
+    if (body !== null) req.write(body);
+    req.end();
+  });
+}
+
+test("HTTP request ID joins prior score, plan, 429 signal and post-response detection record", { timeout: 20000 }, async (t) => {
+  const seen = [];
+  const strictLastSeen = new Map();
+  const defenseStub = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const plan = JSON.parse(req.headers["x-defense-plan"] || "[]");
+      const strict = plan.some((step) => step.name === "rate_limit_strict");
+      const clientId = req.headers["x-client-id"];
+      const now = Date.now();
+      const blocked = strict && strictLastSeen.has(clientId) &&
+        now - strictLastSeen.get(clientId) < 1000;
+      if (strict) strictLastSeen.set(clientId, now);
+      seen.push({ requestId: req.headers["x-ruby-request-id"],
+        attackScore: Number(req.headers["x-ruby-attack-score"]),
+        riskScore: Number(req.headers["x-ruby-risk-score"]),
+        source: req.headers["x-ruby-policy-source"], plan, clientId, blocked });
+      if (blocked) {
+        res.writeHead(429, { "Content-Type": "application/json",
+          "X-Defense-Signal": "rate_limited" });
+        res.end('{"error":"rate_limited"}');
+        return;
+      }
+      if (req.method === "GET" && req.url === "/") {
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.end("ok");
+        return;
+      }
+      let payload = "";
+      try { payload = JSON.parse(Buffer.concat(chunks).toString()).payload || ""; } catch {}
+      res.writeHead(404, { "Content-Type": "text/html" });
+      res.end(`<html><body>${payload}</body></html>`);
+    });
+  });
+  await listen(defenseStub);
+  t.after(() => defenseStub.close());
+
+  const reservation = http.createServer();
+  await listen(reservation);
+  const detectionPort = reservation.address().port;
+  await new Promise((resolve) => reservation.close(resolve));
+  const dashboardPassword = crypto.randomBytes(24).toString("hex");
+  const detection = spawn(process.execPath, [path.join(__dirname, "..", "server.js")], {
+    cwd: path.join(__dirname, ".."),
+    env: { ...process.env, NODE_ENV: "test", PORT: String(detectionPort),
+      TARGET_URL: `http://127.0.0.1:${defenseStub.address().port}`,
+      TARGET_PROFILE_FILE: "", CRS_ENABLED: "false", DECEPTION_ENABLED: "false",
+      DETECTION_DASHBOARD_PASSWORD: dashboardPassword,
+      DCID_HMAC_SECRET: crypto.randomBytes(32).toString("hex"),
+      ACCOUNT_ID_HASH_KEY: crypto.randomBytes(32).toString("hex"),
+      PAYLOAD_FINGERPRINT_KEY: crypto.randomBytes(32).toString("hex") },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let startupError = "";
+  detection.stderr.on("data", (chunk) => { startupError += chunk.toString().slice(0, 2000); });
+  t.after(() => detection.kill());
+  let ready = false;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try {
+      const health = await request(detectionPort, "GET", "/healthz");
+      if (health.status === 200) { ready = true; break; }
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(ready, true, `Detection did not start: ${startupError}`);
+
+  const cookies = new Map();
+  const attackBody = JSON.stringify({ payload: "union select <script>alert(1)</script>" });
+  let blockedResponse = null;
+  for (let index = 1; index <= 40; index++) {
+    const cookie = [...cookies.values()].join("; ");
+    const response = await request(detectionPort, "POST", `/api/orders/${index}`, {
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(attackBody),
+        "User-Agent": "curl/8.0", ...(cookie ? { Cookie: cookie } : {}) },
+      body: attackBody,
+    });
+    for (const value of response.headers["set-cookie"] || []) {
+      const pair = value.split(";", 1)[0];
+      cookies.set(pair.split("=", 1)[0], pair);
+    }
+    if (response.status === 429) { blockedResponse = response; break; }
+  }
+  assert.ok(blockedResponse, "repeated confirmed attack never reached strict policy");
+  assert.equal(blockedResponse.headers["x-defense-signal"], "rate_limited");
+  const last = seen.at(-1);
+  assert.equal(last.blocked, true);
+  assert.equal(last.requestId, blockedResponse.headers["x-ruby-request-id"]);
+  assert.ok(last.attackScore >= 0.8);
+  assert.ok(last.riskScore >= 0.8);
+  assert.ok(last.plan.some((step) => step.name === "rate_limit_strict"));
+
+  const loginBody = JSON.stringify({ password: dashboardPassword });
+  const login = await request(detectionPort, "POST", "/__detection/api/login", {
+    headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(loginBody) },
+    body: loginBody,
+  });
+  assert.equal(login.status, 204);
+  const sessionCookie = (login.headers["set-cookie"] || []).find((value) =>
+    value.startsWith("detection_dashboard_session="))?.split(";", 1)[0];
+  assert.ok(sessionCookie);
+  const exportResponse = await request(detectionPort, "GET", "/__detection/api/export", {
+    headers: { Cookie: sessionCookie },
+  });
+  assert.equal(exportResponse.status, 200);
+  const recordedRequests = JSON.parse(exportResponse.body).flatMap((session) => session.requests);
+  assert.ok(recordedRequests.some((item) => item.tags?.includes("sqli")));
+  assert.ok(recordedRequests.some((item) => item.xssTags?.includes("xss:reflected-critical")));
+  const record = recordedRequests
+    .find((item) => item.requestId === last.requestId);
+  assert.ok(record);
+  assert.equal(record.status, 429);
+  assert.equal(record.policyDecision.basis, "prior-completed-requests");
+  assert.ok(record.policyDecision.strategies.includes("rate_limit_strict"));
+  assert.equal(record.defenseSignal, "rate_limited");
+  assert.ok(record.detectionResult.effectiveAttackScore >= 0.8);
+
+  const normal = await request(detectionPort, "GET", "/", {
+    headers: { "User-Agent": "curl/8.0" },
+  });
+  assert.equal(normal.status, 200);
+  assert.equal(normal.body, "ok");
+  assert.deepEqual(seen.at(-1).plan, []);
+  assert.notEqual(seen.at(-1).clientId, last.clientId);
+
+  const firstOtherAttack = await request(detectionPort, "POST", "/api/orders/99", {
+    headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(attackBody),
+      "User-Agent": "curl/8.0" },
+    body: attackBody,
+  });
+  assert.equal(firstOtherAttack.status, 404);
+  assert.deepEqual(seen.at(-1).plan, []);
+  assert.notEqual(seen.at(-1).clientId, last.clientId);
+  const finalExport = await request(detectionPort, "GET", "/__detection/api/export", {
+    headers: { Cookie: sessionCookie },
+  });
+  const finalRequests = JSON.parse(finalExport.body).flatMap((session) => session.requests);
+  const normalRecord = finalRequests.find((item) =>
+    item.requestId === normal.headers["x-ruby-request-id"]);
+  const otherAttackRecord = finalRequests.find((item) =>
+    item.requestId === firstOtherAttack.headers["x-ruby-request-id"]);
+  assert.equal(normalRecord.detectionResult.source, "provisional-client-observation");
+  assert.equal(normalRecord.detectionResult.effectiveAttackScore, 0);
+  assert.equal(otherAttackRecord.detectionResult.source, "provisional-client-observation");
+  assert.ok(otherAttackRecord.detectionResult.effectiveAttackScore < last.attackScore);
+});

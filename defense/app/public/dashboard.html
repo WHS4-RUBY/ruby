@@ -143,7 +143,7 @@
         <div class="kpi"><div class="kpi-label">전체 요청</div><div class="kpi-value" id="totalRequests">0</div><div class="kpi-sub">보관 범위 내 누적</div></div>
         <div class="kpi"><div class="kpi-label">방어 적용</div><div class="kpi-value" id="defendedRequests">0</div><div class="kpi-sub" id="defendedRate">0%</div></div>
         <div class="kpi"><div class="kpi-label">차단 응답</div><div class="kpi-value" id="blockedRequests">0</div><div class="kpi-sub">백엔드 전달 중단</div></div>
-        <div class="kpi"><div class="kpi-label">오류</div><div class="kpi-value" id="errorRequests">0</div><div class="kpi-sub">업스트림 연결 실패</div></div>
+        <div class="kpi"><div class="kpi-label">오류</div><div class="kpi-value" id="errorRequests">0</div><div class="kpi-sub">연결·스트리밍 오류 포함</div></div>
         <div class="kpi"><div class="kpi-label">평균 처리 시간</div><div class="kpi-value" id="averageDuration">0 ms</div><div class="kpi-sub">방어 지연 포함</div></div>
       </div>
 
@@ -159,11 +159,11 @@
         </section>
       </div>
 
-      <div class="section-head"><div><h2>최근 요청</h2><p id="requestMeta">0건</p></div></div>
-      <div class="table-toolbar"><input class="search-input" id="requestSearch" type="search" placeholder="경로 · 클라이언트 · 전략 검색" aria-label="최근 요청 검색" /></div>
+      <div class="section-head"><div><h2>최근 요청</h2><p id="requestMeta">0건</p><p>점수는 이 요청 전에 완료된 탐지 기록으로 결정한 정책 입력입니다.</p></div></div>
+      <div class="table-toolbar"><input class="search-input" id="requestSearch" type="search" placeholder="요청 ID · 경로 · 클라이언트 · 전략 검색" aria-label="최근 요청 검색" /></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>시각</th><th>클라이언트</th><th>요청</th><th>경로</th><th>상태</th><th>전략</th><th>결과</th><th>처리 시간</th></tr></thead>
+          <thead><tr><th>시각</th><th>요청 ID</th><th>클라이언트</th><th>요청</th><th>경로</th><th>정책 출처</th><th>자동화 / 공격 / 위험</th><th>상태</th><th>전략</th><th>결과</th><th>처리 시간</th></tr></thead>
           <tbody id="requestRows"></tbody>
         </table>
       </div>
@@ -198,6 +198,10 @@
 
     function formatTime(timestamp) {
       return new Date(timestamp * 1000).toLocaleTimeString('ko-KR', { hour12:false });
+    }
+
+    function formatScore(value) {
+      return typeof value === 'number' ? value.toFixed(2) : '—';
     }
 
     async function api(path, options) {
@@ -270,11 +274,11 @@
 
     function renderRequests() {
       const query = document.getElementById('requestSearch').value.trim().toLowerCase();
-      const filtered = state.requests.filter(event => [event.path, event.clientId, ...(event.strategies || [])].join(' ').toLowerCase().includes(query));
+      const filtered = state.requests.filter(event => [event.requestId, event.path, event.clientId, event.policySource, ...(event.strategies || [])].join(' ').toLowerCase().includes(query));
       document.getElementById('requestMeta').textContent = `${filtered.length.toLocaleString()}건 표시`;
       const root = document.getElementById('requestRows');
       if (!filtered.length) {
-        root.innerHTML = '<tr><td colspan="8" class="empty">조건에 맞는 요청이 없습니다.</td></tr>';
+        root.innerHTML = '<tr><td colspan="11" class="empty">조건에 맞는 요청이 없습니다.</td></tr>';
         return;
       }
       root.innerHTML = filtered.map(event => {
@@ -283,12 +287,15 @@
           : '<span class="badge">none</span>';
         return `<tr>
           <td class="mono">${formatTime(event.timestamp)}</td>
+          <td class="mono">${escapeHtml(event.requestId || '—')}</td>
           <td class="mono">${escapeHtml(event.clientId)}</td>
           <td><b>${escapeHtml(event.method)}</b></td>
           <td class="path mono" title="${escapeHtml(event.path)}">${escapeHtml(event.path)}</td>
+          <td class="mono">${escapeHtml(event.policySource || '—')}</td>
+          <td class="mono">${formatScore(event.automationScore)} / ${formatScore(event.attackScore)} / ${formatScore(event.riskScore)}</td>
           <td class="mono">${event.status}</td>
           <td>${strategies}</td>
-          <td class="outcome-${escapeHtml(event.outcome)}">${escapeHtml(event.outcome)}</td>
+          <td class="outcome-${escapeHtml(event.outcome)}">${escapeHtml(event.outcome)}${event.defenseSignal ? `<br><span class="mono">${escapeHtml(event.defenseSignal)}</span>` : ''}</td>
           <td class="mono">${Math.round(event.durationMs).toLocaleString()} ms</td>
         </tr>`;
       }).join('');

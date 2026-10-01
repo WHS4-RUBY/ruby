@@ -1,0 +1,20 @@
+# Select an operator-owned website without starting the bundled Juice Shop.
+# The default docker-compose.yml and the existing target overlays retain their
+# current deployment behavior when this file is not selected.
+services:
+  detection:
+    environment:
+      TARGET_PROFILE_FILE: /app/config/target.json
+    volumes:
+      - type: bind
+        source: ${RUBY_TARGET_PROFILE_FILE:?Set RUBY_TARGET_PROFILE_FILE to an existing JSON file}
+        target: /app/config/target.json
+        read_only: true
+
+  defense:
+    environment:
+      BENCHMARK_TARGET_URL: ${RUBY_TARGET_URL:?Set RUBY_TARGET_URL to the website origin reachable from Defense}
+
+  benchmark-target:
+    profiles:
+      - bundled-juice-shop

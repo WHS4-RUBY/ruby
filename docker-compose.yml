@@ -89,13 +89,10 @@ services:
       - DEFENSE_DASHBOARD_LOGIN_ATTEMPTS=${DEFENSE_DASHBOARD_LOGIN_ATTEMPTS:-5}
       - DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS=${DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS:-300}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/readyz', timeout=2)"]
       interval: 10s
       timeout: 3s
       retries: 5
-    depends_on:
-      benchmark-target:
-        condition: service_healthy
     restart: unless-stopped
     networks:
       - ai-defense-net

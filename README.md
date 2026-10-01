@@ -17,7 +17,7 @@ RUBY/
 
 자세한 내용은 [`benchmark/README.md`](benchmark/README.md)를 참고하세요.
 
-자체 취약점 웹은 [RUBY Market 구조 안내](benchmark/benchmarks/web-defense-benchmark/README.md)에서 시작하세요. 웹 화면, 8개 서비스, 별도 관리 UI, 성공 판정기, 측정 기록과 격리 구조를 트리로 설명합니다. 기본 Juice Shop을 유지하면서 자체 웹을 선택하는 방법은 [서버 대상 전환](benchmark/benchmarks/web-defense-benchmark/docs/operations/04-server-target-selection.md)에 있습니다.
+자체 취약점 웹은 [RUBY Market 구조 안내](benchmark/benchmarks/web-defense-benchmark/README.md)에서 시작하세요. 웹 화면, 8개 서비스, 별도 관리 UI, 성공 판정기, 측정 기록과 격리 구조를 트리로 설명합니다. Juice Shop과 RUBY Market의 전환은 [서버 대상 전환](benchmark/benchmarks/web-defense-benchmark/docs/operations/04-server-target-selection.md), 다른 웹사이트의 연결은 [자신의 웹사이트 연결](benchmark/benchmarks/web-defense-benchmark/docs/operations/05-connect-your-site.md)에 있습니다.
 
 ### `defense/`
 
@@ -27,7 +27,7 @@ RUBY/
 
 ### `detection/`
 
-요청의 특징을 추출해 Automation/Attack 점수를 계산하고 `X-Risk-Score`로 변환합니다.
+요청의 특징을 추출해 Automation/Attack 점수를 계산하고 정책 입력 위험도로 변환합니다.
 ModSecurity/OWASP CRS, 행동 기반 휴리스틱, Honey/Deception 신호와 실시간 대시보드를 포함합니다.
 위험도 점수를 정책에 따라 해석하고 Defense에서 적용할 대응 전략을 선택합니다.
 
@@ -51,10 +51,17 @@ ModSecurity/OWASP CRS, 행동 기반 휴리스틱, Honey/Deception 신호와 실
 ```bash
 cp .env.example .env
 # .env의 IMAGE_PREFIX와 IMAGE_TAG를 배포 값으로 수정
-docker network create ai-defense-net
 docker compose pull
 docker compose up -d
 ```
+
+기본 Compose는 계속 Juice Shop을 띄웁니다. 자신의 웹사이트를 연결할 때는
+`.env`의 `RUBY_TARGET_URL`과 `RUBY_TARGET_PROFILE_FILE`을 지정하고
+`docker-compose.target.site.yml`을 추가합니다. 이 오버레이는 번들 Juice Shop을
+시작하지 않고, 경로·권한 관측·미끼 규칙 JSON을 Detection에 읽기 전용으로 전달합니다.
+`RUBY_TARGET_URL`은 Defense 컨테이너에서 접근할 수 있는 **대상 웹 프런트엔드**의
+주소여야 하며 RUBY의 공개 진입점 주소와 같으면 순환 전달이 됩니다. 설정 예제와
+공개 진입점 검사는 [자신의 웹사이트 연결](benchmark/benchmarks/web-defense-benchmark/docs/operations/05-connect-your-site.md)을 따르세요.
 
 ## 로컬 테스트
 

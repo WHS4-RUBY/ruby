@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "routes": {
+    "login": {
+      "method": "POST",
+      "path": "/rest/user/login",
+      "accountField": "email",
+      "failureStatuses": [401]
+    },
+    "passwordReset": {
+      "method": "POST",
+      "path": "/rest/user/reset-password",
+      "accountField": "email"
+    },
+    "securityQuestion": {
+      "method": "GET",
+      "path": "/rest/user/security-question",
+      "accountField": "email"
+    }
+  },
+  "permissions": [
+    {
+      "method": "GET",
+      "path": "/rest/admin/application-configuration",
+      "requiredRoles": ["admin"]
+    }
+  ],
+  "bait": {
+    "traps": [
+      {
+        "method": "GET",
+        "path": "/__ruby_bait/juice-admin",
+        "status": 404,
+        "contentType": "text/plain",
+        "body": "Not found"
+      }
+    ],
+    "htmlPaths": ["/"],
+    "plaintextPaths": []
+  }
+}

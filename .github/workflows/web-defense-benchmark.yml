@@ -50,6 +50,8 @@ jobs:
           DCID_COOKIE_SECURE: "true"
           DETECTION_DASHBOARD_COOKIE_SECURE: "true"
           DEFENSE_DASHBOARD_COOKIE_SECURE: "true"
+          RUBY_TARGET_URL: https://site.example.test
+          RUBY_TARGET_PROFILE_FILE: ./target-profiles/site.example.json
         run: |
           docker compose \
             -f docker-compose.yml \
@@ -58,6 +60,10 @@ jobs:
           docker compose \
             -f docker-compose.yml \
             -f docker-compose.target.ruby-web.yml \
+            config --quiet
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.target.site.yml \
             config --quiet
           ruby_target=$(docker compose \
             -f docker-compose.yml \

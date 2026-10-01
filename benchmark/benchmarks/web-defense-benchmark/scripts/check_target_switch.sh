@@ -67,20 +67,22 @@ for container in "${defense_container}" "${juice_container}"; do
   fi
 done
 
-declare -A contexts=(
-  [benchmark-web-postgres]="postgres"
-  [benchmark-web-redis]="redis"
-  [benchmark-web-object-store]="object-store"
-  [benchmark-web-mock-integration]="mock-integration"
-  [benchmark-web-api]="backend"
-  [benchmark-web-evaluator]="evaluator"
-  [benchmark-web-frontend]="frontend"
+image_contexts=(
+  "benchmark-web-postgres:postgres"
+  "benchmark-web-redis:redis"
+  "benchmark-web-object-store:object-store"
+  "benchmark-web-mock-integration:mock-integration"
+  "benchmark-web-api:backend"
+  "benchmark-web-evaluator:evaluator"
+  "benchmark-web-frontend:frontend"
 )
 
-for image in "${!contexts[@]}"; do
+for image_context in "${image_contexts[@]}"; do
+  image="${image_context%%:*}"
+  context="${image_context#*:}"
   docker build --quiet \
     --tag "${image_prefix}/${image}:${image_tag}" \
-    "${app_root}/${contexts[$image]}" >/dev/null
+    "${app_root}/${context}" >/dev/null
 done
 docker build --quiet \
   --tag "ruby-target-switch-defense:${image_tag}" \

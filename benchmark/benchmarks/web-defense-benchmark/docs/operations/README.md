@@ -29,6 +29,9 @@
 
 웹서비스와 취약점 자체는 [`../web-application-and-vulnerability-catalog-20260907.md`](../web-application-and-vulnerability-catalog-20260907.md)를 먼저 본다.
 
+팀 서버의 Juice Shop/RUBY Market 전환은 [서버 대상 전환](04-server-target-selection.md),
+다른 사용자의 웹사이트 연결은 [자신의 웹사이트 연결](05-connect-your-site.md)에 정리했다.
+
 ## 현재 판정
 
 | 항목 | 상태 |

@@ -84,18 +84,20 @@ const SENSITIVE_ROUTES = [
 
 // 하드코딩된 SENSITIVE_ROUTES에 이 라우트가 있는지 — server.js가 schemaLearning 관찰 시점에
 // "이미 하드코딩돼 있으니 학습 대상 아님"을 판단할 때 재사용한다.
-function isHardcodedSensitiveRoute(method, normalizedPath) {
+function isHardcodedSensitiveRoute(method, normalizedPath, routes = SENSITIVE_ROUTES) {
   const upperMethod = String(method || '').toUpperCase();
-  return SENSITIVE_ROUTES.some((route) => route.method === upperMethod && route.normalizedPath === normalizedPath);
+  return routes.some((route) => route.method === upperMethod && route.normalizedPath === normalizedPath);
 }
 
 /**
  * @returns {Array<{tag:string, detail:object}>}
  */
-function checkRoleGatedAccess({ method, normalizedPath, authorizationHeader, cookieHeader }) {
+function checkRoleGatedAccess({ method, normalizedPath, authorizationHeader, cookieHeader }, {
+  routes = SENSITIVE_ROUTES, allowLearned = true,
+} = {}) {
   const results = [];
   const upperMethod = String(method || '').toUpperCase();
-  const matches = SENSITIVE_ROUTES.filter(
+  const matches = routes.filter(
     (route) => route.method === upperMethod && route.normalizedPath === normalizedPath
   );
 
@@ -119,7 +121,7 @@ function checkRoleGatedAccess({ method, normalizedPath, authorizationHeader, coo
 
   // 하드코딩된 매치가 하나도 없을 때만 학습된(승인된) 민감 라우트를 확인한다 — 하드코딩이
   // 우선이고, schemaLearning은 하드코딩이 없는 빈틈만 메운다(15차, 2026-09-02).
-  if (!matches.length) {
+  if (!matches.length && allowLearned) {
     const learnedRoles = schemaLearning.getApprovedSensitiveRoute(method, normalizedPath);
     if (learnedRoles) {
       const allowed = claimedRole !== null && learnedRoles.has(claimedRole);

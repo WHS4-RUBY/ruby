@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import yaml
@@ -60,9 +61,38 @@ def test_current_team_pipeline_has_no_separate_policy_hop() -> None:
         assert environment_map(services["defense"])["BENCHMARK_TARGET_URL"] == (
             "http://benchmark-target:3000"
         )
+        # The site overlay can disable this service; the default stack still
+        # starts it and --wait checks its health.
+        assert "benchmark-target" not in services["defense"].get("depends_on", {})
         assert services["detection"]["depends_on"]["defense"]["condition"] == (
             "service_healthy"
         )
+
+
+def test_site_overlay_uses_a_profile_and_disables_the_bundled_target() -> None:
+    overlay = load_overlay("site")
+    assert environment_map(overlay["services"]["detection"])["TARGET_PROFILE_FILE"] == (
+        "/app/config/target.json"
+    )
+    [mount] = overlay["services"]["detection"]["volumes"]
+    assert mount["target"] == "/app/config/target.json"
+    assert mount["read_only"] is True
+    assert environment_map(overlay["services"]["defense"])["BENCHMARK_TARGET_URL"].startswith(
+        "${RUBY_TARGET_URL:?"
+    )
+    assert overlay["services"]["benchmark-target"]["profiles"] == ["bundled-juice-shop"]
+
+
+def test_target_profile_examples_use_distinct_bait_paths() -> None:
+    paths = set()
+    for name in ("juice-shop", "ruby-market", "site.example"):
+        path = REPOSITORY_ROOT / "target-profiles" / f"{name}.json"
+        profile = json.loads(path.read_text(encoding="utf-8"))
+        assert profile["version"] == 1
+        for trap in profile["bait"]["traps"]:
+            assert trap["path"].startswith("/__ruby_bait/")
+            assert trap["path"] not in paths
+            paths.add(trap["path"])
 
 
 def test_root_and_ruby_web_stacks_share_an_explicit_pipeline_network() -> None:

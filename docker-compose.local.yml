@@ -83,13 +83,10 @@ services:
       - ./defense/app:/app/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/readyz', timeout=2)"]
       interval: 2s
       timeout: 3s
       retries: 15
-    depends_on:
-      benchmark-target:
-        condition: service_healthy
     networks:
       - ai-defense-net
 
