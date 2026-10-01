@@ -2,6 +2,7 @@
 <html lang="ko" data-theme="dark">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <!-- 대시보드/뷰어 탭이 /favicon.ico를 Juice Shop 프록시로 보내 열람자가 탐지 대상으로
      기록되는 것을 막는다. 빈 data URI는 일부 브라우저가 무시하므로 실제 SVG를 넣는다. -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23243b53'/%3E%3Cpath d='M8 3l3.6 1.6v3.1c0 2.2-1.5 4-3.6 4.7-2.1-.7-3.6-2.5-3.6-4.7V4.6z' fill='%23e8eef4'/%3E%3C/svg%3E" />
@@ -43,6 +44,22 @@
   .header-button:hover,
   .export-link:hover { background:var(--hover); }
   .page { flex:1; min-height:0; display:flex; flex-direction:column; padding:16px 0 20px; }
+  .start-panel { flex-shrink:0; margin-bottom:12px; border:1px solid var(--border); background:var(--surface); }
+  .start-top { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 20px; padding:10px 16px; }
+  .start-target { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; min-width:0; font-size:12.5px; }
+  .start-target strong { color:var(--text); }
+  .start-target a { overflow-wrap:anywhere; }
+  .start-status { color:var(--muted); font-size:12px; }
+  .start-status.error { color:var(--red); }
+  .start-links { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+  .start-links a { color:var(--blue); font-size:12.5px; font-weight:650; }
+  .start-help { border-top:1px solid var(--border); }
+  .start-help summary { cursor:pointer; padding:8px 16px; color:var(--navy); font-size:12.5px; font-weight:650; }
+  .start-help summary:hover { background:var(--hover); }
+  .start-help ol { display:flex; flex-wrap:wrap; gap:6px 28px; margin:0; padding:0 16px 10px 38px; color:var(--muted); font-size:12px; line-height:1.5; }
+  .start-help li { flex:1 1 220px; }
+  .start-help li strong { color:var(--text); }
+  .start-help p { margin:0; padding:0 16px 10px; color:var(--muted); font-size:12px; line-height:1.5; }
   .notice { margin:0 0 18px; padding:11px 13px; border-left:3px solid #607d98; background:var(--surface-muted); color:var(--muted); font-size:13.5px; line-height:1.55; }
   .header-stats { display:flex; align-items:baseline; gap:18px; margin-left:auto; color:var(--muted); font-size:12.5px; }
   .header-stats b { margin-right:3px; color:var(--text); font-size:19px; font-weight:650; font-variant-numeric:tabular-nums; }
@@ -82,6 +99,7 @@
   .detection-badge.attack { color:var(--red); border-color:var(--red); }
   .threshold-control { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; font-weight:650; white-space:nowrap; }
   .threshold-control select { padding:7px 9px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); }
+  .threshold-control { flex-wrap:wrap; }
 
   /* ── 용어 도움말 ─────────────────────────────────────────────── */
   .hint { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; margin-left:5px; border:1px solid var(--border-strong); border-radius:50%; color:var(--muted); font-size:9px; font-weight:700; cursor:help; vertical-align:1px; }
@@ -258,10 +276,9 @@
     .workspace { display:block; }
     .tab-panel.active { display:block; }
     .header-inner,.page { width:min(100% - 24px,1760px); }
-    .header-inner { align-items:flex-start; padding:15px 0; }
-    .header-inner { flex-wrap:wrap; }
-    .header-stats { margin-left:0; }
-    .header-actions { flex-direction:column; align-items:flex-end; gap:8px; }
+    .header-inner { align-items:flex-start; flex-wrap:wrap; gap:10px 16px; padding:15px 0; }
+    .header-stats { order:2; width:100%; margin-left:0; gap:8px 14px; flex-wrap:wrap; }
+    .header-actions { order:3; width:100%; flex-direction:row; align-items:center; flex-wrap:wrap; gap:8px; }
     .users-layout { grid-template-columns:minmax(0,1fr); }
     .users-list-pane { border-right:0; border-bottom:1px solid var(--border); }
     .user-list { max-height:340px; }
@@ -290,11 +307,11 @@
         <span class="header-stats-sub" id="summaryResolvedActorsSub"></span>
       </div>
       <div class="header-actions">
-        <label class="threshold-control" for="detectionLevel">판정 기준
+        <label class="threshold-control" for="detectionLevel" title="이 선택은 화면의 식별 표시만 바꾸며 방어 정책에는 영향을 주지 않습니다.">화면 표시 기준
           <select id="detectionLevel">
-            <option value="low">LOW · 30점</option>
-            <option value="medium" selected>MEDIUM · 50점</option>
-            <option value="high">HIGH · 70점</option>
+            <option value="low">낮음 · 30점</option>
+            <option value="medium" selected>보통 · 50점</option>
+            <option value="high">높음 · 70점</option>
           </select>
         </label>
         <span class="refresh-note">2초 간격 자동 갱신</span>
@@ -306,6 +323,21 @@
   </header>
 
   <main class="page">
+    <section class="start-panel" aria-label="처음 보는 분을 위한 안내">
+      <div class="start-top">
+        <div class="start-target"><strong>선택된 공개 경로</strong><a id="publicTargetLink" href="/" hidden></a><span id="publicTargetFallback">확인 중…</span><span class="start-status" id="detectionDataStatus" role="status" aria-live="polite">탐지 기록 연결 확인 중</span></div>
+        <div class="start-links"><a href="/__defense/dashboard">방어 결과 보기 →</a></div>
+      </div>
+      <details class="start-help" id="startHelp" open>
+        <summary>처음 보는 분: 요청과 방어 결과 확인 방법</summary>
+        <ol>
+          <li><strong>공개 경로에서 사이트 열기</strong> · 실제 요청을 한 번 보냅니다.</li>
+          <li><strong>흐름 선택하기</strong> · 점수와 연결 근거, 요청 ID를 확인합니다.</li>
+          <li><strong>방어 결과 대조하기</strong> · 방어 화면에서 같은 요청 ID의 전략과 결과를 봅니다.</li>
+        </ol>
+        <p>점수는 0–100 범위의 관찰 지표이며 공격 성공 확률이 아닙니다. 상단의 화면 표시 기준은 배지만 바꾸고 실제 방어 정책은 바꾸지 않습니다. 수치는 현재 보관된 기록으로, 기간 전체 집계가 아닙니다.</p>
+      </details>
+    </section>
     <section class="workspace">
       <nav class="tabs" role="tablist" aria-label="집계 단위">
         <button class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="panel-users" data-tab="users">클라이언트 흐름<span class="tab-count" id="usersTabCount">0</span></button>
@@ -1056,12 +1088,18 @@ function renderUserList() {
       <span class="user-card-id" title="${escapeHtml(row.id)}">흐름 ID ${escapeHtml(shortId(row.id, 24))}</span>
       ${row.backgroundRequests > 0 ? `<span class="sub">점수 분석 ${row.behaviorAnalyzedRequests.toLocaleString()} · 백그라운드 ${row.backgroundRequests.toLocaleString()}</span>` : ''}
     </button>`;
-  }).join('') || '<p class="empty" style="padding:20px 16px;">조건에 맞는 클라이언트 흐름이 없습니다.</p>';
+  }).join('') || (state.users.length
+    ? '<p class="empty" style="padding:20px 16px;">검색·필터와 일치하는 흐름이 없습니다. 조건을 바꿔 보세요.</p>'
+    : '<p class="empty" style="padding:20px 16px;">아직 관찰된 흐름이 없습니다. 위의 공개 경로에서 사이트를 열고 요청을 보낸 뒤 확인하세요.</p>');
 
   list.querySelectorAll('.user-card').forEach(card => {
     card.addEventListener('click', () => {
       state.userSelectionTouched = true;
-      selectUser(card.dataset.userKind, card.dataset.userId);
+      selectUser(card.dataset.userKind, card.dataset.userId).then(() => {
+        if (window.matchMedia('(max-width:900px)').matches) {
+          document.getElementById('userDetail').scrollIntoView({ behavior:'smooth', block:'start' });
+        }
+      });
     });
   });
   if (focusedKind && focusedId) {
@@ -1576,11 +1614,16 @@ async function refresh() {
     fetch('/__detection/api/resolved-actors'), fetch('/__detection/api/sessions'), fetch('/__detection/api/actors'),
     fetch('/__detection/api/auth-groups'), fetch('/__detection/api/ip-entries'), fetch('/__detection/api/client-flows')
   ]);
+  if (responses.some(response => !response.ok)) throw new Error('탐지 기록 응답 오류');
   const [resolvedActors, sessions, actors, authGroups, ipEntries, clientFlows] = await Promise.all(responses.map(r => r.json()));
 
   state.users = buildUserRows(resolvedActors, actors, clientFlows);
   updateSummary(state.users, sessions, actors, authGroups, ipEntries);
   renderUserList();
+  if (!state.users.length && !state.selected) {
+    document.getElementById('userDetail').innerHTML =
+      '<p class="detail-empty">요청이 들어오면 이곳에 점수와 연결 근거, 요청 순서가 표시됩니다.</p>';
+  }
   // 데이터가 처음 들어온 순간에만 첫 흐름을 자동 선택한다. 사용자가 직접 고른
   // 뒤에는 2초 자동 갱신이 선택을 옮기지 않는다.
   if (!state.selected && !state.userSelectionTouched) {
@@ -1648,6 +1691,35 @@ async function refresh() {
   document.querySelectorAll('tr[data-kind]').forEach(row => {
     row.addEventListener('click', () => openDetail(row.dataset.kind, row.dataset.id));
   });
+}
+
+async function monitoredRefresh() {
+  const status = document.getElementById('detectionDataStatus');
+  try {
+    await refresh();
+    status.textContent = '탐지 기록 연결됨';
+    status.classList.remove('error');
+  } catch (_) {
+    status.textContent = '탐지 기록을 불러오지 못했습니다';
+    status.classList.add('error');
+  }
+}
+
+async function loadPublicTarget() {
+  const link = document.getElementById('publicTargetLink');
+  const fallback = document.getElementById('publicTargetFallback');
+  try {
+    const response = await nativeFetch('/__ruby/target', { cache:'no-store' });
+    if (!response.ok) throw new Error('target metadata unavailable');
+    const { publicPath } = await response.json();
+    if (!/^\/[a-z][a-z0-9-]{0,39}\/$/.test(publicPath)) throw new Error('invalid public path');
+    link.href = publicPath;
+    link.textContent = publicPath;
+    link.hidden = false;
+    fallback.hidden = true;
+  } catch (_) {
+    fallback.textContent = '경로 확인 불가';
+  }
 }
 
 function flattenMetrics(object, prefix = '') {
@@ -1839,7 +1911,7 @@ function closeModal() {
   document.getElementById('backdrop').style.display = 'none';
   state.modalOpen = false;
   clearInterval(state.timer);
-  state.timer = setInterval(refresh, 2000);
+  state.timer = setInterval(monitoredRefresh, 2000);
 }
 
 document.getElementById('closeButton').addEventListener('click', closeModal);
@@ -1866,8 +1938,8 @@ document.getElementById('loginForm').addEventListener('submit', async event => {
   document.getElementById('dashboardPassword').value = '';
   document.getElementById('loginBackdrop').classList.remove('visible');
   document.getElementById('logoutButton').hidden = false;
-  await refresh();
-  state.timer = setInterval(() => refresh().catch(() => {}), 2000);
+  await monitoredRefresh();
+  state.timer = setInterval(monitoredRefresh, 2000);
 });
 document.getElementById('logoutButton').addEventListener('click', async () => {
   await nativeFetch('/__detection/api/logout', {method:'POST'});
@@ -1930,11 +2002,20 @@ detectionLevelSelect.addEventListener('change', event => {
   localStorage.setItem('detectionLevel', state.detectionLevel);
   renderUserList();
   renderUserDetail();
-  refresh();
+  monitoredRefresh();
+});
+
+const startHelp = document.getElementById('startHelp');
+try { startHelp.open = localStorage.getItem('ruby-detection-start-help') !== 'closed'; }
+catch (_) { startHelp.open = true; }
+startHelp.addEventListener('toggle', () => {
+  try { localStorage.setItem('ruby-detection-start-help', startHelp.open ? 'open' : 'closed'); }
+  catch (_) { /* 도움말은 저장소가 없어도 사용할 수 있다. */ }
 });
 
 initializeTheme();
 setTab('users');
+loadPublicTarget();
 nativeFetch('/__detection/api/auth/status')
   .then(response => response.json())
   .then(status => {
@@ -1943,8 +2024,8 @@ nativeFetch('/__detection/api/auth/status')
       showLogin();
       return;
     }
-    return refresh().then(() => {
-      state.timer = setInterval(() => refresh().catch(() => {}), 2000);
+    return monitoredRefresh().then(() => {
+      state.timer = setInterval(monitoredRefresh, 2000);
     });
   })
   .catch(() => showLogin('인증 상태를 확인하지 못했습니다.'));
