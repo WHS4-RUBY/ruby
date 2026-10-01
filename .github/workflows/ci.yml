@@ -25,6 +25,9 @@ jobs:
         working-directory: detection
         run: npm test
 
+      - name: Test Defense dashboard presentation
+        run: node --test defense/tests/dashboardPresentation.test.js
+
       - name: Audit Detection dependencies
         working-directory: detection
         run: npm audit --audit-level=moderate

@@ -947,6 +947,7 @@ app.get("/__detection/api/actors", (req, res) => {
     return {
       actorId: actor.id,
       resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
+      unresolvedRequestCount: actor.requests.filter((request) => !request.resolvedActorId).length,
       ip: actor.ip,
       fingerprint: actor.fingerprint,
       clientObservation: actor.clientObservation,
@@ -977,6 +978,7 @@ app.get("/__detection/api/actors/:id", (req, res) => {
   res.json({
     actorId: actor.id,
     resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
+    unresolvedRequestCount: actor.requests.filter((request) => !request.resolvedActorId).length,
     ip: actor.ip,
     fingerprint: actor.fingerprint,
     clientObservation: actor.clientObservation,

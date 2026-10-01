@@ -65,15 +65,37 @@
     .action-track { height:8px; background:var(--surface-subtle); border:1px solid var(--border); }
     .action-fill { height:100%; background:var(--blue); }
     .action-count { text-align:right; font-variant-numeric:tabular-nums; }
-    .table-toolbar { padding:12px 18px; display:flex; gap:10px; border-bottom:1px solid var(--border); background:var(--surface-subtle); }
+    .table-toolbar { padding:12px 18px; display:flex; flex-wrap:wrap; align-items:center; gap:10px; border-bottom:1px solid var(--border); background:var(--surface-subtle); }
     .search-input { width:min(360px,100%); padding:7px 9px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); }
-    .table-wrap { overflow:auto; }
-    table { width:100%; border-collapse:collapse; font-size:12px; }
-    th { position:sticky; top:0; z-index:1; padding:9px 12px; background:var(--surface-subtle); color:var(--muted); text-align:left; white-space:nowrap; border-bottom:1px solid var(--border-strong); }
-    td { padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
-    tbody tr:hover { background:var(--hover); }
+    .copy-status { min-height:18px; color:var(--muted); font-size:12px; }
+    .group-list { padding:14px 18px 18px; display:grid; gap:10px; }
+    .client-group { min-width:0; border:1px solid var(--border); background:var(--surface); }
+    .client-summary { width:100%; display:grid; grid-template-columns:minmax(0,2fr) minmax(0,2fr) minmax(0,1.3fr) 20px; align-items:center; gap:16px; padding:14px 16px; border:0; text-align:left; }
+    .client-summary:hover { background:var(--hover); }
+    .client-summary:focus-visible,.copy-button:focus-visible { outline:2px solid var(--blue); outline-offset:-2px; }
+    .summary-label { display:block; color:var(--muted); font-size:11px; font-weight:700; }
+    .client-id { display:block; margin-top:3px; overflow-wrap:anywhere; font-size:12px; }
+    .client-id.truncate { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .client-group-identity { padding:10px 16px; border-bottom:1px solid var(--border); font-size:12px; overflow-wrap:anywhere; }
+    .client-group-identity .summary-label { margin-bottom:3px; }
+    .summary-detail { display:block; overflow-wrap:anywhere; color:var(--muted); font-size:12px; }
+    .summary-detail strong { color:var(--text); font-weight:600; }
+    .summary-counts { display:flex; flex-wrap:wrap; gap:5px; }
+    .summary-chevron { color:var(--muted); font-size:18px; line-height:1; transform:rotate(-90deg); }
+    .client-summary[aria-expanded="true"] .summary-chevron { transform:rotate(0); }
+    .client-requests { border-top:1px solid var(--border); background:var(--surface-subtle); }
+    .request-card { padding:13px 16px; border-bottom:1px solid var(--border); }
+    .request-card:last-child { border-bottom:0; }
+    .request-top { display:flex; flex-wrap:wrap; align-items:center; gap:7px 10px; }
+    .request-path { min-width:0; overflow-wrap:anywhere; font-size:12px; }
+    .request-time { margin-left:auto; color:var(--muted); font-size:12px; white-space:nowrap; }
+    .request-meta { display:grid; grid-template-columns:minmax(150px,1.4fr) minmax(150px,1fr) minmax(150px,1fr); gap:8px 16px; margin-top:10px; font-size:12px; }
+    .request-field { min-width:0; overflow-wrap:anywhere; }
+    .request-field .field-label { display:block; margin-bottom:2px; color:var(--muted); font-size:11px; }
+    .request-id-line { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+    .request-id-line code { min-width:0; overflow-wrap:anywhere; }
+    .copy-button { padding:2px 7px; color:var(--blue); font-size:11px; white-space:nowrap; }
     .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
-    .path { max-width:520px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .badge { display:inline-block; padding:2px 6px; border:1px solid var(--border-strong); background:var(--surface-subtle); color:var(--muted); font-size:10px; margin:0 4px 2px 0; }
     .badge.active { border-color:#a8733f; color:var(--orange); }
     .outcome-blocked { color:var(--red); font-weight:700; }
@@ -109,6 +131,13 @@
       .kpi { border-right:0; }
       .section-head { align-items:flex-start; flex-direction:column; }
       .timeline { gap:1px; }
+      .group-list { padding:10px; }
+      .client-summary { grid-template-columns:minmax(0,1fr) 20px; gap:7px 10px; }
+      .client-summary > :not(:first-child):not(.summary-chevron) { grid-column:1; }
+      .summary-chevron { grid-column:2; grid-row:1; }
+      .request-meta { grid-template-columns:1fr; }
+      .request-time { width:100%; margin-left:0; }
+      .search-input { width:100%; }
     }
   </style>
 </head>
@@ -159,14 +188,12 @@
         </section>
       </div>
 
-      <div class="section-head"><div><h2>최근 요청</h2><p id="requestMeta">0건</p><p>점수는 이 요청 전에 완료된 탐지 기록으로 결정한 정책 입력입니다.</p></div></div>
-      <div class="table-toolbar"><input class="search-input" id="requestSearch" type="search" placeholder="요청 ID · 경로 · 클라이언트 · 전략 검색" aria-label="최근 요청 검색" /></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>시각</th><th>요청 ID</th><th>클라이언트</th><th>요청</th><th>경로</th><th>정책 출처</th><th>자동화 / 공격 / 위험</th><th>상태</th><th>전략</th><th>결과</th><th>처리 시간</th></tr></thead>
-          <tbody id="requestRows"></tbody>
-        </table>
+      <div class="section-head"><div><h2>최근 요청</h2><p id="requestMeta">최근 250건 중 0건 표시</p><p>정책 클라이언트 ID(동일 사용자 확정 아님)는 방어 상태에 쓰는 정책 키입니다. 같은 사람 여부는 알 수 없어 서로 다른 ID를 합치지 않으며, 정책 키 없는 요청은 개별 표시합니다. 점수는 이 요청 전에 완료된 탐지 기록으로 결정한 정책 입력입니다.</p></div></div>
+      <div class="table-toolbar">
+        <input class="search-input" id="requestSearch" type="search" placeholder="요청 ID · 경로 · 정책 클라이언트 ID · 전략 검색" aria-label="최근 요청 검색" />
+        <span class="copy-status" id="copyStatus" role="status" aria-live="polite"></span>
       </div>
+      <div class="group-list" id="requestGroups"></div>
     </section>
   </main>
 
@@ -183,7 +210,7 @@
   </div>
 
   <script>
-    const state = { requests: [], authEnabled: false, timer: null };
+    const state = { requests: [], groupOpen: new Map(), authEnabled: false, timer: null, copyStatusTimer: null };
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
@@ -197,7 +224,8 @@
     }
 
     function formatTime(timestamp) {
-      return new Date(timestamp * 1000).toLocaleTimeString('ko-KR', { hour12:false });
+      const date = new Date(Number(timestamp) * 1000);
+      return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString('ko-KR', { hour12:false });
     }
 
     function formatScore(value) {
@@ -272,39 +300,160 @@
         </div>`).join('');
     }
 
+    function hasClientId(event) {
+      const clientId = String(event.clientId ?? '').trim();
+      return clientId !== '' && clientId.toLowerCase() !== 'unknown';
+    }
+
+    function clientKey(event, index, occurrence) {
+      if (hasClientId(event)) return JSON.stringify(['client', String(event.clientId)]);
+      const eventId = String(event.id ?? '').trim();
+      if (eventId) return JSON.stringify(['missing-client-event', eventId]);
+      const requestId = String(event.requestId ?? '').trim();
+      return requestId
+        ? JSON.stringify(['missing-client-request', requestId, occurrence])
+        : JSON.stringify(['missing-client-observation', index]);
+    }
+
+    function indexRequests(events) {
+      const requestOccurrences = new Map();
+      return events.map((event, index) => {
+        const requestId = String(event.requestId ?? '').trim();
+        const occurrence = requestOccurrences.get(requestId) || 0;
+        if (!hasClientId(event) && !String(event.id ?? '').trim() && requestId) requestOccurrences.set(requestId, occurrence + 1);
+        return { event, index, key: clientKey(event, index, occurrence), occurrence };
+      });
+    }
+
+    function groupRequests(events) {
+      const groups = new Map();
+      for (const { event, index, key, occurrence } of events) {
+        if (!groups.has(key)) groups.set(key, {
+          key,
+          label: hasClientId(event) ? String(event.clientId) : '정책 키 없음(연결 불가)',
+          missingClientId: !hasClientId(event),
+          reference: [
+            String(event.requestId ?? '').trim() ? `요청 ID ${String(event.requestId).trim()}${occurrence ? ` · 동일 ID 기록 ${occurrence + 1}` : ''}` : '',
+            String(event.id ?? '').trim() ? `기록 ID ${String(event.id).trim()}` : '',
+          ].filter(Boolean).join(' · ') || `관찰 순번 ${index + 1}`,
+          events: [],
+        });
+        groups.get(key).events.push(event);
+      }
+      return [...groups.values()];
+    }
+
+    function outcomeLabel(outcome) {
+      if (outcome === 'forwarded') return '전달';
+      if (outcome === 'blocked') return '차단';
+      if (outcome === 'error') return '오류';
+      return String(outcome || '—');
+    }
+
+    function outcomeClass(outcome) {
+      return ['forwarded', 'blocked', 'error'].includes(outcome) ? `outcome-${outcome}` : '';
+    }
+
+    function renderRequestCard(event) {
+      const requestId = String(event.requestId || '');
+      const strategies = Array.isArray(event.strategies) && event.strategies.length
+        ? event.strategies.map(name => `<span class="badge active mono">${escapeHtml(name)}</span>`).join('')
+        : '<span class="badge">없음</span>';
+      const duration = Number(event.durationMs);
+      const durationText = Number.isFinite(duration) ? `${Math.round(duration).toLocaleString()} ms` : '—';
+      return `<article class="request-card">
+        <div class="request-top">
+          <strong class="mono">${escapeHtml(event.method || '—')}</strong>
+          <span class="request-path mono">${escapeHtml(event.path || '—')}</span>
+          <span class="badge mono">HTTP ${escapeHtml(event.status ?? '—')}</span>
+          <span class="${outcomeClass(event.outcome)}">${escapeHtml(outcomeLabel(event.outcome))}</span>
+          <time class="request-time">${formatTime(event.timestamp)}</time>
+        </div>
+        <div class="request-meta">
+          <div class="request-field"><span class="field-label">대조에 사용할 요청 ID</span>
+            <span class="request-id-line"><code class="mono">${escapeHtml(requestId || '—')}</code>
+              ${requestId ? `<button type="button" class="copy-button" data-request-id="${escapeHtml(requestId)}" aria-label="요청 ID 복사">복사</button>` : ''}</span>
+          </div>
+          <div class="request-field"><span class="field-label">정책 점수 · 자동화 / 공격 / 위험</span>
+            <span class="mono">${formatScore(event.automationScore)} / ${formatScore(event.attackScore)} / ${formatScore(event.riskScore)}</span>
+          </div>
+          <div class="request-field"><span class="field-label">점수 출처</span><span class="mono">${escapeHtml(event.policySource || '—')}</span></div>
+          <div class="request-field"><span class="field-label">적용 전략</span>${strategies}</div>
+          <div class="request-field"><span class="field-label">방어 신호</span><span class="mono">${escapeHtml(event.defenseSignal || '—')}</span></div>
+          <div class="request-field"><span class="field-label">처리 시간</span><span class="mono">${durationText}</span></div>
+        </div>
+      </article>`;
+    }
+
     function renderRequests() {
       const query = document.getElementById('requestSearch').value.trim().toLowerCase();
-      const filtered = state.requests.filter(event => [event.requestId, event.path, event.clientId, event.policySource, ...(event.strategies || [])].join(' ').toLowerCase().includes(query));
-      document.getElementById('requestMeta').textContent = `${filtered.length.toLocaleString()}건 표시`;
-      const root = document.getElementById('requestRows');
-      if (!filtered.length) {
-        root.innerHTML = '<tr><td colspan="11" class="empty">조건에 맞는 요청이 없습니다.</td></tr>';
+      const indexedRequests = indexRequests(state.requests);
+      const availableKeys = new Set(indexedRequests.map(({ key }) => key));
+      for (const key of state.groupOpen.keys()) if (!availableKeys.has(key)) state.groupOpen.delete(key);
+      const filtered = indexedRequests.filter(({ event }) => [
+        event.requestId, event.id, event.path, hasClientId(event) ? event.clientId : '정책 키 없음 연결 불가', event.policySource, event.method,
+        event.outcome, event.defenseSignal, ...(Array.isArray(event.strategies) ? event.strategies : []),
+      ].join(' ').toLowerCase().includes(query));
+      const groups = groupRequests(filtered);
+      const missingGroups = groups.filter(group => group.missingClientId).length;
+      document.getElementById('requestMeta').textContent = `최근 ${state.requests.length.toLocaleString()}건 중 ${filtered.length.toLocaleString()}건 · 정책 클라이언트 ID ${(groups.length - missingGroups).toLocaleString()}개 · 정책 키 없음 ${missingGroups.toLocaleString()}건`;
+      const root = document.getElementById('requestGroups');
+      const focused = document.activeElement;
+      const focusedClientId = root.contains(focused) ? focused.dataset.clientId : null;
+      const focusedRequestId = root.contains(focused) ? focused.dataset.requestId : null;
+      if (!groups.length) {
+        root.innerHTML = '<p class="empty">조건에 맞는 요청이 없습니다.</p>';
         return;
       }
-      root.innerHTML = filtered.map(event => {
-        const strategies = event.strategies?.length
-          ? event.strategies.map(name => `<span class="badge active mono">${escapeHtml(name)}</span>`).join('')
-          : '<span class="badge">none</span>';
-        return `<tr>
-          <td class="mono">${formatTime(event.timestamp)}</td>
-          <td class="mono">${escapeHtml(event.requestId || '—')}</td>
-          <td class="mono">${escapeHtml(event.clientId)}</td>
-          <td><b>${escapeHtml(event.method)}</b></td>
-          <td class="path mono" title="${escapeHtml(event.path)}">${escapeHtml(event.path)}</td>
-          <td class="mono">${escapeHtml(event.policySource || '—')}</td>
-          <td class="mono">${formatScore(event.automationScore)} / ${formatScore(event.attackScore)} / ${formatScore(event.riskScore)}</td>
-          <td class="mono">${event.status}</td>
-          <td>${strategies}</td>
-          <td class="outcome-${escapeHtml(event.outcome)}">${escapeHtml(event.outcome)}${event.defenseSignal ? `<br><span class="mono">${escapeHtml(event.defenseSignal)}</span>` : ''}</td>
-          <td class="mono">${Math.round(event.durationMs).toLocaleString()} ms</td>
-        </tr>`;
+      root.innerHTML = groups.map((group, index) => {
+        const defended = group.events.filter(event => Array.isArray(event.strategies) && event.strategies.length).length;
+        const blocked = group.events.filter(event => event.outcome === 'blocked').length;
+        const errors = group.events.filter(event => event.outcome === 'error').length;
+        const latest = Math.max(...group.events.map(event => Number(event.timestamp) || 0));
+        const names = [...new Set(group.events.flatMap(event => Array.isArray(event.strategies) ? event.strategies : []))];
+        const strategyText = names.length ? names.join(', ') : '없음';
+        const open = state.groupOpen.has(group.key) ? state.groupOpen.get(group.key) : Boolean(query);
+        const panelId = `client-requests-${index}`;
+        return `<section class="client-group">
+          <button type="button" class="client-summary" data-client-id="${escapeHtml(group.key)}" aria-expanded="${open}" aria-controls="${panelId}">
+            <span><span class="summary-label">${group.missingClientId ? '연결 불가' : '정책 클라이언트 ID'}</span><code class="client-id mono${group.missingClientId ? '' : ' truncate'}" title="${escapeHtml(group.label)}">${escapeHtml(group.label)}</code>${group.missingClientId ? `<span class="summary-detail mono">${escapeHtml(group.reference)}</span>` : ''}</span>
+            <span><span class="summary-label">최근 기록</span><span class="summary-detail">${formatTime(latest)} · 전략 <strong>${escapeHtml(strategyText)}</strong></span></span>
+            <span class="summary-counts"><span class="badge">요청 ${group.events.length}</span><span class="badge active">방어 ${defended}</span><span class="badge">차단 ${blocked}</span><span class="badge">오류 ${errors}</span></span>
+            <span class="summary-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div class="client-requests" id="${panelId}" ${open ? '' : 'hidden'}>${group.missingClientId ? '' : `<div class="client-group-identity"><span class="summary-label">정책 클라이언트 ID 전체</span><code class="mono">${escapeHtml(group.label)}</code></div>`}${group.events.map(renderRequestCard).join('')}</div>
+        </section>`;
       }).join('');
+      if (focusedClientId !== null && focusedClientId !== undefined) {
+        [...root.querySelectorAll('[data-client-id]')].find(button => button.dataset.clientId === focusedClientId)?.focus();
+      } else if (focusedRequestId !== null && focusedRequestId !== undefined) {
+        [...root.querySelectorAll('[data-request-id]')].find(button => button.dataset.requestId === focusedRequestId)?.focus();
+      }
+    }
+
+    async function copyRequestId(requestId) {
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(requestId);
+          return true;
+        } catch (_) { /* HTTP deployments may require the fallback below. */ }
+      }
+      const field = document.createElement('textarea');
+      field.value = requestId;
+      field.style.position = 'fixed';
+      field.style.opacity = '0';
+      document.body.appendChild(field);
+      field.focus();
+      field.select();
+      try { return document.execCommand('copy'); }
+      catch (_) { return false; }
+      finally { field.remove(); }
     }
 
     async function refresh() {
       try {
         const snapshot = await api('snapshot?limit=250&buckets=48');
-        state.requests = snapshot.requests || [];
+        state.requests = Array.isArray(snapshot.requests) ? snapshot.requests.slice(0, 250) : [];
         renderSummary(snapshot.summary, snapshot.config);
         renderTimeline({ buckets:snapshot.timeline });
         renderActions({ actions:snapshot.actions });
@@ -332,6 +481,25 @@
       applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
     });
     document.getElementById('requestSearch').addEventListener('input', renderRequests);
+    document.getElementById('requestGroups').addEventListener('click', async event => {
+      const root = document.getElementById('requestGroups');
+      const copyButton = event.target.closest('[data-request-id]');
+      if (copyButton && root.contains(copyButton)) {
+        const copied = await copyRequestId(copyButton.dataset.requestId);
+        copyButton.focus();
+        const status = document.getElementById('copyStatus');
+        status.textContent = copied ? '요청 ID를 복사했습니다.' : '복사하지 못했습니다.';
+        window.clearTimeout(state.copyStatusTimer);
+        state.copyStatusTimer = window.setTimeout(() => { status.textContent = ''; }, 2500);
+        return;
+      }
+      const toggle = event.target.closest('[data-client-id]');
+      if (!toggle || !root.contains(toggle)) return;
+      const open = toggle.getAttribute('aria-expanded') !== 'true';
+      state.groupOpen.set(toggle.dataset.clientId, open);
+      toggle.setAttribute('aria-expanded', String(open));
+      document.getElementById(toggle.getAttribute('aria-controls')).hidden = !open;
+    });
     document.getElementById('loginForm').addEventListener('submit', async event => {
       event.preventDefault();
       try {
