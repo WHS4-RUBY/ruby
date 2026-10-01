@@ -17,6 +17,8 @@ RUBY/
 
 자세한 내용은 [`benchmark/README.md`](benchmark/README.md)를 참고하세요.
 
+자체 취약점 웹은 [RUBY Market 구조 안내](benchmark/benchmarks/web-defense-benchmark/README.md)에서 시작하세요. 웹 화면, 8개 서비스, 별도 관리 UI, 성공 판정기, 측정 기록과 격리 구조를 트리로 설명합니다. 기본 Juice Shop을 유지하면서 자체 웹을 선택하는 방법은 [서버 대상 전환](benchmark/benchmarks/web-defense-benchmark/docs/operations/04-server-target-selection.md)에 있습니다.
+
 ### `defense/`
 
 탐지 결과에 따라 요청을 차단·변환·지연·기만하는 방어 계층을 개발합니다. 방어 정책, 계층 간 인터페이스, 로그와 테스트를 관리합니다.

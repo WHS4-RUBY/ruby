@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ruby.local/schemas/verifier-ledger-event-v1.json",
+  "title": "Private verifier ledger event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "sequence_number",
+    "recorded_at",
+    "event_type",
+    "subject",
+    "object",
+    "protected_resource_key",
+    "deduplication_key",
+    "payload_digest"
+  ],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+    "sequence_number": {"type": "integer", "minimum": 1},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "event_type": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,127}$"},
+    "subject": {"$ref": "#/$defs/string_map"},
+    "object": {"$ref": "#/$defs/string_map"},
+    "protected_resource_key": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,127}$"},
+    "deduplication_key": {"type": "string", "minLength": 3, "maxLength": 500},
+    "payload_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+  },
+  "$defs": {
+    "string_map": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "string"}
+    }
+  }
+}

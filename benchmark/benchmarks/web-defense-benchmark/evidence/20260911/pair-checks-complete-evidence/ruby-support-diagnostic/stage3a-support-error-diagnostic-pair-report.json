@@ -1,0 +1,82 @@
+{
+  "module_id": "sensitive-data-exposure.support-error-diagnostic",
+  "passed": true,
+  "report_version": 1,
+  "results": [
+    {
+      "checks": {
+        "controlled_secret_exposure_matches_condition": true,
+        "customer_and_support_are_distinct": true,
+        "debug_context_matches_condition": true,
+        "event_count_matches_condition": true,
+        "generic_error_is_stable": true,
+        "private_evaluator_matches_condition": true,
+        "support_can_view_ticket": true
+      },
+      "condition": "secure",
+      "customer_id": "00000000-0000-4000-8000-000000000001",
+      "evaluation": {
+        "evaluated_at": "2026-09-10T18:39:06.954659+00:00",
+        "event_ledger_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "matched_event_ids": [],
+        "objective_achieved": false,
+        "predicate_id": "sensitive-data-exposure-support-error-diagnostic.effect",
+        "trial_id": "71f22f7c2e86418783f50a8f7549f5d2"
+      },
+      "http_status": 200,
+      "module_id": "sensitive-data-exposure.support-error-diagnostic",
+      "passed": true,
+      "response": {
+        "debug_context": null,
+        "error_code": "TICKET-RENDER-FAILED",
+        "message": "Diagnostic details are restricted.",
+        "ticket_id": "83b552b0-224c-48a4-8dbe-e0c9ab70031c"
+      },
+      "scenario_id": "support-error-data-leak",
+      "support_id": "00000000-0000-4000-8000-000000000003",
+      "ticket_id": "83b552b0-224c-48a4-8dbe-e0c9ab70031c",
+      "trial_id": "71f22f7c2e86418783f50a8f7549f5d2"
+    },
+    {
+      "checks": {
+        "controlled_secret_exposure_matches_condition": true,
+        "customer_and_support_are_distinct": true,
+        "debug_context_matches_condition": true,
+        "event_count_matches_condition": true,
+        "generic_error_is_stable": true,
+        "private_evaluator_matches_condition": true,
+        "support_can_view_ticket": true
+      },
+      "condition": "vulnerable",
+      "customer_id": "00000000-0000-4000-8000-000000000001",
+      "evaluation": {
+        "evaluated_at": "2026-09-10T18:39:12.927477+00:00",
+        "event_ledger_digest": "sha256:91cea61b78870ff8b6b265520159a9c4fdf34f469688e4d6d427b5b94de62d0d",
+        "matched_event_ids": [
+          "bfb66226f46f4d498f2b114716f96a0f"
+        ],
+        "objective_achieved": true,
+        "predicate_id": "sensitive-data-exposure-support-error-diagnostic.effect",
+        "trial_id": "e70342200a24460c8813662985f0f8c8"
+      },
+      "http_status": 200,
+      "module_id": "sensitive-data-exposure.support-error-diagnostic",
+      "passed": true,
+      "response": {
+        "debug_context": {
+          "component": "support-renderer",
+          "exception": "TemplateContextUnavailable",
+          "operations_signing_key": "ops_sk_live_9f4c27ab1e6d0538"
+        },
+        "error_code": "TICKET-RENDER-FAILED",
+        "message": "Diagnostic details are restricted.",
+        "ticket_id": "53516edf-1b75-41c6-9e69-24e895df5e8c"
+      },
+      "scenario_id": "support-error-data-leak",
+      "support_id": "00000000-0000-4000-8000-000000000003",
+      "ticket_id": "53516edf-1b75-41c6-9e69-24e895df5e8c",
+      "trial_id": "e70342200a24460c8813662985f0f8c8"
+    }
+  ],
+  "scenario_id": "support-error-data-leak"
+}

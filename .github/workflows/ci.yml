@@ -32,6 +32,44 @@ jobs:
       - name: Build Detection image
         run: docker build -t detection:ci ./detection
 
+      - name: Validate Detection, Defense, and selectable target contract
+        env:
+          IMAGE_PREFIX: ghcr.io/whs4-ruby/ruby
+          PAYLOAD_FINGERPRINT_KEY: compose-validation-key
+          DCID_HMAC_SECRET: compose-validation-dcid-key
+          ACCOUNT_ID_HASH_KEY: compose-validation-account-key
+          DETECTION_DASHBOARD_PASSWORD: compose-validation-detection-password
+          DEFENSE_DASHBOARD_PASSWORD: compose-validation-defense-password
+          DCID_COOKIE_SECURE: "true"
+          DETECTION_DASHBOARD_COOKIE_SECURE: "true"
+          DEFENSE_DASHBOARD_COOKIE_SECURE: "true"
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.target.juice-shop.yml \
+            config --quiet
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.target.ruby-web.yml \
+            config --format json | node -e '
+              let text = "";
+              process.stdin.on("data", chunk => { text += chunk; });
+              process.stdin.on("end", () => {
+                const config = JSON.parse(text);
+                const services = config.services;
+                if (services.policy) throw new Error("separate policy service must not return");
+                if (services.detection.environment.TARGET_URL !== "http://defense:8080") {
+                  throw new Error("Detection must send requests directly to Defense");
+                }
+                if (services.defense.environment.BENCHMARK_TARGET_URL !== "http://ruby-web-target:8080") {
+                  throw new Error("RUBY web overlay did not select the public web target");
+                }
+                if (config.networks["ai-defense-net"].name !== "ruby_ai-defense-net") {
+                  throw new Error("root and RUBY web stacks do not share the fixed pipeline network");
+                }
+              });
+            '
+
   python-check:
     runs-on: ubuntu-26.04
     strategy:

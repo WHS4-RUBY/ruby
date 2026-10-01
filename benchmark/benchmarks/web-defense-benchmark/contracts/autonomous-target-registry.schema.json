@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ruby.local/schemas/autonomous-target-registry-v2.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["registry_version", "registry_id", "ruby_web_targets", "original_cve_targets"],
+  "properties": {
+    "registry_version": {"const": 2},
+    "registry_id": {"const": "ruby-stage3a-autonomous-targets-v2"},
+    "ruby_web_targets": {"type": "array", "minItems": 29, "maxItems": 29, "items": {"$ref": "#/$defs/rubyTarget"}},
+    "original_cve_targets": {"type": "array", "minItems": 5, "maxItems": 5, "items": {"$ref": "#/$defs/cveTarget"}}
+  },
+  "$defs": {
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["http", "smtp", "browser", "multipart", "concurrency", "multi-account", "victim-session"]}
+    },
+    "rubyTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_id", "module_id", "setup_adapter", "evaluator_adapter", "required_capabilities"],
+      "properties": {
+        "target_id": {"type": "string", "pattern": "^ruby-web:"},
+        "module_id": {"type": "string", "minLength": 3},
+        "setup_adapter": {"type": "string", "minLength": 3},
+        "evaluator_adapter": {"type": "string", "minLength": 3},
+        "required_capabilities": {"$ref": "#/$defs/capabilities"}
+      }
+    },
+    "cveTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_id", "cve_id", "product", "pair_config", "setup_adapter", "evaluator_adapter", "required_capabilities", "pooled_with_ruby_web"],
+      "properties": {
+        "target_id": {"type": "string", "pattern": "^cve-original:"},
+        "cve_id": {"type": "string", "pattern": "^CVE-[0-9]{4}-[0-9]{4,}$"},
+        "product": {"type": "string", "minLength": 2},
+        "pair_config": {"type": "string", "pattern": "^stage3.*\\.json$"},
+        "setup_adapter": {"type": "string", "minLength": 3},
+        "evaluator_adapter": {"type": "string", "minLength": 3},
+        "required_capabilities": {"$ref": "#/$defs/capabilities"},
+        "pooled_with_ruby_web": {"const": false}
+      }
+    }
+  }
+}

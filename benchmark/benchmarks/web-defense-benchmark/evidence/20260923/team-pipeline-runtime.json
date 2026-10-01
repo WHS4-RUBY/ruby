@@ -1,0 +1,477 @@
+{
+  "report_version": 1,
+  "source_commit": "785753e13bb339a3ba0a709ff661126e2bff0f3b",
+  "run_id": "ruby-prcheck-0cfca23844",
+  "started_at": "2026-09-22T17:15:45.922762+00:00",
+  "finished_at": "2026-09-22T17:16:35.784037+00:00",
+  "source_report_sha256": "3c652d21b76259c0e75bae8b3cb48ed24b3b0a6ce208d51ca9ffa092152436b1",
+  "source_inputs": {
+    "detection/config/policy.json": "dbedbe66b8341e2a89fb766640f34232ffe2530e41180335ffd3df8e8ff99397",
+    "docker-compose.yml": "a0e318185b6ac4e8f7a89d0340bea54949034260944866787ac665c4238a2b2f",
+    "benchmark/benchmarks/web-defense-benchmark/app/compose.production.yaml": "8c4d841fe5549373977a4f0f7a3c83520677c40671259605c68712447a17af86",
+    "benchmark/benchmarks/web-defense-benchmark/app/tools/team_pipeline_observer.py": "06aa75f554aa7dbdc0207ea1e5c568ca3f1c8d2a7989bb9ac00e0d943b9d1f12",
+    "benchmark/benchmarks/web-defense-benchmark/scripts/check_team_pipeline_runtime.py": "ce9b90bedb4a52c1ece493c9ec0f815fe1014cae720833412482b9b97a15c5a7"
+  },
+  "configuration": {
+    "target_mode": "normal",
+    "vulnerable_modules": [],
+    "automation_requests": 8,
+    "detection_level": "medium",
+    "crs_enabled": true,
+    "block_mode": false,
+    "listener": "random loopback-only port",
+    "secret_values": "ephemeral, omitted"
+  },
+  "policy_configuration": {
+    "defense": {
+      "rules": [
+        {
+          "min_score": 0,
+          "max_score": 0.2,
+          "strategies": []
+        },
+        {
+          "min_score": 0.2,
+          "max_score": 0.5,
+          "strategies": [
+            {
+              "name": "delay",
+              "params": {
+                "delay_ms": 200
+              }
+            }
+          ]
+        },
+        {
+          "min_score": 0.5,
+          "max_score": 0.8,
+          "strategies": [
+            {
+              "name": "delay",
+              "params": {
+                "delay_ms": 300
+              }
+            }
+          ]
+        },
+        {
+          "min_score": 0.8,
+          "max_score": 1.01,
+          "strategies": [
+            {
+              "name": "delay",
+              "params": {
+                "delay_ms": 500
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "images": {
+    "benchmark-web-postgres": "sha256:399723641e36ae8686530c592f6a4db355c8f74621ce6d95f62bd6a325d91ef6",
+    "benchmark-web-redis": "sha256:c391978cc779eeef9111e8e9a1aeca8cd6e5756648c0a999a3a754fd87c9cde8",
+    "benchmark-web-object-store": "sha256:6aadcae1d60ded496a4d4e3e3cc1ca2245c40f01aad94eb6d1b472bf72b963ed",
+    "benchmark-web-mock-integration": "sha256:32ed252cea10c1b8b1f76aa0d44d45fdd84d2890c5b7ded3c7c42184e734bf84",
+    "benchmark-web-api": "sha256:d85c3a5a41a5c34133bad2fbd4a328ed94226d95c27bac3a02d3a96bf42473b6",
+    "benchmark-web-evaluator": "sha256:eeb997e307a1290006f6b97d78f800e7fe095b6eeedab35803c278470b5dd700",
+    "benchmark-web-frontend": "sha256:68fd3af85b877c0716c9fd1d72b1eec0df6410de5ebf80bd326483b1895bd174",
+    "detection": "sha256:40c55a313729e2f34be91e22d84a25f1af6aa5b37a12930978857947d1ae4421",
+    "defense": "sha256:5a7e8d6dba7c413438ebc7fb4a3f6982939b61e8163a11d55067131324b6cc7b"
+  },
+  "checks": {
+    "normal_products_through_full_chain": true,
+    "frontend_through_full_chain": true,
+    "telemetry_in_real_html": true,
+    "inert_marker_keeps_normal_web_response": true,
+    "automation_score_recorded": true,
+    "inert_marker_crs_result_recorded": true,
+    "all_default_delay_tiers_forward_normal_requests": true,
+    "detection_generated_real_defense_plan": true,
+    "client_identity_reaches_defense": true,
+    "live_chain_executes_real_delay": true,
+    "200_300_500ms_real_delay_verified": true,
+    "private_evaluator_synthetic_event_contract": true,
+    "only_web_joins_pipeline": true
+  },
+  "runtime_contract_passed": true,
+  "pr_ready": false,
+  "blocking_findings": [
+    {
+      "id": "operator-api-on-test-entry",
+      "component": "detection ingress",
+      "observed": "Operator session data was returned without authentication on the same local Detection entry used for test traffic.",
+      "scope": "Observed in the isolated local pipeline; team server ingress was not inspected.",
+      "resolution_required": "Separate or authenticate operator endpoints before using this listener as an attacker entry."
+    }
+  ],
+  "crs_status": {
+    "mode": "detection-only",
+    "enabled": true,
+    "running": true,
+    "error": null
+  },
+  "session_summaries": [
+    {
+      "AutomationScore": 0.1,
+      "AttackScore": 0,
+      "Detection": {
+        "level": "medium",
+        "threshold": 0.5,
+        "automationScoreBasis": "current",
+        "attackScoreBasis": "historical-max",
+        "currentAutomationScore": 0.1,
+        "currentAttackScore": 0,
+        "effectiveAttackScore": 0,
+        "automationDetected": false,
+        "attackDetected": false
+      },
+      "Requests": 2,
+      "Markers": []
+    },
+    {
+      "AutomationScore": 0.549,
+      "AttackScore": 0.21,
+      "Detection": {
+        "level": "medium",
+        "threshold": 0.5,
+        "automationScoreBasis": "current",
+        "attackScoreBasis": "historical-max",
+        "currentAutomationScore": 0.549,
+        "currentAttackScore": 0.21,
+        "effectiveAttackScore": 0.21,
+        "automationDetected": true,
+        "attackDetected": false
+      },
+      "Requests": 9,
+      "Markers": [
+        {
+          "Status": 200,
+          "Tags": [
+            "rce"
+          ],
+          "RuleHits": 1,
+          "AnomalyScore": 5
+        }
+      ]
+    }
+  ],
+  "defense_delays": [
+    {
+      "case": "automation-1",
+      "configured_ms": 200,
+      "elapsed_ms": 200.698,
+      "kind": "delay"
+    },
+    {
+      "case": "automation-2",
+      "configured_ms": 200,
+      "elapsed_ms": 200.646,
+      "kind": "delay"
+    },
+    {
+      "case": "automation-3",
+      "configured_ms": 300,
+      "elapsed_ms": 299.811,
+      "kind": "delay"
+    },
+    {
+      "case": "automation-4",
+      "configured_ms": 300,
+      "elapsed_ms": 299.846,
+      "kind": "delay"
+    },
+    {
+      "case": "automation-5",
+      "configured_ms": 300,
+      "elapsed_ms": 299.874,
+      "kind": "delay"
+    },
+    {
+      "case": "automation-6",
+      "configured_ms": 300,
+      "elapsed_ms": 300.099,
+      "kind": "delay"
+    },
+    {
+      "case": "automation-7",
+      "configured_ms": 300,
+      "elapsed_ms": 300.288,
+      "kind": "delay"
+    },
+    {
+      "case": "inert-marker",
+      "configured_ms": 300,
+      "elapsed_ms": 300.912,
+      "kind": "delay"
+    },
+    {
+      "case": "direct-200",
+      "configured_ms": 200,
+      "elapsed_ms": 199.702,
+      "kind": "delay"
+    },
+    {
+      "case": "direct-300",
+      "configured_ms": 300,
+      "elapsed_ms": 300.851,
+      "kind": "delay"
+    },
+    {
+      "case": "direct-500",
+      "configured_ms": 500,
+      "elapsed_ms": 500.356,
+      "kind": "delay"
+    }
+  ],
+  "defense_request_plans": [
+    {
+      "case": "normal-products",
+      "plan": [],
+      "status": 200,
+      "elapsed_ms": 20.293,
+      "client_id_present": true
+    },
+    {
+      "case": "normal-home",
+      "plan": [],
+      "status": 200,
+      "elapsed_ms": 6.697,
+      "client_id_present": true
+    },
+    {
+      "case": "automation-0",
+      "plan": [],
+      "status": 200,
+      "elapsed_ms": 12.81,
+      "client_id_present": true
+    },
+    {
+      "case": "automation-1",
+      "plan": [
+        {
+          "name": "delay",
+          "params": {
+            "delay_ms": 200
+          }
+        }
+      ],
+      "status": 200,
+      "elapsed_ms": 212.739,
+      "client_id_present": true
+    },
+    {
+      "case": "automation-2",
+      "plan": [
+        {
+          "name": "delay",
+          "params": {
+            "delay_ms": 200
+          }
+        }
+      ],
+      "status": 200,
+      "elapsed_ms": 209.777,
+      "client_id_present": true
+    },
+    {
+      "case": "automation-3",
+      "plan": [
+        {
+          "name": "delay",
+          "params": {
+            "delay_ms": 300
+          }
+        }
+      ],
+      "status": 200,
+      "elapsed_ms": 309.409,
+      "client_id_present": true
+    },
+    {
+      "case": "automation-4",
+      "plan": [
+        {
+          "name": "delay",
+          "params": {
+            "delay_ms": 300
+          }
+        }
+      ],
+      "status": 200,
+      "elapsed_ms": 312.823,
+      "client_id_present": true
+    },
+    {
+      "case": "automation-5",
+      "plan": [
+        {
+          "name": "delay",
+          "params": {
+            "delay_ms": 300
+          }
+        }
+      ],
+      "status": 200,
+      "elapsed_ms": 308.707,
+      "client_id_present": true
+    },
+    {
+      "case": "automation-6",
+      "plan": [
+        {
+          "name": "delay",
+          "params": {
+            "delay_ms": 300
+          }
+        }
+      ],
+      "status": 200,
+      "elapsed_ms": 311.018,
+      "client_id_present": true
+    },
+    {
+      "case": "automation-7",
+      "plan": [
+        {
+          "name": "delay",
+          "params": {
+            "delay_ms": 300
+          }
+        }
+      ],
+      "status": 200,
+      "elapsed_ms": 312.452,
+      "client_id_present": true
+    },
+    {
+      "case": "inert-marker",
+      "plan": [
+        {
+          "name": "delay",
+          "params": {
+            "delay_ms": 300
+          }
+        }
+      ],
+      "status": 200,
+      "elapsed_ms": 316.643,
+      "client_id_present": true
+    },
+    {
+      "case": "direct-0",
+      "plan": [],
+      "status": 200,
+      "elapsed_ms": 8.719,
+      "client_id_present": true
+    },
+    {
+      "case": "direct-200",
+      "plan": [
+        {
+          "name": "delay",
+          "params": {
+            "delay_ms": 200
+          }
+        }
+      ],
+      "status": 200,
+      "elapsed_ms": 208.611,
+      "client_id_present": true
+    },
+    {
+      "case": "direct-300",
+      "plan": [
+        {
+          "name": "delay",
+          "params": {
+            "delay_ms": 300
+          }
+        }
+      ],
+      "status": 200,
+      "elapsed_ms": 309.491,
+      "client_id_present": true
+    },
+    {
+      "case": "direct-500",
+      "plan": [
+        {
+          "name": "delay",
+          "params": {
+            "delay_ms": 500
+          }
+        }
+      ],
+      "status": 200,
+      "elapsed_ms": 513.47,
+      "client_id_present": true
+    }
+  ],
+  "direct_defense": [
+    {
+      "delay_ms": 0,
+      "status": 200,
+      "products": 4,
+      "elapsed_ms": 16.594
+    },
+    {
+      "delay_ms": 200,
+      "status": 200,
+      "products": 4,
+      "elapsed_ms": 209.393
+    },
+    {
+      "delay_ms": 300,
+      "status": 200,
+      "products": 4,
+      "elapsed_ms": 310.279
+    },
+    {
+      "delay_ms": 500,
+      "status": 200,
+      "products": 4,
+      "elapsed_ms": 514.252
+    }
+  ],
+  "evaluator_contract": {
+    "kind": "trusted synthetic internal event, not a reproduced attack",
+    "result": {
+      "checks": {
+        "control_network_only": true,
+        "fake_http_not_success": true,
+        "internal_event_success": true,
+        "one_matched_event": true,
+        "ordinary_http_succeeds": true,
+        "readonly_database_role": true,
+        "reset_removed_event": true
+      },
+      "passed": true
+    }
+  },
+  "cleanup": {
+    "passed": true,
+    "errors": []
+  },
+  "limits": [
+    "No exploit reproduction or attack-success/blocking-effect measurement.",
+    "No team server deployment or end-to-end server test.",
+    "Defense observer records real calls; it does not replace their implementation.",
+    "Direct 200/300/500ms plans test Defense contracts, not detector recall."
+  ],
+  "attempt_history": [
+    {
+      "attempt": 1,
+      "result": "Harness failed before HTTP checks because a local function name shadowed the cookiejar import. Isolated resources were cleaned up."
+    },
+    {
+      "attempt": 2,
+      "result": "Live transport, scoring, real delays and synthetic evaluator checks completed. The harness incorrectly expected the inert marker to be named ssti; the actual CRS result was rce. Raw result retained without rewriting."
+    },
+    {
+      "attempt": 3,
+      "result": "Corrected contract assertion checks that the real CRS result is recorded, without treating an inert marker as ground truth for an attack category. Thirteen runtime checks passed; readiness remains false because operator access is not isolated."
+    }
+  ]
+}

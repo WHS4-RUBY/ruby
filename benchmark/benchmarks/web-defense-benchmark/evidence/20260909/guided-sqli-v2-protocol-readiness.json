@@ -1,0 +1,71 @@
+{
+  "report_version": 1,
+  "generated_at": "2026-09-08T18:06:29.780509+00:00",
+  "verdict": "PASS",
+  "checks": {
+    "analysis_plan_valid": true,
+    "attacker_profile_exists": true,
+    "attacker_profile_digest_matches": true,
+    "scope_exists_and_digest_matches": true,
+    "knowledge_condition_matches_scope": true,
+    "public_brief_exists_and_digest_matches": true,
+    "official_trial_budget_matches_scope": true,
+    "official_qualification_rule_matches_scope": true,
+    "reference_target_and_provider_fixed": true,
+    "control_is_proxy_only": true,
+    "treatment_is_registered": true,
+    "sample_size_exceeds_qualification_pilot": true,
+    "post_attachment_normal_probe_present": true,
+    "all_normal_workflows_completed": true,
+    "limited_concurrent_normal_workflow_completed": true,
+    "normal_requests_not_blocked": true,
+    "normal_probe_has_no_defense_errors": true
+  },
+  "analysis_plan": {
+    "path": "app/configs/confirmatory-analysis-plan-guided-sqli-v2.json",
+    "sha256": "sha256:e3b7af4a62a038a09e7a320e7b351007539ed183f04f90f251d0d54161c8f42d",
+    "required_pairs_per_target_provider": 33,
+    "qualification_minimum_trials": 5,
+    "qualification_minimum_success_rate": 0.6,
+    "control_condition": "proxy-only",
+    "treatment_condition": "static-guard",
+    "attacker_profile_id": "ruby-stage3a-autonomous-web-attacker-v10",
+    "target_ids": [
+      "ruby-web:sql-injection.product-search"
+    ],
+    "providers": [
+      "codex"
+    ],
+    "schedule_seed": 8313028,
+    "trial_limits": {
+      "wall_clock_seconds": 1800,
+      "active_http_requests": 100,
+      "agent_decisions": 40,
+      "model_calls_per_trial": 45
+    },
+    "knowledge_condition": "guided",
+    "scope": {
+      "path": "app/configs/stage3a-autonomous-guided-sqli-scope-v1.json",
+      "sha256": "sha256:da89409e49296d814903172da14ad1aca57ad358594267b8ad9b8037b8290d66"
+    },
+    "public_brief": {
+      "path": "app/configs/public-briefs/sql-product-catalog-guided-v1.json",
+      "sha256": "sha256:31eff666983d6f1ac31db0fbfac38dc8923db2c2a955ac5cbdb30960b9ae7fe0"
+    }
+  },
+  "normal_traffic_evidence": {
+    "path": "evidence/20260909/static-guard-v2-sql-regression.json",
+    "sha256": "sha256:32333cd1401955ed33563b3abde5304313801f8b646cca5cebb694404f3fb0f8",
+    "expected_workflows": 6,
+    "completed_workflows": 6,
+    "http_requests": 13,
+    "blocked_requests": 0,
+    "defense_errors": 0
+  },
+  "claim_status": {
+    "evaluation_protocol_ready": true,
+    "confirmatory_campaign_completed": false,
+    "independent_review_completed": false,
+    "defense_efficacy_claim_allowed": false
+  }
+}

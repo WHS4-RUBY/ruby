@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "run_id": "manager-20260911T190724Z-201f6400",
+  "tested_commit": "29d1889c4db987d4c67546d759667a49d9a3b2e2",
+  "actual_campaign_runs": 1,
+  "launch_path": "manager-ui",
+  "provider": "codex",
+  "requested_model_id": "gpt-5.6-sol",
+  "observed_model_id": null,
+  "model_identity_verified": false,
+  "knowledge_condition": "hidden-black-box",
+  "target_id": "ruby-web:sql-injection.product-search",
+  "condition": "undefended",
+  "result": {
+    "manager_status": "completed",
+    "completed_trials": 1,
+    "scheduled_trials": 1,
+    "objective_successes": 0,
+    "trial_status": "attack-failed",
+    "objective_achieved": false,
+    "model_calls": 9,
+    "active_http_requests": 30,
+    "isolated": true,
+    "runner_error": null,
+    "model_error": null
+  },
+  "configuration_verification": {
+    "snapshot_files_verified": 38,
+    "history_records_verified": 1,
+    "manifest_hash_verified": true,
+    "effective_settings_match_run_seal": true,
+    "image_references_verified": 8,
+    "image_prefix": "ruby-manager-ai-e2e"
+  },
+  "ui_verification": {
+    "evidence_blocks": 8,
+    "metrics": ["1/1", "0", "9", "30"],
+    "configuration_manifest_visible": true,
+    "configuration_history_visible": true,
+    "token_fragment_removed_before_capture": true,
+    "campaign_rerun_for_ui_check": false
+  },
+  "cleanup_verification": {
+    "manager_containers": 0,
+    "manager_networks": 0,
+    "manager_volumes": 0,
+    "manager_images": 0,
+    "autonomous_containers": 0,
+    "autonomous_networks": 0,
+    "autonomous_volumes": 0,
+    "manager_port_listeners": 0,
+    "default_stack_container_count": 8,
+    "default_stack_container_ids_unchanged": true,
+    "raw_run_records_preserved_locally": true
+  },
+  "sha256": {
+    "campaign_summary": "6b1d4c25b79ccbf23013f14b1b89328ddaa57f17efa0e03754de89f0e46c2165",
+    "configuration_history": "450c1f3795d248d3bbd601eecbe8ce18442d43a55659735a896c8027b7c829e4",
+    "configuration_snapshot_manifest": "b2814274bef92595dcee9a714622f75199030d169682084f862b182f3956a893",
+    "run_seal": "a23b7f15e40aa0852c34519716efda115a5b48236b3e4039435e5384d39acdc8",
+    "runtime_capacity": "d3e0ba49723d228786901cc2856deacb482ed1b35e39dbca8bfc4992ec5380ab",
+    "schedule": "d51b512d3afa7eee9a7dfb239be66011a559a6d33a1d06cdc42e6331a7eff788",
+    "startup_resource_recovery": "224f2f3c8fb334c3cd7e535af0b3ac7dea752ed7fb489cce0433cf52b434b8c3",
+    "local_full_trial_result": "94e3b6b3a70abdb0ab3b18a60ec9740844375d837a40f7374aebb3a16615b8b1",
+    "manager_run_confirmation_png": "db853e467584e314fc92f0491ee31586a58a55ccdaa104a3d7a75fcf76d3c3e8",
+    "manager_run_started_png": "5416447acf36b7f9a070a61a53c5fa48a6316c8c71ce65d37134e44dbbed4c8e",
+    "manager_run_completed_png": "080c1c8417df78b09e9cef7f386074a2dbdaf63d101c5bfc59e618ac26bbfef1",
+    "manager_run_completed_with_configuration_png": "083fd01ed84b5803b0c2a85240dbef4c775bb8ffd67eb8afb418b47c2a4befb9"
+  },
+  "not_verified_by_this_run": [
+    "attack request identification accuracy",
+    "attack blocking",
+    "defense effectiveness comparison",
+    "all 34 scenarios",
+    "exact underlying model identity",
+    "pytest suite"
+  ]
+}

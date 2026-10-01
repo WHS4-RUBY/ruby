@@ -1,0 +1,17 @@
+{
+  "active_http_requests": 46,
+  "automatic_drain_reason": null,
+  "completed_trials": 5,
+  "cumulative_model_calls": 16,
+  "drain_requested": false,
+  "finished_at": "2026-09-08T18:13:08.724501+00:00",
+  "model_call_budget_exhausted": false,
+  "model_calls": 16,
+  "objective_successes": 5,
+  "run_id": "qualification-sqli-codex-v10-guided-v2-final-20260909-031000",
+  "scheduled_trials": 5,
+  "status_counts": {
+    "objective-achieved": 5
+  },
+  "unstarted_trials": 0
+}

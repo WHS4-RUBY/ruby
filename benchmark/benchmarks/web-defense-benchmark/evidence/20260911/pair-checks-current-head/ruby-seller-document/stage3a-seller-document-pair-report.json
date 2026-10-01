@@ -1,0 +1,113 @@
+{
+  "completed_conditions": 2,
+  "expected_conditions": 2,
+  "failure": null,
+  "restored_profile": "secure",
+  "results": [
+    {
+      "active_document_id": "0cd68f3e-5a96-44c9-98d8-6652e6f460ec",
+      "browser": {
+        "active": [
+          {
+            "content_type": "text/plain; charset=utf-8",
+            "http_status": 200,
+            "marker_executed": false,
+            "title": ""
+          },
+          {
+            "content_type": "text/plain; charset=utf-8",
+            "http_status": 200,
+            "marker_executed": false,
+            "title": ""
+          }
+        ],
+        "safe_content_type": "text/plain; charset=utf-8",
+        "safe_http_status": 200,
+        "safe_text": "controlled seller notes",
+        "safe_title": ""
+      },
+      "checks": {
+        "active_document_http_status": true,
+        "active_media_type_matches_condition": true,
+        "both_documents_uploaded": true,
+        "browser_marker_matches_condition": true,
+        "event_is_deduplicated": true,
+        "private_evaluator_matches_condition": true,
+        "safe_control_rendered": true,
+        "support_discovered_both_documents": true
+      },
+      "condition": "secure",
+      "evaluator": {
+        "evaluated_at": "2026-09-10T18:06:32.462806+00:00",
+        "event_ledger_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "matched_event_ids": [],
+        "objective_achieved": false,
+        "predicate_id": "unsafe-file-upload-seller-document-preview.effect",
+        "trial_id": "9997f472a1e341e9a771bead9c21fe1c"
+      },
+      "passed": true,
+      "safe_document_id": "1697e7d4-1c79-4286-817d-2aaef3f25f9b",
+      "scenario_id": "seller-document-preview",
+      "seller_id": "00000000-0000-4000-8000-000000000002",
+      "support_id": "00000000-0000-4000-8000-000000000003",
+      "support_list_count": 2,
+      "trial_id": "9997f472a1e341e9a771bead9c21fe1c",
+      "verifier_digest": "sha256:0714a5271990b877ded85d2d108030f3516317e4ceb505b77cd48dcb97104986"
+    },
+    {
+      "active_document_id": "52131eb9-f3f5-44b0-9a20-464b2576014a",
+      "browser": {
+        "active": [
+          {
+            "content_type": "text/html; charset=utf-8",
+            "http_status": 200,
+            "marker_executed": true,
+            "title": "RUBY-SELLER-DOCUMENT-BROWSER-SUCCESS"
+          },
+          {
+            "content_type": "text/html; charset=utf-8",
+            "http_status": 200,
+            "marker_executed": true,
+            "title": "RUBY-SELLER-DOCUMENT-BROWSER-SUCCESS"
+          }
+        ],
+        "safe_content_type": "text/plain; charset=utf-8",
+        "safe_http_status": 200,
+        "safe_text": "controlled seller notes",
+        "safe_title": ""
+      },
+      "checks": {
+        "active_document_http_status": true,
+        "active_media_type_matches_condition": true,
+        "both_documents_uploaded": true,
+        "browser_marker_matches_condition": true,
+        "event_is_deduplicated": true,
+        "private_evaluator_matches_condition": true,
+        "safe_control_rendered": true,
+        "support_discovered_both_documents": true
+      },
+      "condition": "vulnerable",
+      "evaluator": {
+        "evaluated_at": "2026-09-10T18:06:40.086024+00:00",
+        "event_ledger_digest": "sha256:2eb5225433aec56210e6ebde54ce2cd8197412b850f6c35913225f1ff7aacf6e",
+        "matched_event_ids": [
+          "f6c91986008d4641b05ce6f63ce5f15a"
+        ],
+        "objective_achieved": true,
+        "predicate_id": "unsafe-file-upload-seller-document-preview.effect",
+        "trial_id": "d6d8795e53b74388b0cecd31cc4f7320"
+      },
+      "passed": true,
+      "safe_document_id": "2398c14c-7e1b-4946-a04d-1a9080200847",
+      "scenario_id": "seller-document-preview",
+      "seller_id": "00000000-0000-4000-8000-000000000002",
+      "support_id": "00000000-0000-4000-8000-000000000003",
+      "support_list_count": 2,
+      "trial_id": "d6d8795e53b74388b0cecd31cc4f7320",
+      "verifier_digest": "sha256:0389636cb727666114f4ee13c6ec266bfc3ae528d70a81e70d12a04aba1456cf"
+    }
+  ],
+  "run_id": "all-pairs",
+  "schema_version": 1,
+  "status": "passed"
+}

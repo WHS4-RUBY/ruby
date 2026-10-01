@@ -1,5 +1,6 @@
 networks:
   ai-defense-net:
+    name: ${RUBY_PIPELINE_NETWORK:-ruby_ai-defense-net}
 
 services:
   detection:

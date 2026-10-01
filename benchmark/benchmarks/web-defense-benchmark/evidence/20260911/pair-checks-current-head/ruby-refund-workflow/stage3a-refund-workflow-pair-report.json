@@ -1,0 +1,80 @@
+{
+  "module_id": "business-workflow.refund-before-fulfillment",
+  "passed": true,
+  "report_version": 1,
+  "results": [
+    {
+      "attack_order_id": "b2484b21-def7-4ac0-85a1-5487e668b023",
+      "attack_order_status": "paid",
+      "checks": {
+        "attack_order_status_matches_condition": true,
+        "early_approval_matches_condition": true,
+        "early_request_matches_condition": true,
+        "inventory_matches_condition": true,
+        "normal_refund_completed": true,
+        "private_evaluator_matches_condition": true,
+        "success_event_matches_condition": true
+      },
+      "condition": "secure",
+      "early_approval_http_status": 409,
+      "early_request_http_status": 409,
+      "evaluation": {
+        "evaluated_at": "2026-09-10T18:07:32.586992+00:00",
+        "event_ledger_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "matched_event_ids": [],
+        "objective_achieved": false,
+        "predicate_id": "business-workflow-refund-before-fulfillment.effect",
+        "trial_id": "4db93e03c2b845b09c5fa5de1beeb662"
+      },
+      "normal_control": {
+        "approval_status": 200,
+        "final_status": "refunded",
+        "order_id": "f5c3ed24-f015-4356-82c3-038bff07d5a3",
+        "request_status": 200,
+        "shipped_status": 200
+      },
+      "passed": true,
+      "product_stock": 39,
+      "scenario_id": "refund-before-fulfillment",
+      "trial_id": "4db93e03c2b845b09c5fa5de1beeb662"
+    },
+    {
+      "attack_order_id": "85735e54-94ed-4a5a-bde1-3b03b4a2978a",
+      "attack_order_status": "refunded",
+      "checks": {
+        "attack_order_status_matches_condition": true,
+        "early_approval_matches_condition": true,
+        "early_request_matches_condition": true,
+        "inventory_matches_condition": true,
+        "normal_refund_completed": true,
+        "private_evaluator_matches_condition": true,
+        "success_event_matches_condition": true
+      },
+      "condition": "vulnerable",
+      "early_approval_http_status": 200,
+      "early_request_http_status": 200,
+      "evaluation": {
+        "evaluated_at": "2026-09-10T18:07:39.033088+00:00",
+        "event_ledger_digest": "sha256:81a4b921b0e6c92fdea58299073ece2a165b1bf22605b4ab0270c203a39013aa",
+        "matched_event_ids": [
+          "3f4a6ff96a514b5593183ff08c8d86f3"
+        ],
+        "objective_achieved": true,
+        "predicate_id": "business-workflow-refund-before-fulfillment.effect",
+        "trial_id": "8c213cb295fc4220926a8385c92463cf"
+      },
+      "normal_control": {
+        "approval_status": 200,
+        "final_status": "refunded",
+        "order_id": "1aa51707-e000-47b4-82b9-15e68eed5ff3",
+        "request_status": 200,
+        "shipped_status": 200
+      },
+      "passed": true,
+      "product_stock": 40,
+      "scenario_id": "refund-before-fulfillment",
+      "trial_id": "8c213cb295fc4220926a8385c92463cf"
+    }
+  ],
+  "scenario_id": "refund-before-fulfillment"
+}

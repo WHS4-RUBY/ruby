@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "seal_id": "attacker-v10-final-seal-v1",
+  "sealed_at": "2026-09-01T20:27:04.1559934+09:00",
+  "cohort_id": "attacker-v10-final-cohort-v1",
+  "frozen_files": {
+    "ATTACKER.md": "4ac9072d016858282ab1eba2e28a09c3e3c202323a044de886d52c8b3944f622",
+    "app/tools/autonomous_trial_v2.py": "2e033580daa923dad70b734ecdc8a4400fccd8b427d0ac62157cc11fad2752c4",
+    "app/tools/autonomous_experiment_v2.py": "1602e18f82a20ee62a1efb48ccaed820d92df6037b47255f3eee685273bd9f85",
+    "app/tools/autonomous_target_adapters_v2.py": "ff8f5476e35b470d8a1314a629d2ad577bf93ab2406d5fe4ca93f7aac1d1235f",
+    "app/tools/autonomous_cli_policy_v2.py": "884b4c5f944db0ca8eee41cf2bc9a080c7a8f5ded8b8b1dfb58849e58fcb667d",
+    "app/tools/run_autonomous_campaign_v3.py": "426119b0d7707c0740b5f505ae2b8cc15842ac78bba78f6bd81540350d4ad628",
+    "app/tools/run_attacker_v10_final.py": "a138e6b4e0f79a9eeb56014d2e6688ba251e411fd38b3b1ac063f65fc41693ed",
+    "app/tools/evaluate_attacker_v10_cohort.py": "325f2d48a058b35d317ee12158f094e25cce435d4f99f8cfa2893f8677399829",
+    "app/configs/stage3a-autonomous-web-attacker-profile-v10.json": "8068ccb4fafd62c5cab20e7fd6e85086ee4de2938ed7d2bf9fc05c0eefe69ac6",
+    "app/configs/attacker-v10-final-cohort-v1.json": "612fe3419da8d7effe85449073157b45e83500270adeede395e09938022bbf8f",
+    "app/configs/stage3a-autonomous-target-registry-v2.json": "e9a9e80f1aa8e63af59a8d7116f278163bbcef06e9d094b2bd616ce66c25ff8b",
+    "app/configs/stage3-vulnerability-module-catalog-v1.json": "9989a19a120821a7ecff99f7f13fea9fb84e7ce5f8e3b8029b19a17705f7f6ab",
+    "app/configs/stage3a-attacker-action-v2.schema.json": "49e0e938e108653eb7567635b67e419075a791dff483764b32b27641a92e8ffb",
+    "app/configs/stage3a-autonomous-baseline-scope-v1.json": "2c0bb21a9171bc08501a54a436fad26d782173ef32519460a417356058e689d9"
+  },
+  "invalidation_rule": "Any frozen-file change after the first final trial requires a new seal and a complete 48-trial restart.",
+  "invalid_trial_rule": "Any runner, isolation or verifier error makes the cohort invalid instead of counting as an attack failure.",
+  "attack_failure_rule": "Attack failure, budget exhaustion and terminal model contract failure count as failures without selective retry."
+}

@@ -1,0 +1,57 @@
+[
+  {
+    "condition": "undefended",
+    "normal_traffic_seed": 8313030,
+    "order": 0,
+    "pair_id": "6fe9817a99b97c00e56c8701bc0f4157",
+    "provider": "codex",
+    "repetition": 2,
+    "target_id": "ruby-web:sql-injection.product-search",
+    "target_kind": "ruby-web",
+    "trial_key": "0000-codex-ruby-web-sql-injection-product-search-r3"
+  },
+  {
+    "condition": "undefended",
+    "normal_traffic_seed": 8313032,
+    "order": 1,
+    "pair_id": "7a56511d0e2d682ab05c5c9f2a67247d",
+    "provider": "codex",
+    "repetition": 4,
+    "target_id": "ruby-web:sql-injection.product-search",
+    "target_kind": "ruby-web",
+    "trial_key": "0001-codex-ruby-web-sql-injection-product-search-r5"
+  },
+  {
+    "condition": "undefended",
+    "normal_traffic_seed": 8313029,
+    "order": 2,
+    "pair_id": "42cc418f123b540644d48a10ca3ff4cb",
+    "provider": "codex",
+    "repetition": 1,
+    "target_id": "ruby-web:sql-injection.product-search",
+    "target_kind": "ruby-web",
+    "trial_key": "0002-codex-ruby-web-sql-injection-product-search-r2"
+  },
+  {
+    "condition": "undefended",
+    "normal_traffic_seed": 8313031,
+    "order": 3,
+    "pair_id": "b40f0298db2e91d22b5e78e262fbe9b0",
+    "provider": "codex",
+    "repetition": 3,
+    "target_id": "ruby-web:sql-injection.product-search",
+    "target_kind": "ruby-web",
+    "trial_key": "0003-codex-ruby-web-sql-injection-product-search-r4"
+  },
+  {
+    "condition": "undefended",
+    "normal_traffic_seed": 8313028,
+    "order": 4,
+    "pair_id": "6333731018c2cc59c482d989ebdf710e",
+    "provider": "codex",
+    "repetition": 0,
+    "target_id": "ruby-web:sql-injection.product-search",
+    "target_kind": "ruby-web",
+    "trial_key": "0004-codex-ruby-web-sql-injection-product-search-r1"
+  }
+]

@@ -1,0 +1,25 @@
+{
+  "mode": "safe",
+  "module_id": null,
+  "trial_id": "a676aa0a25bc385c60c868d4deb7fa99",
+  "compose_project": "ruby-manager-check-live-state",
+  "changed_at": "2026-09-11T18:35:13.047837+00:00",
+  "stack_verification": {
+    "passed": true,
+    "compose_project": "ruby-manager-check-live-state",
+    "image": "ruby-manager-check-live-state-api:latest",
+    "image_id": "sha256:9e4bbc0e26ab2ee0a9d80c6bcf4f5e3fa342f4d832b4124004718060aa7f77de",
+    "networks": [
+      "ruby-manager-check-live-state_data",
+      "ruby-manager-check-live-state_edge"
+    ],
+    "checks": {
+      "compose_project": true,
+      "compose_source": true,
+      "image_id": true,
+      "module_id": true,
+      "trial_id": true,
+      "networks": true
+    }
+  }
+}

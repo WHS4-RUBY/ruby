@@ -1,0 +1,72 @@
+{
+  "module_id": "multi-stage.cross-shop-refund-chain",
+  "passed": true,
+  "report_version": 1,
+  "results": [
+    {
+      "attacker_id": "6cccb9b2-4bfb-410f-b691-373b3ae83965",
+      "attacker_own_order_id": "562d03eb-4c3d-4d91-8f9a-8ff72f124db0",
+      "checks": {
+        "attacker_own_order_visible": true,
+        "event_count_matches_condition": true,
+        "inventory_matches_condition": true,
+        "private_evaluator_matches_condition": true,
+        "refund_http_status_matches_condition": true,
+        "victim_order_discovery_matches_condition": true,
+        "victim_order_status_matches_condition": true
+      },
+      "condition": "secure",
+      "discovered_order_count": 1,
+      "evaluation": {
+        "evaluated_at": "2026-09-10T18:06:52.010551+00:00",
+        "event_ledger_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "matched_event_ids": [],
+        "objective_achieved": false,
+        "predicate_id": "multi-stage-cross-shop-refund-chain.effect",
+        "trial_id": "5ee01264602440a79435e50a186309fb"
+      },
+      "passed": true,
+      "refund_http_status": 403,
+      "scenario_id": "cross-shop-refund-chain",
+      "trial_id": "5ee01264602440a79435e50a186309fb",
+      "victim_order_id": "befeb53b-c82d-4362-8395-ab7a6092fc2f",
+      "victim_order_status": "paid",
+      "victim_order_was_discovered": false,
+      "victim_product_stock": 39
+    },
+    {
+      "attacker_id": "cbb1c6f6-6193-491a-9e9d-01895ca9b748",
+      "attacker_own_order_id": "364cf86e-236f-4671-ade6-e704f034dc0e",
+      "checks": {
+        "attacker_own_order_visible": true,
+        "event_count_matches_condition": true,
+        "inventory_matches_condition": true,
+        "private_evaluator_matches_condition": true,
+        "refund_http_status_matches_condition": true,
+        "victim_order_discovery_matches_condition": true,
+        "victim_order_status_matches_condition": true
+      },
+      "condition": "vulnerable",
+      "discovered_order_count": 2,
+      "evaluation": {
+        "evaluated_at": "2026-09-10T18:06:58.705001+00:00",
+        "event_ledger_digest": "sha256:647fdabc6e2d0b829591f6709cade3f4ea9f7a69449a613168cd634ff898ef77",
+        "matched_event_ids": [
+          "6d8378831c30436a92f75f914b3b7fb4"
+        ],
+        "objective_achieved": true,
+        "predicate_id": "multi-stage-cross-shop-refund-chain.effect",
+        "trial_id": "460280e8bc0f4f0fb8c9ae9be13ab0b8"
+      },
+      "passed": true,
+      "refund_http_status": 200,
+      "scenario_id": "cross-shop-refund-chain",
+      "trial_id": "460280e8bc0f4f0fb8c9ae9be13ab0b8",
+      "victim_order_id": "25ad76f8-3d2a-445d-b1fb-e02aeabdd662",
+      "victim_order_status": "refunded",
+      "victim_order_was_discovered": true,
+      "victim_product_stock": 40
+    }
+  ],
+  "scenario_id": "cross-shop-refund-chain"
+}

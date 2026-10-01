@@ -1,0 +1,44 @@
+{
+  "checked_at": "2026-09-11",
+  "source_commit": "aba584c7c11ea9f3b5161e5bef7c8422f48380fa",
+  "detection_source": {
+    "path": "detection/app/main.py",
+    "sha256": "86b45526fbe357a5446e3c1fd3778d5f147e8ce57aa56e92b7cbf234c65c6589",
+    "inspection": {
+      "xss_rule_present": false,
+      "csrf_rule_present": false,
+      "origin_or_fetch_metadata_rule_present": false,
+      "current_signal": "request-count risk score only"
+    }
+  },
+  "static_guard_source": {
+    "path": "benchmark/benchmarks/web-defense-benchmark/app/defenses/static-guard/rules.py",
+    "sha256": "ea7392ef3d0779f2421db7ce0513bc8310fd6d08d745c138dbf5d4b5e37f28f7"
+  },
+  "decision_probes": [
+    {
+      "name": "xss-script-query",
+      "path": "/api/search?q=%3Cscript%3Ealert(1)%3C/script%3E",
+      "action": "pass",
+      "reason_code": "static.clean"
+    },
+    {
+      "name": "xss-event-handler-query",
+      "path": "/api/search?q=%3Cimg%20src=x%20onerror=alert(1)%3E",
+      "action": "pass",
+      "reason_code": "static.clean"
+    },
+    {
+      "name": "csrf-sensitive-get",
+      "path": "/api/admin/users/00000000-0000-4000-8000-000000000003/role-form?role=admin",
+      "action": "pass",
+      "reason_code": "static.clean"
+    },
+    {
+      "name": "sql-injection-control",
+      "path": "/api/products?q=%27%20OR%201%3D1--",
+      "action": "block",
+      "reason_code": "static.attack-signature"
+    }
+  ]
+}

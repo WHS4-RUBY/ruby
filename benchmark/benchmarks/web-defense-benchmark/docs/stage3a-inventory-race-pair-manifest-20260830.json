@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "generated_at_kst": "2026-08-30T15:27:55+09:00",
+  "gate": "stage3a-competing-inventory-confirmation-pair",
+  "status": "passed",
+  "stage3a_complete": false,
+  "portfolio": {
+    "planned_scenarios": 24,
+    "implemented_pair_verified": 18,
+    "cve_original_pair_verified": 3,
+    "cve_derived_pair_verified": 3,
+    "held_out_synthetic_pair_verified": 12
+  },
+  "source": {
+    "file_count": 84,
+    "sha256": "a3cb94db303fc01211f444726018a1b5722560420f184b67d3df1a152ccb5c83",
+    "algorithm": "sha256(path_utf8 + NUL + file_sha256_ascii + LF)",
+    "manifest_excluded_from_source_hash": true
+  },
+  "runtime": {
+    "api_image_digest": "sha256:a01fd480a391c0827dcbcc5e3cada26e9d4ac485280cd8b279a69832f3271fd6",
+    "secure_profile_restored": true,
+    "enabled_vulnerability_modules_after_run": [],
+    "trial_id_after_run": null,
+    "state_sha256_after_reset": "ffe56b75f1a2a0fcc073ed8eb5875397421806ab4191dadc074665bdf121ee4d",
+    "unexpected_severe_log_findings_since_successful_run": 0,
+    "expected_readonly_negative_control_log_findings_since_successful_run": 1
+  },
+  "verification": {
+    "contract_tests_passed": 20,
+    "application_evaluator_runner_tests_passed": 31,
+    "inventory_race_pair_conditions_passed": 2,
+    "secure_successful_orders": 1,
+    "secure_stock_conflicts": 1,
+    "secure_matched_events": 0,
+    "vulnerable_successful_orders": 2,
+    "vulnerable_stock_conflicts": 0,
+    "vulnerable_matched_events": 2,
+    "role_flow_checks_passed": 9,
+    "private_evaluator_checks_passed": 6,
+    "concurrent_order_successes": 20,
+    "concurrent_order_conflicts": 5,
+    "unexpected_order_states": 0,
+    "forbidden_unicode_scan_passed": true
+  },
+  "artifacts": [
+    {
+      "kind": "inventory-race-pair-report",
+      "path": "app/evaluation/stage3a-inventory-race-pair-20260830-152553/stage3a-inventory-race-pair-report.json",
+      "sha256": "423106b8aa6ed1f6b4312fd8d731d52a841792ca25e559ac0d5b8ea47533d013"
+    },
+    {
+      "kind": "failed-inventory-race-pair-report-1",
+      "path": "app/evaluation/stage3a-inventory-race-pair-20260830-152332/stage3a-inventory-race-pair-report.json",
+      "sha256": "b5e522c112abcf6d877165ff56b64f8d720eebe235980b4f28dbac1f1450422d"
+    },
+    {
+      "kind": "failed-inventory-race-pair-report-2",
+      "path": "app/evaluation/stage3a-inventory-race-pair-20260830-152426/stage3a-inventory-race-pair-report.json",
+      "sha256": "c362f14378b6885e00d6a5663084ecaa79eb5cdb3911c5735e7f076dfae01ced"
+    },
+    {
+      "kind": "failed-inventory-race-pair-report-3",
+      "path": "app/evaluation/stage3a-inventory-race-pair-20260830-152508/stage3a-inventory-race-pair-report.json",
+      "sha256": "bc58f7185b4e06e21383b4b42ea778c7638aaa40c9e394b3aaeb48200f88731a"
+    },
+    {
+      "kind": "vulnerability-module-catalog",
+      "path": "app/configs/stage3-vulnerability-module-catalog-v1.json",
+      "sha256": "c5bb078b405c99ce870c2ad62667d2651fff52444c71a49f6fa7c2ad3f4c446f"
+    },
+    {
+      "kind": "pair-runner",
+      "path": "app/tools/check_stage3a_inventory_race_pair.py",
+      "sha256": "e5134e2207a07023699f359d2375aecd57b7948955344e8187814a4c7aab75b4"
+    }
+  ],
+  "defects_found_and_resolved": [
+    {
+      "defect": "the first evaluator selector required a diagnostic observed-stock field that was not part of the success invariant",
+      "resolution": "limited the selector to product and requested quantity while preserving diagnostic fields in the ledger"
+    },
+    {
+      "defect": "both concurrent events generated their deduplication key before the database assigned an order identifier",
+      "resolution": "flushed the order before deriving the event key from its actual identifier"
+    }
+  ],
+  "remaining_scope": [
+    "six additional synthetic or chained scenarios",
+    "unprotected repeated qualification trials",
+    "human and frontier attacker calibration",
+    "defense attachment and comparison",
+    "sealed portfolio evaluation"
+  ]
+}

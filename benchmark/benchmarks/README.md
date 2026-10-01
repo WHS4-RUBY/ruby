@@ -2,6 +2,10 @@
 
 프로젝트별 벤치마크 문서를 저장합니다.
 
+## 현재 프로젝트
+
+- [`web-defense-benchmark`](web-defense-benchmark/README.md): AI 자동화 웹 공격과 방어의 격리 실행 및 평가 환경
+
 새 작업을 시작할 때 `templates/benchmark-report.md`와 `templates/environment-record.md`를 프로젝트 폴더로 복사해 사용하세요.
 
 ```text

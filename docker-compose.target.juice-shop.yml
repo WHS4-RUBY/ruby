@@ -1,0 +1,4 @@
+services:
+  defense:
+    environment:
+      BENCHMARK_TARGET_URL: http://benchmark-target:3000

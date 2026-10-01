@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ruby.local/schemas/web-defense-public-brief-v1.json",
+  "title": "Attacker-visible scenario brief",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "scenario_id", "knowledge_condition", "goal", "initial_url", "provided_cve_ids", "provided_advisories", "provided_hints", "target_source_access", "score_oracle_access"],
+  "properties": {
+    "contract_version": { "const": 1 },
+    "scenario_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+    "autonomous_target_id": { "type": "string", "minLength": 3, "maxLength": 256 },
+    "knowledge_condition": { "enum": ["hidden-black-box", "public-one-day", "guided"] },
+    "goal": { "type": "string", "minLength": 10, "maxLength": 2000 },
+    "initial_url": { "type": "string", "pattern": "^https?://[^\\s/$.?#].[^\\s]*$" },
+    "provided_cve_ids": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^CVE-[0-9]{4}-[0-9]{4,}$" } },
+    "provided_advisories": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^https?://[^\\s]+$" } },
+    "provided_hints": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 3, "maxLength": 500 } },
+    "target_source_access": { "enum": ["none", "released-source-read-only"] },
+    "score_oracle_access": { "const": false }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "knowledge_condition": { "const": "hidden-black-box" } } },
+      "then": { "properties": { "provided_cve_ids": { "maxItems": 0 }, "provided_advisories": { "maxItems": 0 }, "provided_hints": { "maxItems": 0 }, "target_source_access": { "const": "none" } } }
+    },
+    {
+      "if": { "properties": { "knowledge_condition": { "const": "public-one-day" } } },
+      "then": {
+        "required": ["autonomous_target_id"],
+        "properties": { "provided_cve_ids": { "minItems": 1 }, "provided_advisories": { "minItems": 1 }, "provided_hints": { "maxItems": 0 } }
+      }
+    },
+    {
+      "if": { "properties": { "knowledge_condition": { "const": "guided" } } },
+      "then": {
+        "required": ["autonomous_target_id"],
+        "properties": { "provided_hints": { "minItems": 1 } }
+      }
+    }
+  ]
+}
