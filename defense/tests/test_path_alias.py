@@ -309,6 +309,13 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(self.client.get(alias).status_code, 404)
         self.assertEqual(self.logs()[-1]["reason"], "foreign_alias")
 
+    def test_public_target_entrypoint_hides_management_routes(self):
+        with patch.object(main, "PUBLIC_TARGET_ONLY", True):
+            for path in ("/__defense", "/__defense/dashboard", "/__defense/api/snapshot"):
+                with self.subTest(path=path):
+                    self.assertEqual(self.client.get(path).status_code, 404)
+        self.assertEqual(self.client.get("/healthz").status_code, 200)
+
     def test_direct_hit_rotates_that_clients_aliases(self):
         _, client_id, alias = self.open_page()
         backend_calls = len(self.calls)

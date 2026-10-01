@@ -24,6 +24,7 @@ PATH_ALIAS = path_alias.PathAliasConfig.from_env()
 PATH_ALIAS_TABLE = path_alias.PathAliasTable(PATH_ALIAS)
 
 BENCHMARK_TARGET_URL = os.getenv("BENCHMARK_TARGET_URL", "http://localhost:9000")
+PUBLIC_TARGET_ONLY = os.getenv("DEFENSE_PUBLIC_TARGET_ONLY", "false").lower() == "true"
 
 _HOP_BY_HOP = {
     "connection",
@@ -69,12 +70,23 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="RUBY Defense Proxy", lifespan=lifespan)
+app = FastAPI(
+    title="RUBY Defense Proxy",
+    lifespan=lifespan,
+    openapi_url=None if PUBLIC_TARGET_ONLY else "/openapi.json",
+    docs_url=None if PUBLIC_TARGET_ONLY else "/docs",
+    redoc_url=None if PUBLIC_TARGET_ONLY else "/redoc",
+)
 app.include_router(dashboard_router)
 
 
 @app.middleware("http")
 async def secure_dashboard_responses(request: Request, call_next):
+    if PUBLIC_TARGET_ONLY and (
+        request.url.path == "/__defense"
+        or request.url.path.startswith("/__defense/")
+    ):
+        return Response(status_code=404)
     response = await call_next(request)
     if request.url.path == "/__defense" or request.url.path.startswith("/__defense/"):
         response.headers["Cache-Control"] = "no-store"
