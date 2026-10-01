@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>동적 경로 별칭 기법</title>
+<style>
+  :root {
+    --bg: #eef1f5;
+    --paper: #ffffff;
+    --ink: #1a2230;
+    --ink-2: #4a5566;
+    --ink-3: #8390a3;
+    --line: #d8dee8;
+    --soft: #f5f7fa;
+    --blue: #2556d6;
+    --blue-soft: #e8eefc;
+    --green: #178a5a;
+    --green-soft: #e3f4ec;
+    --red: #cf3b3b;
+    --red-soft: #fbe9e9;
+    --amber: #b7791f;
+    --amber-soft: #fcf3e2;
+    --violet: #6b4fd8;
+    --violet-soft: #efebfd;
+    --mono: "Cascadia Code", Consolas, "D2Coding", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage {
+    position: absolute; left: 50%; top: 50%;
+    width: 1280px; height: 720px;
+    transform-origin: center center;
+  }
+  .slide {
+    position: absolute; inset: 0;
+    background: var(--paper);
+    border-radius: 6px;
+    box-shadow: 0 8px 30px rgba(26, 34, 48, .10);
+    padding: 56px 72px 48px;
+    display: none;
+    flex-direction: column;
+  }
+  .slide.active { display: flex; }
+  .kicker {
+    font-size: 15px; font-weight: 700; letter-spacing: .08em;
+    color: var(--blue); margin-bottom: 10px;
+  }
+  h1 { font-size: 40px; font-weight: 800; letter-spacing: -.02em; line-height: 1.25; }
+  h2 { font-size: 34px; font-weight: 800; letter-spacing: -.02em; margin-bottom: 28px; }
+  h3 { font-size: 20px; font-weight: 700; margin-bottom: 10px; }
+  p, li { font-size: 19px; line-height: 1.6; color: var(--ink-2); }
+  code, .mono { font-family: var(--mono); font-size: .9em; }
+  code { background: var(--soft); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; color: var(--ink); }
+  .foot {
+    position: absolute; left: 72px; right: 72px; bottom: 22px;
+    display: flex; justify-content: space-between;
+    font-size: 13px; color: var(--ink-3);
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .card {
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 20px 24px; background: var(--paper);
+  }
+  .card.soft { background: var(--soft); }
+  .tag {
+    display: inline-block; font-size: 13px; font-weight: 700;
+    padding: 3px 10px; border-radius: 99px; margin-bottom: 10px;
+  }
+  .t-blue { background: var(--blue-soft); color: var(--blue); }
+  .t-green { background: var(--green-soft); color: var(--green); }
+  .t-red { background: var(--red-soft); color: var(--red); }
+  .t-amber { background: var(--amber-soft); color: var(--amber); }
+  .t-violet { background: var(--violet-soft); color: var(--violet); }
+  ul.clean { list-style: none; }
+  ul.clean li { padding-left: 18px; position: relative; margin-bottom: 6px; }
+  ul.clean li::before {
+    content: ""; position: absolute; left: 0; top: .72em;
+    width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3);
+  }
+  .note {
+    font-size: 15px; color: var(--ink-3); margin-top: auto; padding-top: 14px; margin-bottom: 18px;
+  }
+  svg text { font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif; }
+  svg .mono { font-family: var(--mono); }
+
+  /* cover */
+  .cover { justify-content: center; padding-left: 96px; }
+  .cover .bar { width: 64px; height: 6px; background: var(--blue); border-radius: 3px; margin-bottom: 28px; }
+  .cover h1 { font-size: 60px; }
+  .cover .sub { font-size: 24px; color: var(--ink-2); margin-top: 18px; }
+  .cover .meta { margin-top: 56px; font-size: 16px; color: var(--ink-3); line-height: 1.8; }
+  .cover .deco { position: absolute; right: 72px; top: 50%; transform: translateY(-50%); }
+
+  /* question */
+  .quote {
+    font-size: 30px; font-weight: 700; line-height: 1.5; color: var(--ink);
+    border-left: 6px solid var(--blue); padding: 6px 0 6px 28px; margin-bottom: 40px;
+  }
+  .quote em { font-style: normal; color: var(--blue); }
+
+  /* tables */
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 17px; }
+  table.cmp th, table.cmp td { padding: 9px 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  table.cmp th { font-size: 14px; color: var(--ink-3); font-weight: 700; letter-spacing: .04em; }
+  table.cmp td:first-child { color: var(--ink-3); font-weight: 600; width: 150px; }
+  table.cmp td { color: var(--ink-2); line-height: 1.5; }
+  table.cmp td.v2 { color: var(--ink); background: var(--blue-soft); }
+  table.cmp th.v2 { color: var(--blue); background: var(--blue-soft); }
+
+  .stat { text-align: left; }
+  .stat .num { font-size: 44px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; }
+  .stat .lbl { font-size: 15px; color: var(--ink-2); margin-top: 6px; line-height: 1.45; }
+
+  .callout {
+    border: 2px solid var(--amber); background: var(--amber-soft);
+    border-radius: 10px; padding: 18px 22px;
+  }
+  .callout h3 { color: var(--amber); }
+  .callout p, .callout li { font-size: 16px; color: var(--ink); }
+
+  /* nav */
+  #nav {
+    opacity: 0; transition: opacity .2s;
+    position: fixed; right: 18px; bottom: 14px;
+    font-size: 13px; color: var(--ink-3);
+    display: flex; gap: 8px; align-items: center;
+    user-select: none;
+  }
+  #nav:hover { opacity: 1; }
+  #nav button {
+    border: 1px solid var(--line); background: var(--paper); color: var(--ink-2);
+    width: 30px; height: 30px; border-radius: 6px; cursor: pointer; font-size: 14px;
+  }
+  #nav button:hover { border-color: var(--blue); color: var(--blue); }
+  #progress { position: fixed; left: 0; top: 0; height: 3px; background: var(--blue); transition: width .2s; }
+  @media print {
+    body { overflow: visible; background: #fff; }
+    #stage { position: static; transform: none !important; }
+    .slide { display: flex !important; position: relative; page-break-after: always; box-shadow: none; }
+    #nav, #progress { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div id="stage">
+
+<!-- 1. 표지 -->
+<section class="slide cover">
+  <div class="bar"></div>
+  <div class="kicker">RUBY · DEFENSE</div>
+  <h1>동적 경로 별칭 기법</h1>
+  <p class="sub">공격 에이전트가 이미 알고 있는 API 주소를 쓸모없게 만들기</p>
+  <div class="meta">
+    발표자 · 2026.10<br>
+    <span class="mono">feature/defense-token-gate</span> · <span class="mono">defense/docs/path-alias-plan.md</span>
+  </div>
+  <svg class="deco" width="360" height="300" viewBox="0 0 360 300" aria-hidden="true">
+    <rect x="10" y="40" width="200" height="44" rx="8" fill="#fbe9e9" stroke="#cf3b3b"/>
+    <text x="26" y="68" class="mono" font-size="16" fill="#cf3b3b" text-decoration="line-through">/rest/user/login</text>
+    <path d="M110 96 L110 140" stroke="#8390a3" stroke-width="2" stroke-dasharray="4 4"/>
+    <path d="M103 132 L110 144 L117 132" fill="none" stroke="#8390a3" stroke-width="2"/>
+    <rect x="10" y="152" width="340" height="44" rx="8" fill="#e8eefc" stroke="#2556d6"/>
+    <text x="26" y="180" class="mono" font-size="15" fill="#2556d6">/__ruby_alias_x7kq2m…</text>
+    <rect x="10" y="212" width="340" height="44" rx="8" fill="#fff" stroke="#d8dee8" stroke-dasharray="5 4"/>
+    <text x="26" y="240" class="mono" font-size="15" fill="#8390a3">/__ruby_alias_p3nd8w…</text>
+    <text x="190" y="278" font-size="13" fill="#8390a3">의심 행동 시 즉시 교체</text>
+  </svg>
+</section>
+
+<!-- 2. 연구 질문 -->
+<section class="slide">
+  <div class="kicker">01 · WHY</div>
+  <h2>무엇을 알고 싶은가</h2>
+  <div class="quote">
+    알고 있던 실제 API 주소를 바로 못 쓰게 하고 <em>현재 별칭을 찾게</em> 만들면,<br>
+    같은 30분 동안 공격 성공·소요 시간·토큰 사용량이 달라지는가?
+  </div>
+  <div class="grid2">
+    <div class="card soft">
+      <span class="tag t-red">하려는 것이 아님</span>
+      <ul class="clean">
+        <li>주소를 숨겨서 취약점을 없애기</li>
+        <li>별칭을 인증 수단으로 쓰기</li>
+      </ul>
+    </div>
+    <div class="card">
+      <span class="tag t-blue">하려는 것</span>
+      <ul class="clean">
+        <li>공격자가 <b>적응하는 데 드는 비용</b>을 측정</li>
+        <li>에이전트가 화면·JS에서 별칭을 찾아내도 → 그것도 유효한 결과</li>
+      </ul>
+    </div>
+  </div>
+  <p class="note">선행연구: WebRanz(FSE'16, URL 무작위화), Andreotti·Verticale(NetSoft'24, FaaS URI 별칭) — 적응형 LLM 공격자와 직접 비교한 실험은 확인되지 않음 → 직접 측정</p>
+  <div class="foot"><span>동적 경로 별칭 기법</span><span>2 / 9</span></div>
+</section>
+
+<!-- 3. 동작 원리 -->
+<section class="slide">
+  <div class="kicker">02 · HOW IT WORKS</div>
+  <h2>동작 원리: 치환 → 조회 → 복원</h2>
+  <svg width="1136" height="470" viewBox="0 0 1136 470">
+    <defs>
+      <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/>
+      </marker>
+    </defs>
+    <!-- columns -->
+    <rect x="0" y="0" width="210" height="440" rx="12" fill="#f5f7fa" stroke="#d8dee8"/>
+    <text x="105" y="34" text-anchor="middle" font-size="19" font-weight="700" fill="#1a2230">클라이언트</text>
+    <text x="105" y="56" text-anchor="middle" font-size="14" fill="#8390a3">브라우저 · 공격 에이전트</text>
+
+    <rect x="420" y="0" width="296" height="440" rx="12" fill="#e8eefc" stroke="#2556d6"/>
+    <text x="568" y="34" text-anchor="middle" font-size="19" font-weight="700" fill="#2556d6">Defense 프록시</text>
+    <text x="568" y="56" text-anchor="middle" font-size="14" fill="#4a5566">path_alias.py</text>
+    <!-- table cylinder -->
+    <g transform="translate(478,300)">
+      <ellipse cx="90" cy="0" rx="90" ry="14" fill="#fff" stroke="#2556d6"/>
+      <path d="M0 0 L0 90 A90 14 0 0 0 180 90 L180 0" fill="#fff" stroke="#2556d6"/>
+      <ellipse cx="90" cy="0" rx="90" ry="14" fill="#fff" stroke="#2556d6"/>
+      <text x="90" y="36" text-anchor="middle" font-size="15" font-weight="700" fill="#1a2230">별칭 테이블</text>
+      <text x="90" y="58" text-anchor="middle" font-size="12" class="mono" fill="#4a5566">(client, alias) → route</text>
+      <text x="90" y="78" text-anchor="middle" font-size="12" fill="#8390a3">SQLite · 세대별 행</text>
+    </g>
+
+    <rect x="926" y="0" width="210" height="440" rx="12" fill="#f5f7fa" stroke="#d8dee8"/>
+    <text x="1031" y="34" text-anchor="middle" font-size="19" font-weight="700" fill="#1a2230">Juice Shop</text>
+    <text x="1031" y="56" text-anchor="middle" font-size="14" fill="#8390a3">원래 앱 (수정 없음)</text>
+
+    <!-- ① response rewrite: right to left -->
+    <circle cx="186" cy="110" r="13" fill="#6b4fd8"/><text x="186" y="115" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">1</text>
+    <path d="M926 110 L716 110" stroke="#6b4fd8" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="821" y="98" text-anchor="middle" font-size="13" class="mono" fill="#6b4fd8">"/rest/user/login"</text>
+    <text x="821" y="130" text-anchor="middle" font-size="12" fill="#8390a3">main.js · HTML · JSON</text>
+    <rect x="440" y="88" width="256" height="44" rx="8" fill="#fff" stroke="#6b4fd8"/>
+    <text x="568" y="115" text-anchor="middle" font-size="14" fill="#1a2230">응답 본문·Location 치환</text>
+    <path d="M420 110 L210 110" stroke="#6b4fd8" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="315" y="98" text-anchor="middle" font-size="12.5" class="mono" fill="#6b4fd8">"/__ruby_alias_x7k…"</text>
+    <text x="315" y="130" text-anchor="middle" font-size="12" fill="#8390a3">+ ruby_alias_client 쿠키</text>
+
+    <!-- ② alias request: left to right -->
+    <circle cx="186" cy="200" r="13" fill="#178a5a"/><text x="186" y="205" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">2</text>
+    <path d="M210 200 L420 200" stroke="#178a5a" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="315" y="188" text-anchor="middle" font-size="12.5" class="mono" fill="#178a5a">POST /__ruby_alias_x7k…</text>
+    <rect x="440" y="178" width="256" height="44" rx="8" fill="#fff" stroke="#178a5a"/>
+    <text x="568" y="205" text-anchor="middle" font-size="14" fill="#1a2230">쿠키 확인·조회 → 경로 복원</text>
+    <path d="M568 222 L568 284" stroke="#178a5a" stroke-width="1.8" stroke-dasharray="4 4" marker-end="url(#ah)"/>
+    <path d="M716 200 L926 200" stroke="#178a5a" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="821" y="188" text-anchor="middle" font-size="13" class="mono" fill="#178a5a">POST /rest/user/login</text>
+    <text x="821" y="220" text-anchor="middle" font-size="12" fill="#8390a3">메서드·쿼리·본문 그대로</text>
+
+    <!-- ③ direct: blocked -->
+    <circle cx="186" cy="270" r="13" fill="#cf3b3b"/><text x="186" y="275" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">3</text>
+    <path d="M210 270 L420 270" stroke="#cf3b3b" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="315" y="258" text-anchor="middle" font-size="13" class="mono" fill="#cf3b3b">POST /rest/user/login</text>
+    <text x="315" y="292" text-anchor="middle" font-size="12" fill="#8390a3">알고 있던 실제 주소</text>
+    <g transform="translate(236,318)">
+      <rect x="0" y="0" width="160" height="40" rx="8" fill="#fbe9e9" stroke="#cf3b3b"/>
+      <text x="80" y="26" text-anchor="middle" font-size="15" font-weight="700" fill="#cf3b3b">← 404 (enforce)</text>
+    </g>
+    <text x="236" y="384" font-size="12.5" fill="#8390a3">백엔드까지 가지 않음</text>
+    <text x="236" y="404" font-size="12.5" font-weight="700" fill="#cf3b3b">+ 이 클라이언트 별칭 즉시 교체</text>
+  </svg>
+  <div class="foot"><span>① 클라이언트별 별칭으로 바꿔 주고 ② 자기 별칭만 되돌리고 ③ 원래 주소는 막고 별칭을 교체한다</span><span>3 / 9</span></div>
+</section>
+
+<!-- 4. 교체 타임라인 -->
+<section class="slide">
+  <div class="kicker">03 · ROTATION (v3)</div>
+  <h2>의심 행동을 하면, 그 클라이언트의 별칭만 즉시 바뀐다</h2>
+  <svg width="1136" height="340" viewBox="0 0 1136 340">
+    <!-- axis: 0..40 min over x 150..1110 → 24px/min -->
+    <g font-size="14" fill="#8390a3">
+      <line x1="150" y1="298" x2="1110" y2="298" stroke="#8390a3" stroke-width="1.5"/>
+      <g text-anchor="middle">
+        <line x1="150" y1="292" x2="150" y2="304" stroke="#8390a3"/><text x="150" y="324">0분</text>
+        <line x1="390" y1="292" x2="390" y2="304" stroke="#8390a3"/><text x="390" y="324">10분</text>
+        <line x1="630" y1="292" x2="630" y2="304" stroke="#8390a3"/><text x="630" y="324">20분</text>
+        <line x1="870" y1="292" x2="870" y2="304" stroke="#8390a3"/><text x="870" y="324">30분</text>
+        <line x1="1110" y1="292" x2="1110" y2="304" stroke="#8390a3"/><text x="1110" y="324">40분</text>
+      </g>
+    </g>
+    <!-- lanes -->
+    <rect x="0" y="32" width="1120" height="138" rx="10" fill="#fbe9e9" opacity=".4"/>
+    <rect x="0" y="186" width="1120" height="96" rx="10" fill="#e3f4ec" opacity=".4"/>
+    <text x="14" y="62" font-size="15" font-weight="700" fill="#cf3b3b">클라이언트 A</text>
+    <text x="14" y="82" font-size="12.5" fill="#4a5566">공격 에이전트</text>
+    <text x="14" y="216" font-size="15" font-weight="700" fill="#178a5a">클라이언트 B</text>
+    <text x="14" y="236" font-size="12.5" fill="#4a5566">정상 사용자</text>
+
+    <g font-size="13" font-weight="700">
+      <!-- A: gen0 0-6, gen1 6-14, gen2 14-40 -->
+      <rect x="150" y="42" width="144" height="30" rx="6" fill="#e3f4ec" stroke="#178a5a"/><text x="222" y="62" text-anchor="middle" fill="#178a5a">세대 0</text>
+      <rect x="294" y="86" width="192" height="30" rx="6" fill="#e3f4ec" stroke="#178a5a"/><text x="390" y="106" text-anchor="middle" fill="#178a5a">세대 1</text>
+      <rect x="486" y="130" width="624" height="30" rx="6" fill="#e3f4ec" stroke="#178a5a"/><text x="798" y="150" text-anchor="middle" fill="#178a5a">세대 2 · 이벤트가 없으면 발급 30분 뒤 시간 교체</text>
+      <!-- B: gen0 0-30, then grace + gen1 -->
+      <rect x="150" y="196" width="720" height="30" rx="6" fill="#e3f4ec" stroke="#178a5a"/><text x="510" y="216" text-anchor="middle" fill="#178a5a">세대 0 — A의 이벤트와 무관하게 그대로</text>
+      <rect x="870" y="196" width="240" height="30" rx="6" fill="#fcf3e2" stroke="#b7791f"/><text x="990" y="216" text-anchor="middle" fill="#b7791f">grace (유예)</text>
+      <rect x="870" y="240" width="240" height="30" rx="6" fill="#e3f4ec" stroke="#178a5a"/><text x="990" y="260" text-anchor="middle" fill="#178a5a">세대 1 (시간 교체)</text>
+    </g>
+
+    <!-- events -->
+    <line x1="294" y1="24" x2="294" y2="170" stroke="#cf3b3b" stroke-width="2.5"/>
+    <rect x="184" y="0" width="220" height="26" rx="13" fill="#cf3b3b"/>
+    <text x="294" y="18" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">① /rest/user/login 직접 호출</text>
+    <line x1="486" y1="24" x2="486" y2="170" stroke="#cf3b3b" stroke-width="2.5"/>
+    <rect x="416" y="0" width="140" height="26" rx="13" fill="#cf3b3b"/>
+    <text x="486" y="18" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">② 옛 별칭 재사용</text>
+    <text x="300" y="68" font-size="12" fill="#cf3b3b">✕ 즉시 폐기, 유예 없음</text>
+    <text x="492" y="112" font-size="12" fill="#cf3b3b">✕ 즉시 폐기</text>
+    <!-- backstop -->
+    <line x1="870" y1="186" x2="870" y2="282" stroke="#b7791f" stroke-width="2" stroke-dasharray="5 4"/>
+    <text x="862" y="262" text-anchor="end" font-size="12" fill="#b7791f">30분 안전장치</text>
+  </svg>
+  <div class="grid3" style="margin-top: 4px;">
+    <div><span class="tag t-red">이벤트 교체</span><p style="font-size:16px"><code>direct</code>·<code>reject</code> 신호 → 그 클라이언트의 별칭 전부 즉시 폐기. 알아낸 정보를 버리고 다시 찾아야 함</p></div>
+    <div><span class="tag t-green">클라이언트별</span><p style="font-size:16px">별칭은 <code>ruby_alias_client</code> 쿠키에 묶임. 공격자 때문에 정상 사용자 탭이 깨지지 않음</p></div>
+    <div><span class="tag t-amber">시간 안전장치</span><p style="font-size:16px">이벤트가 없어도 30분마다 교체, 유예 1세대. 한 번 찾은 별칭이 영원히 통하지 않게</p></div>
+  </div>
+  <div class="foot"><span>PATH_ALIAS_ROTATE_ON=direct,reject · PATH_ALIAS_EPOCH_S=1800 · enforce에서만 교체 (observe는 would_rotate 기록)</span><span>4 / 9</span></div>
+</section>
+
+<!-- 5. v1 → v2 -->
+<section class="slide">
+  <div class="kicker">04 · IMPLEMENTATION</div>
+  <h2>구현 방식: HMAC 재계산 → 클라이언트별 별칭 테이블</h2>
+  <table class="cmp">
+    <thead>
+      <tr><th></th><th>v1 · HMAC (9/30)</th><th class="v2">v2 → v3 · SQLite 테이블 (현재)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>별칭 만드는 법</td><td>secret · 시각 · 접두사로 <b>매번 다시 계산</b> (상태 없음)</td><td class="v2">130비트 난수를 발급해 <b>테이블에 저장</b>, 요청마다 조회</td></tr>
+      <tr><td>별칭 단위</td><td><code>/rest/</code>, <code>/api/</code> <b>접두사당 1개</b></td><td class="v2"><b>경로·템플릿당 1개</b> — <code>/rest/basket/{id}/checkout</code>, <code>/api/Products/{tail*}</code></td></tr>
+      <tr><td>공유·교체</td><td>전원 공유, 10분마다</td><td class="v2"><b>v3: 쿠키별 발급, 의심 신호 시 즉시 교체</b> + 30분 안전장치</td></tr>
+      <tr><td>재시작·다중 worker</td><td>같은 secret이면 같은 값</td><td class="v2">같은 DB 파일 공유 → 재시작해도 유지 (볼륨 <code>path-alias-data</code>)</td></tr>
+      <tr><td>경로 설정</td><td>접두사 목록</td><td class="v2"><code>juice-shop-routes.json</code> — 앱 코드 수정 없이 설정 파일만</td></tr>
+    </tbody>
+  </table>
+  <div class="callout" style="margin-top: 16px; padding: 14px 22px; border-color: var(--blue); background: var(--blue-soft);">
+    <h3 style="color: var(--blue); margin-bottom: 4px;">왜 바꿨나</h3>
+    <p>v1: <code>/rest/</code> 별칭 하나로 모든 API가 열림 → v2: 경로마다 따로 찾아야 함.
+    v2의 10분 주기는 에이전트 행동과 무관해 효과가 안 보임 → v3: <b>의심 행동에 반응</b>.</p>
+  </div>
+  <div class="foot"><span>테이블을 쓴다는 것 자체가 아니라 “경로별 발급 + 클라이언트별 발급 + 의심 신호 즉시 교체”가 달라진 요인</span><span>5 / 9</span></div>
+</section>
+
+<!-- 6. 판정 -->
+<section class="slide">
+  <div class="kicker">05 · PROXY DECISION</div>
+  <h2>프록시는 요청을 네 가지로 판정한다</h2>
+  <svg width="1136" height="330" viewBox="0 0 1136 330">
+    <defs>
+      <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" fill="#8390a3"/>
+      </marker>
+    </defs>
+    <rect x="0" y="130" width="190" height="64" rx="10" fill="#1a2230"/>
+    <text x="95" y="158" text-anchor="middle" font-size="16" font-weight="700" fill="#fff">들어온 요청 경로</text>
+    <text x="95" y="180" text-anchor="middle" font-size="12" class="mono" fill="#c9d2e0">resolve(path, method)</text>
+    <g stroke="#8390a3" stroke-width="2" fill="none">
+      <path d="M190 162 C 250 162, 250 40, 310 40" marker-end="url(#ah2)"/>
+      <path d="M190 162 C 250 162, 250 122, 310 122" marker-end="url(#ah2)"/>
+      <path d="M190 162 C 250 162, 250 204, 310 204" marker-end="url(#ah2)"/>
+      <path d="M190 162 C 250 162, 250 286, 310 286" marker-end="url(#ah2)"/>
+    </g>
+    <!-- rows -->
+    <g font-size="15">
+      <rect x="316" y="12" width="150" height="56" rx="8" fill="#e3f4ec" stroke="#178a5a"/>
+      <text x="391" y="46" text-anchor="middle" font-weight="700" class="mono" fill="#178a5a">alias</text>
+      <text x="490" y="36" fill="#1a2230" font-weight="700">유효한 현재·유예 별칭</text>
+      <text x="490" y="58" fill="#4a5566" font-size="14">원래 경로로 복원 → 백엔드 전달</text>
+      <rect x="930" y="20" width="200" height="40" rx="20" fill="#e3f4ec"/><text x="1030" y="46" text-anchor="middle" fill="#178a5a" font-weight="700">translate</text>
+
+      <rect x="316" y="94" width="150" height="56" rx="8" fill="#fbe9e9" stroke="#cf3b3b"/>
+      <text x="391" y="128" text-anchor="middle" font-weight="700" class="mono" fill="#cf3b3b">direct</text>
+      <text x="490" y="118" fill="#1a2230" font-weight="700">보호 접두사의 원래 주소 직접 호출</text>
+      <text x="490" y="140" fill="#4a5566" font-size="14" class="mono">/rest/…, /REST//user/./login, %2e%2e 정규화 후 판정</text>
+      <rect x="930" y="102" width="200" height="40" rx="20" fill="#fbe9e9"/><text x="1030" y="128" text-anchor="middle" fill="#cf3b3b" font-weight="700">404 + 교체</text>
+
+      <rect x="316" y="176" width="150" height="56" rx="8" fill="#fbe9e9" stroke="#cf3b3b"/>
+      <text x="391" y="210" text-anchor="middle" font-weight="700" class="mono" fill="#cf3b3b">reject</text>
+      <text x="490" y="200" fill="#1a2230" font-weight="700">애매하거나 가짜인 별칭</text>
+      <text x="490" y="222" fill="#4a5566" font-size="14">만료·위조·남의 별칭, 변수에 % 역슬래시 ; .., 잘못된 메서드</text>
+      <rect x="930" y="184" width="200" height="40" rx="20" fill="#fbe9e9"/><text x="1030" y="210" text-anchor="middle" fill="#cf3b3b" font-weight="700">404 + 교체</text>
+
+      <rect x="316" y="258" width="150" height="56" rx="8" fill="#f5f7fa" stroke="#8390a3"/>
+      <text x="391" y="292" text-anchor="middle" font-weight="700" class="mono" fill="#4a5566">other</text>
+      <text x="490" y="282" fill="#1a2230" font-weight="700">보호 대상 아님</text>
+      <text x="490" y="304" fill="#4a5566" font-size="14">정적 파일, /assets/… — 전역 거부하지 않음</text>
+      <rect x="930" y="266" width="200" height="40" rx="20" fill="#f5f7fa"/><text x="1030" y="292" text-anchor="middle" fill="#4a5566" font-weight="700">그대로 통과</text>
+    </g>
+  </svg>
+  <div class="grid2" style="margin-top: 18px;">
+    <div class="card soft" style="padding: 14px 20px;">
+      <p style="font-size:16px"><b style="color:var(--ink)">원칙: 깨끗한 주소만 통과.</b> 판정을 통과한 주소만 백엔드로 가므로 백엔드가 다르게 해석할 여지가 없다.</p>
+    </div>
+    <div class="card soft" style="padding: 14px 20px;">
+      <p style="font-size:16px"><b style="color:var(--ink)">observe / enforce.</b> observe는 404 대신 <code>would_block</code>으로 기록만. 응답 치환은 8&nbsp;MiB까지, 초과분은 그대로 스트리밍.</p>
+    </div>
+  </div>
+  <div class="foot"><span>defense/app/path_alias.py · resolve() / decide()</span><span>6 / 9</span></div>
+</section>
+
+<!-- 7. 검증 -->
+<section class="slide">
+  <div class="kicker">06 · VERIFICATION</div>
+  <h2>사전 검증: 정상 사용은 되고, 원래 주소는 막힌다</h2>
+  <div class="grid3" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 28px;">
+    <div class="card stat"><div class="num" style="color:var(--green)">5 / 5</div><div class="lbl">Playwright 정상 사용 흐름<br>첫 화면·검색·상세·새로고침·뒤로/앞으로</div></div>
+    <div class="card stat"><div class="num">0</div><div class="lbl">페이지 오류 · 4xx/5xx 요청<br>(SQLite 전환 후에도 동일)</div></div>
+    <div class="card stat"><div class="num" style="color:var(--violet)">52</div><div class="lbl">JS 번들에서 치환된<br>설정 경로 수</div></div>
+    <div class="card stat"><div class="num" style="font-size:30px; line-height:1.45"><span style="color:var(--green)">200</span> / <span style="color:var(--red)">404</span></div><div class="lbl">별칭 로그인 → admin 토큰<br>원래 <code>/rest/user/login</code> → 404</div></div>
+  </div>
+  <h3>우회 시도 차단 (Codex 검토 반영)</h3>
+  <table class="cmp" style="font-size:16px">
+    <tbody>
+      <tr><td style="width:220px" class="mono">%2e%2e / ..</td><td>경로 이동으로 보호 접두사에 도달</td><td style="width:90px; color:var(--red); font-weight:700">404</td></tr>
+      <tr><td class="mono">%252f 이중 인코딩</td><td>백엔드에서 한 번 더 디코딩되기를 노림</td><td style="color:var(--red); font-weight:700">404</td></tr>
+      <tr><td class="mono">/__ruby_alias_…/../</td><td>유효 별칭 뒤에서 탈출해 다른 경로로</td><td style="color:var(--red); font-weight:700">404</td></tr>
+      <tr><td class="mono">만료·위조 별칭</td><td>예전 별칭 재사용, 임의 문자열</td><td style="color:var(--red); font-weight:700">404</td></tr>
+    </tbody>
+  </table>
+  <p class="note">⚠ 고정 입력과 짧은 브라우저 흐름의 기능 확인일 뿐 — 적응형 공격자 성능이나 30분 연속 사용의 증거는 아님. SQLite 전환 후 지연은 아직 재측정 전 (메모리 테이블 당시 치환 17~20ms).</p>
+  <div class="foot"><span>2026-10-01 로컬 사전 검증 (v2 기준 · v3는 테스트 28개 + 일회용 Juice Shop 차단·교체 시나리오, 첫 화면 오탐 0건)</span><span>7 / 9</span></div>
+</section>
+
+<!-- 8. 모듈 연결 -->
+<section class="slide">
+  <div class="kicker">07 · INTEGRATION</div>
+  <h2>다른 모듈과의 연결</h2>
+  <svg width="1136" height="200" viewBox="0 0 1136 200">
+    <defs>
+      <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" fill="#4a5566"/>
+      </marker>
+    </defs>
+    <g stroke="#4a5566" stroke-width="2" marker-end="url(#ah3)">
+      <line x1="170" y1="92" x2="236" y2="92"/>
+      <line x1="486" y1="92" x2="552" y2="92"/>
+      <line x1="930" y1="92" x2="996" y2="92"/>
+    </g>
+    <rect x="0" y="52" width="170" height="80" rx="10" fill="#f5f7fa" stroke="#d8dee8"/>
+    <text x="85" y="88" text-anchor="middle" font-size="17" font-weight="700" fill="#1a2230">클라이언트</text>
+    <text x="85" y="112" text-anchor="middle" font-size="12" class="mono" fill="#cf3b3b">/__ruby_alias_…</text>
+
+    <rect x="240" y="40" width="246" height="104" rx="10" fill="#fcf3e2" stroke="#b7791f" stroke-width="2"/>
+    <text x="363" y="72" text-anchor="middle" font-size="17" font-weight="700" fill="#1a2230">Detection :80</text>
+    <text x="363" y="94" text-anchor="middle" font-size="13" fill="#4a5566">Node · CRS · 비즈니스 규칙</text>
+    <text x="363" y="122" text-anchor="middle" font-size="13" font-weight="700" fill="#b7791f">별칭 주소를 그대로 봄</text>
+
+    <rect x="556" y="20" width="374" height="144" rx="10" fill="#e8eefc" stroke="#2556d6" stroke-width="2"/>
+    <text x="743" y="50" text-anchor="middle" font-size="17" font-weight="700" fill="#1a2230">Defense :8080 (FastAPI)</text>
+    <rect x="576" y="66" width="160" height="80" rx="8" fill="#fff" stroke="#2556d6"/>
+    <text x="656" y="98" text-anchor="middle" font-size="15" font-weight="700" fill="#2556d6">경로 별칭</text>
+    <text x="656" y="120" text-anchor="middle" font-size="12" fill="#4a5566">먼저 판정·복원</text>
+    <rect x="750" y="66" width="160" height="80" rx="8" fill="#fff" stroke="#8390a3"/>
+    <text x="830" y="98" text-anchor="middle" font-size="15" font-weight="700" fill="#4a5566">토큰 게이트</text>
+    <text x="830" y="120" text-anchor="middle" font-size="12" fill="#4a5566">observe</text>
+
+    <rect x="1000" y="52" width="136" height="80" rx="10" fill="#f5f7fa" stroke="#d8dee8"/>
+    <text x="1068" y="88" text-anchor="middle" font-size="17" font-weight="700" fill="#1a2230">Juice Shop</text>
+    <text x="1068" y="112" text-anchor="middle" font-size="12" class="mono" fill="#178a5a">/rest/user/…</text>
+  </svg>
+  <div class="grid2" style="margin-top: 10px; grid-template-columns: 0.9fr 1.1fr;">
+    <div class="card soft">
+      <h3>설정값 (docker-compose)</h3>
+      <ul class="clean" style="font-size:15px">
+        <li style="font-size:15px"><code>PATH_ALIAS_MODE</code> off · observe · enforce (기본 off)</li>
+        <li style="font-size:15px"><code>PATH_ALIAS_ROUTES_FILE</code> 경로 목록 JSON</li>
+        <li style="font-size:15px"><code>PATH_ALIAS_PREFIXES</code> 직접 호출을 막을 범위</li>
+        <li style="font-size:15px"><code>PATH_ALIAS_ROTATE_ON</code> direct,reject · <code>EPOCH_S</code> 1800</li>
+        <li style="font-size:15px"><code>PATH_ALIAS_DB_PATH</code> · <code>PATH_ALIAS_APP_ID</code></li>
+        <li style="font-size:15px">쿠키 <code>ruby_alias_client</code> · 로그 <code>path_alias_rotation</code></li>
+      </ul>
+    </div>
+    <div class="callout">
+      <h3>논의 안건: Detection은 별칭을 모른다</h3>
+      <p style="margin-bottom:8px">변환이 Defense에서 일어나므로 Detection은 <code>/rest/user/login</code> 대신 별칭 주소를 본다.
+        경로 기반 규칙(로그인 시도 추출, 비즈니스 로직 태그, 스키마 학습)이 맞지 않을 수 있다. CRS는 본문·쿼리 검사라 영향이 적다.</p>
+      <ul class="clean">
+        <li style="font-size:15px">Defense가 복원한 실제 경로를 Detection에 알려 줄까?</li>
+        <li style="font-size:15px">실험에서는 CRS·토큰 게이트를 observe로 두고 영향을 배제할까?</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>docker-compose.yml · defense/app/main.py catch_all()</span><span>8 / 9</span></div>
+</section>
+
+<!-- 9. 실험 -->
+<section class="slide">
+  <div class="kicker">08 · NEXT</div>
+  <h2>30분 A/B 실험 계획</h2>
+  <div class="grid2" style="grid-template-columns: 1fr 1fr 1.25fr; display:grid; gap:20px;">
+    <div class="card" style="border-color:#8390a3">
+      <span class="tag" style="background:var(--soft); color:var(--ink-2)">조건 A · 기준</span>
+      <p style="font-size:26px; font-weight:800; color:var(--ink)">별칭 off</p>
+      <p style="font-size:15px; margin-top:6px">같은 프록시·Detection·Juice Shop 이미지·자원 제한</p>
+    </div>
+    <div class="card" style="border-color:var(--blue); background:var(--blue-soft)">
+      <span class="tag t-blue">조건 B · 적용</span>
+      <p style="font-size:26px; font-weight:800; color:var(--blue)">v3 enforce</p>
+      <p style="font-size:15px; margin-top:6px">클라이언트별 별칭 + 즉시 교체만 다름. 실행마다 새 APP_ID·DB</p>
+    </div>
+    <div class="card soft">
+      <h3 style="font-size:17px">고정 조건</h3>
+      <ul class="clean">
+        <li style="font-size:15px">Codex CLI 한 모델·프롬프트, 각 <b>정확히 1800초</b></li>
+        <li style="font-size:15px">목표: 관리자 접근 → 토큰·API로 독립 검증</li>
+        <li style="font-size:15px">조기 성공해도 후속 목표로 계속 기록</li>
+        <li style="font-size:15px">매 실행 전 앱·캐시·테이블·로그 초기화</li>
+      </ul>
+    </div>
+  </div>
+  <h3 style="margin-top: 26px;">측정</h3>
+  <div class="grid3" style="grid-template-columns: repeat(4, 1fr); gap: 14px;">
+    <div class="card" style="padding:14px 18px"><span class="tag t-green">성공</span><p style="font-size:15px">30분 내 검증된 성공, 첫 성공 시각</p></div>
+    <div class="card" style="padding:14px 18px"><span class="tag t-violet">비용</span><p style="font-size:15px">첫 성공까지·30분 총 입력/출력 토큰</p></div>
+    <div class="card" style="padding:14px 18px"><span class="tag t-amber">적응</span><p style="font-size:15px">사유별 교체 횟수, 교체 뒤 다시 성공까지 요청·시간</p></div>
+    <div class="card" style="padding:14px 18px"><span class="tag t-blue">정상 기능</span><p style="font-size:15px">사용자 흐름 오류, 지연, 전송량, CPU·메모리</p></div>
+  </div>
+  <div class="card soft" style="margin-top: 20px; padding: 14px 20px;">
+    <p style="font-size:15px"><b style="color:var(--ink)">주장하지 않는 것</b> — 별칭은 클라이언트에 노출되며 인증을 대신하지 않음 ·
+      첫 A/B 한 쌍은 파일럿이라 일반적인 방어율로 주장하지 않음 · 트리거·30분 안전장치가 최적이라는 근거 없음 · 규칙대로만 쓰는 에이전트에겐 교체가 안 일어남 ·
+      정상 앱이 깨지면 방어 효과가 아니라 호환성 실패</p>
+  </div>
+  <div class="foot"><span>동적 경로 별칭 기법</span><span>9 / 9</span></div>
+</section>
+
+</div>
+
+<div id="nav">
+  <button id="prev" aria-label="이전">‹</button>
+  <span id="count">1 / 9</span>
+  <button id="next" aria-label="다음">›</button>
+</div>
+
+<script>
+  const slides = [...document.querySelectorAll('.slide')];
+  const stage = document.getElementById('stage');
+  let i = 0;
+  try { i = Math.min(slides.length - 1, Math.max(0, parseInt(location.hash.slice(1), 10) - 1 || 0)); } catch (e) {}
+
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('active', k === i));
+    document.getElementById('count').textContent = (i + 1) + ' / ' + slides.length;
+    document.getElementById('progress').style.width = ((i + 1) / slides.length * 100) + '%';
+    history.replaceState(null, '', '#' + (i + 1));
+  }
+  function fit() {
+    const s = Math.min(innerWidth / 1320, innerHeight / 760);
+    stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+  }
+  addEventListener('resize', fit);
+  addEventListener('keydown', e => {
+    if (['ArrowRight', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); show(i + 1); }
+    if (['ArrowLeft', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); show(i - 1); }
+    if (e.key === 'Home') show(0);
+    if (e.key === 'End') show(slides.length - 1);
+    if (e.key === 'f') document.documentElement.requestFullscreen?.();
+  });
+  document.getElementById('prev').onclick = () => show(i - 1);
+  document.getElementById('next').onclick = () => show(i + 1);
+  stage.addEventListener('click', e => { if (!e.target.closest('a,button')) show(i + 1); });
+  fit(); show(i);
+</script>
+</body>
+</html>

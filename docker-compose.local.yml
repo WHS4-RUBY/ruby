@@ -72,6 +72,22 @@ services:
     container_name: defense
     environment:
       BENCHMARK_TARGET_URL: http://benchmark-target:3000
+      TOKEN_GATE_MODE: ${TOKEN_GATE_MODE:-observe}
+      TOKEN_GATE_SECRET: ${TOKEN_GATE_SECRET:-}
+      TOKEN_GATE_EPOCH_S: ${TOKEN_GATE_EPOCH_S:-300}
+      TOKEN_GATE_GRACE_EPOCHS: ${TOKEN_GATE_GRACE_EPOCHS:-1}
+      TOKEN_GATE_EXEMPT_PREFIXES: ${TOKEN_GATE_EXEMPT_PREFIXES:-/healthz,/__defense/,/__detection/}
+      TOKEN_GATE_COOKIE_SECURE: ${TOKEN_GATE_COOKIE_SECURE:-false}
+      PATH_ALIAS_MODE: ${PATH_ALIAS_MODE:-off}
+      PATH_ALIAS_EPOCH_S: ${PATH_ALIAS_EPOCH_S:-1800}
+      PATH_ALIAS_GRACE_EPOCHS: ${PATH_ALIAS_GRACE_EPOCHS:-1}
+      PATH_ALIAS_PREFIXES: ${PATH_ALIAS_PREFIXES:-/rest/,/api/}
+      PATH_ALIAS_ROUTES_FILE: ${PATH_ALIAS_ROUTES_FILE:-/app/config/juice-shop-routes.json}
+      PATH_ALIAS_DB_PATH: ${PATH_ALIAS_DB_PATH:-/app/data/path-alias.sqlite3}
+      PATH_ALIAS_MAX_REWRITE_BYTES: ${PATH_ALIAS_MAX_REWRITE_BYTES:-8388608}
+      PATH_ALIAS_APP_ID: ${PATH_ALIAS_APP_ID:-}
+      PATH_ALIAS_ROTATE_ON: ${PATH_ALIAS_ROTATE_ON:-direct,reject}
+      PATH_ALIAS_COOKIE_SECURE: ${PATH_ALIAS_COOKIE_SECURE:-false}
       DEFENSE_DASHBOARD_PASSWORD: ${DEFENSE_DASHBOARD_PASSWORD:-}
       DEFENSE_DASHBOARD_COOKIE_SECURE: ${DEFENSE_DASHBOARD_COOKIE_SECURE:-false}
       DEFENSE_DASHBOARD_REQUIRE_HTTPS: "false"
@@ -81,6 +97,8 @@ services:
       DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS: ${DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS:-300}
     volumes:
       - ./defense/app:/app/app
+      - ./defense/config:/app/config:ro
+      - path-alias-data:/app/data
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
@@ -110,3 +128,4 @@ networks:
 
 volumes:
   detection-data:
+  path-alias-data:

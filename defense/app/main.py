@@ -17,6 +17,11 @@ from websockets.exceptions import ConnectionClosed
 from .dashboard import router as dashboard_router
 from .monitoring import event_store
 from .strategies.registry import STRATEGY_REGISTRY
+from . import path_alias, token_gate
+
+TOKEN_GATE = token_gate.TokenGateConfig.from_env()
+PATH_ALIAS = path_alias.PathAliasConfig.from_env()
+PATH_ALIAS_TABLE = path_alias.PathAliasTable(PATH_ALIAS)
 
 BENCHMARK_TARGET_URL = os.getenv("BENCHMARK_TARGET_URL", "http://localhost:9000")
 
@@ -45,6 +50,9 @@ _DEFENSE_INTERNAL_HEADERS = {"x-defense-plan", "x-defense-management-client"}
 _FORWARDED_HEADERS = {"forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"}
 _REQUEST_SKIP = _HOP_BY_HOP | {"accept-encoding"} | _DEFENSE_INTERNAL_HEADERS | _FORWARDED_HEADERS
 _STREAM_RESPONSE_SKIP = _HOP_BY_HOP | {"date", "server"}
+# Cached copies of a rewritten body would carry expired aliases.
+_CONDITIONAL_REQUEST_HEADERS = {"if-none-match", "if-modified-since"}
+_REWRITTEN_RESPONSE_SKIP = _RESPONSE_SKIP | {"etag", "last-modified", "cache-control"}
 _WEBSOCKET_SKIP = _HOP_BY_HOP | {
     "sec-websocket-accept",
     "sec-websocket-extensions",
@@ -146,6 +154,17 @@ def proxy_response(upstream: httpx.Response, request: Request | None = None) -> 
     return response
 
 
+def _log_gate(request: Request, decision: token_gate.GateDecision | None,
+              upstream_status: int | None = None, content_type: str = "") -> None:
+    if decision is None or decision.kind == "exempt":
+        return
+    token_gate.emit(token_gate.build_log(
+        decision, now=time.time(), mode=TOKEN_GATE.mode, method=request.method,
+        path=request.url.path, headers=request.headers, upstream_status=upstream_status,
+        observation=token_gate.observe_response(decision, request.method, upstream_status, content_type),
+    ))
+
+
 async def _stream_body(upstream: httpx.Response):
     try:
         async for chunk in upstream.aiter_raw():
@@ -154,8 +173,8 @@ async def _stream_body(upstream: httpx.Response):
         await upstream.aclose()
 
 
-def streaming_proxy_response(upstream: httpx.Response, request: Request) -> StreamingResponse:
-    response = StreamingResponse(_stream_body(upstream), status_code=upstream.status_code)
+def streaming_proxy_response(upstream: httpx.Response, request: Request, body=None) -> StreamingResponse:
+    response = StreamingResponse(body or _stream_body(upstream), status_code=upstream.status_code)
     for key, value in upstream.headers.multi_items():
         if key.lower() in _STREAM_RESPONSE_SKIP:
             continue
@@ -166,6 +185,100 @@ def streaming_proxy_response(upstream: httpx.Response, request: Request) -> Stre
             )
         )
     return response
+
+
+def _log_alias(request: Request, resolution: path_alias.Resolution, decision: str,
+               upstream_status: int | None = None, rewrites: int = 0,
+               skipped: str | None = None, alias_client: str | None = None,
+               rotation: str | None = None) -> None:
+    if PATH_ALIAS.mode == "off" or (resolution.kind == "other" and not rewrites and skipped is None):
+        return
+    path_alias.emit(path_alias.build_log(
+        resolution, decision, now=time.time(), mode=PATH_ALIAS.mode, method=request.method,
+        path=request.url.path, headers=request.headers, upstream_status=upstream_status,
+        rewrites=rewrites, rewrite_skipped=skipped,
+        ua_family=token_gate.ua_family(request.headers.get("user-agent")),
+        alias_client=alias_client, rotation=rotation,
+    ))
+
+
+def _rotate_on_event(resolution: path_alias.Resolution, alias_client: str | None) -> str | None:
+    """Replace a client's aliases as soon as it hits a real route or a bad alias."""
+    if resolution.kind not in PATH_ALIAS.rotate_on or alias_client is None:
+        return None
+    if PATH_ALIAS.mode != "enforce":
+        return "would_rotate"
+    return "rotated" if PATH_ALIAS_TABLE.rotate_client(alias_client, time.time(), resolution.kind) else None
+
+
+def _alias_not_found() -> Response:
+    return Response(content=b'{"error":"not_found"}', status_code=404,
+                    media_type="application/json", headers={"Cache-Control": "no-store"})
+
+
+async def _replay_body(consumed: list[bytes], rest, upstream: httpx.Response):
+    try:
+        for chunk in consumed:
+            yield chunk
+        async for chunk in rest:
+            yield chunk
+    finally:
+        await upstream.aclose()
+
+
+async def alias_proxy_response(upstream: httpx.Response, request: Request,
+                               alias_client: str | None) -> tuple[Response, int, str | None]:
+    """Serve an upstream response with configured routes replaced by this client's aliases."""
+    rewrites, skipped = 0, None
+    client_id = alias_client or path_alias.new_client_id()
+    if not path_alias.rewritable(upstream.headers.get("content-type", ""),
+                                 upstream.headers.get("content-encoding", ""),
+                                 upstream.status_code, request.method):
+        response = streaming_proxy_response(upstream, request)
+    else:
+        consumed, size = [], 0
+        stream = upstream.aiter_raw()
+        async for chunk in stream:
+            consumed.append(chunk)
+            size += len(chunk)
+            if size > PATH_ALIAS.max_rewrite_bytes:
+                break
+        if size > PATH_ALIAS.max_rewrite_bytes:
+            skipped = "too_large"
+            response = streaming_proxy_response(upstream, request, _replay_body(consumed, stream, upstream))
+        else:
+            await upstream.aclose()
+            body, rewrites = PATH_ALIAS_TABLE.rewrite_body(b"".join(consumed), time.time(), client_id)
+            skip = _REWRITTEN_RESPONSE_SKIP if rewrites else _RESPONSE_SKIP
+            response = Response(content=body, status_code=upstream.status_code)
+            for key, value in upstream.headers.multi_items():
+                if key.lower() in skip:
+                    continue
+                response.raw_headers.append(
+                    (
+                        key.encode("latin-1"),
+                        _rewrite_response_header(key, _header_value(value), request).encode("latin-1"),
+                    )
+                )
+            if rewrites:
+                response.headers["cache-control"] = "no-store"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    raw_headers, location_rewritten = [], False
+    for key, value in response.raw_headers:
+        if key.lower() == b"location":
+            original = value.decode("latin-1")
+            rewritten = PATH_ALIAS_TABLE.rewrite_location(original, host, time.time(), client_id)
+            location_rewritten |= rewritten != original
+            value = rewritten.encode("latin-1")
+        raw_headers.append((key, value))
+    response.raw_headers = raw_headers
+    if alias_client is None and (rewrites or location_rewritten):
+        # Aliases were issued to a new client id; bind them to this browser.
+        response.raw_headers.append(
+            (b"set-cookie", path_alias.build_set_cookie(PATH_ALIAS, client_id).encode("latin-1"))
+        )
+        response.headers["cache-control"] = "no-store"
+    return response, rewrites, skipped
 
 
 def _websocket_target(full_path: str, query: str) -> str:
@@ -289,9 +402,37 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
     methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 async def catch_all(request: Request, full_path: str):
+    alias_client = path_alias.valid_client_id(request.cookies.get(path_alias.COOKIE_NAME))
+    alias = PATH_ALIAS_TABLE.resolve(request.url.path, request.method, time.time(), alias_client)
+    alias_decision = path_alias.decide(alias, PATH_ALIAS)
+    rotation = _rotate_on_event(alias, alias_client)
+    translated = alias.kind == "alias"
+    record_path = alias.upstream_path if translated else request.url.path
+
+    gate = None
+    if TOKEN_GATE.mode != "off":
+        gate = token_gate.evaluate(
+            request.method, request.url.path, request.headers,
+            request.cookies.get(token_gate.COOKIE_NAME), time.time(), TOKEN_GATE,
+        )
+
     started_at = time.perf_counter()
+    if alias_decision == "block":
+        _log_gate(request, gate)
+        _log_alias(request, alias, alias_decision, alias_client=alias_client, rotation=rotation)
+        event_store.record(
+            method=request.method,
+            path=record_path,
+            status=404,
+            strategies=["path_alias"],
+            outcome="blocked",
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            client_id=request.headers.get("x-client-id"),
+        )
+        return _alias_not_found()
+
     plan = parse_plan(request.headers.get("x-defense-plan"))
-    applied_names: list[str] = []
+    applied_names: list[str] = ["path_alias"] if alias.kind != "other" else []
     extra_headers: dict[str, str] = {}
 
     for step in plan:
@@ -308,9 +449,10 @@ async def catch_all(request: Request, full_path: str):
             for key, value in extra_headers.items():
                 result.short_circuit.headers[key] = value
             result.short_circuit.headers["X-Defense-Applied"] = ",".join(applied_names)
+            _log_gate(request, gate)
             event_store.record(
                 method=request.method,
-                path=request.url.path,
+                path=record_path,
                 status=result.short_circuit.status_code,
                 strategies=applied_names,
                 outcome="blocked",
@@ -321,20 +463,26 @@ async def catch_all(request: Request, full_path: str):
 
     extra_headers["X-Defense-Applied"] = ",".join(applied_names) or "none"
     headers = build_upstream_headers(request, extra_headers)
+    if PATH_ALIAS.mode != "off":
+        headers = {key: value for key, value in headers.items()
+                   if key.lower() not in _CONDITIONAL_REQUEST_HEADERS}
+    upstream_path = alias.upstream_path.lstrip("/") if translated else full_path
 
     try:
         upstream_request = request.app.state.http_client.build_request(
             method=request.method,
-            url=f"{BENCHMARK_TARGET_URL.rstrip('/')}/{full_path}",
+            url=f"{BENCHMARK_TARGET_URL.rstrip('/')}/{upstream_path}",
             headers=headers,
             content=request.stream() if request.method not in {"GET", "HEAD"} else None,
             params=list(request.query_params.multi_items()),
         )
         upstream = await request.app.state.http_client.send(upstream_request, stream=True)
     except httpx.RequestError as exc:
+        _log_gate(request, gate)
+        _log_alias(request, alias, alias_decision, alias_client=alias_client, rotation=rotation)
         event_store.record(
             method=request.method,
-            path=request.url.path,
+            path=record_path,
             status=502,
             strategies=applied_names,
             outcome="error",
@@ -345,11 +493,23 @@ async def catch_all(request: Request, full_path: str):
 
     event_store.record(
         method=request.method,
-        path=request.url.path,
+        path=record_path,
         status=upstream.status_code,
         strategies=applied_names,
         outcome="forwarded",
         duration_ms=(time.perf_counter() - started_at) * 1000,
         client_id=request.headers.get("x-client-id"),
     )
-    return streaming_proxy_response(upstream, request)
+    if PATH_ALIAS.mode != "off":
+        response, rewrites, skipped = await alias_proxy_response(upstream, request, alias_client)
+    else:
+        response, rewrites, skipped = streaming_proxy_response(upstream, request), 0, None
+    if gate is not None and gate.issue_cookie and not 500 <= upstream.status_code < 600:
+        response.raw_headers.append(
+            (b"set-cookie", token_gate.build_set_cookie(TOKEN_GATE, time.time()).encode("latin-1"))
+        )
+        response.headers["cache-control"] = "no-store"
+    _log_gate(request, gate, upstream.status_code, upstream.headers.get("content-type", ""))
+    _log_alias(request, alias, alias_decision, upstream.status_code, rewrites, skipped,
+               alias_client=alias_client, rotation=rotation)
+    return response

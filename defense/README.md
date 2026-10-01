@@ -39,6 +39,31 @@ Detection 프록시를 통해 `http://localhost:8081/__defense/dashboard`에서 
 
 새 방어 기법은 `DefenseStrategy`를 구현해 Registry에 등록하면 대시보드에 자동으로 집계됩니다.
 
+## 경로 별칭 (클라이언트별 별칭·이벤트 교체 v3, 2026-10-01)
+
+`PATH_ALIAS_ROUTES_FILE`의 경로·템플릿마다 **클라이언트별** 난수 별칭을 발급하고 SQLite 테이블에서 조회합니다. 클라이언트는 Defense가 발급하는 `ruby_alias_client` 쿠키로 구분하며, 다른 클라이언트의 별칭은 거부합니다.
+원래 경로 직접 호출(`direct`)이나 잘못된 별칭(`reject`)을 보낸 클라이언트는 별칭이 즉시 교체되고(`PATH_ALIAS_ROTATE_ON`, enforce에서만), 이벤트가 없어도 `PATH_ALIAS_EPOCH_S`(기본 1800초)마다 교체됩니다.
+HTML·JS·JSON 응답과 `Location`에서 설정된 경로를 별칭으로 바꾸고, 들어온 유효 별칭은 원래 경로로 복원합니다.
+`PATH_ALIAS_PREFIXES` 아래 원래 주소 직접 요청은 `observe`에서 기록하고 `enforce`에서 404로 막습니다.
+기본값은 `PATH_ALIAS_MODE=off`입니다. 로컬 Juice Shop의 경로 예시는 [`config/juice-shop-routes.json`](config/juice-shop-routes.json)에 있습니다.
+다른 앱에는 경로 파일·보호 접두사를 바꿔 정상 사용을 먼저 검증해야 합니다. `PATH_ALIAS_DB_PATH`는 영속 SQLite 파일 경로이며, 로컬·배포 Compose는 `/app/data/path-alias.sqlite3`를 `path-alias-data` 볼륨에 보관합니다. 같은 DB 파일과 같은 경로 설정을 쓰는 worker는 발급 결과를 공유하고 프로세스 재시작 후에도 현재 별칭을 유지합니다. 서로 다른 서버 간 공유에는 별도의 DB가 필요합니다.
+설계·검증 결과·한계는 [경로 별칭 설계](docs/path-alias-plan.md)를 참고하세요.
+
+## 토큰 관찰 (별칭 기법 1단계, 2026-09-30)
+
+토큰이 없거나 만료·변조되었다는 이유만으로 요청을 차단하지 않습니다.
+`TOKEN_GATE_MODE=observe`는 쿠키 발급·갱신과 상태 기록만 수행하고, `off`는 이를 끕니다.
+예전 `enforce` 설정은 경고와 함께 `observe`로 처리합니다. 토큰은 접근 권한이나
+정상 사용자 증명이 아니며, 현재의 시간 구간별 공통 토큰은 개별 세션 식별에도 쓰지 않습니다.
+기록에는 Detection이 전달한 `X-Client-Id`를 사용합니다. 탐지 정확도 개선은 아직 미검증입니다.
+
+`scripts/token_gate_smoke.py`는 정상 요청이 토큰 유무·만료와 관계없이 통과하는지 확인합니다.
+`scripts/browser_inspection_regression.cjs`는 Playwright가 설치된 로컬 테스트 이미지에서 실행하며,
+화면 5단계와 모든 HTTP 4xx/5xx 응답을 함께 검사합니다. 결과 경로는 `/results`입니다.
+
+`docs/token-gate-plan.md`와 새벽 테스트 기록은 이전 설계의 이력입니다.
+이후 검증 결과는 [진행 기록](docs/token-gate-docker-progress.md)에 이어 기록합니다.
+
 ## 참여 방법
 
 `main`에 직접 push하지 않고 작업 브랜치에서 변경한 뒤 Pull Request를 제출합니다. 자세한 규칙은 [루트 CONTRIBUTING.md](../CONTRIBUTING.md)를 확인하세요.
