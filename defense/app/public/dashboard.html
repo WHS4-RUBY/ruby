@@ -275,7 +275,7 @@
     }
 
     function formatScore(value) {
-      return typeof value === 'number' && Number.isFinite(value) ? String(Math.round(value * 100)) : '—';
+      return typeof value === 'number' && Number.isFinite(value) ? String(Math.floor(value * 10000) / 100) : '—';
     }
 
     async function loadTarget() {
@@ -552,6 +552,8 @@
         if (String(error.message).includes('authentication')) return;
         document.getElementById('statusDot').classList.add('error');
         document.getElementById('statusText').textContent = '대시보드 데이터 연결 오류';
+      } finally {
+        await loadTarget();
       }
     }
 

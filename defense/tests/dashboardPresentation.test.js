@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-function loadDashboard() {
+function loadDashboard(fetchImpl = async () => ({ ok: true, json: async () => ({ publicPath: "/juice-shop/" }) })) {
   const html = fs.readFileSync(path.join(__dirname, "../app/public/dashboard.html"), "utf8");
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script);
@@ -24,9 +24,9 @@ function loadDashboard() {
       return elements.get(id);
     },
   };
-  const context = vm.createContext({ document, window: {}, navigator: {} });
+  const context = vm.createContext({ document, window: {}, navigator: {}, fetch: fetchImpl });
   vm.runInContext(
-    `${script.slice(0, bootstrapAt)}\nglobalThis.dashboard = { state, hasClientId, indexRequests, groupRequests, renderRequestCard, renderRequests };`,
+    `${script.slice(0, bootstrapAt)}\nglobalThis.dashboard = { state, formatScore, loadTarget, hasClientId, indexRequests, groupRequests, renderRequestCard, renderRequests };`,
     context
   );
   return { ...context.dashboard, elements };
@@ -79,4 +79,25 @@ test("요청 경로와 식별자, 전략 이름을 HTML로 해석하지 않는�
   });
   assert.doesNotMatch(card, /<img/);
   assert.match(card, /&lt;img/);
+});
+
+test("정책 점수를 올림 표시해 방어 경계값을 잘못 암시하지 않는다", () => {
+  const ui = loadDashboard();
+  assert.equal(ui.formatScore(0.796), "79.6");
+  assert.equal(ui.formatScore(0.799999), "79.99");
+  assert.equal(ui.formatScore(0.8), "80");
+});
+
+test("열린 방어 화면에서 대상 전환 시 공개 경로 링크를 바꾼다", async () => {
+  let publicPath = "/juice-shop/";
+  const ui = loadDashboard(async () => ({ ok: true, json: async () => ({ publicPath }) }));
+  await ui.loadTarget();
+  assert.equal(ui.elements.get("targetLink").href, "/juice-shop/");
+  publicPath = "/ruby-market/";
+  await ui.loadTarget();
+  assert.equal(ui.elements.get("targetLink").href, "/ruby-market/");
+  publicPath = "/__defense/";
+  await ui.loadTarget();
+  assert.equal(ui.elements.get("targetLink").hidden, true);
+  assert.equal(ui.elements.get("targetUnavailable").textContent, "경로 확인 불가");
 });

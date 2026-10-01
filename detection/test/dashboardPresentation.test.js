@@ -35,7 +35,7 @@ function loadPresentation(fetchImpl = async () => ({ status: 200 })) {
   });
   context.fetch = (...args) => context.window.fetch(...args);
   vm.runInContext(
-    `${script.slice(0, bootstrapAt)}\nglobalThis.presentation = { state, buildUserRows, filterAndSortUsers, renderEvidenceOverview, renderUserList, selectUser, loadUserDetail, buildSessionNodes, renderRelation, renderTimeline };`,
+    `${script.slice(0, bootstrapAt)}\nglobalThis.presentation = { state, scoreNumber, detectionFor, loadPublicTarget, buildUserRows, filterAndSortUsers, renderEvidenceOverview, renderUserList, selectUser, loadUserDetail, buildSessionNodes, renderRelation, renderTimeline };`,
     context,
     { filename: dashboardPath }
   );
@@ -227,6 +227,44 @@ test("확인 상태·위험 필터와 원본 점수는 표시 변경 후에도 �
   assert.equal(ui.filterAndSortUsers(ui.state.users).map(row => row.id).join(), "actor:high");
   assert.equal(confirmed.attackScore, 0.1);
   assert.equal(heuristic.attackScore, 0.8);
+});
+
+test("표시 점수가 임계값 아래의 원점수를 반올림해 넘기지 않는다", () => {
+  const ui = loadPresentation();
+  ui.state.detectionLevel = "high";
+  assert.equal(ui.scoreNumber(0.6999), 69.99);
+  assert.equal(ui.detectionFor({ attackScore: 0.6999 }).attackDetected, false);
+  assert.equal(ui.detectionFor({ attackScore: 0.7 }).attackDetected, true);
+  assert.equal(ui.scoreNumber(0.796), 79.6);
+});
+
+test("요청 ID 검색 결과에서는 백그라운드 요청을 접지 않는다", () => {
+  const ui = loadPresentation();
+  const detail = { requests: [{
+    requestId: "request:polling", sessionId: "session:one", ts: 1700000000000,
+    method: "GET", url: "/socket.io/?EIO=4", status: 200,
+    backgroundTraffic: { isBackground: true, category: "socket_io_polling" },
+  }] };
+  const nodes = [{ sessionId: "session:one", timelineAvailable: true, index: 1, color: "#123456", requestCount: 1 }];
+  assert.match(ui.renderTimeline(detail, nodes), /Socket\.IO polling 1건/);
+  ui.state.timelineQuery = "request:polling";
+  const result = ui.renderTimeline(detail, nodes);
+  assert.match(result, /요청 ID <code>request:polling<\/code>/);
+  assert.doesNotMatch(result, /Socket\.IO polling 1건/);
+});
+
+test("열려 있는 탭에서 대상 경로가 바뀌면 공개 링크를 갱신한다", async () => {
+  let publicPath = "/juice-shop/";
+  const ui = loadPresentation(async () => ({ ok: true, json: async () => ({ publicPath }) }));
+  await ui.loadPublicTarget();
+  assert.equal(ui.elements.get("publicTargetLink").href, "/juice-shop/");
+  publicPath = "/ruby-market/";
+  await ui.loadPublicTarget();
+  assert.equal(ui.elements.get("publicTargetLink").href, "/ruby-market/");
+  publicPath = "/__detection/";
+  await ui.loadPublicTarget();
+  assert.equal(ui.elements.get("publicTargetLink").hidden, true);
+  assert.equal(ui.elements.get("publicTargetFallback").textContent, "경로 확인 불가");
 });
 
 test("A 상세 응답이 B 선택 뒤 늦게 도착해도 B 상세를 덮지 않는다", async () => {

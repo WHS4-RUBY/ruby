@@ -656,7 +656,7 @@ function escapeHtml(value) {
   })[ch]);
 }
 
-function scoreNumber(value) { return Math.round((Number(value) || 0) * 100); }
+function scoreNumber(value) { return Math.floor((Number(value) || 0) * 10000) / 100; }
 const DETECTION_THRESHOLDS = { low: 30, medium: 50, high: 70 };
 function detectionThreshold() {
   return DETECTION_THRESHOLDS[state.detectionLevel] || DETECTION_THRESHOLDS.medium;
@@ -1405,7 +1405,7 @@ function renderTimeline(detail, sessionNodes) {
   });
 
   const backgroundCount = filtered.filter(isBackgroundRequest).length;
-  const entries = state.timelineBackgroundExpanded
+  const entries = state.timelineBackgroundExpanded || query
     ? filtered.map(request => ({ type: 'request', request }))
     : collapseBackgroundRuns(filtered);
   const multiSession = sessionNodes.filter(node => node.timelineAvailable).length > 1;
@@ -1476,7 +1476,7 @@ function renderTimeline(detail, sessionNodes) {
         ${filtered.length === requests.length ? '' : `<p class="sub">${filtered.length.toLocaleString()} / ${requests.length.toLocaleString()}건 표시</p>`}
       </div>
       <div class="timeline-filters">
-        <input class="search-input" type="search" id="timelineSearch" placeholder="URL·메서드·상태 검색" value="${escapeHtml(state.timelineQuery)}" aria-label="요청 검색" />
+        <input class="search-input" type="search" id="timelineSearch" placeholder="요청 ID·URL·메서드·상태 검색" value="${escapeHtml(state.timelineQuery)}" aria-label="요청 검색" />
         <select class="select-input" id="timelineSessionSelect" aria-label="세션 필터">${sessionOptions}</select>
         <button class="chip-button${state.timelineFlaggedOnly ? ' active' : ''}" type="button" id="timelineFlaggedToggle" title="공격 태그·허니 신호·CRS 탐지·4xx/5xx 응답만 표시합니다.">신호 있는 요청만</button>
         ${backgroundCount ? `<button class="chip-button${state.timelineBackgroundExpanded ? ' active' : ''}" type="button" id="timelineBackgroundToggle" title="Socket.IO 같은 백그라운드 통신은 기록에는 남지만 자동화 행동 점수에서는 제외됩니다.">${state.timelineBackgroundExpanded ? '백그라운드 접기' : `백그라운드 ${backgroundCount.toLocaleString()}건 펼치기`}</button>` : ''}
@@ -1702,6 +1702,8 @@ async function monitoredRefresh() {
   } catch (_) {
     status.textContent = '탐지 기록을 불러오지 못했습니다';
     status.classList.add('error');
+  } finally {
+    await loadPublicTarget();
   }
 }
 
@@ -1718,7 +1720,9 @@ async function loadPublicTarget() {
     link.hidden = false;
     fallback.hidden = true;
   } catch (_) {
+    link.hidden = true;
     fallback.textContent = '경로 확인 불가';
+    fallback.hidden = false;
   }
 }
 
