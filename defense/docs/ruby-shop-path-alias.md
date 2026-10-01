@@ -38,17 +38,27 @@ $env:RUBY_SHOP_SMOKE_TARGET = "http://127.0.0.1:18080"
 python -m defense.scripts.ruby_shop_alias_smoke
 ```
 
-스크립트는 원본에 GET만 보내고 별칭 DB는 임시 디렉터리에 만든다. 정상 화면과 JS, 상품 목록·상세·검색 별칭 200, 원래 경로·다른 클라이언트 별칭·교체 전 별칭 404, 관리 API 404를 확인한다. 63개 경로 전체 기능 검사는 아니다. 대상 주소를 생략하면 실행하지 않는다.
+스크립트는 원본에 GET만 보내고 별칭 DB는 임시 디렉터리에 만든다. 정상 화면과 JS, 상품 목록·상세·검색 별칭 200, 원래 경로·다른 클라이언트 별칭·교체 전 별칭 404, 관리 API 404를 확인한다. 다른 읽기 전용 경로 7개의 별칭 응답 상태가 같은 원본 요청 상태와 일치하는지도 확인한다. 인증 없이 401을 받은 경로는 인증 후 기능을 검증한 것이 아니다. 63개 경로 전체 기능 검사는 아니다. 대상 주소를 생략하면 실행하지 않는다.
+
+본실험 대상 정책의 RUBY Shop 대상 26개는 주요 요청 경로가 모두 63개 설정에 포함된다. GET 11개, POST 13개, PATCH 1개, DELETE 1개다. `test_ruby_shop_alias_coverage`는 63개 경로의 발급·복원·직접 접근 차단·타인 별칭 거부와, 26개 주요 요청의 HTTP 메서드·경로·쿼리가 가짜 원본 서버로 전달되는지를 확인한다. 가짜 원본은 취약점을 실행하지 않으므로 이 검사를 공격 성공이나 방어 효과 검증으로 표시하지 않는다. 원본 CVE 3개는 RUBY Shop이 아닌 별도 표적이며, 정책상 제외한 XSS·CSRF 5개도 이 26개에 포함하지 않는다.
 
 단위 검사:
 
 ```powershell
-python -m unittest defense.tests.test_path_alias defense.tests.test_ruby_shop_public_entrypoint -q
+python -m unittest defense.tests.test_path_alias defense.tests.test_ruby_shop_public_entrypoint defense.tests.test_ruby_shop_alias_coverage -q
 ```
 
 ## 이번 시험 결과와 남은 한계
 
 [RUBY Shop SQL 삽입 A/B 기록](../../benchmark/experiments/path_alias_ab/ruby-shop-sqli-opus5-20261001.md)에 공격자 실행 조건과 수치를 분리해 기록했다. 두 조건 모두 공격에 성공했다. 별칭 조건에서 더 오래 걸리고 요청 및 토큰이 늘었지만 각 1회여서 효과로 일반화할 수 없다. 공격자는 별칭을 알아차렸고 원본 OpenAPI 응답을 통해 별칭 경로를 확인했다.
+
+| 검증 수준 | 완료 범위 | 뜻하지 않는 것 |
+|---|---:|---|
+| 설정 대조와 가짜 원본을 이용한 주요 요청 전달 | RUBY Shop 본실험 대상 26/26 | 실제 취약점 실행, 정상 업무 흐름 |
+| 로컬 RUBY Shop 읽기 전용 스모크 | 상품 목록·상세·검색 200, 추가 GET 7개 상태 일치(200 1개, 401 6개) | 인증 후 기능, 쓰기 요청과 취약점 실행 |
+| Opus 공격자 직접 접근/별칭 A/B | SQL 삽입 1/26 | 다른 25개 공격에서의 방어 효과 |
+
+POST, PATCH, DELETE를 포함하는 나머지 실제 취약점 시험은 각 실행마다 초기화되는 독립 표적과 비공개 평가기가 필요하다. 공유 중인 RUBY Shop에 시험 요청을 보내지 않는다.
 
 팀 통합 전에는 다음을 확인해야 한다.
 

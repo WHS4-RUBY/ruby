@@ -65,6 +65,28 @@ async def check() -> None:
                 assert search.status_code == 200, ("search alias", search.status_code)
                 assert isinstance(search.json(), list)
 
+                read_only_routes = (
+                    "/api/admin/users",
+                    "/api/customers/{customer_id}/profile",
+                    "/api/me",
+                    "/api/operations/metrics",
+                    "/api/operations/status",
+                    "/api/support/tickets/{ticket_id}/error-diagnostic",
+                    "/api/me/documents/{document_id}/download",
+                )
+                read_only_statuses = {}
+                async with httpx.AsyncClient(base_url=TARGET) as origin:
+                    for route in read_only_routes:
+                        real_path = re.sub(r"\{[^}]+\}", "sample", route)
+                        alias_path = (main.PATH_ALIAS_TABLE.current_aliases(time.time(), client_id)[route]
+                                      + "/sample" * route.count("{"))
+                        original = await origin.get(real_path)
+                        proxied = await client.get(alias_path)
+                        assert proxied.status_code == original.status_code, (
+                            route, original.status_code, proxied.status_code
+                        )
+                        read_only_statuses[route] = proxied.status_code
+
                 exposed_real_paths = sorted(set(re.findall(r"/api/[A-Za-z0-9_/-]+", asset.text)))
 
                 async with httpx.AsyncClient(transport=transport, base_url="http://alias.test") as stranger:
@@ -92,6 +114,7 @@ async def check() -> None:
                     "product_alias": products.status_code,
                     "product_detail_alias": detail.status_code,
                     "search_alias": search.status_code,
+                    "other_read_only_routes": read_only_statuses,
                     "remaining_real_api_paths_in_asset": exposed_real_paths,
                     "foreign_alias": foreign.status_code,
                     "direct_path": direct.status_code,
