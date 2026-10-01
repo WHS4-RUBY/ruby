@@ -48,6 +48,7 @@ HTML·JS·JSON 응답과 `Location`에서 설정된 경로를 별칭으로 바�
 기본값은 `PATH_ALIAS_MODE=off`입니다. 로컬 Juice Shop의 경로 예시는 [`config/juice-shop-routes.json`](config/juice-shop-routes.json)에 있습니다.
 다른 앱에는 경로 파일·보호 접두사를 바꿔 정상 사용을 먼저 검증해야 합니다. `PATH_ALIAS_DB_PATH`는 영속 SQLite 파일 경로이며, 로컬·배포 Compose는 `/app/data/path-alias.sqlite3`를 `path-alias-data` 볼륨에 보관합니다. 같은 DB 파일과 같은 경로 설정을 쓰는 worker는 발급 결과를 공유하고 프로세스 재시작 후에도 현재 별칭을 유지합니다. 서로 다른 서버 간 공유에는 별도의 DB가 필요합니다.
 설계·검증 결과·한계는 [경로 별칭 설계](docs/path-alias-plan.md)를 참고하세요.
+RUBY Shop에 적용할 때는 [RUBY Shop 경로 별칭 시험 절차](docs/ruby-shop-path-alias.md)를 따르세요. 이 설정은 Juice Shop 설정을 대체하지 않으며 별도 시험용입니다.
 
 ## 토큰 관찰 (별칭 기법 1단계, 2026-09-30)
 
