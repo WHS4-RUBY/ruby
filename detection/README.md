@@ -36,6 +36,22 @@ Express app
 따라서 추후 다른 탐지기나 로깅 기능은 `onRequest`와 `onResponse`를 구현해
 `hooks` 배열에 추가할 수 있습니다. Defense는 별도 FastAPI 서비스로 유지됩니다.
 
+### HTTP 응답 스트리밍 범위
+
+`proxyCore`의 `maxResponseBodyBytes` 기본값은 4MiB, 완전한 본문을 기다리는
+`maxInspectionWaitMs` 기본값은 250ms입니다. SSE, 바이너리, 크기 상한을 넘거나
+검사 대기 시간을 넘는 응답은 원본 바이트를 스트림으로 전달합니다. 이때 완전한 응답 본문이
+없으므로 본문 기반 XSS 검사와 telemetry·미끼 삽입은 생략합니다. 요청·CRS·응답
+헤더와 상태 등 확인 가능한 신호는 계속 기록합니다. 작은 변형 가능 응답만 상한
+안에서 본문 전체를 받은 뒤 검사·삽입하며, XSS 본문 검사는 별도
+`XSS_MAX_BODY_BYTES` 상한(기본 2,000,000바이트)도 적용합니다.
+
+응답 도중 원본 연결이 끊기는 등 전송 오류가 나면 성공한 응답으로 취급하지 않고
+같은 요청 ID에 `responseTransportOutcome=error`와
+`responseBodyInspected=false`를 기록합니다. 업스트림이 이미 보낸 HTTP 상태가
+있더라도 본문 전송 완료를 뜻하지 않습니다. WebSocket은 별도의 업그레이드·프레임
+경로를 사용하며 프레임 내용은 검사하지 않습니다.
+
 Detection은 다음 두 점수를 각각 0~1로 계산합니다.
 
 - `automationScore`: 요청 간격, 반복, 헤더, 브라우저 상호작용, Honey 신호
@@ -81,9 +97,12 @@ Socket.IO polling은 HTTP 요청으로 기록되지만 배경 트래픽은 행�
 선택 전략, 응답 후 해당 DCID 관측 점수 및 방어 신호가 표시됩니다. 첫 발급 요청은
 잠정 클라이언트 관측으로 표시하고, 공유 Candidate/Flow 점수는 별도 집계로 남깁니다.
 
-`X-Client-Id`는 signed DCID가 있으면 해당 가명 ID를 사용합니다. 그 외에는 확인된
-Resolved Actor, Client Flow, Candidate 순으로 선택합니다. 공유 지문 사용자가
-같은 방어 카운터를 쓰지 않게 하는 것이 목적입니다.
+일반 HTTP 요청의 `X-Client-Id`는 반환·검증된 signed DCID가 있으면 그 가명 ID를
+사용하고, 없으면 새 DCID를 발급해 첫 요청부터 발급된 가명 ID를 사용합니다. 첫 발급은
+아직 클라이언트의 연속성이 확인된 상태가 아닙니다. WebSocket 업그레이드는 이 HTTP
+쿠키 발급 경로를 거치지 않으므로 유효한 DCID가 없으면 업그레이드마다 고유한
+`websocket:*` ID를 사용합니다. 후보 흐름의 공유 지문 점수가 다른 클라이언트의
+방어 카운터나 무서명 WebSocket의 정책 점수로 넘어가지 않도록 하기 위한 경계입니다.
 DCID가 있는 HTTP 요청의 정책 점수는 그 DCID에 속한 완료 요청만 사용합니다. 다른
 사용자와 겹친 Candidate/Flow 점수는 탐지 화면의 관찰값으로 남지만 그 사용자의 지연
 또는 429에는 쓰지 않습니다. 쿠키를 계속 버리는 클라이언트는 이 방식의 정책 연속성을

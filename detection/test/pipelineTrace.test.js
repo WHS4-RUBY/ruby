@@ -23,8 +23,31 @@ function request(port, method, route, { headers = {}, body = null } = {}) {
   });
 }
 
-test("HTTP request ID joins prior score, plan, 429 signal and post-response detection record", { timeout: 20000 }, async (t) => {
+function upgrade(port, route, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const key = crypto.randomBytes(16).toString("base64");
+    const req = http.request({ host: "127.0.0.1", port, path: route, headers: {
+      Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13",
+      "Sec-WebSocket-Key": key, ...headers,
+    } });
+    req.setTimeout(3000, () => req.destroy(new Error("WebSocket upgrade timed out")));
+    req.on("upgrade", (response, socket) => {
+      socket.destroy();
+      resolve({ status: response.statusCode, headers: response.headers });
+    });
+    req.on("response", (response) => {
+      response.resume();
+      reject(new Error(`WebSocket upgrade returned HTTP ${response.statusCode}`));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+test("HTTP request trace and signed versus unsigned WebSocket upgrade policies", { timeout: 20000 }, async (t) => {
   const seen = [];
+  const seenUpgrades = [];
+  const upgradeSockets = new Set();
   const strictLastSeen = new Map();
   const defenseStub = http.createServer((req, res) => {
     const chunks = [];
@@ -58,8 +81,28 @@ test("HTTP request ID joins prior score, plan, 429 signal and post-response dete
       res.end(`<html><body>${payload}</body></html>`);
     });
   });
+  defenseStub.on("upgrade", (req, socket) => {
+    upgradeSockets.add(socket);
+    socket.on("close", () => upgradeSockets.delete(socket));
+    seenUpgrades.push({
+      requestId: req.headers["x-ruby-request-id"],
+      attackScore: Number(req.headers["x-ruby-attack-score"]),
+      riskScore: Number(req.headers["x-ruby-risk-score"]),
+      source: req.headers["x-ruby-policy-source"],
+      plan: JSON.parse(req.headers["x-defense-plan"] || "[]"),
+      clientId: req.headers["x-client-id"],
+    });
+    const accept = crypto.createHash("sha1")
+      .update(`${req.headers["sec-websocket-key"]}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+      .digest("base64");
+    socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n" +
+      `Connection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+  });
   await listen(defenseStub);
-  t.after(() => defenseStub.close());
+  t.after(() => {
+    for (const socket of upgradeSockets) socket.destroy();
+    defenseStub.close();
+  });
 
   const reservation = http.createServer();
   await listen(reservation);
@@ -114,6 +157,34 @@ test("HTTP request ID joins prior score, plan, 429 signal and post-response dete
   assert.ok(last.attackScore >= 0.8);
   assert.ok(last.riskScore >= 0.8);
   assert.ok(last.plan.some((step) => step.name === "rate_limit_strict"));
+
+  assert.ok(cookies.has("dlsid") && cookies.has("dcid"), "high-risk client has both session and signed client cookies");
+  const anonymousUpgrade = await upgrade(detectionPort, "/socket", { "User-Agent": "curl/8.0" });
+  assert.equal(anonymousUpgrade.status, 101);
+  const anonymousPolicy = seenUpgrades.at(-1);
+  assert.deepEqual(anonymousPolicy.plan, [], "cookie-less upgrade must not inherit attack delay or rate limit");
+  assert.equal(anonymousPolicy.attackScore, 0);
+  assert.equal(anonymousPolicy.riskScore, 0);
+  assert.match(anonymousPolicy.clientId, /^websocket:/);
+  assert.notEqual(anonymousPolicy.clientId, last.clientId);
+  assert.ok(anonymousPolicy.requestId);
+
+  const secondAnonymousUpgrade = await upgrade(detectionPort, "/socket", { "User-Agent": "curl/8.0" });
+  assert.equal(secondAnonymousUpgrade.status, 101);
+  assert.notEqual(seenUpgrades.at(-1).clientId, anonymousPolicy.clientId,
+    "each unsigned upgrade receives an independent client ID");
+
+  const signedUpgrade = await upgrade(detectionPort, "/socket", {
+    "User-Agent": "curl/8.0", Cookie: [...cookies.values()].join("; "),
+  });
+  assert.equal(signedUpgrade.status, 101);
+  const signedPolicy = seenUpgrades.at(-1);
+  assert.equal(signedPolicy.clientId, last.clientId);
+  assert.ok(signedPolicy.attackScore >= 0.8);
+  assert.ok(signedPolicy.riskScore >= 0.8);
+  assert.ok(signedPolicy.plan.some((step) => step.name === "rate_limit_strict"));
+  assert.ok(signedPolicy.plan.some((step) => step.name === "delay"));
+  assert.notEqual(signedPolicy.requestId, last.requestId);
 
   const loginBody = JSON.stringify({ password: dashboardPassword });
   const login = await request(detectionPort, "POST", "/__detection/api/login", {

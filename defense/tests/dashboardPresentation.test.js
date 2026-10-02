@@ -81,6 +81,22 @@ test("요청 경로와 식별자, 전략 이름을 HTML로 해석하지 않는�
   assert.match(card, /&lt;img/);
 });
 
+test("WebSocket 업그레이드와 연결 결과를 HTTP 응답으로 표시하지 않는다", () => {
+  const ui = loadDashboard();
+  const cases = [
+    [{ method: "WEBSOCKET", status: 403, outcome: "blocked" }, "WS 업그레이드 차단"],
+    [{ method: "WEBSOCKET", status: 502, outcome: "error" }, "WS 업그레이드 오류"],
+    [{ method: "WEBSOCKET", status: 101, outcome: "forwarded" }, "WS 연결 종료"],
+    [{ method: "WEBSOCKET", status: 101, outcome: "error" }, "WS 연결 중 오류"],
+  ];
+  for (const [event, label] of cases) {
+    const card = ui.renderRequestCard(event);
+    assert.match(card, new RegExp(`<span class="badge mono">${label}</span>`));
+    assert.doesNotMatch(card, /HTTP \d+/);
+  }
+  assert.match(ui.renderRequestCard({ method: "GET", status: 502, outcome: "error" }), /HTTP 502/);
+});
+
 test("정책 점수를 올림 표시해 방어 경계값을 잘못 암시하지 않는다", () => {
   const ui = loadDashboard();
   assert.equal(ui.formatScore(0.796), "79.6");

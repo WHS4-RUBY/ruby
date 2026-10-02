@@ -5,10 +5,13 @@ from unittest.mock import patch
 
 import httpx
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocket
 from starlette.requests import Request
 from starlette.responses import Response
+from websockets.exceptions import ConnectionClosedError
+from websockets.frames import Close
 
-from defense.app.main import _apply_plan, app
+from defense.app.main import _apply_plan, app, websocket_proxy
 from defense.app.dashboard_auth import DashboardAuthManager
 from defense.app.monitoring import event_store
 from defense.app.strategies.base import DefenseResult, DefenseStrategy
@@ -122,6 +125,7 @@ class ProxyContractTests(unittest.IsolatedAsyncioTestCase):
                     "X-Ruby-Attack-Score": "0.9",
                     "X-Ruby-Risk-Score": "0.9",
                     "X-Ruby-Policy-Source": "session",
+                    "X-Client-Id": "resolved:test-client",
                 })
 
         self.assertEqual(response.text, "backend transformed")
@@ -129,7 +133,9 @@ class ProxyContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("x-defense-signal", response.headers)
         self.assertNotIn("x-ruby-request-id", captured[0].headers)
         self.assertNotIn("x-ruby-attack-score", captured[0].headers)
+        self.assertNotIn("x-client-id", captured[0].headers)
         event = event_store.recent(1)[0]
+        self.assertEqual(event["clientId"], "resolved:test-client")
         self.assertEqual(event["requestId"], "request-123")
         self.assertEqual(event["attackScore"], 0.9)
         self.assertEqual(event["riskScore"], 0.9)
@@ -255,6 +261,103 @@ class WebSocketContractTests(unittest.TestCase):
                         pass
         self.assertEqual(rejected.exception.code, 1008)
         self.assertEqual(event_store.recent(1)[0]["outcome"], "blocked")
+
+
+class WebSocketLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        event_store._events.clear()
+
+    @staticmethod
+    def websocket():
+        sent = []
+        connected = False
+
+        async def receive():
+            nonlocal connected
+            if not connected:
+                connected = True
+                return {"type": "websocket.connect"}
+            await asyncio.Event().wait()
+
+        async def send(message):
+            sent.append(message)
+
+        websocket = WebSocket({
+            "type": "websocket",
+            "scheme": "ws",
+            "path": "/ws",
+            "query_string": b"",
+            "headers": [(b"host", b"defense"), (b"x-client-id", b"resolved:ws-client")],
+            "client": ("127.0.0.1", 1234),
+            "server": ("defense", 8080),
+        }, receive=receive, send=send)
+        return websocket, sent
+
+    async def test_frame_error_keeps_successful_upgrade_status(self):
+        class BrokenUpstream:
+            subprotocol = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def __aiter__(self):
+                raise RuntimeError("upstream frame failed")
+                yield  # pragma: no cover
+
+        websocket, sent = self.websocket()
+        with patch("defense.app.main.websockets.connect", return_value=BrokenUpstream()) as connect:
+            await websocket_proxy(websocket, "ws")
+
+        self.assertEqual([message["type"] for message in sent], ["websocket.accept", "websocket.close"])
+        self.assertEqual(sent[-1]["code"], 1011)
+        self.assertNotIn("x-client-id", connect.call_args.kwargs["extra_headers"])
+        event = event_store.recent(1)[0]
+        self.assertEqual(event["clientId"], "resolved:ws-client")
+        self.assertEqual(event["status"], 101)
+        self.assertEqual(event["outcome"], "error")
+
+    async def test_upgrade_error_remains_pre_connection_failure(self):
+        class UnavailableUpstream:
+            async def __aenter__(self):
+                raise OSError("upstream unavailable")
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        websocket, sent = self.websocket()
+        with patch("defense.app.main.websockets.connect", return_value=UnavailableUpstream()):
+            await websocket_proxy(websocket, "ws")
+
+        self.assertEqual([message["type"] for message in sent], ["websocket.close"])
+        self.assertEqual(event_store.recent(1)[0]["status"], 502)
+        self.assertEqual(event_store.recent(1)[0]["outcome"], "error")
+
+    async def test_abnormal_upstream_close_is_recorded_as_frame_error(self):
+        class AbnormallyClosedUpstream:
+            subprotocol = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def __aiter__(self):
+                raise ConnectionClosedError(Close(1011, "upstream failure"), None)
+                yield  # pragma: no cover
+
+        websocket, sent = self.websocket()
+        with patch("defense.app.main.websockets.connect", return_value=AbnormallyClosedUpstream()):
+            await websocket_proxy(websocket, "ws")
+
+        self.assertEqual([message["type"] for message in sent], ["websocket.accept", "websocket.close"])
+        self.assertEqual(sent[-1]["code"], 1011)
+        event = event_store.recent(1)[0]
+        self.assertEqual(event["status"], 101)
+        self.assertEqual(event["outcome"], "error")
 
 
 if __name__ == "__main__":

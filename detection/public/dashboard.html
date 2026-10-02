@@ -1210,6 +1210,7 @@ function isFlaggedRequest(request) {
   return Boolean(
     (request.deceptionEvents || []).length ||
     (request.tags || []).length ||
+    request.responseTransportOutcome === 'error' ||
     Number(request.attackDetection?.anomalyScore || 0) > 0 ||
     Number(request.status) >= 400
   );
@@ -1271,7 +1272,7 @@ function renderRelation(detail, kind, sessionNodes) {
     ? `<div class="relation-row"><span class="relation-key">후보 클라이언트 ${candidateIds.length}</span><span class="relation-chips">${candidateChips}</span></div>`
     : '';
   const linkedRow = linkedResolvedIds.length
-    ? `<div class="relation-row"><span class="relation-key">연결된 확정 흐름</span><span class="relation-chips">${linkedResolvedIds.map(id =>
+    ? `<div class="relation-row"><span class="relation-key" title="첫 요청에서 생성된 잠정 연결도 포함될 수 있습니다. 서명 ID 확인 여부는 해당 기록에서 확인하세요.">연결된 행위자 기록</span><span class="relation-chips">${linkedResolvedIds.map(id =>
         `<button type="button" class="node-chip" data-open-kind="resolved-actors" data-open-id="${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(shortId(id, 14))}</button>`).join('')}</span></div>`
     : '';
 
@@ -1316,13 +1317,22 @@ function renderEvidenceOverview(detail, kind, sessionNodes) {
     const confirmed = Number(detail.confirmedMembershipCount || 0);
     const provisional = Number(detail.provisionalMembershipCount || 0);
     const verifiedAccounts = (detail.accountAffiliations || []).filter(item => item.verified).length;
-    badge = '<span class="badge confirmed">서명 ID 근거</span>';
-    lead = '서명된 클라이언트 ID가 방문 연속성의 확인 근거입니다.';
-    points.push({ text: `서명 ID ${(detail.clientIds || []).length}개` });
-    points.push({ text: `확정 연결 세션 ${confirmed}개` });
-    if (provisional) points.push({ text: `잠정 연결 세션 ${provisional}개`, tone: 'observed' });
-    if (verifiedAccounts) points.push({ text: `확인된 계정 단서 ${verifiedAccounts}개`, tone: 'observed' });
-    limit = '함께 표시된 모든 세션이나 실제 사람의 동일성까지 확인된 것은 아닙니다.';
+    if (detail.continuityConfirmed) {
+      badge = '<span class="badge confirmed">서명 ID 근거</span>';
+      lead = '서명된 클라이언트 ID가 방문 연속성의 확인 근거입니다.';
+      points.push({ text: `서명 ID ${(detail.clientIds || []).length}개` });
+      points.push({ text: `확정 연결 세션 ${confirmed}개` });
+      if (provisional) points.push({ text: `잠정 연결 세션 ${provisional}개`, tone: 'observed' });
+      if (verifiedAccounts) points.push({ text: `확인된 계정 단서 ${verifiedAccounts}개`, tone: 'observed' });
+      limit = '함께 표시된 모든 세션이나 실제 사람의 동일성까지 확인된 것은 아닙니다.';
+    } else {
+      badge = '<span class="badge candidate">연속성 미확인</span>';
+      lead = '클라이언트 기록은 있지만 서명 ID로 방문 연속성이 아직 확인되지 않았습니다.';
+      if ((detail.clientIds || []).length) points.push({ text: `관찰된 클라이언트 ID ${(detail.clientIds || []).length}개`, tone: 'observed' });
+      if (provisional) points.push({ text: `잠정 연결 세션 ${provisional}개`, tone: 'observed' });
+      if (verifiedAccounts) points.push({ text: `확인된 계정 단서 ${verifiedAccounts}개`, tone: 'observed' });
+      limit = '처음 발급된 ID가 반환되기 전에는 방문 연속성이나 실제 사람의 동일성을 확정할 수 없습니다.';
+    }
   } else if (isClientFlow) {
     const links = detail.links || [];
     const latest = links[links.length - 1];
@@ -1344,8 +1354,8 @@ function renderEvidenceOverview(detail, kind, sessionNodes) {
     badge = '<span class="badge candidate">관찰 단서</span>';
     lead = 'IP와 HTTP 헤더 지문으로 묶은 후보 클라이언트의 요청입니다.';
     points.push({ text: `세션 ${sessionNodes.length}개` });
-    if (resolved.size) points.push({ text: `연결된 서명 ID 흐름 ${resolved.size}개${resolved.size > 1 ? '는 별도' : ''}`, tone: resolved.size > 1 ? 'conflict' : 'observed' });
-    limit = 'IP와 헤더 정보만으로 같은 클라이언트나 사람이라고 확정할 수 없습니다.';
+    if (resolved.size) points.push({ text: `연결된 행위자 기록 ${resolved.size}개${resolved.size > 1 ? '는 별도' : ''}`, tone: resolved.size > 1 ? 'conflict' : 'observed' });
+    limit = '연결된 기록에는 첫 요청의 잠정 연결도 포함될 수 있습니다. IP와 헤더 정보만으로 같은 클라이언트나 사람이라고 확정할 수 없습니다.';
   }
   if (ips.length) points.push({ text: `IP ${ips.length}개 관찰`, tone: 'observed' });
   return `<section class="evidence-overview" aria-label="연결 근거 요약">
@@ -1389,7 +1399,7 @@ function renderConnectionDetails(detail, kind, sessionNodes) {
   const summary = [
     `세션 ${sessionNodes.length}`,
     candidateCount ? `후보 ${candidateCount}` : '',
-    linkedResolvedCount ? `확정 흐름 ${linkedResolvedCount}` : '',
+    linkedResolvedCount ? `연결 기록 ${linkedResolvedCount}` : '',
     similarity ? `Fingerprint 연결 ${detail.links?.length || detail.clientFlow?.links?.length || 0}` : '',
   ].filter(Boolean).join(' · ');
 
@@ -1437,6 +1447,7 @@ function renderTimeline(detail, sessionNodes) {
       return `<div class="timeline-background-group"><span class="tag background">백그라운드</span><b>${escapeHtml(category)} ${grouped.length.toLocaleString()}건</b><span>${escapeHtml(methodText)} · ${escapeHtml(formatClock(first.ts))}${last.ts !== first.ts ? `–${escapeHtml(formatClock(last.ts))}` : ''} · 자동화 행동 점수 제외</span></div>`;
     }
     const request = entry.request;
+    const responseFailed = request.responseTransportOutcome === 'error';
     const node = colorBySession.get(request.sessionId) || { color: 'var(--muted)', index: '?' };
     const divider = multiSession && request.sessionId !== lastSession
       ? `<div class="session-divider"><span class="dot" style="display:inline-block;width:9px;height:9px;background:${node.color}"></span>세션 #${node.index} · ${escapeHtml(shortId(request.sessionId || '—', 8))} · ${escapeHtml(formatTime(request.ts))}</div>`
@@ -1463,7 +1474,7 @@ function renderTimeline(detail, sessionNodes) {
       <div class="timeline-main">
         <div class="line1">
           <span class="method">${escapeHtml(request.method || '')}</span>
-          <span class="${statusClass(request.status)}">${escapeHtml(request.status)}</span>
+          <span class="${statusClass(responseFailed ? 502 : request.status)}">${escapeHtml(request.status)}${responseFailed ? ' · 전송 오류' : ''}</span>
           ${multiSession ? `<span class="session-marker"><span class="dot" style="display:inline-block;width:7px;height:7px;background:${node.color}"></span>#${node.index} ${escapeHtml(shortId(request.sessionId || '—', 8))}</span>` : ''}
           ${backgroundTag}${tags}${honeyTags}
         </div>
@@ -1489,7 +1500,7 @@ function renderTimeline(detail, sessionNodes) {
       <div class="timeline-filters">
         <input class="search-input" type="search" id="timelineSearch" placeholder="요청 ID·URL·메서드·상태 검색" value="${escapeHtml(state.timelineQuery)}" aria-label="요청 검색" />
         <select class="select-input" id="timelineSessionSelect" aria-label="세션 필터">${sessionOptions}</select>
-        <button class="chip-button${state.timelineFlaggedOnly ? ' active' : ''}" type="button" id="timelineFlaggedToggle" title="공격 태그·허니 신호·CRS 탐지·4xx/5xx 응답만 표시합니다.">신호 있는 요청만</button>
+        <button class="chip-button${state.timelineFlaggedOnly ? ' active' : ''}" type="button" id="timelineFlaggedToggle" title="공격 태그·허니 신호·CRS 탐지·전송 오류·4xx/5xx 응답만 표시합니다.">신호 있는 요청만</button>
         ${backgroundCount ? `<button class="chip-button${state.timelineBackgroundExpanded ? ' active' : ''}" type="button" id="timelineBackgroundToggle" title="Socket.IO 같은 백그라운드 통신은 기록에는 남지만 자동화 행동 점수에서는 제외됩니다.">${state.timelineBackgroundExpanded ? '백그라운드 접기' : `백그라운드 ${backgroundCount.toLocaleString()}건 펼치기`}</button>` : ''}
       </div>
     </div>
@@ -1512,11 +1523,14 @@ function renderUserDetail() {
   if (state.timelineSession !== 'all' && !sessionNodes.some(node =>
     node.sessionId === state.timelineSession && node.timelineAvailable
   )) state.timelineSession = 'all';
-  const identityBadge = kind === 'resolved-actors'
+  const continuityConfirmed = kind === 'resolved-actors' && detail.continuityConfirmed === true;
+  const identityBadge = continuityConfirmed
     ? '<span class="badge confirmed" title="서명된 클라이언트 ID로 적어도 일부 방문의 연속성이 확인됐습니다. 실제 사람의 동일성을 뜻하지 않습니다.">서명 ID 확인</span>'
-    : kind === 'client-flows'
-      ? '<span class="badge candidate" title="Fingerprint와 요청 연속성으로 연결한 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>'
-      : '<span class="badge candidate" title="IP + HTTP 헤더 지문으로 묶은 요청 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>';
+    : kind === 'resolved-actors'
+      ? '<span class="badge candidate" title="서명 ID로 방문 연속성이 아직 확인되지 않은 잠정 기록입니다.">연속성 미확인</span>'
+      : kind === 'client-flows'
+        ? '<span class="badge candidate" title="Fingerprint와 요청 연속성으로 연결한 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>'
+        : '<span class="badge candidate" title="IP + HTTP 헤더 지문으로 묶은 요청 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>';
   const detection = detectionFor(detail);
 
   pane.innerHTML = `
@@ -1536,8 +1550,8 @@ function renderUserDetail() {
         <span class="ds"><i>세션</i><b>${Number(detail.sessionCount ?? sessionNodes.length).toLocaleString()}</b></span>
         <span class="ds" title="${escapeHtml(formatTime(detail.firstSeen))}"><i>최초</i><b>${escapeHtml(formatClock(detail.firstSeen))}</b></span>
         <span class="ds" title="${escapeHtml(formatTime(detail.lastSeen))}"><i>최근</i><b>${escapeHtml(formatRelative(detail.lastSeen))}</b></span>
-        <span class="ds" title="현재 Automation Score를 선택 기준과 비교합니다."><i>${kind === 'resolved-actors' ? '자동화' : '흐름 자동화'}</i>${scoreCell(detail.automationScore, 'automation', detection.automationDetected, kind === 'resolved-actors' ? 'confirmed' : 'heuristic')}</span>
-        <span class="ds" title="현재값이 아니라 과거 최고 Attack Score를 선택 기준과 비교합니다."><i>${kind === 'resolved-actors' ? '공격 최고' : '흐름 공격 최고'}</i>${scoreCell(detection.maxAttackScore / 100, 'attack', detection.attackDetected, kind === 'resolved-actors' ? 'confirmed' : 'heuristic')}</span>
+        <span class="ds" title="현재 Automation Score를 선택 기준과 비교합니다."><i>${kind === 'resolved-actors' ? '자동화' : '흐름 자동화'}</i>${scoreCell(detail.automationScore, 'automation', detection.automationDetected, continuityConfirmed ? 'confirmed' : kind === 'resolved-actors' ? 'observed' : 'heuristic')}</span>
+        <span class="ds" title="현재값이 아니라 과거 최고 Attack Score를 선택 기준과 비교합니다."><i>${kind === 'resolved-actors' ? '공격 최고' : '흐름 공격 최고'}</i>${scoreCell(detection.maxAttackScore / 100, 'attack', detection.attackDetected, continuityConfirmed ? 'confirmed' : kind === 'resolved-actors' ? 'observed' : 'heuristic')}</span>
       </div>
       <p class="sub" style="margin-top:8px;">
         ${detail.status ? `확인 상태 ${escapeHtml(statusText(detail.status))}${detail.confidence ? ` · 신뢰도 ${escapeHtml(statusText(detail.confidence))}` : ''} · ` : ''}
@@ -1824,13 +1838,15 @@ function renderPolicyTrace(request) {
     ${post ? ` · 응답 후 본 클라이언트 점수: 자동화 ${scoreNumber(post.automationScore)}, 공격 ${scoreNumber(post.effectiveAttackScore)}
       · 출처 ${escapeHtml(post.source || '—')}` : ''}
     ${request.defenseSignal ? ` · 방어 신호 ${escapeHtml(request.defenseSignal)}` : ''}
+    ${request.responseTransportOutcome === 'error' ? ' · 응답 전달 중 오류(본문 불완전)' : ''}
+    ${request.responseTransportOutcome === 'complete' && request.responseBodyInspected === false ? ' · 응답 본문 검사 생략(스트리밍·크기 제한)' : ''}
   </div>`;
 }
 
 function renderRequests(requests) {
   return (requests || []).map((r,index) => `<div class="path-item">
     <div class="meta">#${index+1} · ${new Date(r.ts).toLocaleTimeString()} · ${escapeHtml(r.method)}
-      <span class="${statusClass(r.status)}">${escapeHtml(r.status)}</span>
+      <span class="${statusClass(r.responseTransportOutcome === 'error' ? 502 : r.status)}">${escapeHtml(r.status)}${r.responseTransportOutcome === 'error' ? ' · 전송 오류' : ''}</span>
       · 세션 <code>${escapeHtml((r.sessionId || '').slice(0,8))}</code>
       ${isBackgroundRequest(r) ? '<span class="tag background">백그라운드 · 행동 점수 제외</span>' : ''}
       ${(r.tags || []).map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}

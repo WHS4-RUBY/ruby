@@ -42,7 +42,7 @@ Detection은 Automation/Attack 점수와 확인된 공격 신호로 정책을 �
 | RUBY Market | `/ruby-market/` | `docker-compose.yml` + `docker-compose.target.ruby-web.yml` |
 | 자신의 웹사이트 | 기본 `/site/`, `RUBY_PUBLIC_NAME`으로 변경 | `docker-compose.yml` + `docker-compose.target.site.yml` |
 
-RUBY Market의 웹 스택을 먼저 실행한 다음 아래처럼 **전체 파이프라인**을 전환합니다. Market 오버레이는 Defense의 대상 주소, Detection의 Market 프로필, 공개 경로를 함께 고르고 번들 Juice Shop을 비활성화합니다. 전환 시 Detection을 재생성해 이전 사이트의 메모리 점수가 섞이지 않도록 합니다. 명령과 내부 네트워크 조건은 [서버 대상 전환](benchmark/benchmarks/web-defense-benchmark/docs/operations/04-server-target-selection.md)에 있습니다.
+RUBY Market은 루트 Compose가 만든 파이프라인 네트워크를 외부 네트워크로 사용합니다. 새 서버에서는 먼저 루트 Compose의 컨테이너와 네트워크를 **생성만** 한 뒤 Market 웹 스택을 시작하고, 다음 명령으로 **전체 파이프라인**을 시작합니다. 이미 루트 스택이 실행 중이면 생성 단계는 필요 없습니다. Market 이미지 태그는 루트 배포 SHA가 아니라 Market 이미지가 실제 발행된 `main` push의 SHA여야 합니다. 생성 순서와 태그 확인 명령은 [서버 대상 전환](benchmark/benchmarks/web-defense-benchmark/docs/operations/04-server-target-selection.md)에 있습니다. Market 오버레이는 Defense 주소, Detection 프로필, 공개 경로를 함께 고르고 번들 Juice Shop을 비활성화합니다. 전환 시 Detection을 재생성해 이전 사이트의 메모리 점수가 섞이지 않도록 합니다.
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.target.ruby-web.yml \
@@ -55,7 +55,7 @@ docker compose -f docker-compose.yml -f docker-compose.target.juice-shop.yml \
   up -d --wait --remove-orphans --force-recreate
 ```
 
-자신의 사이트는 `RUBY_TARGET_URL`(Defense가 접근할 원본 웹 주소), `RUBY_TARGET_PROFILE_FILE`(Detection의 JSON 규칙), 선택 사항인 `RUBY_PUBLIC_NAME`(공개 경로 이름)을 지정합니다. 원본 주소를 RUBY의 공개 주소로 지정하면 순환 전달됩니다. 예시 설정과 인증·쿠키·CSRF·미끼 규칙 점검은 [자신의 웹사이트 연결](benchmark/benchmarks/web-defense-benchmark/docs/operations/05-connect-your-site.md)에 있습니다. 원본 사이트에 직접 공개 접근이 남아 있으면 RUBY를 우회할 수 있으므로 별도 접근 제한이 필요합니다.
+자신의 사이트는 `RUBY_TARGET_URL`(Defense가 접근할 원본 웹 주소), `RUBY_TARGET_PROFILE_FILE`(Detection의 JSON 규칙), 선택 사항인 `RUBY_PUBLIC_NAME`(공개 경로 이름)을 지정합니다. 원본 주소를 RUBY의 공개 주소로 지정하면 순환 전달됩니다. [자신의 웹사이트 연결](benchmark/benchmarks/web-defense-benchmark/docs/operations/05-connect-your-site.md)에는 인증·쿠키·CSRF·미끼 규칙 점검과 로컬 `ruby-local_ai-defense-net`에 웹 서비스만 연결하는 Compose 예시가 있습니다. 원본 사이트에 직접 공개 접근이 남아 있으면 RUBY를 우회할 수 있으므로 별도 접근 제한이 필요합니다.
 
 이름 경로는 경로 접두사만 제거하는 방식입니다. 기존 사이트가 루트 절대 링크나 루트로 이동하는 응답을 사용하면 브라우저 주소에서 이름이 사라질 수 있으므로 연결 전 실제 화면·로그인·리다이렉트를 확인하세요. 루트 경로로 간 요청도 선택한 대상의 파이프라인을 통과합니다.
 

@@ -18,7 +18,22 @@ RUBY 공개 경로는 `방문자 → Gateway → Detection(정책 포함) → De
 
 ## RUBY Market 선택
 
-저장소 루트에서 Market 운영 스택을 먼저 시작합니다. 실제 비밀값과 같은 커밋의 Market 이미지 태그를 `.env.production`에 제공해야 합니다.
+Market의 `compose.production.yaml`은 파이프라인 네트워크를 **외부 네트워크**로 참조합니다. 새 서버에서 Market을 먼저 실행하면 네트워크가 없어 실패합니다. 저장소 루트의 `.env`에 RUBY 배포값을, `benchmark/benchmarks/web-defense-benchmark/app/.env.production`에 Market 배포값을 준비하고 네트워크 이름을 일치시키세요. 처음 설치할 때만 다음 명령으로 루트 Compose의 컨테이너와 네트워크를 **생성만** 합니다. 이 단계에서는 공개 서비스를 시작하지 않습니다. 이미 루트 RUBY 스택이 실행 중이고 두 Compose가 같은 네트워크를 사용한다면 건너뜁니다.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.target.ruby-web.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.target.ruby-web.yml \
+  create --no-recreate
+```
+
+`RUBY_BENCHMARK_IMAGE_TAG`에는 현재 루트 RUBY 배포 커밋이 아니라, **Market 이미지 7종이 실제로 발행된 커밋 SHA**를 적습니다. `Web Defense Benchmark`의 `runtime-images`는 관련 경로 변경으로 시작된 `main` push에서만 GHCR에 이미지를 올립니다. PR 실행이나 관련 경로 변경이 없는 `main` 커밋은 그 SHA의 Market 태그를 만들지 않습니다. GitHub Actions에서 성공한 `main`의 `push` 실행을 고르거나 다음 명령의 `headSha`를 확인하세요. 해당 SHA 태그가 GHCR에 존재하고 이미지에 접근할 권한이 있어야 `pull`이 됩니다. RUBY 이미지의 `IMAGE_TAG`와 Market 이미지의 `RUBY_BENCHMARK_IMAGE_TAG`는 서로 달라도 됩니다.
+
+```bash
+gh run list --repo WHS4-RUBY/ruby --workflow web-defense-benchmark.yml \
+  --branch main --event push --status success --limit 5 --json headSha,url
+```
+
+그다음 저장소 루트에서 Market 운영 스택을 시작합니다. 비밀값은 환경 파일에만 보관하고 명령 출력이나 PR에 남기지 않습니다.
 
 ```bash
 docker compose \
