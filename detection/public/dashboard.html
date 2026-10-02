@@ -351,7 +351,7 @@
         <div class="users-layout">
           <aside class="users-list-pane">
             <div class="list-toolbar">
-              <p class="sub" style="margin:0;">단서별 요청 흐름입니다. 서명 ID는 클라이언트 연속성만 확인합니다. 확정 흐름은 후보 흐름에도 함께 보일 수 있으므로 요청 수를 합산하지 마세요.</p>
+              <p class="sub" style="margin:0;">단서별 요청 흐름입니다. 서명 ID는 클라이언트 연속성만 확인합니다. 확정 흐름은 후보 흐름에도 함께 보일 수 있으므로 요청 수를 합산하지 마세요. 후보 흐름의 점수는 개별 서명 ID의 방어 판단이 아닙니다.</p>
               <input class="search-input" type="search" id="userSearch" placeholder="ID · IP 검색" aria-label="클라이언트 흐름 검색" />
               <div class="toolbar-row">
                 <select class="select-input" id="userSort" aria-label="정렬 기준">
@@ -364,9 +364,9 @@
                 </select>
                 <select class="select-input" id="userRisk" aria-label="위험 신호 필터">
                   <option value="all">위험 신호 전체</option>
-                  <option value="automation-detected">AI 접근 식별</option>
-                  <option value="attack-detected">공격 식별</option>
-                  <option value="both-detected">AI 접근 + 공격 식별</option>
+                  <option value="automation-detected">자동화 점수 기준 이상</option>
+                  <option value="attack-detected">공격 점수 기준 이상</option>
+                  <option value="both-detected">자동화·공격 점수 기준 이상</option>
                   <option value="attack">공격 이력만</option>
                   <option value="honey">허니 신호만</option>
                 </select>
@@ -675,13 +675,23 @@ function detectionFor(entity) {
     attackDetected: maxAttackScore >= threshold,
   };
 }
-function detectionBadge(kind, detected) {
-  if (!detected) return '';
-  return `<span class="detection-badge ${kind}">${kind === 'automation' ? 'AI 접근 식별' : '공격 식별'}</span>`;
+function detectionLabel(kind, scope = 'observed') {
+  if (scope === 'heuristic') return kind === 'automation' ? '후보 흐름 자동화 신호' : '후보 흐름 공격 신호';
+  if (scope === 'confirmed') return kind === 'automation' ? 'AI 접근 식별' : '공격 식별';
+  return kind === 'automation' ? '자동화 점수 기준 이상' : '공격 점수 기준 이상';
 }
-function scoreCell(value, kind, detected = false) {
+function detectionScopeNote(scope) {
+  if (scope === 'heuristic') return '후보 흐름 전체의 관찰 점수입니다. 여러 서명 ID의 요청이 포함될 수 있으며 개별 클라이언트의 방어 적용을 뜻하지 않습니다.';
+  if (scope === 'confirmed') return '서명 ID로 확인된 클라이언트의 관찰 점수입니다. 실제 방어 적용은 방어 화면에서 요청 ID로 확인하세요.';
+  return '이 행의 관찰 점수입니다. 개별 클라이언트 판정이나 방어 적용을 뜻하지 않습니다.';
+}
+function detectionBadge(kind, detected, scope = 'observed') {
+  if (!detected) return '';
+  return `<span class="detection-badge ${kind}" title="${detectionScopeNote(scope)}">${detectionLabel(kind, scope)}</span>`;
+}
+function scoreCell(value, kind, detected = false, scope = 'observed') {
   const score = scoreNumber(value);
-  return `<span class="score"><span class="score-bar"><span class="score-fill ${kind}" style="width:${score}%"></span></span>${score}${detectionBadge(kind, detected)}</span>`;
+  return `<span class="score"><span class="score-bar"><span class="score-fill ${kind}" style="width:${score}%"></span></span>${score}${detectionBadge(kind, detected, scope)}</span>`;
 }
 function miniScore(label, value, kind, detected = false) {
   const score = scoreNumber(value);
@@ -1057,14 +1067,15 @@ function renderUserList() {
 
   list.innerHTML = rows.map(row => {
     const detection = detectionFor(row);
+    const scoreScope = row.identity === 'confirmed' ? 'confirmed' : 'heuristic';
     const selected = state.selected && state.selected.kind === row.kind && state.selected.id === row.id;
     const badgeTitle = `확인 상태 ${statusText(row.status)}${row.note ? ` · ${row.note}` : ''}`;
     const badge = row.identity === 'confirmed'
       ? `<span class="badge confirmed" title="${escapeHtml(badgeTitle)}">서명 ID 확인</span>`
       : `<span class="badge candidate" title="${escapeHtml(badgeTitle)}">클라이언트 흐름</span>`;
     const flags = [
-      detection.automationDetected ? `<span class="badge neutral" title="현재 Automation Score ${detection.automationScore}점 ≥ ${detection.threshold}점">AI 접근 식별</span>` : '',
-      detection.attackDetected ? `<span class="badge danger" title="최고 Attack Score ${detection.maxAttackScore}점 ≥ ${detection.threshold}점">공격 식별</span>` : '',
+      detection.automationDetected ? `<span class="badge neutral" title="현재 Automation Score ${detection.automationScore}점 ≥ ${detection.threshold}점 · ${detectionScopeNote(scoreScope)}">${detectionLabel('automation', scoreScope)}</span>` : '',
+      detection.attackDetected ? `<span class="badge danger" title="최고 Attack Score ${detection.maxAttackScore}점 ≥ ${detection.threshold}점 · ${detectionScopeNote(scoreScope)}">${detectionLabel('attack', scoreScope)}</span>` : '',
       row.deceptionHistory?.hasEvidence ? '<span class="badge neutral" title="허니 신호가 관찰되었습니다.">허니</span>' : '',
     ].join('');
     return `<button type="button" class="user-card${selected ? ' selected' : ''}" data-user-kind="${escapeHtml(row.kind)}" data-user-id="${escapeHtml(row.id)}" aria-pressed="${selected ? 'true' : 'false'}">
@@ -1084,7 +1095,7 @@ function renderUserList() {
         ${miniScore('자동화', row.automationScore, 'automation')}
         ${miniScore('공격', detection.maxAttackScore / 100, 'attack')}
       </span>
-      ${row.identity === 'heuristic' ? '<span class="user-card-score-scope">흐름 전체의 관찰 점수 · 개별 서명 ID 정책 점수와 다를 수 있음</span>' : ''}
+      ${row.identity === 'heuristic' ? '<span class="user-card-score-scope">후보 흐름 전체의 관찰 점수 · 개별 서명 ID의 방어 판단과 다를 수 있음</span>' : ''}
       <span class="user-card-id" title="${escapeHtml(row.id)}">흐름 ID ${escapeHtml(shortId(row.id, 24))}</span>
       ${row.backgroundRequests > 0 ? `<span class="sub">점수 분석 ${row.behaviorAnalyzedRequests.toLocaleString()} · 백그라운드 ${row.backgroundRequests.toLocaleString()}</span>` : ''}
     </button>`;
@@ -1525,8 +1536,8 @@ function renderUserDetail() {
         <span class="ds"><i>세션</i><b>${Number(detail.sessionCount ?? sessionNodes.length).toLocaleString()}</b></span>
         <span class="ds" title="${escapeHtml(formatTime(detail.firstSeen))}"><i>최초</i><b>${escapeHtml(formatClock(detail.firstSeen))}</b></span>
         <span class="ds" title="${escapeHtml(formatTime(detail.lastSeen))}"><i>최근</i><b>${escapeHtml(formatRelative(detail.lastSeen))}</b></span>
-        <span class="ds" title="현재 Automation Score를 선택 기준과 비교합니다."><i>${kind === 'resolved-actors' ? '자동화' : '흐름 자동화'}</i>${scoreCell(detail.automationScore, 'automation', detection.automationDetected)}</span>
-        <span class="ds" title="현재값이 아니라 과거 최고 Attack Score를 선택 기준과 비교합니다."><i>${kind === 'resolved-actors' ? '공격 최고' : '흐름 공격 최고'}</i>${scoreCell(detection.maxAttackScore / 100, 'attack', detection.attackDetected)}</span>
+        <span class="ds" title="현재 Automation Score를 선택 기준과 비교합니다."><i>${kind === 'resolved-actors' ? '자동화' : '흐름 자동화'}</i>${scoreCell(detail.automationScore, 'automation', detection.automationDetected, kind === 'resolved-actors' ? 'confirmed' : 'heuristic')}</span>
+        <span class="ds" title="현재값이 아니라 과거 최고 Attack Score를 선택 기준과 비교합니다."><i>${kind === 'resolved-actors' ? '공격 최고' : '흐름 공격 최고'}</i>${scoreCell(detection.maxAttackScore / 100, 'attack', detection.attackDetected, kind === 'resolved-actors' ? 'confirmed' : 'heuristic')}</span>
       </div>
       <p class="sub" style="margin-top:8px;">
         ${detail.status ? `확인 상태 ${escapeHtml(statusText(detail.status))}${detail.confidence ? ` · 신뢰도 ${escapeHtml(statusText(detail.confidence))}` : ''} · ` : ''}

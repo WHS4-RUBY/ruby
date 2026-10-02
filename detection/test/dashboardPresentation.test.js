@@ -131,6 +131,57 @@ test("서로 다른 서명 ID가 한 Client Flow에 있어도 동일 클라이�
   assert.doesNotMatch(overview, /서명 ID 근거/);
 });
 
+test("후보 흐름의 합산 공격 점수는 개별 서명 ID의 공격 식별로 표시하지 않는다", () => {
+  const ui = loadPresentation();
+  const actors = [confirmedActor("resolved:a", "actor:a", 0.4), confirmedActor("resolved:b", "actor:b", 0)];
+  const candidates = [candidate("actor:a", "resolved:a", 0.4), candidate("actor:b", "resolved:b", 0)];
+  const flow = {
+    clientFlowId: "client-flow:linked",
+    status: "FLOW_LINKED",
+    confidence: "MEDIUM",
+    flowLinked: true,
+    candidateIds: ["actor:a", "actor:b"],
+    resolvedActorIds: ["resolved:a", "resolved:b"],
+    observedIps: ["203.0.113.10"],
+    verifiedClientCount: 2,
+    links: [{ matchedFields: ["userAgentFamily"], changedFields: ["ip"] }],
+    totalRequests: 4,
+    sessionCount: 2,
+    candidateCount: 2,
+    automationScore: 0.1,
+    attackScore: 0.5,
+    attackHistory: { maxAttackScore: 0.5 },
+    firstSeen: 1000,
+    lastSeen: 2000,
+  };
+
+  const rows = ui.buildUserRows(actors, candidates, [flow]);
+  assert.equal(rows.length, 3);
+  assert.equal(rows.filter(row => row.identity === "confirmed").length, 2);
+  ui.state.users = rows;
+  ui.renderUserList();
+  const listHtml = ui.elements.get("userList").innerHTML;
+  const cardFor = id => {
+    const card = listHtml.match(new RegExp(`<button[^>]*data-user-id="${id}"[^>]*>[\\s\\S]*?<\\/button>`));
+    assert.ok(card, `${id} 카드가 보여야 한다`);
+    return card[0];
+  };
+  const flowCard = cardFor("client-flow:linked");
+  const firstClientCard = cardFor("resolved:a");
+  const secondClientCard = cardFor("resolved:b");
+
+  assert.match(flowCard, /<span class="mini-value">50<\/span>/);
+  assert.match(flowCard, /후보 흐름 공격 신호/);
+  assert.doesNotMatch(flowCard, />공격 식별<\/span>/);
+  assert.match(firstClientCard, /<span class="mini-value">40<\/span>/);
+  for (const card of [firstClientCard, secondClientCard]) {
+    assert.doesNotMatch(card, /후보 흐름 공격 신호|>공격 식별<\/span>|<span class="mini-value">50<\/span>/);
+  }
+
+  ui.state.riskFilter = "attack-detected";
+  assert.equal(ui.filterAndSortUsers(rows).map(row => row.id).join(), "client-flow:linked");
+});
+
 test("확정 흐름과 미확정 요청이 섞인 후보를 목록에서 숨기지 않는다", () => {
   const ui = loadPresentation();
   const resolved = confirmedActor("resolved:a", "actor:a");
