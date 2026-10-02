@@ -124,11 +124,15 @@ jobs:
 
             docker compose -f docker-compose.yml pull
             docker compose -f docker-compose.yml up -d --wait --wait-timeout 120
+            # The gateway renders its bind-mounted template only at startup.
+            # Compose does not recreate it when the mounted file contents change.
+            docker compose -f docker-compose.yml up -d --no-deps --force-recreate --wait --wait-timeout 120 gateway
 
             DETECTION_COOKIES="$(mktemp)"
             DEFENSE_COOKIES="$(mktemp)"
             trap 'rm -f "$DETECTION_COOKIES" "$DEFENSE_COOKIES"' EXIT
             curl --fail --silent --show-error http://127.0.0.1/healthz >/dev/null
+            test "$(curl --fail --silent --show-error http://127.0.0.1/__ruby/target)" = '{"publicPath":"/juice-shop/"}'
             test "$(curl --silent --output /dev/null --write-out '%{redirect_url}' http://127.0.0.1/)" = "http://127.0.0.1/juice-shop/"
             curl --fail --silent --show-error http://127.0.0.1/juice-shop/ >/dev/null
             curl --fail --silent --show-error 'http://127.0.0.1/rest/products/search?q=' >/dev/null
