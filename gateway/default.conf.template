@@ -25,6 +25,18 @@ server {
         return 302 /@PUBLIC_NAME@/;
     }
 
+    # Public route metadata for dashboard navigation. This describes the
+    # selected gateway path only; it is not a backend health check.
+    location = /__ruby/target {
+        if ($request_method != GET) {
+            return 405;
+        }
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        return 200 '{"publicPath":"/@PUBLIC_NAME@/"}';
+    }
+
     location = /@PUBLIC_NAME@ {
         return 308 /@PUBLIC_NAME@/;
     }

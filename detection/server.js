@@ -258,6 +258,12 @@ function analyzeClientFlow(aggregate) {
  * 가장 강한 점수를 적용한다. 방금 요청의 결과는 다음 요청부터 반영된다.
  */
 function buildPriorPolicyDecision(req) {
+  // An upgrade cannot receive the signed dcid cookie that the HTTP middleware
+  // issues on a first request. Do not borrow a NAT/fingerprint neighbor's
+  // Candidate or Client Flow history for a cookie-less WebSocket connection.
+  if (req.isWebSocketUpgrade && !req.clientIdentity?.valid) {
+    return buildPolicyDecision({ clientId: req.websocketClientId });
+  }
   const ip = getClientIp(req);
   const fingerprint = buildHttpFingerprint({
     headers: req.headers,
@@ -545,6 +551,8 @@ function recordCompletedRequest(req, {
   responseContentType = null,
   responseContentLength = null,
   responseBodyBytes = null,
+  responseTransportOutcome = null,
+  responseBodyInspected = null,
   attackDetection,
 }) {
   const ip = getClientIp(req);
@@ -556,7 +564,9 @@ function recordCompletedRequest(req, {
   };
   const tags = detection.available ? detection.categories : tagPayload(req.originalUrl, req.body);
   const normalizedPath = normalizePath(req.originalUrl);
-  observeSchemaLearning(req, status, normalizedPath);
+  // A partial upstream response must not teach the schema learner that a
+  // write succeeded just because its HTTP headers contained a 2xx status.
+  if (responseTransportOutcome !== "error") observeSchemaLearning(req, status, normalizedPath);
   const session = store.recordRequest(req.detectionSessionId, ip, {
     method: req.method,
     url: req.originalUrl,
@@ -588,6 +598,8 @@ function recordCompletedRequest(req, {
       ? responseContentLength
       : parseContentLength(responseContentLength),
     responseBodyBytes,
+    responseTransportOutcome,
+    responseBodyInspected,
     attackDetection: detection,
     backgroundTraffic: req.backgroundTraffic,
     deceptionEvents: req.deceptionEvents,
@@ -947,6 +959,7 @@ app.get("/__detection/api/actors", (req, res) => {
     return {
       actorId: actor.id,
       resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
+      unresolvedRequestCount: actor.requests.filter((request) => !request.resolvedActorId).length,
       ip: actor.ip,
       fingerprint: actor.fingerprint,
       clientObservation: actor.clientObservation,
@@ -977,6 +990,7 @@ app.get("/__detection/api/actors/:id", (req, res) => {
   res.json({
     actorId: actor.id,
     resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
+    unresolvedRequestCount: actor.requests.filter((request) => !request.resolvedActorId).length,
     ip: actor.ip,
     fingerprint: actor.fingerprint,
     clientObservation: actor.clientObservation,
@@ -1240,8 +1254,10 @@ const detectionHook = {
 
   onWebSocketRequest({ proxyReq, req }) {
     req.originalUrl ||= req.url;
+    req.isWebSocketUpgrade = true;
     req.detectionSessionId = upgradeCookie(req, SESSION_COOKIE);
     req.clientIdentity = dcidManager.verify(upgradeCookie(req, DCID_COOKIE));
+    if (!req.clientIdentity.valid) req.websocketClientId = `websocket:${crypto.randomUUID()}`;
     req.authGroupId = deriveAuthGroupId(req.headers.authorization);
     forwardPolicyDecision(proxyReq, req);
   },
@@ -1260,13 +1276,16 @@ const detectionHook = {
     fixRequestBody(proxyReq, req);
   },
 
-  async onResponse({ responseBuffer, proxyRes, req }) {
+  async onResponse({ responseBuffer, proxyRes, req, bodyAvailable = true, responseBodyBytes }) {
+    if (req.rubyResponseRecorded) return responseBuffer;
     req.defenseSignal = proxyRes.headers["x-defense-signal"] === "rate_limited"
       ? "rate_limited" : null;
     const attackDetection = req.crsScanPromise
       ? await req.crsScanPromise
       : { available: false, error: "scan was not started", categories: [], hits: [] };
-    const xssDetection = computeXssDetection(req, responseBuffer, proxyRes.headers);
+    const xssDetection = computeXssDetection(
+      req, bodyAvailable ? responseBuffer : Buffer.alloc(0), proxyRes.headers
+    );
     req.xssTags = xssDetection.tags;
     req.xssMaxRisk = xssDetection.maxRisk;
     const {
@@ -1277,9 +1296,13 @@ const detectionHook = {
       status: proxyRes.statusCode,
       responseContentType: proxyRes.headers["content-type"],
       responseContentLength: proxyRes.headers["content-length"],
-      responseBodyBytes: responseBuffer.length,
+      responseBodyBytes: Number.isSafeInteger(responseBodyBytes)
+        ? responseBodyBytes : responseBuffer.length,
+      responseTransportOutcome: "complete",
+      responseBodyInspected: bodyAvailable && responseBuffer.length <= XSS_MAX_BODY_BYTES,
       attackDetection,
     });
+    req.rubyResponseRecorded = true;
     observeXssWrite(req, session, proxyRes.statusCode);
 
     // 실험 검증 전에는 BLOCK_MODE도 log-only다. 응답 상태나 body를 변경하지 않는다.
@@ -1300,6 +1323,11 @@ const detectionHook = {
         );
       }
     }
+
+    // Streaming and large responses are forwarded as original bytes. Their
+    // request/CRS/header evidence is recorded, but no response body claim or
+    // injection is made without a complete, bounded body.
+    if (!bodyAvailable) return responseBuffer;
 
     // HTML 응답이면 telemetry.js 를 </body> 직전에 주입
     const contentType = proxyRes.headers["content-type"] || "";
@@ -1346,6 +1374,27 @@ const detectionHook = {
     }
 
     return responseBuffer;
+  },
+
+  async onResponseError({ req, proxyRes, responseBodyBytes }) {
+    if (req.rubyResponseRecorded || !req._detectionPrepared) return;
+    req.defenseSignal = proxyRes?.headers?.["x-defense-signal"] === "rate_limited"
+      ? "rate_limited" : null;
+    const attackDetection = req.crsScanPromise
+      ? await req.crsScanPromise
+      : { available: false, error: "scan was not started", categories: [], hits: [] };
+    // Keep the observed status but mark the transport as incomplete; 502 is
+    // used only when upstream never sent headers. Never log raw error text.
+    recordCompletedRequest(req, {
+      status: proxyRes?.statusCode || 502,
+      responseContentType: proxyRes?.headers?.["content-type"],
+      responseContentLength: proxyRes?.headers?.["content-length"],
+      responseBodyBytes: Number.isSafeInteger(responseBodyBytes) ? responseBodyBytes : 0,
+      responseTransportOutcome: "error",
+      responseBodyInspected: false,
+      attackDetection,
+    });
+    req.rubyResponseRecorded = true;
   },
 };
 

@@ -13,7 +13,7 @@ import httpx
 import websockets
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from starlette.responses import Response, StreamingResponse
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosedOK
 
 from .dashboard import router as dashboard_router
 from .dashboard import DASHBOARD_SESSION_COOKIE, auth_manager
@@ -58,6 +58,7 @@ _RESPONSE_SKIP = {
     "x-defense-applied",
 }
 _DEFENSE_INTERNAL_HEADERS = {
+    "x-client-id",
     "x-defense-plan",
     "x-defense-management-client",
     "x-ruby-request-id",
@@ -205,7 +206,7 @@ def build_upstream_headers(request: Request, extra: dict) -> dict[str, str]:
     )
     headers["x-forwarded-proto"] = request.headers.get("x-forwarded-proto") or request.url.scheme
     for key, value in extra.items():
-        if key.lower() in _HOP_BY_HOP:
+        if key.lower() in _HOP_BY_HOP | _DEFENSE_INTERNAL_HEADERS:
             continue
         headers[key] = _header_value(value)
     return headers
@@ -317,7 +318,9 @@ def _websocket_headers(websocket: WebSocket, extra: dict[str, str]) -> dict[str,
     headers["x-forwarded-proto"] = websocket.headers.get("x-forwarded-proto") or (
         "https" if websocket.url.scheme == "wss" else "http"
     )
-    headers.update(extra)
+    for key, value in extra.items():
+        if key.lower() not in _WEBSOCKET_SKIP:
+            headers[key] = _header_value(value)
     return headers
 
 
@@ -401,6 +404,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
     ]
     status = 101
     outcome = "forwarded"
+    upgraded = False
     try:
         async with websockets.connect(
             _websocket_target(full_path, websocket.url.query),
@@ -409,6 +413,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
             max_size=None,
         ) as upstream:
             await websocket.accept(subprotocol=upstream.subprotocol)
+            upgraded = True
 
             async def client_to_upstream():
                 while True:
@@ -437,10 +442,11 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
             await asyncio.gather(*pending, return_exceptions=True)
             for task in done:
                 task.result()
-    except (WebSocketDisconnect, ConnectionClosed):
+    except (WebSocketDisconnect, ConnectionClosedOK):
         pass
     except Exception:
-        status = 502
+        # Once accepted, the handshake remains 101 even if a later frame fails.
+        status = 101 if upgraded else 502
         outcome = "error"
         try:
             await websocket.close(code=1011, reason="upstream websocket unavailable")

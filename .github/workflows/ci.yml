@@ -25,6 +25,12 @@ jobs:
         working-directory: detection
         run: npm test
 
+      - name: Test Defense dashboard presentation
+        run: node --test defense/tests/dashboardPresentation.test.js
+
+      - name: Test gateway target path metadata
+        run: node --test gateway/test-target-meta.mjs
+
       - name: Audit Detection dependencies
         working-directory: detection
         run: npm audit --audit-level=moderate
@@ -140,6 +146,7 @@ jobs:
           curl --fail --silent --show-error -b defense.cookies \
             http://127.0.0.1:8081/__defense/api/snapshot >/dev/null
           test "$(curl --silent --output /dev/null --write-out '%{redirect_url}' http://127.0.0.1:8081/)" = "http://127.0.0.1:8081/juice-shop/"
+          test "$(curl --fail --silent --show-error http://127.0.0.1:8081/__ruby/target)" = '{"publicPath":"/juice-shop/"}'
           curl --fail --silent --show-error http://127.0.0.1:8081/juice-shop/ >/dev/null
           curl --fail --silent --show-error 'http://127.0.0.1:8081/rest/products/search?q=' >/dev/null
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8081/ruby-market/)" = "404"

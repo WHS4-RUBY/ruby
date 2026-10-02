@@ -2,8 +2,9 @@ import unittest
 
 import httpx
 from starlette.requests import Request
+from starlette.websockets import WebSocket
 
-from defense.app.main import build_upstream_headers, proxy_response, streaming_proxy_response
+from defense.app.main import _websocket_headers, build_upstream_headers, proxy_response, streaming_proxy_response
 
 
 class ProxyResponseTests(unittest.TestCase):
@@ -59,16 +60,49 @@ class ProxyResponseTests(unittest.TestCase):
                 "x-forwarded-for": "203.0.113.7",
                 "x-forwarded-proto": "https",
                 "x-defense-plan": "untrusted",
+                "x-client-id": "policy-client",
             }
         )
 
-        headers = build_upstream_headers(request, {"X-Defense-Applied": "delay"})
+        headers = build_upstream_headers(request, {
+            "X-Defense-Applied": "delay", "X-Client-Id": "strategy-override",
+        })
 
         self.assertNotIn("host", headers)
         self.assertNotIn("x-defense-plan", headers)
+        self.assertNotIn("x-client-id", {key.lower() for key in headers})
         self.assertEqual(headers["x-forwarded-for"], "203.0.113.7")
         self.assertEqual(headers["x-forwarded-host"], "ruby.example.com")
         self.assertEqual(headers["x-forwarded-proto"], "https")
+        self.assertEqual(headers["X-Defense-Applied"], "delay")
+
+    def test_websocket_policy_key_stays_internal(self):
+        websocket = WebSocket(
+            {
+                "type": "websocket",
+                "scheme": "ws",
+                "path": "/ws",
+                "query_string": b"",
+                "headers": [
+                    (b"host", b"ruby.example.com"),
+                    (b"x-client-id", b"policy-client"),
+                    (b"x-defense-plan", b"[]"),
+                ],
+                "client": ("172.18.0.2", 12345),
+                "server": ("defense", 8080),
+            },
+            receive=lambda: None,
+            send=lambda message: None,
+        )
+
+        headers = _websocket_headers(websocket, {
+            "X-Defense-Applied": "delay", "X-Client-Id": "strategy-override",
+        })
+
+        self.assertNotIn("x-client-id", {key.lower() for key in headers})
+        self.assertNotIn("x-defense-plan", headers)
+        self.assertEqual(headers["x-forwarded-for"], "172.18.0.2")
+        self.assertEqual(headers["x-forwarded-host"], "ruby.example.com")
         self.assertEqual(headers["X-Defense-Applied"], "delay")
 
     def test_streaming_response_preserves_encoding_and_rewrites_proxy_metadata(self):
