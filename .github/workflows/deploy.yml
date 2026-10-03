@@ -113,22 +113,50 @@ jobs:
 
             export IMAGE_PREFIX IMAGE_TAG
             PREVIOUS_TAG="$(cat .deployed-image-tag 2>/dev/null || true)"
+            DETECTION_COOKIES=""
+            DEFENSE_COOKIES=""
+            GATEWAY_CONFIG_BACKUP="$(mktemp)"
+            GATEWAY_UPDATE_STARTED=false
+            cleanup() {
+              for path in "$DETECTION_COOKIES" "$DEFENSE_COOKIES" "$GATEWAY_CONFIG_BACKUP"; do
+                if [ -n "$path" ]; then rm -f "$path"; fi
+              done
+            }
+            trap cleanup EXIT
+            # The copied template may already differ from the config serving traffic.
+            # Preserve the running config so a failed rollout can restore it.
+            if ! docker compose -f docker-compose.yml exec -T gateway cat /etc/nginx/conf.d/default.conf > "$GATEWAY_CONFIG_BACKUP" 2>/dev/null || [ ! -s "$GATEWAY_CONFIG_BACKUP" ]; then
+              rm -f "$GATEWAY_CONFIG_BACKUP"
+              GATEWAY_CONFIG_BACKUP=""
+            fi
             rollback() {
+              trap - ERR
+              if [ "$GATEWAY_UPDATE_STARTED" != true ]; then return; fi
+              if [ -n "$GATEWAY_CONFIG_BACKUP" ]; then
+                cp "$GATEWAY_CONFIG_BACKUP" gateway/default.conf.template
+              fi
               if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "$IMAGE_TAG" ]; then
                 echo "Deployment failed; rolling back to $PREVIOUS_TAG" >&2
                 export IMAGE_TAG="$PREVIOUS_TAG"
-                docker compose -f docker-compose.yml up -d --wait --wait-timeout 120
               fi
+              if [ -n "$GATEWAY_CONFIG_BACKUP" ]; then
+                docker compose -f docker-compose.yml up -d --no-deps --force-recreate gateway
+              fi
+              docker compose -f docker-compose.yml up -d --wait --wait-timeout 120
             }
             trap rollback ERR
 
             docker compose -f docker-compose.yml pull
+            GATEWAY_UPDATE_STARTED=true
             docker compose -f docker-compose.yml up -d --wait --wait-timeout 120
+            # The gateway renders its bind-mounted template only at startup.
+            # Compose does not recreate it when the mounted file contents change.
+            docker compose -f docker-compose.yml up -d --no-deps --force-recreate --wait --wait-timeout 120 gateway
 
             DETECTION_COOKIES="$(mktemp)"
             DEFENSE_COOKIES="$(mktemp)"
-            trap 'rm -f "$DETECTION_COOKIES" "$DEFENSE_COOKIES"' EXIT
             curl --fail --silent --show-error http://127.0.0.1/healthz >/dev/null
+            test "$(curl --fail --silent --show-error http://127.0.0.1/__ruby/target)" = '{"publicPath":"/juice-shop/"}'
             test "$(curl --silent --output /dev/null --write-out '%{redirect_url}' http://127.0.0.1/)" = "http://127.0.0.1/juice-shop/"
             curl --fail --silent --show-error http://127.0.0.1/juice-shop/ >/dev/null
             curl --fail --silent --show-error 'http://127.0.0.1/rest/products/search?q=' >/dev/null
