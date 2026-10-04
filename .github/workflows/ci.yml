@@ -33,7 +33,10 @@ jobs:
 
       - name: Audit Detection dependencies
         working-directory: detection
-        run: npm audit --audit-level=moderate
+        # TEMP: braces에 패치 버전이 없어서 이 advisory만 예외 처리.
+        # braces 패치가 나오면 npm update braces 후 --allowlist 제거할 것.
+        # https://github.com/advisories/GHSA-vfj7-8cjw-p6xm
+        run: npx --yes audit-ci@^7 --moderate --allowlist GHSA-vfj7-8cjw-p6xm
 
       - name: Build Detection image
         run: docker build -t detection:ci ./detection
