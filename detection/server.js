@@ -468,33 +468,12 @@ function prepareRequestObservation(req) {
 }
 
 // Stored XSS 대조용 저장소: 쓰기 요청에서 관찰한 값을 나중 응답과 대조한다.
-// 기본은 SQLite(파일) 저장 → 재시작해도 후보 텍스트가 보존된다(/app/data 영속 볼륨).
-// node:sqlite 미지원(예: node20) 또는 오류 시 자동으로 인메모리로 폴백(서버는 항상 기동).
-// 환경변수: XSS_STORE=memory 로 인메모리 강제, XSS_DB_PATH 로 DB 경로 지정.
-const xssStoreOpts = {
+const xssCandidateStore = new XssCandidateStore({
   ttlMs: process.env.XSS_CANDIDATE_TTL_MS,
   maxEntries: process.env.XSS_MAX_CANDIDATES,
   maxBytes: process.env.XSS_MAX_CANDIDATE_BYTES,
   maxValueBytes: process.env.XSS_MAX_VALUE_BYTES,
-};
-let xssCandidateStore;
-if (String(process.env.XSS_STORE || "sqlite").toLowerCase() === "memory") {
-  xssCandidateStore = new XssCandidateStore(xssStoreOpts);
-  console.log("[detection] XSS candidate store: in-memory (XSS_STORE=memory)");
-} else {
-  try {
-    const fsMod = require("fs");
-    const pathMod = require("path");
-    const dbPath = process.env.XSS_DB_PATH || pathMod.join(__dirname, "data", "xss-candidates.db");
-    fsMod.mkdirSync(pathMod.dirname(dbPath), { recursive: true });
-    const { XssCandidateStoreSqlite } = require("./lib/xssCandidateStoreSqlite");
-    xssCandidateStore = new XssCandidateStoreSqlite({ ...xssStoreOpts, dbPath });
-    console.log("[detection] XSS candidate store: SQLite(file) -> " + dbPath);
-  } catch (e) {
-    xssCandidateStore = new XssCandidateStore(xssStoreOpts);
-    console.warn("[detection] SQLite 사용 불가 → 인메모리 폴백:", e && e.message);
-  }
-}
+});
 // XSS 반영 검사에 넘길 응답 본문 최대 크기(과대 응답은 body 검사 생략, 헤더 검사만).
 const configuredXssBodyBytes = Number(process.env.XSS_MAX_BODY_BYTES);
 const XSS_MAX_BODY_BYTES = Number.isSafeInteger(configuredXssBodyBytes) && configuredXssBodyBytes > 0
