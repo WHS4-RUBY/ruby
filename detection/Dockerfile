@@ -1,4 +1,4 @@
-FROM node:20-trixie-slim AS scanner-build
+FROM node:22-trixie-slim AS scanner-build
 
 ARG CRS_COMMIT=3b89d5a05322f448b4b74b9cadc5fb05ac6915ad
 ARG CRS_VERSION=4.25.1
@@ -48,7 +48,7 @@ RUN git init -q /opt/owasp-crs \
     && rm -rf /opt/owasp-crs/.git \
     && cp /opt/owasp-crs/crs-setup.conf.example /opt/owasp-crs/crs-setup.conf
 
-FROM node:20-trixie-slim
+FROM node:22-trixie-slim
 
 RUN apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true update \
     && apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true install -y --no-install-recommends \
@@ -67,4 +67,4 @@ COPY . .
 
 EXPOSE 8080
 
-CMD ["node", "server.js"]
+CMD ["node", "--experimental-sqlite", "server.js"]
