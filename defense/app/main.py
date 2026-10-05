@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 import asyncio
+from dataclasses import dataclass, field
 import json
 import os
 import re
@@ -12,13 +13,26 @@ import httpx
 import websockets
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from starlette.responses import Response, StreamingResponse
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosedOK
 
 from .dashboard import router as dashboard_router
+from .dashboard import DASHBOARD_SESSION_COOKIE, auth_manager
 from .monitoring import event_store
+from .strategies.state import StateCapacityError, StrategyStateStore
 from .strategies.registry import STRATEGY_REGISTRY
 
 BENCHMARK_TARGET_URL = os.getenv("BENCHMARK_TARGET_URL", "http://localhost:9000")
+
+
+def _positive_int(name: str, default: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+TRANSFORM_BODY_LIMIT = _positive_int("DEFENSE_TRANSFORM_BODY_LIMIT", 4 * 1024 * 1024)
 
 _HOP_BY_HOP = {
     "connection",
@@ -40,11 +54,23 @@ _RESPONSE_SKIP = {
     "content-length",
     "date",
     "server",
+    "x-defense-signal",
+    "x-defense-applied",
 }
-_DEFENSE_INTERNAL_HEADERS = {"x-defense-plan", "x-defense-management-client"}
+_DEFENSE_INTERNAL_HEADERS = {
+    "x-client-id",
+    "x-defense-plan",
+    "x-defense-management-client",
+    "x-ruby-request-id",
+    "x-ruby-automation-score",
+    "x-ruby-attack-score",
+    "x-ruby-risk-score",
+    "x-ruby-policy-source",
+    "x-defense-signal",
+}
 _FORWARDED_HEADERS = {"forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"}
 _REQUEST_SKIP = _HOP_BY_HOP | {"accept-encoding"} | _DEFENSE_INTERNAL_HEADERS | _FORWARDED_HEADERS
-_STREAM_RESPONSE_SKIP = _HOP_BY_HOP | {"date", "server"}
+_STREAM_RESPONSE_SKIP = _HOP_BY_HOP | {"date", "server", "x-defense-signal", "x-defense-applied"}
 _WEBSOCKET_SKIP = _HOP_BY_HOP | {
     "sec-websocket-accept",
     "sec-websocket-extensions",
@@ -63,6 +89,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="RUBY Defense Proxy", lifespan=lifespan)
 app.include_router(dashboard_router)
+strategy_state = StrategyStateStore()
 
 
 @app.middleware("http")
@@ -76,13 +103,84 @@ async def secure_dashboard_responses(request: Request, call_next):
 
 
 def parse_plan(raw: str | None) -> list[dict]:
-    if not raw:
+    if not raw or len(raw) > 8192:
         return []
     try:
         plan = json.loads(raw)
     except (TypeError, ValueError):
         return []
-    return plan if isinstance(plan, list) else []
+    if not isinstance(plan, list):
+        return []
+    return [
+        step for step in plan[:16]
+        if isinstance(step, dict)
+        and isinstance(step.get("name"), str)
+        and isinstance(step.get("params") or {}, dict)
+    ]
+
+
+def _score_header(headers, name: str) -> float | None:
+    try:
+        value = float(headers.get(name, ""))
+    except ValueError:
+        return None
+    return round(value, 6) if 0 <= value <= 1 else None
+
+
+def _event_metadata(request: Request | WebSocket) -> dict:
+    headers = request.headers
+    return {
+        "client_id": headers.get("x-client-id"),
+        "request_id": headers.get("x-ruby-request-id"),
+        "automation_score": _score_header(headers, "x-ruby-automation-score"),
+        "attack_score": _score_header(headers, "x-ruby-attack-score"),
+        "risk_score": _score_header(headers, "x-ruby-risk-score"),
+        "policy_source": headers.get("x-ruby-policy-source"),
+    }
+
+
+def _client_id(request: Request | WebSocket) -> str:
+    return (request.headers.get("x-client-id") or (
+        request.client.host if request.client else "unknown"
+    ))[:128]
+
+
+@dataclass
+class AppliedPlan:
+    names: list[str] = field(default_factory=list)
+    headers: dict[str, str] = field(default_factory=dict)
+    transforms: list = field(default_factory=list)
+    short_circuit: Response | None = None
+
+
+async def _apply_plan(plan: list[dict], request: Request | WebSocket) -> AppliedPlan:
+    applied = AppliedPlan()
+    for step in plan:
+        name = step["name"]
+        strategy = STRATEGY_REGISTRY.get(name)
+        if strategy is None:
+            continue
+        if strategy.uses_state:
+            try:
+                async with strategy_state.use(name, _client_id(request)) as entry:
+                    result = await strategy.apply(request, step.get("params") or {}, dict(entry.state))
+                    if result.state_update is not None:
+                        if not isinstance(result.state_update, dict):
+                            raise TypeError("strategy state_update must be a dict")
+                        entry.state = dict(result.state_update)
+            except StateCapacityError:
+                applied.short_circuit = Response(status_code=503)
+                return applied
+        else:
+            result = await strategy.apply(request, step.get("params") or {}, {})
+        applied.names.append(name)
+        applied.headers.update(result.extra_headers)
+        if result.response_transform is not None:
+            applied.transforms.append(result.response_transform)
+        if result.short_circuit is not None:
+            applied.short_circuit = result.short_circuit
+            return applied
+    return applied
 
 
 def _header_value(value) -> str:
@@ -108,7 +206,7 @@ def build_upstream_headers(request: Request, extra: dict) -> dict[str, str]:
     )
     headers["x-forwarded-proto"] = request.headers.get("x-forwarded-proto") or request.url.scheme
     for key, value in extra.items():
-        if key.lower() in _HOP_BY_HOP:
+        if key.lower() in _HOP_BY_HOP | _DEFENSE_INTERNAL_HEADERS:
             continue
         headers[key] = _header_value(value)
     return headers
@@ -132,8 +230,13 @@ def _rewrite_response_header(key: str, value: str, request: Request | None) -> s
     return value
 
 
-def proxy_response(upstream: httpx.Response, request: Request | None = None) -> Response:
-    response = Response(content=upstream.content, status_code=upstream.status_code)
+def proxy_response(
+    upstream: httpx.Response, request: Request | None = None, content: bytes | None = None
+) -> Response:
+    response = Response(
+        content=upstream.content if content is None else content,
+        status_code=upstream.status_code,
+    )
     for key, value in upstream.headers.multi_items():
         if key.lower() in _RESPONSE_SKIP:
             continue
@@ -146,16 +249,40 @@ def proxy_response(upstream: httpx.Response, request: Request | None = None) -> 
     return response
 
 
-async def _stream_body(upstream: httpx.Response):
+async def _stream_body(upstream: httpx.Response, on_complete=None):
+    outcome = "forwarded"
     try:
         async for chunk in upstream.aiter_raw():
             yield chunk
+    except BaseException:
+        outcome = "error"
+        raise
     finally:
-        await upstream.aclose()
+        try:
+            await upstream.aclose()
+        except Exception:
+            outcome = "error"
+            raise
+        finally:
+            if on_complete is not None:
+                on_complete(outcome)
 
 
-def streaming_proxy_response(upstream: httpx.Response, request: Request) -> StreamingResponse:
-    response = StreamingResponse(_stream_body(upstream), status_code=upstream.status_code)
+class TransformBodyLimitError(Exception):
+    pass
+
+
+async def _buffer_transform_body(upstream: httpx.Response) -> bytes:
+    body = bytearray()
+    async for chunk in upstream.aiter_bytes():
+        body.extend(chunk)
+        if len(body) > TRANSFORM_BODY_LIMIT:
+            raise TransformBodyLimitError
+    return bytes(body)
+
+
+def streaming_proxy_response(upstream: httpx.Response, request: Request, on_complete=None) -> StreamingResponse:
+    response = StreamingResponse(_stream_body(upstream, on_complete), status_code=upstream.status_code)
     for key, value in upstream.headers.multi_items():
         if key.lower() in _STREAM_RESPONSE_SKIP:
             continue
@@ -191,7 +318,9 @@ def _websocket_headers(websocket: WebSocket, extra: dict[str, str]) -> dict[str,
     headers["x-forwarded-proto"] = websocket.headers.get("x-forwarded-proto") or (
         "https" if websocket.url.scheme == "wss" else "http"
     )
-    headers.update(extra)
+    for key, value in extra.items():
+        if key.lower() not in _WEBSOCKET_SKIP:
+            headers[key] = _header_value(value)
     return headers
 
 
@@ -200,26 +329,74 @@ async def healthz():
     return {"status": "ok", "service": "defense"}
 
 
+@app.get("/readyz")
+async def readyz():
+    """Report ready only while the configured target accepts TCP connections."""
+    target = urlsplit(BENCHMARK_TARGET_URL)
+    if target.scheme not in {"http", "https"} or not target.hostname:
+        return Response(status_code=503)
+    try:
+        port = target.port or (443 if target.scheme == "https" else 80)
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(target.hostname, port), timeout=1.0
+        )
+        writer.close()
+        await writer.wait_closed()
+    except (OSError, ValueError, asyncio.TimeoutError):
+        return Response(status_code=503)
+    return {"status": "ready", "service": "defense"}
+
+
 @app.websocket("/{full_path:path}")
 async def websocket_proxy(websocket: WebSocket, full_path: str):
+    # The management namespace has HTTP routes only. Never tunnel its upgrades
+    # to a target, even when a valid dashboard session exists.
+    if full_path == "__defense" or full_path.startswith("__defense/"):
+        reason = (
+            "management websocket unsupported"
+            if auth_manager.is_authenticated(websocket.cookies.get(DASHBOARD_SESSION_COOKIE))
+            else "dashboard authentication required"
+        )
+        await websocket.close(code=1008, reason=reason)
+        return
+
     started_at = time.perf_counter()
     plan = parse_plan(websocket.headers.get("x-defense-plan"))
-    applied_names: list[str] = []
-    extra_headers: dict[str, str] = {}
+    try:
+        applied = await _apply_plan(plan, websocket)
+    except Exception:
+        event_store.record(
+            method="WEBSOCKET",
+            path=websocket.url.path,
+            status=500,
+            strategies=[],
+            outcome="error",
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            **_event_metadata(websocket),
+        )
+        await websocket.close(code=1011, reason="defense strategy failed")
+        return
+    if applied.short_circuit is not None or applied.transforms:
+        capacity_error = applied.short_circuit is not None and applied.short_circuit.status_code == 503
+        outcome = "error" if capacity_error or applied.transforms else "blocked"
+        event_store.record(
+            method="WEBSOCKET",
+            path=websocket.url.path,
+            status=503 if capacity_error else 403,
+            strategies=applied.names,
+            outcome=outcome,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            signal=applied.short_circuit.headers.get("x-defense-signal") if applied.short_circuit else None,
+            **_event_metadata(websocket),
+        )
+        await websocket.close(
+            code=1013 if capacity_error else 1008,
+            reason="strategy unavailable" if capacity_error or applied.transforms else "request blocked by defense policy",
+        )
+        return
 
-    for step in plan:
-        name = step.get("name")
-        strategy_impl = STRATEGY_REGISTRY.get(name)
-        if strategy_impl is None:
-            continue
-        result = await strategy_impl.apply(websocket, step.get("params") or {})
-        applied_names.append(name)
-        extra_headers.update(result.extra_headers)
-        if result.short_circuit is not None:
-            await websocket.close(code=1008, reason="request blocked by defense policy")
-            return
-
-    extra_headers["X-Defense-Applied"] = ",".join(applied_names) or "none"
+    extra_headers = applied.headers
+    extra_headers["X-Defense-Applied"] = ",".join(applied.names) or "none"
     requested_protocols = [
         protocol.strip()
         for protocol in websocket.headers.get("sec-websocket-protocol", "").split(",")
@@ -227,6 +404,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
     ]
     status = 101
     outcome = "forwarded"
+    upgraded = False
     try:
         async with websockets.connect(
             _websocket_target(full_path, websocket.url.query),
@@ -235,6 +413,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
             max_size=None,
         ) as upstream:
             await websocket.accept(subprotocol=upstream.subprotocol)
+            upgraded = True
 
             async def client_to_upstream():
                 while True:
@@ -263,10 +442,11 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
             await asyncio.gather(*pending, return_exceptions=True)
             for task in done:
                 task.result()
-    except (WebSocketDisconnect, ConnectionClosed):
+    except (WebSocketDisconnect, ConnectionClosedOK):
         pass
     except Exception:
-        status = 502
+        # Once accepted, the handshake remains 101 even if a later frame fails.
+        status = 101 if upgraded else 502
         outcome = "error"
         try:
             await websocket.close(code=1011, reason="upstream websocket unavailable")
@@ -277,10 +457,10 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
             method="WEBSOCKET",
             path=websocket.url.path,
             status=status,
-            strategies=applied_names,
+            strategies=applied.names,
             outcome=outcome,
             duration_ms=(time.perf_counter() - started_at) * 1000,
-            client_id=websocket.headers.get("x-client-id"),
+            **_event_metadata(websocket),
         )
 
 
@@ -291,36 +471,42 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
 async def catch_all(request: Request, full_path: str):
     started_at = time.perf_counter()
     plan = parse_plan(request.headers.get("x-defense-plan"))
-    applied_names: list[str] = []
-    extra_headers: dict[str, str] = {}
+    metadata = _event_metadata(request)
 
-    for step in plan:
-        name = step.get("name")
-        strategy_impl = STRATEGY_REGISTRY.get(name)
-        if strategy_impl is None:
-            continue
+    def record(status: int, outcome: str, names: list[str], signal: str | None = None) -> None:
+        event_store.record(
+            method=request.method,
+            path=request.url.path,
+            status=status,
+            strategies=names,
+            outcome=outcome,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            signal=signal,
+            **metadata,
+        )
 
-        result = await strategy_impl.apply(request, step.get("params") or {})
-        applied_names.append(name)
-        extra_headers.update(result.extra_headers)
+    try:
+        applied = await _apply_plan(plan, request)
+    except Exception:
+        record(500, "error", [])
+        return Response(status_code=500)
 
-        if result.short_circuit is not None:
-            for key, value in extra_headers.items():
-                result.short_circuit.headers[key] = value
-            result.short_circuit.headers["X-Defense-Applied"] = ",".join(applied_names)
-            event_store.record(
-                method=request.method,
-                path=request.url.path,
-                status=result.short_circuit.status_code,
-                strategies=applied_names,
-                outcome="blocked",
-                duration_ms=(time.perf_counter() - started_at) * 1000,
-                client_id=request.headers.get("x-client-id"),
-            )
-            return result.short_circuit
+    applied_header = ",".join(applied.names) or "none"
+    if applied.short_circuit is not None:
+        response = applied.short_circuit
+        for key, value in applied.headers.items():
+            response.headers[key] = value
+        response.headers["X-Defense-Applied"] = applied_header
+        record(
+            response.status_code,
+            "error" if response.status_code == 503 else "blocked",
+            applied.names,
+            response.headers.get("x-defense-signal"),
+        )
+        return response
 
-    extra_headers["X-Defense-Applied"] = ",".join(applied_names) or "none"
-    headers = build_upstream_headers(request, extra_headers)
+    applied.headers["X-Defense-Applied"] = applied_header
+    headers = build_upstream_headers(request, applied.headers)
 
     try:
         upstream_request = request.app.state.http_client.build_request(
@@ -331,25 +517,39 @@ async def catch_all(request: Request, full_path: str):
             params=list(request.query_params.multi_items()),
         )
         upstream = await request.app.state.http_client.send(upstream_request, stream=True)
-    except httpx.RequestError as exc:
-        event_store.record(
-            method=request.method,
-            path=request.url.path,
-            status=502,
-            strategies=applied_names,
-            outcome="error",
-            duration_ms=(time.perf_counter() - started_at) * 1000,
-            client_id=request.headers.get("x-client-id"),
-        )
-        return Response(content=str(exc).encode(), status_code=502)
+    except httpx.RequestError:
+        record(502, "error", applied.names)
+        return Response(status_code=502)
 
-    event_store.record(
-        method=request.method,
-        path=request.url.path,
-        status=upstream.status_code,
-        strategies=applied_names,
-        outcome="forwarded",
-        duration_ms=(time.perf_counter() - started_at) * 1000,
-        client_id=request.headers.get("x-client-id"),
+    if applied.transforms:
+        # Body transforms require a complete response before headers are sent.
+        try:
+            body = await _buffer_transform_body(upstream)
+            response = proxy_response(upstream, request, body)
+            for transform in applied.transforms:
+                response = transform(response)
+                if not isinstance(response, Response):
+                    raise TypeError("response_transform must return a Response")
+                if not isinstance(getattr(response, "body", None), bytes):
+                    raise TypeError("response_transform must return a buffered Response")
+                if len(response.body) > TRANSFORM_BODY_LIMIT:
+                    raise TransformBodyLimitError
+            response.headers["X-Defense-Applied"] = applied_header
+            record(response.status_code, "forwarded", applied.names)
+            return response
+        except (httpx.RequestError, TransformBodyLimitError):
+            record(502, "error", applied.names)
+            return Response(status_code=502)
+        except Exception:
+            record(500, "error", applied.names)
+            return Response(status_code=500)
+        finally:
+            await upstream.aclose()
+
+    response = streaming_proxy_response(
+        upstream,
+        request,
+        on_complete=lambda outcome: record(upstream.status_code, outcome, applied.names),
     )
-    return streaming_proxy_response(upstream, request)
+    response.headers["X-Defense-Applied"] = applied_header
+    return response

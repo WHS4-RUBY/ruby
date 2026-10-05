@@ -26,21 +26,30 @@ function loadPolicyRules(configPath = process.env.POLICY_CONFIG_PATH || DEFAULT_
     if (!Array.isArray(rule.strategies)) {
       throw new Error(`policy rule ${index} must contain a strategies array`);
     }
-    return { minScore, maxScore, strategies: rule.strategies };
+    const minConfirmedAttackScore = rule.min_confirmed_attack_score === undefined
+      ? 0 : Number(rule.min_confirmed_attack_score);
+    if (!Number.isFinite(minConfirmedAttackScore) || minConfirmedAttackScore < 0 || minConfirmedAttackScore > 1) {
+      throw new Error(`policy rule ${index} has an invalid confirmed attack threshold`);
+    }
+    return { minScore, maxScore, minConfirmedAttackScore, strategies: rule.strategies };
   });
 }
 
-function selectStrategies(riskScore, rules) {
+function selectStrategies(riskScore, rules, { confirmedAttackScore = 0 } = {}) {
   const score = clampScore(riskScore);
-  const rule = rules.find(({ minScore, maxScore }) => minScore <= score && score < maxScore);
+  const confirmed = clampScore(confirmedAttackScore);
+  const rule = rules.find(({ minScore, maxScore, minConfirmedAttackScore = 0 }) =>
+    minScore <= score && score < maxScore && confirmed >= minConfirmedAttackScore);
   return rule ? rule.strategies : [];
 }
 
-function applyDefensePlan(proxyReq, { riskScore, rules }) {
+function applyDefensePlan(proxyReq, { riskScore, confirmedAttackScore = 0, rules }) {
   proxyReq.removeHeader("x-defense-plan");
-  proxyReq.setHeader("X-Defense-Plan", JSON.stringify(selectStrategies(riskScore, rules)));
+  const plan = selectStrategies(riskScore, rules, { confirmedAttackScore });
+  proxyReq.setHeader("X-Defense-Plan", JSON.stringify(plan));
   // The response interceptor operates on uncompressed response bodies.
   proxyReq.setHeader("Accept-Encoding", "identity");
+  return plan;
 }
 
 module.exports = {
