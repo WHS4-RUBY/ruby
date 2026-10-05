@@ -58,7 +58,9 @@ function createProxyCore({ target, hooks = [], changeOrigin = true }) {
   return createProxyMiddleware({
     target,
     changeOrigin,
-    ws: true,
+    // server.js owns the single explicit upgrade listener. HPM's ws:true would
+    // attach a second listener after the first HTTP request.
+    ws: false,
     selfHandleResponse: true,
     onProxyReq(proxyReq, req, res) {
       applyForwardedHeaders(proxyReq, req);

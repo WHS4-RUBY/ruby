@@ -50,9 +50,10 @@ function normalizeEmail(value) {
  * @param {object|string|null} req.body
  * @returns {string|null} 소문자로 정규화된 email, 재설정 라우트가 아니거나 email 필드가 없으면 null
  */
-function extractResetPasswordEmail({ method, normalizedPath, body }) {
+function extractResetPasswordEmail({ method, normalizedPath, body, route = RESET_PASSWORD_ROUTE }) {
+  if (!route) return null;
   const upperMethod = String(method || '').toUpperCase();
-  if (upperMethod !== RESET_PASSWORD_ROUTE.method || normalizedPath !== RESET_PASSWORD_ROUTE.normalizedPath) {
+  if (upperMethod !== route.method || normalizedPath !== (route.normalizedPath || route.path)) {
     return null;
   }
 
@@ -62,7 +63,7 @@ function extractResetPasswordEmail({ method, normalizedPath, body }) {
   }
   if (!bodyObj || typeof bodyObj !== 'object') return null;
 
-  return normalizeEmail(bodyObj.email);
+  return normalizeEmail(bodyObj[route.accountField || 'email']);
 }
 
 /**
@@ -75,15 +76,16 @@ function extractResetPasswordEmail({ method, normalizedPath, body }) {
  * @param {string} req.url
  * @returns {string|null}
  */
-function extractSecurityQuestionEmail({ method, normalizedPath, url }) {
+function extractSecurityQuestionEmail({ method, normalizedPath, url, route = SECURITY_QUESTION_ROUTE }) {
+  if (!route) return null;
   const upperMethod = String(method || '').toUpperCase();
-  if (upperMethod !== SECURITY_QUESTION_ROUTE.method || normalizedPath !== SECURITY_QUESTION_ROUTE.normalizedPath) {
+  if (upperMethod !== route.method || normalizedPath !== (route.normalizedPath || route.path)) {
     return null;
   }
 
   try {
     const parsed = new URL(url || '', 'http://detection.local');
-    return normalizeEmail(parsed.searchParams.get('email'));
+    return normalizeEmail(parsed.searchParams.get(route.accountField || 'email'));
   } catch {
     return null;
   }

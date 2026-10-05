@@ -84,6 +84,7 @@ class ActorResolver {
       fingerprints: new Map(),
       recentOperations: [],
       totalRequests: 0,
+      maxAttackScore: 0,
       ipChangeCount: 0,
       lastObservedIp: null,
     };
@@ -445,7 +446,6 @@ class ActorResolver {
     this.cleanup(now);
     let primaryMembership = this.memberships.get(this.sessionPrimaryMembership.get(sessionId));
     let actor = primaryMembership ? this.actors.get(primaryMembership.resolvedActorId) : null;
-    let clientConflict = false;
 
     if (!actor || !primaryMembership?.active) {
       const hasClient = hasClientIdentity(clientIdentity);
@@ -480,29 +480,31 @@ class ActorResolver {
       primaryMembership.clientId &&
       primaryMembership.clientId !== clientIdentity.clientId
     ) {
-      clientConflict = true;
       const code = "signed_dcid_changed_within_session";
       this.recordConflict(actor, code, now, clientIdentity.clientId);
       addBoundedUnique(primaryMembership.conflicts, code, this.maxHistory);
       const conflictingActor = this.findOrCreateClientActor(clientIdentity.clientId, now);
-      this.createMembership({
+      this.recordConflict(conflictingActor, code, now, primaryMembership.clientId);
+      primaryMembership = this.createMembership({
         actor: conflictingActor,
         sessionId,
         candidateId,
-        status: MEMBERSHIP_STATUS.CONFLICT,
-        confidence: CONFIDENCE.NONE,
-        reasonCodes: [],
+        status: MEMBERSHIP_STATUS.CONFIRMED,
+        confidence: CONFIDENCE.HIGH,
+        reasonCodes: ["valid_signed_dcid", "session_cookie_reused_with_different_dcid"],
         conflicts: [code],
         clientId: clientIdentity.clientId,
         now,
       });
+      this.sessionPrimaryMembership.set(sessionId, primaryMembership.membershipId);
+      actor = conflictingActor;
     }
 
     const observation = {
       sessionId,
       candidateId,
       ip,
-      clientIdentity: clientConflict ? null : clientIdentity,
+      clientIdentity,
       authGroupId,
       accountIdentity,
       fingerprint,
@@ -534,6 +536,16 @@ class ActorResolver {
 
   getActor(id) {
     return this.actors.get(id);
+  }
+
+  getActorByClientId(clientId) {
+    const actorId = this.clientIndex.get(clientId);
+    return actorId ? this.actors.get(actorId) || null : null;
+  }
+
+  updateAttackScore(actorId, score) {
+    const actor = this.actors.get(actorId);
+    if (actor && Number.isFinite(score)) actor.maxAttackScore = Math.max(actor.maxAttackScore, score);
   }
 
   getAllActors() {

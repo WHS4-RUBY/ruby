@@ -1248,7 +1248,7 @@ function renderTimeline(detail, sessionNodes) {
     if (state.timelineSession !== 'all' && request.sessionId !== state.timelineSession) return false;
     if (state.timelineFlaggedOnly && !isFlaggedRequest(request)) return false;
     if (!query) return true;
-    return [request.url, request.method, request.operation, request.status, request.sessionId]
+    return [request.url, request.method, request.operation, request.status, request.sessionId, request.requestId]
       .some(value => String(value ?? '').toLowerCase().includes(query));
   });
 
@@ -1305,6 +1305,7 @@ function renderTimeline(detail, sessionNodes) {
           ${backgroundTag}${tags}${honeyTags}
         </div>
         <div class="url">${escapeHtml(request.url)}</div>
+        ${renderPolicyTrace(request)}
         ${metaParts.length ? `<div class="meta">${metaParts.join(' · ')}</div>` : ''}
         ${request.body ? `<div class="meta">본문: ${escapeHtml(typeof request.body === 'string' ? request.body : JSON.stringify(request.body))}</div>` : ''}
         ${request.experimentRunId ? `<div class="meta">실험 실행 ID: ${escapeHtml(request.experimentRunId)}</div>` : ''}
@@ -1608,6 +1609,20 @@ function renderHoneyBreakdown(honeyBreakdown) {
   </div>`;
 }
 
+function renderPolicyTrace(request) {
+  const policy = request.policyDecision;
+  const post = request.detectionResult;
+  if (!request.requestId && !policy && !post) return '';
+  return `<div class="meta">요청 ID <code>${escapeHtml(request.requestId || '—')}</code>
+    ${policy ? ` · 전달 전 점수: 자동화 ${scoreNumber(policy.automationScore)}, 공격 ${scoreNumber(policy.attackScore)}, 위험 ${scoreNumber(policy.riskScore)}
+      · 확정 공격 근거 ${scoreNumber(policy.confirmedAttackScore)} · 출처 ${escapeHtml(policy.source || '—')}
+      · 전략 ${escapeHtml((policy.strategies || []).join(', ') || '없음')}` : ''}
+    ${post ? ` · 응답 후 본 클라이언트 점수: 자동화 ${scoreNumber(post.automationScore)}, 공격 ${scoreNumber(post.effectiveAttackScore)}
+      · 출처 ${escapeHtml(post.source || '—')}` : ''}
+    ${request.defenseSignal ? ` · 방어 신호 ${escapeHtml(request.defenseSignal)}` : ''}
+  </div>`;
+}
+
 function renderRequests(requests) {
   return (requests || []).map((r,index) => `<div class="path-item">
     <div class="meta">#${index+1} · ${new Date(r.ts).toLocaleTimeString()} · ${escapeHtml(r.method)}
@@ -1619,6 +1634,7 @@ function renderRequests(requests) {
     </div>
     <div class="operation">${escapeHtml(r.operation || '')}</div>
     <div class="url">${escapeHtml(r.url)}</div>
+    ${renderPolicyTrace(r)}
     ${r.attackDetection?.available ? `<div class="meta">OWASP CRS ${escapeHtml(r.attackDetection.crsVersion || '')} · 이상 점수 ${Number(r.attackDetection.anomalyScore || 0)} · 규칙 ${escapeHtml((r.attackDetection.hits || []).map(hit => hit.ruleId).join(', ') || '—')}</div>` : '<div class="meta">OWASP CRS · 미관찰 (legacy fallback)</div>'}
     ${renderHttpMetadata(r)}
     ${r.body ? `<div class="body">본문: ${escapeHtml(typeof r.body === 'string' ? r.body : JSON.stringify(r.body))}</div>` : ''}
@@ -1671,7 +1687,9 @@ async function openDetail(kind, id) {
   const scoreHtml = observationOnly ? '<p class="notice">IP 관찰(IP Observation)은 관찰 전용이며 점수(Score) 및 차단 기준에 사용하지 않습니다.</p>' : `
     <div class="score-grid">
       ${metricPanel(`자동화 점수 (Automation Score) · ${scoreNumber(data.automationScore)}`, data.automationBreakdown)}
-      ${metricPanel(`공격 점수 (Attack Score) · ${scoreNumber(data.attackScore)}`, data.attackBreakdown)}
+      ${metricPanel(`공격 점수 (Attack Score) · ${scoreNumber(data.attackScore)}`, {
+        ...(data.attackBreakdown || {}), repeatedEvidenceBonus: data.attackEvidenceBonus || 0
+      })}
     </div>`;
   const features = data.features || {};
   const sequence = features.behavior?.recentSequence || [];
