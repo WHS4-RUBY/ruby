@@ -65,7 +65,6 @@ const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
 const { applyDefensePlan, loadPolicyRules } = require("./lib/policyEngine");
 const { createProxyCore } = require("./lib/proxyCore");
-const { loadTargetProfile, matchProfileTrap, injectProfileBait, profileTrapEvent } = require("./lib/targetProfile");
 const {
   DashboardAuthManager,
   installDashboardRoutes,
@@ -77,7 +76,6 @@ const {
 
 const PORT = process.env.PORT || 8080;
 const TARGET = process.env.TARGET_URL || "http://localhost:3000";
-const targetProfile = loadTargetProfile();
 // 2026-09-01 추가: HTML(index.html) 하나만 보는 정찰 대신, 자주 조회되는
 // 정적 텍스트 응답에도 기만 신호를 심는다 — deceptionEngine.injectSignalsPlaintext 참고.
 const PLAINTEXT_BAIT_PATHS = new Set([
@@ -127,7 +125,7 @@ const CSRF_ALLOWED_ORIGINS = buildAllowedOrigins(
 const SESSION_COOKIE = "dlsid";
 const DCID_COOKIE = "dcid";
 const crsScanner = new CrsScanner();
-const deceptionEngine = new DeceptionEngine({ enabled: !targetProfile && process.env.DECEPTION_ENABLED !== "false" });
+const deceptionEngine = new DeceptionEngine({ enabled: process.env.DECEPTION_ENABLED !== "false" });
 const dcidManager = new DcidManager();
 const accountIdentityResolver = new AccountIdentityResolver();
 const policyRules = loadPolicyRules();
@@ -322,13 +320,6 @@ function buildPriorPolicyDecision(req) {
 
 function computeBusinessLogicTags(req) {
   const normalizedPath = normalizePath(req.originalUrl);
-  if (targetProfile) {
-    return checkRoleGatedAccess({
-      method: req.method, normalizedPath,
-      authorizationHeader: req.headers.authorization,
-      cookieHeader: req.headers.cookie,
-    }, { routes: targetProfile.permissions, allowLearned: false }).map((hit) => hit.tag);
-  }
   const businessLogicHits = analyzeBusinessLogic({
     method: req.method,
     normalizedPath,
@@ -378,7 +369,6 @@ function computeCsrfTags(req) {
 }
 
 function observeSchemaLearning(req, statusCode, normalizedPath) {
-  if (targetProfile) return;
   let bodyObj = req.body;
   if (typeof bodyObj === "string") {
     try {
@@ -451,19 +441,16 @@ function prepareRequestObservation(req) {
     method: req.method,
     normalizedPath,
     body: req.body,
-    route: targetProfile ? targetProfile.routes.login || null : undefined,
   });
   req.resetPasswordEmail = extractResetPasswordEmail({
     method: req.method,
     normalizedPath,
     body: req.body,
-    route: targetProfile ? targetProfile.routes.passwordReset || null : undefined,
   });
   req.securityQuestionEmail = extractSecurityQuestionEmail({
     method: req.method,
     normalizedPath,
     url: req.originalUrl,
-    route: targetProfile ? targetProfile.routes.securityQuestion || null : undefined,
   });
 }
 
@@ -602,7 +589,6 @@ function recordCompletedRequest(req, {
     xssTags: req.xssTags,
     xssMaxRisk: Number.isFinite(req.xssMaxRisk) ? req.xssMaxRisk : 0,
     loginAttemptEmail: req.loginAttemptEmail,
-    loginFailureStatuses: targetProfile?.routes.login?.failureStatuses || [401],
     resetPasswordEmail: req.resetPasswordEmail,
     securityQuestionEmail: req.securityQuestionEmail,
     authGroupId: req.authGroupId,
@@ -762,13 +748,7 @@ installDashboardRoutes({
 // 팀원 Python 프록시의 미끼 라우트를 현재 Express 프록시 안에서 직접 처리한다.
 // 이 요청도 일반 요청과 동일하게 CRS, Session, Actor, Auth Group과 타임라인에 기록한다.
 app.use((req, res, next) => {
-  const configuredTrap = targetProfile && matchProfileTrap(targetProfile, req.method, req.path);
-  const trap = configuredTrap ? {
-    status: configuredTrap.status,
-    contentType: configuredTrap.contentType,
-    body: configuredTrap.body,
-    events: [profileTrapEvent(req.detectionSessionId)],
-  } : deceptionEngine.matchTrap({
+  const trap = deceptionEngine.matchTrap({
     sessionId: req.detectionSessionId,
     method: req.method,
     url: req.originalUrl,
@@ -1353,10 +1333,10 @@ const detectionHook = {
     // HTML 응답이면 telemetry.js 를 </body> 직전에 주입
     const contentType = proxyRes.headers["content-type"] || "";
     if (contentType.includes("text/html")) {
-      const htmlWithDeception = injectProfileBait(targetProfile, deceptionEngine.injectSignals(
+      const htmlWithDeception = deceptionEngine.injectSignals(
         responseBuffer.toString("utf8"),
         session.id
-      ), req.path, contentType);
+      );
       const injected = htmlWithDeception.includes("</body>")
         ? htmlWithDeception.replace(
             "</body>",
@@ -1367,10 +1347,6 @@ const detectionHook = {
     }
 
     const normalizedPath = normalizePath(req.originalUrl);
-    if (targetProfile) {
-      const plain = injectProfileBait(targetProfile, responseBuffer.toString("utf8"), req.path, contentType);
-      return plain === responseBuffer.toString("utf8") ? responseBuffer : plain;
-    }
     if (
       String(req.method).toUpperCase() === "GET" &&
       (normalizedPath === PRODUCTS_LIST_PATH || normalizedPath === PRODUCTS_ITEM_PATH) &&

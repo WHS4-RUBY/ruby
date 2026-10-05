@@ -325,13 +325,13 @@
   <main class="page">
     <section class="start-panel" aria-label="처음 보는 분을 위한 안내">
       <div class="start-top">
-        <div class="start-target"><strong>선택된 공개 경로</strong><a id="publicTargetLink" href="/" hidden></a><span id="publicTargetFallback">확인 중…</span><span class="start-status" id="detectionDataStatus" role="status" aria-live="polite">탐지 기록 연결 확인 중</span></div>
+        <div class="start-target"><span class="start-status" id="detectionDataStatus" role="status" aria-live="polite">탐지 기록 연결 확인 중</span></div>
         <div class="start-links"><a href="/__defense/dashboard">방어 결과 보기 →</a></div>
       </div>
       <details class="start-help" id="startHelp" open>
         <summary>처음 보는 분: 요청과 방어 결과 확인 방법</summary>
         <ol>
-          <li><strong>공개 경로에서 사이트 열기</strong> · 실제 요청을 한 번 보냅니다.</li>
+          <li><strong>사이트 열기</strong> · 실제 요청을 한 번 보냅니다.</li>
           <li><strong>흐름 선택하기</strong> · 점수와 연결 근거, 요청 ID를 확인합니다.</li>
           <li><strong>방어 결과 대조하기</strong> · 방어 화면에서 같은 요청 ID의 전략과 결과를 봅니다.</li>
         </ol>
@@ -1101,7 +1101,7 @@ function renderUserList() {
     </button>`;
   }).join('') || (state.users.length
     ? '<p class="empty" style="padding:20px 16px;">검색·필터와 일치하는 흐름이 없습니다. 조건을 바꿔 보세요.</p>'
-    : '<p class="empty" style="padding:20px 16px;">아직 관찰된 흐름이 없습니다. 위의 공개 경로에서 사이트를 열고 요청을 보낸 뒤 확인하세요.</p>');
+    : '<p class="empty" style="padding:20px 16px;">아직 관찰된 흐름이 없습니다. 사이트를 열고 요청을 보낸 뒤 확인하세요.</p>');
 
   list.querySelectorAll('.user-card').forEach(card => {
     card.addEventListener('click', () => {
@@ -1727,27 +1727,6 @@ async function monitoredRefresh() {
   } catch (_) {
     status.textContent = '탐지 기록을 불러오지 못했습니다';
     status.classList.add('error');
-  } finally {
-    await loadPublicTarget();
-  }
-}
-
-async function loadPublicTarget() {
-  const link = document.getElementById('publicTargetLink');
-  const fallback = document.getElementById('publicTargetFallback');
-  try {
-    const response = await nativeFetch('/__ruby/target', { cache:'no-store' });
-    if (!response.ok) throw new Error('target metadata unavailable');
-    const { publicPath } = await response.json();
-    if (!/^\/[a-z][a-z0-9-]{0,39}\/$/.test(publicPath)) throw new Error('invalid public path');
-    link.href = publicPath;
-    link.textContent = publicPath;
-    link.hidden = false;
-    fallback.hidden = true;
-  } catch (_) {
-    link.hidden = true;
-    fallback.textContent = '경로 확인 불가';
-    fallback.hidden = false;
   }
 }
 
@@ -2046,7 +2025,6 @@ startHelp.addEventListener('toggle', () => {
 
 initializeTheme();
 setTab('users');
-loadPublicTarget();
 nativeFetch('/__detection/api/auth/status')
   .then(response => response.json())
   .then(status => {

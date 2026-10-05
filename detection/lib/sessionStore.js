@@ -335,7 +335,6 @@ function recordRequest(
     xssTags,
     xssMaxRisk,
     loginAttemptEmail,
-    loginFailureStatuses,
     resetPasswordEmail,
     securityQuestionEmail,
     authGroupId,
@@ -460,8 +459,7 @@ function recordRequest(
     xssTags: xssTags || [],
     xssMaxRisk: Number.isFinite(xssMaxRisk) ? xssMaxRisk : 0,
     loginAttemptEmail: loginAttemptEmail || null,
-    loginFailed: Boolean(loginAttemptEmail) &&
-      (Array.isArray(loginFailureStatuses) ? loginFailureStatuses : [401]).includes(status),
+    loginFailed: Boolean(loginAttemptEmail) && status === 401,
     resetPasswordEmail: resetPasswordEmail || null,
     securityQuestionEmail: securityQuestionEmail || null,
     tags: tags || [],

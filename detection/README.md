@@ -111,20 +111,6 @@ DCID가 있는 HTTP 요청의 정책 점수는 그 DCID에 속한 완료 요청�
 `X-Risk-Score`, `X-Client-Id`, `X-Classification`, `X-Defense-Plan`,
 `X-Ruby-*`, `X-Defense-Signal`은 클라이언트가 보내더라도 Detection에서 제거합니다.
 
-## 새 대상 연결
-
-`TARGET_PROFILE_FILE`을 지정하면 대상별 경로·권한 관측 규칙·미끼 경로를 JSON 파일로
-읽습니다. 파일이 없거나 스키마가 잘못되면 시작에 실패합니다. 지정하지 않으면 기존
-Juice Shop 규칙이 그대로 동작합니다. 프로필을 지정하면 Juice Shop 전용 비즈니스 로직,
-가격, 스키마 학습, 미끼 규칙은 비활성화되고, 명시한 로그인/비밀번호 재설정/보안질문,
-권한 관측, 미끼 규칙과 범용 CRS·페이로드·XSS 검사를 사용합니다.
-
-프로필 형식과 Juice Shop·RUBY Market·제3 사이트 예시는 저장소의
-`target-profiles/`와 대상 전환 운영 문서에 있습니다. `permissions`는 JWT role
-클레임을 서명 검증 없이 읽는 관측 신호입니다. 실제 접근 권한은 원본 서비스에서
-검증해야 하며 opaque 세션을 쓰는 사이트는 이 목록을 비워 두는 편이 안전합니다.
-미끼 경로는 대상의 실제 경로와 겹치지 않게 선택해야 합니다.
-
 ## 실행 및 확인
 
 저장소 루트에서 전체 파이프라인을 실행합니다.
@@ -157,7 +143,6 @@ npm test
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `TARGET_URL` | `http://localhost:3000` | upstream 주소. RUBY에서는 Defense 주소 |
-| `TARGET_PROFILE_FILE` | 없음 | 대상별 경로·권한 관측·미끼 JSON 파일. 지정 시 Juice Shop 전용 규칙 비활성화 |
 | `PORT` | `8080` | Detection 내부 포트 |
 | `POLICY_CONFIG_PATH` | `config/policy.json` | 위험도 구간별 방어 전략 정의 |
 | `DETECTION_LEVEL` | `medium` | `low` 0.3, `medium` 0.5, `high` 0.7 |

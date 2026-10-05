@@ -37,10 +37,9 @@ const LOGIN_ROUTE = Object.freeze({ method: 'POST', normalizedPath: '/rest/user/
  * @param {object|string|null} req.body
  * @returns {string|null} 소문자로 정규화된 email, 로그인 라우트가 아니거나 email 필드가 없으면 null
  */
-function extractLoginAttemptEmail({ method, normalizedPath, body, route = LOGIN_ROUTE }) {
-  if (!route) return null;
+function extractLoginAttemptEmail({ method, normalizedPath, body }) {
   const upperMethod = String(method || '').toUpperCase();
-  if (upperMethod !== route.method || normalizedPath !== (route.normalizedPath || route.path)) {
+  if (upperMethod !== LOGIN_ROUTE.method || normalizedPath !== LOGIN_ROUTE.normalizedPath) {
     return null;
   }
 
@@ -50,7 +49,7 @@ function extractLoginAttemptEmail({ method, normalizedPath, body, route = LOGIN_
   }
   if (!bodyObj || typeof bodyObj !== 'object') return null;
 
-  const email = bodyObj[route.accountField || 'email'];
+  const email = bodyObj.email;
   if (typeof email !== 'string' || !email.trim()) return null;
 
   return email.trim().toLowerCase();

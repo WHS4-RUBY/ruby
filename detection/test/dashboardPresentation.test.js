@@ -36,7 +36,7 @@ function loadPresentation(fetchImpl = async () => ({ status: 200 })) {
   });
   context.fetch = (...args) => context.window.fetch(...args);
   vm.runInContext(
-    `${script.slice(0, bootstrapAt)}\nglobalThis.presentation = { state, scoreNumber, detectionFor, loadPublicTarget, buildUserRows, filterAndSortUsers, renderEvidenceOverview, renderUserList, renderUserDetail, selectUser, loadUserDetail, buildSessionNodes, renderRelation, renderConnectionDetails, renderTimeline };`,
+    `${script.slice(0, bootstrapAt)}\nglobalThis.presentation = { state, scoreNumber, detectionFor, buildUserRows, filterAndSortUsers, renderEvidenceOverview, renderUserList, renderUserDetail, selectUser, loadUserDetail, buildSessionNodes, renderRelation, renderConnectionDetails, renderTimeline };`,
     context,
     { filename: dashboardPath }
   );
@@ -380,20 +380,6 @@ test("부분 응답 오류와 스트리밍 본문 미검사를 성공 응답과 
   const flagged = ui.renderTimeline(detail, nodes);
   assert.match(flagged, /request:partial/);
   assert.doesNotMatch(flagged, /request:events/);
-});
-
-test("열려 있는 탭에서 대상 경로가 바뀌면 공개 링크를 갱신한다", async () => {
-  let publicPath = "/juice-shop/";
-  const ui = loadPresentation(async () => ({ ok: true, json: async () => ({ publicPath }) }));
-  await ui.loadPublicTarget();
-  assert.equal(ui.elements.get("publicTargetLink").href, "/juice-shop/");
-  publicPath = "/ruby-market/";
-  await ui.loadPublicTarget();
-  assert.equal(ui.elements.get("publicTargetLink").href, "/ruby-market/");
-  publicPath = "/__detection/";
-  await ui.loadPublicTarget();
-  assert.equal(ui.elements.get("publicTargetLink").hidden, true);
-  assert.equal(ui.elements.get("publicTargetFallback").textContent, "경로 확인 불가");
 });
 
 test("A 상세 응답이 B 선택 뒤 늦게 도착해도 B 상세를 덮지 않는다", async () => {
