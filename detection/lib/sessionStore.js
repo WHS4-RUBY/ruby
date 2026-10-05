@@ -349,6 +349,8 @@ function recordRequest(
     responseContentType = null,
     responseContentLength = null,
     responseBodyBytes = null,
+    responseTransportOutcome = null,
+    responseBodyInspected = null,
     attackDetection = null,
     backgroundTraffic = null,
     deceptionEvents = [],
@@ -428,6 +430,8 @@ function recordRequest(
     responseContentType,
     responseContentLength,
     responseBodyBytes,
+    responseTransportOutcome,
+    responseBodyInspected,
     attackDetection,
     backgroundTraffic: backgroundTraffic?.isBackground
       ? {
