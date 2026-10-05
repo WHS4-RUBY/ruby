@@ -1,3 +1,0 @@
-ticket
-messages
-orders

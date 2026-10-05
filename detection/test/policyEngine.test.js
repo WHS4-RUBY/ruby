@@ -22,9 +22,8 @@ const CONFIG_PATH = path.resolve(process.env.POLICY_CONFIG_PATH || DEFAULT_CONFI
 const rawRules = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")).defense.rules;
 
 // 규칙 구간은 [min_score, max_score) 반개구간, 겹치면 먼저 나온 규칙이 우선
-function expectedStrategies(score, confirmedAttackScore = 0) {
-  const rule = rawRules.find((r) => r.min_score <= score && score < r.max_score &&
-    confirmedAttackScore >= (r.min_confirmed_attack_score || 0));
+function expectedStrategies(score) {
+  const rule = rawRules.find((r) => r.min_score <= score && score < r.max_score);
   return rule ? rule.strategies : [];
 }
 
@@ -65,7 +64,6 @@ test("loadPolicyRules는 policy.json의 모든 규칙을 순서대로 로드한�
   rules.forEach((rule, i) => {
     assert.equal(rule.minScore, rawRules[i].min_score, `rule ${i} minScore`);
     assert.equal(rule.maxScore, rawRules[i].max_score, `rule ${i} maxScore`);
-    assert.equal(rule.minConfirmedAttackScore, rawRules[i].min_confirmed_attack_score || 0);
     assert.deepEqual(rule.strategies, rawRules[i].strategies, `rule ${i} strategies`);
   });
 });
@@ -145,15 +143,6 @@ test("클라이언트의 Defense plan을 제거하고 policy.json 결과로 교�
     );
     assert.equal(proxyReq.headers.get("accept-encoding"), "identity");
   }
-});
-
-test("고위험 Attack 확정 이력에만 엄격한 요청 제한을 추가한다", () => {
-  assert.deepEqual(selectStrategies(0.9, rules).map((step) => step.name), ["delay"]);
-  assert.deepEqual(selectStrategies(0.9, rules, { confirmedAttackScore: 0.79 }).map((step) => step.name), ["delay"]);
-  assert.deepEqual(selectStrategies(0.9, rules, { confirmedAttackScore: 0.8 }).map((step) => step.name),
-    ["rate_limit_strict", "delay"]);
-  assert.deepEqual(selectStrategies(0.4, rules, { confirmedAttackScore: 0.9 }).map((step) => step.name), ["delay"]);
-  assert.deepEqual(selectStrategies(0.1, rules, { confirmedAttackScore: 0.9 }), []);
 });
 
 // ---------------------------------------------------------------------------

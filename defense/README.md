@@ -39,18 +39,6 @@ Detection 프록시를 통해 `http://localhost:8081/__defense/dashboard`에서 
 
 새 방어 기법은 `DefenseStrategy`를 구현해 Registry에 등록하면 대시보드에 자동으로 집계됩니다.
 
-## 전략 계약과 요청 추적
-
-Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사용합니다. Defense 이벤트는 같은 요청에 사용한 이전 완료 요청 기반 Automation·Attack·Risk 점수, 정책 출처, 실제 실행 전략, 백엔드 HTTP 상태와 `forwarded`·`blocked`·`error` 결과를 기록합니다. 이 내부 메타 헤더와 `X-Defense-Plan`은 Target으로 전달하지 않습니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
-
-전략의 `apply(request, params, state)`는 요청 단계에서 실행합니다. `DefenseResult`는 즉시 반환할 응답, Target에 보낼 헤더, 백엔드 응답 변형 함수, 다음 클라이언트 상태를 담을 수 있습니다. 상태는 전략 이름과 `X-Client-Id`별로 분리하고, 기본 10분 미사용 시 만료되며 최대 10,000개를 유지합니다. `DEFENSE_STATE_TTL_SECONDS`와 `DEFENSE_STATE_LIMIT`로 조절합니다. 동일 클라이언트의 동시 상태 변경은 순서대로 처리합니다. 해제 뒤에도 새 요청은 Detection에서 다시 점수화되고, 위험 정책이 재선택되면 전략에 재진입합니다. 현재 구현에는 영구적인 `blocked/released` 판정이나 다중 프로세스 공유 상태가 없습니다.
-
-응답 변형 전략이 있으면 백엔드 본문을 받아 변형한 뒤 전송합니다. 본문은 기본 4 MiB까지 허용하며 `DEFENSE_TRANSFORM_BODY_LIMIT`로 조절합니다. 한도를 넘으면 502와 오류 이벤트를 반환합니다. 변형 전략이 없는 응답은 스트리밍합니다. 스트림이 중간에 끊기면 이미 보낸 HTTP 상태를 502로 바꿀 수 없으므로 연결이 중단되고 Defense 이벤트는 `outcome=error`로 남습니다. 이벤트의 `status`는 이미 전송한 백엔드 상태일 수 있으므로 결과와 함께 읽어야 합니다.
-
-WebSocket은 업그레이드 요청 시 정책 전략을 한 번 적용하고 이후 텍스트·바이너리 프레임을 그대로 중계합니다. 프레임별 탐지나 응답 변형은 구현돼 있지 않습니다. `/__defense` 관리 경로는 WebSocket 엔드포인트가 없으므로 업그레이드를 거부합니다.
-
-`X-Client-Id`와 `X-Ruby-*`는 내부 Detection 프록시가 재생성하는 헤더입니다. Defense에 직접 접속할 수 있으면 헤더를 위조할 수 있으므로 배포에서는 Defense 포트를 외부에 공개하지 말고 Detection과 같은 비공개 네트워크에서만 접근시키세요. 이벤트와 전략 상태는 단일 프로세스 메모리에만 보관되고 재시작 시 사라집니다.
-
 ## 참여 방법
 
 `main`에 직접 push하지 않고 작업 브랜치에서 변경한 뒤 Pull Request를 제출합니다. 자세한 규칙은 [루트 CONTRIBUTING.md](../CONTRIBUTING.md)를 확인하세요.

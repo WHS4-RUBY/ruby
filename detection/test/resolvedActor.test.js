@@ -222,20 +222,17 @@ test("Case 10: IP가 반복 변경돼도 dcid가 같으면 IP history만 증가�
   assert.equal(features.behavior.recentSequence.length, 3);
 });
 
-test("같은 Session에서 signed dcid가 충돌하면 기존 이력은 보존하고 새 요청은 분리한다", () => {
+test("같은 Session에서 signed dcid가 충돌하면 기존 Confirmed Membership을 유지하고 CONFLICT를 기록한다", () => {
   const first = latest(record({
     sessionId: "case-conflict", ip: "10.0.11.1", clientIdentity: client("conflict-a"),
   }));
   const second = latest(record({
     sessionId: "case-conflict", ip: "10.0.11.1", clientIdentity: client("conflict-b"),
   }));
-  assert.notEqual(first.resolvedActorId, second.resolvedActorId);
+  assert.equal(first.resolvedActorId, second.resolvedActorId);
   const aggregate = store.getResolvedActorAggregate(first.resolvedActorId);
   assert.ok(aggregate.conflicts.some((item) => item.code === "signed_dcid_changed_within_session"));
   assert.ok(aggregate.memberships[0].conflicts.includes("signed_dcid_changed_within_session"));
-  assert.deepEqual(aggregate.requests.map((request) => request.requestId), [first.requestId]);
-  assert.deepEqual(store.getResolvedActorAggregate(second.resolvedActorId).requests
-    .map((request) => request.requestId), [second.requestId]);
 });
 
 test("Resolved Actor 요청은 Session 참조로 구성하고 requestId 기준 중복 제거한다", () => {

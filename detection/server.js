@@ -17,7 +17,7 @@ const {
   extractIpFeatures,
 } = require("./lib/featureExtractor");
 const { classify } = require("./lib/classifier");
-const { selectClientId, selectEffectiveDetection, confirmedAttackScore } = require("./lib/detectionPolicy");
+const { selectClientId, selectEffectiveDetection } = require("./lib/detectionPolicy");
 const {
   assessDetection,
   normalizeDetectionLevel,
@@ -65,7 +65,6 @@ const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
 const { applyDefensePlan, loadPolicyRules } = require("./lib/policyEngine");
 const { createProxyCore } = require("./lib/proxyCore");
-const { loadTargetProfile, matchProfileTrap, injectProfileBait, profileTrapEvent } = require("./lib/targetProfile");
 const {
   DashboardAuthManager,
   installDashboardRoutes,
@@ -77,7 +76,6 @@ const {
 
 const PORT = process.env.PORT || 8080;
 const TARGET = process.env.TARGET_URL || "http://localhost:3000";
-const targetProfile = loadTargetProfile();
 // 2026-09-01 추가: HTML(index.html) 하나만 보는 정찰 대신, 자주 조회되는
 // 정적 텍스트 응답에도 기만 신호를 심는다 — deceptionEngine.injectSignalsPlaintext 참고.
 const PLAINTEXT_BAIT_PATHS = new Set([
@@ -127,7 +125,7 @@ const CSRF_ALLOWED_ORIGINS = buildAllowedOrigins(
 const SESSION_COOKIE = "dlsid";
 const DCID_COOKIE = "dcid";
 const crsScanner = new CrsScanner();
-const deceptionEngine = new DeceptionEngine({ enabled: !targetProfile && process.env.DECEPTION_ENABLED !== "false" });
+const deceptionEngine = new DeceptionEngine();
 const dcidManager = new DcidManager();
 const accountIdentityResolver = new AccountIdentityResolver();
 const policyRules = loadPolicyRules();
@@ -258,12 +256,6 @@ function analyzeClientFlow(aggregate) {
  * 가장 강한 점수를 적용한다. 방금 요청의 결과는 다음 요청부터 반영된다.
  */
 function buildPriorPolicyDecision(req) {
-  // An upgrade cannot receive the signed dcid cookie that the HTTP middleware
-  // issues on a first request. Do not borrow a NAT/fingerprint neighbor's
-  // Candidate or Client Flow history for a cookie-less WebSocket connection.
-  if (req.isWebSocketUpgrade && !req.clientIdentity?.valid) {
-    return buildPolicyDecision({ clientId: req.websocketClientId });
-  }
   const ip = getClientIp(req);
   const fingerprint = buildHttpFingerprint({
     headers: req.headers,
@@ -276,10 +268,9 @@ function buildPriorPolicyDecision(req) {
   const session = store.getSession(req.detectionSessionId);
   const actor = store.getActor(actorId);
   const authGroup = req.authGroupId ? store.getAuthGroup(req.authGroupId) : null;
-  const verifiedClientId = req.clientIdentity?.valid && req.clientIdentity?.continuityVerified
-    ? req.clientIdentity.clientId : null;
-  const resolvedActor = verifiedClientId
-    ? store.getResolvedActorByClientId(verifiedClientId) : null;
+  const resolvedActor = session?.resolvedActorId
+    ? store.getResolvedActorAggregate(session.resolvedActorId)
+    : null;
   // 전체 집계는 멤버 세션의 요청을 모두 훑고 정렬하므로 요청 수에 대해 제곱으로
   // 커진다. 실제로 Flow가 병합된 경우에만 계산하고, 그 외에는 O(1) 상태만 본다.
   const clientFlowState = store.getClientFlowState(actorId);
@@ -287,48 +278,28 @@ function buildPriorPolicyDecision(req) {
     ? store.getClientFlowAggregate(actorId)
     : null;
 
-  // dlsid는 서명되지 않았으므로 다른 signed dcid와 함께 오면 그 세션 이력을
-  // 현재 클라이언트의 확정 근거로 사용하지 않는다.
-  const sessionOwned = verifiedClientId && session &&
-    session.requests.at(-1)?.clientId === verifiedClientId;
   const analyses = {
-    session: sessionOwned ? analyzeSession(session) : null,
+    session: session ? analyzeSession(session) : null,
     candidate: actor && clientFlowState?.status !== "CONFLICT" ? analyzeActor(actor) : null,
     authGroup: authGroup ? analyzeAuthGroup(authGroup) : null,
     clientFlow: clientFlow ? analyzeClientFlow(clientFlow) : null,
     resolved: resolvedActor ? analyzeResolvedActor(resolvedActor) : null,
   };
-  // Every HTTP request receives a fresh signed DCID when one is absent. A
-  // different client's shared curl/NAT fingerprint must not become this
-  // client's policy score, including a 500ms delay on a normal request.
-  const policyAnalyses = req.clientIdentity?.valid
-    ? { session: analyses.session, resolved: analyses.resolved }
-    : analyses;
-  if (!Object.values(policyAnalyses).some(Boolean)) {
-    return buildPolicyDecision({ clientId: req.clientIdentity?.valid ? req.clientIdentity.clientId : actorId });
+  if (!Object.values(analyses).some(Boolean)) {
+    return buildPolicyDecision({ clientId: actorId });
   }
 
-  const [source, analysis] = selectEffectiveDetection(policyAnalyses);
-  const clientId = (req.clientIdentity?.valid && req.clientIdentity.clientId) || selectClientId(analyses, {
+  const [source, analysis] = selectEffectiveDetection(analyses);
+  const clientId = selectClientId(analyses, {
     actorId,
     resolvedActorId: resolvedActor?.id,
     clientFlowId: clientFlowState?.id,
   });
-  // Candidate/Flow fingerprint와 Bearer 값의 hash는 신원 검증이 아니다.
-  // 자동 429에는 같은 signed dcid로 묶인 확정 Resolved Actor만 사용한다.
-  return buildPolicyDecision({ source, analysis, clientId,
-    confirmedAttackScore: confirmedAttackScore(analyses) });
+  return buildPolicyDecision({ source, analysis, clientId });
 }
 
 function computeBusinessLogicTags(req) {
   const normalizedPath = normalizePath(req.originalUrl);
-  if (targetProfile) {
-    return checkRoleGatedAccess({
-      method: req.method, normalizedPath,
-      authorizationHeader: req.headers.authorization,
-      cookieHeader: req.headers.cookie,
-    }, { routes: targetProfile.permissions, allowLearned: false }).map((hit) => hit.tag);
-  }
   const businessLogicHits = analyzeBusinessLogic({
     method: req.method,
     normalizedPath,
@@ -378,7 +349,6 @@ function computeCsrfTags(req) {
 }
 
 function observeSchemaLearning(req, statusCode, normalizedPath) {
-  if (targetProfile) return;
   let bodyObj = req.body;
   if (typeof bodyObj === "string") {
     try {
@@ -451,50 +421,26 @@ function prepareRequestObservation(req) {
     method: req.method,
     normalizedPath,
     body: req.body,
-    route: targetProfile ? targetProfile.routes.login || null : undefined,
   });
   req.resetPasswordEmail = extractResetPasswordEmail({
     method: req.method,
     normalizedPath,
     body: req.body,
-    route: targetProfile ? targetProfile.routes.passwordReset || null : undefined,
   });
   req.securityQuestionEmail = extractSecurityQuestionEmail({
     method: req.method,
     normalizedPath,
     url: req.originalUrl,
-    route: targetProfile ? targetProfile.routes.securityQuestion || null : undefined,
   });
 }
 
 // Stored XSS 대조용 저장소: 쓰기 요청에서 관찰한 값을 나중 응답과 대조한다.
-// 기본은 SQLite(파일) 저장 → 재시작해도 후보 텍스트가 보존된다(/app/data 영속 볼륨).
-// node:sqlite 미지원(예: node20) 또는 오류 시 자동으로 인메모리로 폴백(서버는 항상 기동).
-// 환경변수: XSS_STORE=memory 로 인메모리 강제, XSS_DB_PATH 로 DB 경로 지정.
-const xssStoreOpts = {
+const xssCandidateStore = new XssCandidateStore({
   ttlMs: process.env.XSS_CANDIDATE_TTL_MS,
   maxEntries: process.env.XSS_MAX_CANDIDATES,
   maxBytes: process.env.XSS_MAX_CANDIDATE_BYTES,
   maxValueBytes: process.env.XSS_MAX_VALUE_BYTES,
-};
-let xssCandidateStore;
-if (String(process.env.XSS_STORE || "sqlite").toLowerCase() === "memory") {
-  xssCandidateStore = new XssCandidateStore(xssStoreOpts);
-  console.log("[detection] XSS candidate store: in-memory (XSS_STORE=memory)");
-} else {
-  try {
-    const fsMod = require("fs");
-    const pathMod = require("path");
-    const dbPath = process.env.XSS_DB_PATH || pathMod.join(__dirname, "data", "xss-candidates.db");
-    fsMod.mkdirSync(pathMod.dirname(dbPath), { recursive: true });
-    const { XssCandidateStoreSqlite } = require("./lib/xssCandidateStoreSqlite");
-    xssCandidateStore = new XssCandidateStoreSqlite({ ...xssStoreOpts, dbPath });
-    console.log("[detection] XSS candidate store: SQLite(file) -> " + dbPath);
-  } catch (e) {
-    xssCandidateStore = new XssCandidateStore(xssStoreOpts);
-    console.warn("[detection] SQLite 사용 불가 → 인메모리 폴백:", e && e.message);
-  }
-}
+});
 // XSS 반영 검사에 넘길 응답 본문 최대 크기(과대 응답은 body 검사 생략, 헤더 검사만).
 const configuredXssBodyBytes = Number(process.env.XSS_MAX_BODY_BYTES);
 const XSS_MAX_BODY_BYTES = Number.isSafeInteger(configuredXssBodyBytes) && configuredXssBodyBytes > 0
@@ -532,27 +478,14 @@ function refreshXssOriginScores(origin) {
   const actor = store.getActor(origin.actorId);
   const authGroup = store.getAuthGroup(origin.authGroupId);
   const flow = store.getClientFlowAggregate(origin.clientFlowId);
-  const resolved = origin.resolvedActorId
-    ? store.getResolvedActorAggregate(origin.resolvedActorId) : null;
-  const sessionAnalysis = session ? analyzeSession(session) : null;
-  const resolvedAnalysis = resolved?.totalRequests ? analyzeResolvedActor(resolved) : null;
   store.updateAttackScoreHistory({
     ...origin,
     scores: {
-      session: sessionAnalysis?.attackScore,
+      session: session ? analyzeSession(session).attackScore : undefined,
       actor: actor ? analyzeActor(actor).attackScore : undefined,
-      resolved: resolvedAnalysis?.attackScore,
       authGroup: authGroup ? analyzeAuthGroup(authGroup).attackScore : undefined,
       clientFlow: flow?.aggregationEnabled ? analyzeClientFlow(flow).attackScore : undefined,
     },
-  });
-  if (sessionAnalysis) store.attachDetectionResult(origin, {
-    source: "stored-xss-writer",
-    automationScore: sessionAnalysis.automationScore,
-    attackScore: sessionAnalysis.attackScore,
-    effectiveAttackScore: sessionAnalysis.detection?.effectiveAttackScore || 0,
-    automationDetected: Boolean(sessionAnalysis.detection?.automationDetected),
-    attackDetected: Boolean(sessionAnalysis.detection?.attackDetected),
   });
 }
 
@@ -572,8 +505,6 @@ function recordCompletedRequest(req, {
   responseContentType = null,
   responseContentLength = null,
   responseBodyBytes = null,
-  responseTransportOutcome = null,
-  responseBodyInspected = null,
   attackDetection,
 }) {
   const ip = getClientIp(req);
@@ -585,9 +516,7 @@ function recordCompletedRequest(req, {
   };
   const tags = detection.available ? detection.categories : tagPayload(req.originalUrl, req.body);
   const normalizedPath = normalizePath(req.originalUrl);
-  // A partial upstream response must not teach the schema learner that a
-  // write succeeded just because its HTTP headers contained a 2xx status.
-  if (responseTransportOutcome !== "error") observeSchemaLearning(req, status, normalizedPath);
+  observeSchemaLearning(req, status, normalizedPath);
   const session = store.recordRequest(req.detectionSessionId, ip, {
     method: req.method,
     url: req.originalUrl,
@@ -602,7 +531,6 @@ function recordCompletedRequest(req, {
     xssTags: req.xssTags,
     xssMaxRisk: Number.isFinite(req.xssMaxRisk) ? req.xssMaxRisk : 0,
     loginAttemptEmail: req.loginAttemptEmail,
-    loginFailureStatuses: targetProfile?.routes.login?.failureStatuses || [401],
     resetPasswordEmail: req.resetPasswordEmail,
     securityQuestionEmail: req.securityQuestionEmail,
     authGroupId: req.authGroupId,
@@ -619,22 +547,9 @@ function recordCompletedRequest(req, {
       ? responseContentLength
       : parseContentLength(responseContentLength),
     responseBodyBytes,
-    responseTransportOutcome,
-    responseBodyInspected,
     attackDetection: detection,
     backgroundTraffic: req.backgroundTraffic,
     deceptionEvents: req.deceptionEvents,
-    requestId: req.rubyRequestId || null,
-    policyDecision: req.rubyPolicyDecision ? {
-      basis: "prior-completed-requests",
-      source: req.rubyPolicyDecision.source,
-      automationScore: req.rubyPolicyDecision.automationScore,
-      attackScore: req.rubyPolicyDecision.attackScore,
-      confirmedAttackScore: req.rubyPolicyDecision.confirmedAttackScore,
-      riskScore: req.rubyPolicyDecision.riskScore,
-      strategies: (req.rubyPolicyDecision.plan || []).map((step) => step.name),
-    } : null,
-    defenseSignal: req.defenseSignal || null,
     clientIdentity: req.clientIdentity,
     accountIdentity: req.accountIdentity,
   });
@@ -655,43 +570,24 @@ function recordCompletedRequest(req, {
   const clientFlowAnalysis = clientFlowState?.aggregationEnabled
     ? analyzeClientFlow(store.getClientFlowAggregate(clientFlowId))
     : null;
-  // The per-request result must describe this client's own evidence. Candidate,
-  // Flow and Auth Group are useful observations, but can contain another user
-  // with the same NAT/fingerprint or an unverified Bearer value. Include this
-  // request's provisional actor so its first response is also attributed only
-  // to the DCID issued for that request.
-  const requestRecord = session.requests.at(-1);
-  const requestActor = resolvedActorId
-    ? store.getResolvedActorAggregate(resolvedActorId, { includeProvisional: true })
-    : null;
-  const requestActorAnalysis = requestActor?.requests.length
-    ? analyzeResolvedActor(requestActor) : null;
-  const effectiveDetectionSource = requestActorAnalysis
-    ? requestRecord.clientContinuityVerified
-      ? "confirmed-resolved-actor" : "provisional-client-observation"
-    : "session";
-  const effectiveDetectionAnalysis = requestActorAnalysis || sessionAnalysis;
+  const [effectiveDetectionSource, effectiveDetectionAnalysis] = selectEffectiveDetection({
+    session: sessionAnalysis,
+    candidate: clientFlowState?.status === "CONFLICT" ? null : actorAnalysis,
+    authGroup: authGroupAnalysis,
+    clientFlow: clientFlowAnalysis,
+    resolved: resolvedActorAnalysis,
+  });
   store.updateAttackScoreHistory({
     sessionId: session.id,
     actorId,
-    resolvedActorId,
     authGroupId: req.authGroupId,
     clientFlowId,
     scores: {
       session: sessionAnalysis.attackScore,
       actor: actorAnalysis.attackScore,
-      resolved: resolvedActorAnalysis?.attackScore,
       authGroup: authGroupAnalysis?.attackScore,
       clientFlow: clientFlowAnalysis?.attackScore,
     },
-  });
-  store.attachDetectionResult(session.requests.at(-1), {
-    source: effectiveDetectionSource,
-    automationScore: effectiveDetectionAnalysis.automationScore,
-    attackScore: effectiveDetectionAnalysis.attackScore,
-    effectiveAttackScore: effectiveDetectionAnalysis.detection?.effectiveAttackScore || 0,
-    automationDetected: Boolean(effectiveDetectionAnalysis.detection?.automationDetected),
-    attackDetected: Boolean(effectiveDetectionAnalysis.detection?.attackDetected),
   });
   return {
     session,
@@ -733,12 +629,6 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use((req, res, next) => {
-  req.rubyRequestId = `request:${crypto.randomUUID()}`;
-  res.setHeader("X-Ruby-Request-Id", req.rubyRequestId);
-  next();
-});
-
 function captureParsedBodyBytes(req, _res, buffer) {
   req.detectionRequestBodyBytes = buffer.length;
   req.detectionRequestBodyBuffer = Buffer.from(buffer);
@@ -762,13 +652,7 @@ installDashboardRoutes({
 // 팀원 Python 프록시의 미끼 라우트를 현재 Express 프록시 안에서 직접 처리한다.
 // 이 요청도 일반 요청과 동일하게 CRS, Session, Actor, Auth Group과 타임라인에 기록한다.
 app.use((req, res, next) => {
-  const configuredTrap = targetProfile && matchProfileTrap(targetProfile, req.method, req.path);
-  const trap = configuredTrap ? {
-    status: configuredTrap.status,
-    contentType: configuredTrap.contentType,
-    body: configuredTrap.body,
-    events: [profileTrapEvent(req.detectionSessionId)],
-  } : deceptionEngine.matchTrap({
+  const trap = deceptionEngine.matchTrap({
     sessionId: req.detectionSessionId,
     method: req.method,
     url: req.originalUrl,
@@ -980,7 +864,6 @@ app.get("/__detection/api/actors", (req, res) => {
     return {
       actorId: actor.id,
       resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
-      unresolvedRequestCount: actor.requests.filter((request) => !request.resolvedActorId).length,
       ip: actor.ip,
       fingerprint: actor.fingerprint,
       clientObservation: actor.clientObservation,
@@ -1011,7 +894,6 @@ app.get("/__detection/api/actors/:id", (req, res) => {
   res.json({
     actorId: actor.id,
     resolvedActorIds: [...new Set(actor.requests.map((request) => request.resolvedActorId).filter(Boolean))],
-    unresolvedRequestCount: actor.requests.filter((request) => !request.resolvedActorId).length,
     ip: actor.ip,
     fingerprint: actor.fingerprint,
     clientObservation: actor.clientObservation,
@@ -1243,51 +1125,32 @@ app.use("/__detection", (req, res) => {
   res.status(404).json({ error: "detection endpoint not found" });
 });
 
-function forwardPolicyDecision(proxyReq, req) {
-  req.rubyRequestId ||= `request:${crypto.randomUUID()}`;
-  req.rubyPolicyDecision = buildPriorPolicyDecision(req);
-  stripDetectionHeaders(proxyReq);
-  const plan = applyDefensePlan(proxyReq, {
-    riskScore: req.rubyPolicyDecision.riskScore,
-    confirmedAttackScore: req.rubyPolicyDecision.confirmedAttackScore,
-    rules: policyRules,
-  });
-  req.rubyPolicyDecision.plan = plan;
-  proxyReq.setHeader("X-Client-Id", req.rubyPolicyDecision.clientId);
-  proxyReq.setHeader("X-Ruby-Request-Id", req.rubyRequestId);
-  proxyReq.setHeader("X-Ruby-Automation-Score", String(req.rubyPolicyDecision.automationScore));
-  proxyReq.setHeader("X-Ruby-Attack-Score", String(req.rubyPolicyDecision.attackScore));
-  proxyReq.setHeader("X-Ruby-Risk-Score", String(req.rubyPolicyDecision.riskScore));
-  proxyReq.setHeader("X-Ruby-Policy-Source", req.rubyPolicyDecision.source);
-}
-
-function upgradeCookie(req, name) {
-  for (const part of String(req.headers.cookie || "").split(";")) {
-    const separator = part.indexOf("=");
-    if (separator < 0 || part.slice(0, separator).trim() !== name) continue;
-    try { return decodeURIComponent(part.slice(separator + 1).trim()); } catch { return null; }
-  }
-  return null;
-}
-
 const detectionHook = {
   name: "behavior-and-attack-detection",
 
   onWebSocketRequest({ proxyReq, req }) {
     req.originalUrl ||= req.url;
-    req.isWebSocketUpgrade = true;
-    req.detectionSessionId = upgradeCookie(req, SESSION_COOKIE);
-    req.clientIdentity = dcidManager.verify(upgradeCookie(req, DCID_COOKIE));
-    if (!req.clientIdentity.valid) req.websocketClientId = `websocket:${crypto.randomUUID()}`;
     req.authGroupId = deriveAuthGroupId(req.headers.authorization);
-    forwardPolicyDecision(proxyReq, req);
+    req.rubyPolicyDecision = buildPriorPolicyDecision(req);
+    stripDetectionHeaders(proxyReq);
+    applyDefensePlan(proxyReq, {
+      riskScore: req.rubyPolicyDecision.riskScore,
+      rules: policyRules,
+    });
+    proxyReq.setHeader("X-Client-Id", req.rubyPolicyDecision.clientId);
   },
 
   onRequest({ proxyReq, req }) {
     prepareRequestObservation(req);
     // RUBY Policy 계약: 외부 입력을 제거하고, 완료된 탐지 이력에서 계산한
     // 0~1 risk score와 가명 client id만 내부 헤더로 전달한다.
-    forwardPolicyDecision(proxyReq, req);
+    req.rubyPolicyDecision = buildPriorPolicyDecision(req);
+    stripDetectionHeaders(proxyReq);
+    applyDefensePlan(proxyReq, {
+      riskScore: req.rubyPolicyDecision.riskScore,
+      rules: policyRules,
+    });
+    proxyReq.setHeader("X-Client-Id", req.rubyPolicyDecision.clientId);
     // Ground truth용 헤더는 탐지 프록시에서 소비하고 RUBY Policy에는 전달하지 않는다.
     proxyReq.removeHeader(EXPERIMENT_RUN_HEADER);
     // ModSecurity/CRS 검사는 응답을 차단하지 않으며 결과만 비동기로 기록한다.
@@ -1297,16 +1160,11 @@ const detectionHook = {
     fixRequestBody(proxyReq, req);
   },
 
-  async onResponse({ responseBuffer, proxyRes, req, bodyAvailable = true, responseBodyBytes }) {
-    if (req.rubyResponseRecorded) return responseBuffer;
-    req.defenseSignal = proxyRes.headers["x-defense-signal"] === "rate_limited"
-      ? "rate_limited" : null;
+  async onResponse({ responseBuffer, proxyRes, req }) {
     const attackDetection = req.crsScanPromise
       ? await req.crsScanPromise
       : { available: false, error: "scan was not started", categories: [], hits: [] };
-    const xssDetection = computeXssDetection(
-      req, bodyAvailable ? responseBuffer : Buffer.alloc(0), proxyRes.headers
-    );
+    const xssDetection = computeXssDetection(req, responseBuffer, proxyRes.headers);
     req.xssTags = xssDetection.tags;
     req.xssMaxRisk = xssDetection.maxRisk;
     const {
@@ -1317,13 +1175,9 @@ const detectionHook = {
       status: proxyRes.statusCode,
       responseContentType: proxyRes.headers["content-type"],
       responseContentLength: proxyRes.headers["content-length"],
-      responseBodyBytes: Number.isSafeInteger(responseBodyBytes)
-        ? responseBodyBytes : responseBuffer.length,
-      responseTransportOutcome: "complete",
-      responseBodyInspected: bodyAvailable && responseBuffer.length <= XSS_MAX_BODY_BYTES,
+      responseBodyBytes: responseBuffer.length,
       attackDetection,
     });
-    req.rubyResponseRecorded = true;
     observeXssWrite(req, session, proxyRes.statusCode);
 
     // 실험 검증 전에는 BLOCK_MODE도 log-only다. 응답 상태나 body를 변경하지 않는다.
@@ -1345,18 +1199,13 @@ const detectionHook = {
       }
     }
 
-    // Streaming and large responses are forwarded as original bytes. Their
-    // request/CRS/header evidence is recorded, but no response body claim or
-    // injection is made without a complete, bounded body.
-    if (!bodyAvailable) return responseBuffer;
-
     // HTML 응답이면 telemetry.js 를 </body> 직전에 주입
     const contentType = proxyRes.headers["content-type"] || "";
     if (contentType.includes("text/html")) {
-      const htmlWithDeception = injectProfileBait(targetProfile, deceptionEngine.injectSignals(
+      const htmlWithDeception = deceptionEngine.injectSignals(
         responseBuffer.toString("utf8"),
         session.id
-      ), req.path, contentType);
+      );
       const injected = htmlWithDeception.includes("</body>")
         ? htmlWithDeception.replace(
             "</body>",
@@ -1367,10 +1216,6 @@ const detectionHook = {
     }
 
     const normalizedPath = normalizePath(req.originalUrl);
-    if (targetProfile) {
-      const plain = injectProfileBait(targetProfile, responseBuffer.toString("utf8"), req.path, contentType);
-      return plain === responseBuffer.toString("utf8") ? responseBuffer : plain;
-    }
     if (
       String(req.method).toUpperCase() === "GET" &&
       (normalizedPath === PRODUCTS_LIST_PATH || normalizedPath === PRODUCTS_ITEM_PATH) &&
@@ -1395,27 +1240,6 @@ const detectionHook = {
     }
 
     return responseBuffer;
-  },
-
-  async onResponseError({ req, proxyRes, responseBodyBytes }) {
-    if (req.rubyResponseRecorded || !req._detectionPrepared) return;
-    req.defenseSignal = proxyRes?.headers?.["x-defense-signal"] === "rate_limited"
-      ? "rate_limited" : null;
-    const attackDetection = req.crsScanPromise
-      ? await req.crsScanPromise
-      : { available: false, error: "scan was not started", categories: [], hits: [] };
-    // Keep the observed status but mark the transport as incomplete; 502 is
-    // used only when upstream never sent headers. Never log raw error text.
-    recordCompletedRequest(req, {
-      status: proxyRes?.statusCode || 502,
-      responseContentType: proxyRes?.headers?.["content-type"],
-      responseContentLength: proxyRes?.headers?.["content-length"],
-      responseBodyBytes: Number.isSafeInteger(responseBodyBytes) ? responseBodyBytes : 0,
-      responseTransportOutcome: "error",
-      responseBodyInspected: false,
-      attackDetection,
-    });
-    req.rubyResponseRecorded = true;
   },
 };
 
@@ -1444,11 +1268,4 @@ const server = app.listen(PORT, () => {
     );
   }
 });
-server.on("upgrade", (req, socket, head) => {
-  const path = String(req.url || "").split("?", 1)[0];
-  if (path === "/__detection" || path.startsWith("/__detection/")) {
-    socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
-    return;
-  }
-  mainProxy.upgrade(req, socket, head);
-});
+server.on("upgrade", mainProxy.upgrade);

@@ -125,14 +125,6 @@ const SENSITIVE_DETECTION_HEADERS = new Set([
   "proxy-authorization",
   "cookie",
   "x-experiment-run-id",
-  "x-ruby-request-id",
-  "x-ruby-automation-score",
-  "x-ruby-attack-score",
-  "x-ruby-risk-score",
-  "x-ruby-policy-source",
-  "x-defense-plan",
-  "x-defense-signal",
-  "x-client-id",
 ]);
 
 function emptyAttackHistory() {
@@ -335,7 +327,6 @@ function recordRequest(
     xssTags,
     xssMaxRisk,
     loginAttemptEmail,
-    loginFailureStatuses,
     resetPasswordEmail,
     securityQuestionEmail,
     authGroupId,
@@ -349,14 +340,9 @@ function recordRequest(
     responseContentType = null,
     responseContentLength = null,
     responseBodyBytes = null,
-    responseTransportOutcome = null,
-    responseBodyInspected = null,
     attackDetection = null,
     backgroundTraffic = null,
     deceptionEvents = [],
-    requestId = null,
-    policyDecision = null,
-    defenseSignal = null,
     clientIdentity = null,
     accountIdentity = null,
     ts,
@@ -394,7 +380,7 @@ function recordRequest(
   s.lastSeen = now;
 
   const requestRecord = {
-    requestId: requestId || `request:${crypto.randomUUID()}`,
+    requestId: `request:${crypto.randomUUID()}`,
     ts: now,
     method: normalizedMethod,
     url,
@@ -422,16 +408,12 @@ function recordRequest(
     payloadFingerprint,
     hasAuthorization: requestHasAuthorization,
     experimentRunId: experimentRunId || null,
-    policyDecision,
-    defenseSignal,
     requestContentType,
     requestContentLength,
     requestBodyBytes,
     responseContentType,
     responseContentLength,
     responseBodyBytes,
-    responseTransportOutcome,
-    responseBodyInspected,
     attackDetection,
     backgroundTraffic: backgroundTraffic?.isBackground
       ? {
@@ -460,8 +442,6 @@ function recordRequest(
     xssTags: xssTags || [],
     xssMaxRisk: Number.isFinite(xssMaxRisk) ? xssMaxRisk : 0,
     loginAttemptEmail: loginAttemptEmail || null,
-    loginFailed: Boolean(loginAttemptEmail) &&
-      (Array.isArray(loginFailureStatuses) ? loginFailureStatuses : [401]).includes(status),
     resetPasswordEmail: resetPasswordEmail || null,
     securityQuestionEmail: securityQuestionEmail || null,
     tags: tags || [],
@@ -590,10 +570,9 @@ function recordRequest(
   return s;
 }
 
-function updateAttackScoreHistory({ sessionId, actorId, resolvedActorId, authGroupId, clientFlowId, scores = {} }) {
+function updateAttackScoreHistory({ sessionId, actorId, authGroupId, clientFlowId, scores = {} }) {
   updateMaxAttackScore(sessions.get(sessionId), scores.session);
   updateMaxAttackScore(actors.get(actorId), scores.actor);
-  if (resolvedActorId) actorResolver.updateAttackScore(resolvedActorId, scores.resolved);
   if (authGroupId) updateMaxAttackScore(authGroups.get(authGroupId), scores.authGroup);
   if (clientFlowId) clientFlowStore.updateAttackScore(clientFlowId, scores.clientFlow);
 }
@@ -626,20 +605,6 @@ function attachStoredXssFinding(origin, tags, maxRisk) {
     }
   }
   return true;
-}
-
-function attachDetectionResult(origin, result) {
-  if (!origin?.requestId) return false;
-  let updated = false;
-  for (const entity of [sessions.get(origin.sessionId), actors.get(origin.actorId),
-    authGroups.get(origin.authGroupId), ipEntries.get(origin.ip)]) {
-    for (const request of entity?.requests || []) {
-      if (request.requestId !== origin.requestId) continue;
-      request.detectionResult = result;
-      updated = true;
-    }
-  }
-  return updated;
 }
 
 function getSession(sessionId) {
@@ -746,19 +711,6 @@ function aggregateDeceptionHistory(memberSessions) {
   };
 }
 
-function attackHistoryFromRequests(requests, maxAttackScore = 0) {
-  const holder = { attackHistory: emptyAttackHistory() };
-  for (const request of requests) recordCrsAttackHistory(holder, request.attackDetection, request.ts);
-  holder.attackHistory.maxAttackScore = maxAttackScore;
-  return holder.attackHistory;
-}
-
-function deceptionHistoryFromRequests(requests) {
-  const holder = { deceptionHistory: emptyDeceptionHistory() };
-  for (const request of requests) recordDeceptionHistory(holder, request.deceptionEvents, request.ts);
-  return holder.deceptionHistory;
-}
-
 function getResolvedActorAggregate(resolvedActorId, { includeProvisional = false } = {}) {
   const actor = actorResolver.getActor(resolvedActorId);
   if (!actor) return null;
@@ -774,7 +726,6 @@ function getResolvedActorAggregate(resolvedActorId, { includeProvisional = false
   const requests = [];
   for (const session of memberSessions) {
     for (const request of session.requests) {
-      if (request.resolvedActorId !== resolvedActorId) continue;
       const key = request.requestId || `${request.sessionId}\u0000${request.ts}\u0000${request.operation}`;
       if (requestIds.has(key)) continue;
       requestIds.add(key);
@@ -858,8 +809,8 @@ function getResolvedActorAggregate(resolvedActorId, { includeProvisional = false
     ),
     requests,
     memberSessions,
-    attackHistory: attackHistoryFromRequests(requests, actor.maxAttackScore || 0),
-    deceptionHistory: deceptionHistoryFromRequests(requests),
+    attackHistory: aggregateAttackHistory(memberSessions),
+    deceptionHistory: aggregateDeceptionHistory(memberSessions),
     aggregationPolicy: includeProvisional ? "CONFIRMED_AND_PROVISIONAL" : "CONFIRMED_ONLY",
   };
 }
@@ -882,11 +833,6 @@ function getResolutionStatus() {
     ...actorResolver.status(),
     fingerprintSimilarity: clientFlowStore.status(),
   };
-}
-
-function getResolvedActorByClientId(clientId) {
-  const actor = actorResolver.getActorByClientId(clientId);
-  return actor ? getResolvedActorAggregate(actor.id) : null;
 }
 
 function summarizeClientFlowGroup(group) {
@@ -993,7 +939,6 @@ module.exports = {
   getAllIpEntries,
   getIpEntry,
   getResolvedActorAggregate,
-  getResolvedActorByClientId,
   getAllResolvedActorAggregates,
   getResolutionMemberships,
   deactivateResolutionMembership,
@@ -1003,7 +948,6 @@ module.exports = {
   getClientFlowState,
   updateAttackScoreHistory,
   attachStoredXssFinding,
-  attachDetectionResult,
   emptyAttackHistory,
   emptyDeceptionHistory,
   recordDeceptionHistory,

@@ -2,7 +2,6 @@
 <html lang="ko" data-theme="dark">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
 <!-- 대시보드/뷰어 탭이 /favicon.ico를 Juice Shop 프록시로 보내 열람자가 탐지 대상으로
      기록되는 것을 막는다. 빈 data URI는 일부 브라우저가 무시하므로 실제 SVG를 넣는다. -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23243b53'/%3E%3Cpath d='M8 3l3.6 1.6v3.1c0 2.2-1.5 4-3.6 4.7-2.1-.7-3.6-2.5-3.6-4.7V4.6z' fill='%23e8eef4'/%3E%3C/svg%3E" />
@@ -44,22 +43,6 @@
   .header-button:hover,
   .export-link:hover { background:var(--hover); }
   .page { flex:1; min-height:0; display:flex; flex-direction:column; padding:16px 0 20px; }
-  .start-panel { flex-shrink:0; margin-bottom:12px; border:1px solid var(--border); background:var(--surface); }
-  .start-top { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 20px; padding:10px 16px; }
-  .start-target { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; min-width:0; font-size:12.5px; }
-  .start-target strong { color:var(--text); }
-  .start-target a { overflow-wrap:anywhere; }
-  .start-status { color:var(--muted); font-size:12px; }
-  .start-status.error { color:var(--red); }
-  .start-links { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
-  .start-links a { color:var(--blue); font-size:12.5px; font-weight:650; }
-  .start-help { border-top:1px solid var(--border); }
-  .start-help summary { cursor:pointer; padding:8px 16px; color:var(--navy); font-size:12.5px; font-weight:650; }
-  .start-help summary:hover { background:var(--hover); }
-  .start-help ol { display:flex; flex-wrap:wrap; gap:6px 28px; margin:0; padding:0 16px 10px 38px; color:var(--muted); font-size:12px; line-height:1.5; }
-  .start-help li { flex:1 1 220px; }
-  .start-help li strong { color:var(--text); }
-  .start-help p { margin:0; padding:0 16px 10px; color:var(--muted); font-size:12px; line-height:1.5; }
   .notice { margin:0 0 18px; padding:11px 13px; border-left:3px solid #607d98; background:var(--surface-muted); color:var(--muted); font-size:13.5px; line-height:1.55; }
   .header-stats { display:flex; align-items:baseline; gap:18px; margin-left:auto; color:var(--muted); font-size:12.5px; }
   .header-stats b { margin-right:3px; color:var(--text); font-size:19px; font-weight:650; font-variant-numeric:tabular-nums; }
@@ -99,7 +82,6 @@
   .detection-badge.attack { color:var(--red); border-color:var(--red); }
   .threshold-control { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; font-weight:650; white-space:nowrap; }
   .threshold-control select { padding:7px 9px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); }
-  .threshold-control { flex-wrap:wrap; }
 
   /* ── 용어 도움말 ─────────────────────────────────────────────── */
   .hint { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; margin-left:5px; border:1px solid var(--border-strong); border-radius:50%; color:var(--muted); font-size:9px; font-weight:700; cursor:help; vertical-align:1px; }
@@ -131,16 +113,13 @@
   .user-card:hover { background:var(--hover); }
   .user-card.selected { background:var(--surface); border-left-color:var(--select-border); box-shadow:inset 0 0 0 1px var(--select-border); }
   .user-card-top { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:7px; }
-  .user-card-title { display:block; margin-bottom:4px; color:var(--text); font-size:14px; font-weight:700; line-height:1.4; }
-  .user-card-evidence { display:block; margin-bottom:9px; color:var(--muted); font-size:12px; line-height:1.5; }
-  .user-card-id { display:block; margin-top:8px; font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .user-card-id { display:block; margin-bottom:9px; font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:13.5px; color:var(--text); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .badge { flex-shrink:0; padding:3px 8px; border:1px solid var(--border-strong); font-size:11px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; }
   .badge.confirmed { background:var(--badge-confirmed-bg); color:var(--badge-confirmed-fg); border-color:var(--badge-confirmed-border); }
   .badge.candidate { background:var(--badge-candidate-bg); color:var(--badge-candidate-fg); border-color:var(--badge-candidate-border); }
   .badge.neutral { background:var(--surface-muted); color:var(--muted); }
   .badge.danger { background:transparent; color:var(--red); border-color:var(--red); }
-  .user-card-scores { display:grid; grid-template-columns:1fr 1fr; gap:6px 14px; margin-top:9px; }
-  .user-card-score-scope { display:block; margin-top:5px; color:var(--muted); font-size:11px; line-height:1.4; }
+  .user-card-scores { display:grid; grid-template-columns:1fr 1fr; gap:6px 14px; margin-bottom:8px; }
   .mini-score { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--muted); }
   .mini-score .mini-label { width:40px; flex-shrink:0; font-weight:700; }
   .mini-score .score-bar { width:100%; }
@@ -162,15 +141,6 @@
   .detail-stats .ds i { color:var(--muted); font-style:normal; font-size:12px; font-weight:600; }
   .detail-stats .ds b { color:var(--text); font-size:16px; font-weight:650; font-variant-numeric:tabular-nums; }
   .detail-stats .score { min-width:auto; }
-  .evidence-overview { flex-shrink:0; padding:13px 22px; border-bottom:1px solid var(--border); background:var(--surface-muted); }
-  .evidence-overview-head { display:flex; align-items:center; flex-wrap:wrap; gap:9px; margin-bottom:6px; }
-  .evidence-overview-head h3 { margin:0; font-size:13px; }
-  .evidence-overview p { margin:4px 0 0; color:var(--muted); font-size:12.5px; line-height:1.5; }
-  .evidence-overview .evidence-lead { color:var(--text); font-weight:600; }
-  .evidence-points { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
-  .evidence-point { padding:4px 8px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); font-size:11.5px; line-height:1.4; }
-  .evidence-point.observed { color:var(--muted); }
-  .evidence-point.conflict { border-color:var(--red); color:var(--red); }
 
   .relation { flex-shrink:0; padding:8px 22px 10px; border-bottom:1px solid var(--border); }
   .relation-row { display:flex; align-items:baseline; gap:12px; padding:5px 0; }
@@ -192,8 +162,6 @@
   .node-chip { display:inline-flex; align-items:center; gap:6px; padding:5px 9px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:12.5px; cursor:pointer; }
   .node-chip:hover { background:var(--hover); border-color:var(--select-border); }
   .node-chip.active { background:var(--select-bg); border-color:var(--select-border); }
-  .node-chip.unavailable { cursor:default; opacity:.7; }
-  .node-chip.unavailable:hover { background:var(--surface); border-color:var(--border-strong); }
   .node-chip .dot { width:8px; height:8px; flex-shrink:0; }
   .node-chip .chip-status { font-family:inherit; font-size:11px; color:var(--muted); }
 
@@ -276,15 +244,15 @@
     .workspace { display:block; }
     .tab-panel.active { display:block; }
     .header-inner,.page { width:min(100% - 24px,1760px); }
-    .header-inner { align-items:flex-start; flex-wrap:wrap; gap:10px 16px; padding:15px 0; }
-    .header-stats { order:2; width:100%; margin-left:0; gap:8px 14px; flex-wrap:wrap; }
-    .header-actions { order:3; width:100%; flex-direction:row; align-items:center; flex-wrap:wrap; gap:8px; }
+    .header-inner { align-items:flex-start; padding:15px 0; }
+    .header-inner { flex-wrap:wrap; }
+    .header-stats { margin-left:0; }
+    .header-actions { flex-direction:column; align-items:flex-end; gap:8px; }
     .users-layout { grid-template-columns:minmax(0,1fr); }
     .users-list-pane { border-right:0; border-bottom:1px solid var(--border); }
     .user-list { max-height:340px; }
     .timeline-body { max-height:60vh; }
     .relation-row { flex-direction:column; gap:4px; }
-    .evidence-overview { padding:13px 14px; }
     .score-grid { grid-template-columns:1fr; }
     .modal-backdrop { padding:8px; }
     .modal { max-height:calc(100vh - 16px); }
@@ -307,11 +275,11 @@
         <span class="header-stats-sub" id="summaryResolvedActorsSub"></span>
       </div>
       <div class="header-actions">
-        <label class="threshold-control" for="detectionLevel" title="이 선택은 화면의 식별 표시만 바꾸며 방어 정책에는 영향을 주지 않습니다.">화면 표시 기준
+        <label class="threshold-control" for="detectionLevel">판정 기준
           <select id="detectionLevel">
-            <option value="low">낮음 · 30점</option>
-            <option value="medium" selected>보통 · 50점</option>
-            <option value="high">높음 · 70점</option>
+            <option value="low">LOW · 30점</option>
+            <option value="medium" selected>MEDIUM · 50점</option>
+            <option value="high">HIGH · 70점</option>
           </select>
         </label>
         <span class="refresh-note">2초 간격 자동 갱신</span>
@@ -323,21 +291,6 @@
   </header>
 
   <main class="page">
-    <section class="start-panel" aria-label="처음 보는 분을 위한 안내">
-      <div class="start-top">
-        <div class="start-target"><strong>선택된 공개 경로</strong><a id="publicTargetLink" href="/" hidden></a><span id="publicTargetFallback">확인 중…</span><span class="start-status" id="detectionDataStatus" role="status" aria-live="polite">탐지 기록 연결 확인 중</span></div>
-        <div class="start-links"><a href="/__defense/dashboard">방어 결과 보기 →</a></div>
-      </div>
-      <details class="start-help" id="startHelp" open>
-        <summary>처음 보는 분: 요청과 방어 결과 확인 방법</summary>
-        <ol>
-          <li><strong>공개 경로에서 사이트 열기</strong> · 실제 요청을 한 번 보냅니다.</li>
-          <li><strong>흐름 선택하기</strong> · 점수와 연결 근거, 요청 ID를 확인합니다.</li>
-          <li><strong>방어 결과 대조하기</strong> · 방어 화면에서 같은 요청 ID의 전략과 결과를 봅니다.</li>
-        </ol>
-        <p>점수는 0–100 범위의 관찰 지표이며 공격 성공 확률이 아닙니다. 상단의 화면 표시 기준은 배지만 바꾸고 실제 방어 정책은 바꾸지 않습니다. 수치는 현재 보관된 기록으로, 기간 전체 집계가 아닙니다.</p>
-      </details>
-    </section>
     <section class="workspace">
       <nav class="tabs" role="tablist" aria-label="집계 단위">
         <button class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="panel-users" data-tab="users">클라이언트 흐름<span class="tab-count" id="usersTabCount">0</span></button>
@@ -351,7 +304,6 @@
         <div class="users-layout">
           <aside class="users-list-pane">
             <div class="list-toolbar">
-              <p class="sub" style="margin:0;">단서별 요청 흐름입니다. 서명 ID는 클라이언트 연속성만 확인합니다. 확정 흐름은 후보 흐름에도 함께 보일 수 있으므로 요청 수를 합산하지 마세요. 후보 흐름의 점수는 개별 서명 ID의 방어 판단이 아닙니다.</p>
               <input class="search-input" type="search" id="userSearch" placeholder="ID · IP 검색" aria-label="클라이언트 흐름 검색" />
               <div class="toolbar-row">
                 <select class="select-input" id="userSort" aria-label="정렬 기준">
@@ -364,16 +316,16 @@
                 </select>
                 <select class="select-input" id="userRisk" aria-label="위험 신호 필터">
                   <option value="all">위험 신호 전체</option>
-                  <option value="automation-detected">자동화 점수 기준 이상</option>
-                  <option value="attack-detected">공격 점수 기준 이상</option>
-                  <option value="both-detected">자동화·공격 점수 기준 이상</option>
+                  <option value="automation-detected">AI 접근 식별</option>
+                  <option value="attack-detected">공격 식별</option>
+                  <option value="both-detected">AI 접근 + 공격 식별</option>
                   <option value="attack">공격 이력만</option>
                   <option value="honey">허니 신호만</option>
                 </select>
               </div>
               <div class="filter-chips" id="userIdentityFilters" role="group" aria-label="확인 상태 필터">
                 <button class="chip-button active" type="button" data-identity="all">전체</button>
-                <button class="chip-button" type="button" data-identity="confirmed">서명 ID 확인</button>
+                <button class="chip-button" type="button" data-identity="confirmed">연속성 확정</button>
                 <button class="chip-button" type="button" data-identity="heuristic">휴리스틱 흐름</button>
               </div>
             </div>
@@ -471,7 +423,6 @@ const state = {
   selected: null,          // { kind, id }
   userSelectionTouched: false, // 사용자가 직접 목록을 고른 뒤에는 자동 선택하지 않는다.
   userDetail: null,        // 선택된 흐름의 상세 응답
-  detailLoadGeneration: 0,
   userQuery: '',
   userSort: 'lastSeen',
   identityFilter: 'all',
@@ -656,7 +607,7 @@ function escapeHtml(value) {
   })[ch]);
 }
 
-function scoreNumber(value) { return Math.floor((Number(value) || 0) * 10000) / 100; }
+function scoreNumber(value) { return Math.round((Number(value) || 0) * 100); }
 const DETECTION_THRESHOLDS = { low: 30, medium: 50, high: 70 };
 function detectionThreshold() {
   return DETECTION_THRESHOLDS[state.detectionLevel] || DETECTION_THRESHOLDS.medium;
@@ -675,23 +626,13 @@ function detectionFor(entity) {
     attackDetected: maxAttackScore >= threshold,
   };
 }
-function detectionLabel(kind, scope = 'observed') {
-  if (scope === 'heuristic') return kind === 'automation' ? '후보 흐름 자동화 신호' : '후보 흐름 공격 신호';
-  if (scope === 'confirmed') return kind === 'automation' ? 'AI 접근 식별' : '공격 식별';
-  return kind === 'automation' ? '자동화 점수 기준 이상' : '공격 점수 기준 이상';
-}
-function detectionScopeNote(scope) {
-  if (scope === 'heuristic') return '후보 흐름 전체의 관찰 점수입니다. 여러 서명 ID의 요청이 포함될 수 있으며 개별 클라이언트의 방어 적용을 뜻하지 않습니다.';
-  if (scope === 'confirmed') return '서명 ID로 확인된 클라이언트의 관찰 점수입니다. 실제 방어 적용은 방어 화면에서 요청 ID로 확인하세요.';
-  return '이 행의 관찰 점수입니다. 개별 클라이언트 판정이나 방어 적용을 뜻하지 않습니다.';
-}
-function detectionBadge(kind, detected, scope = 'observed') {
+function detectionBadge(kind, detected) {
   if (!detected) return '';
-  return `<span class="detection-badge ${kind}" title="${detectionScopeNote(scope)}">${detectionLabel(kind, scope)}</span>`;
+  return `<span class="detection-badge ${kind}">${kind === 'automation' ? 'AI 접근 식별' : '공격 식별'}</span>`;
 }
-function scoreCell(value, kind, detected = false, scope = 'observed') {
+function scoreCell(value, kind, detected = false) {
   const score = scoreNumber(value);
-  return `<span class="score"><span class="score-bar"><span class="score-fill ${kind}" style="width:${score}%"></span></span>${score}${detectionBadge(kind, detected, scope)}</span>`;
+  return `<span class="score"><span class="score-bar"><span class="score-fill ${kind}" style="width:${score}%"></span></span>${score}${detectionBadge(kind, detected)}</span>`;
 }
 function miniScore(label, value, kind, detected = false) {
   const score = scoreNumber(value);
@@ -874,24 +815,33 @@ function buildActorFlowPresentation(resolvedActors, actors) {
   const pendingIds = new Set(
     resolvedActors.filter(actor => !actor.continuityConfirmed).map(actor => actor.resolvedActorId)
   );
+  const suppressedConfirmedIds = new Set();
   const mixedFlows = [];
 
   for (const candidate of actors) {
     const resolvedIds = [...new Set(candidate.resolvedActorIds || [])];
     const hasPending = resolvedIds.some(id => pendingIds.has(id));
-    const hasUnresolvedRequests = Number(candidate.unresolvedRequestCount || 0) > 0;
     const confirmedActors = resolvedIds
       .map(id => resolvedById.get(id))
       .filter(actor => actor?.continuityConfirmed);
-    // 확정 Actor는 항상 별도 행으로 남긴다. 미확정 요청이나 다른 서명 ID가
-    // 섞인 후보는 추가 흐름으로 보여 주되, 확정 신원 경계를 합치지 않는다.
-    if (!hasPending && !hasUnresolvedRequests && resolvedIds.length === 1 && confirmedActors.length === 1) continue;
-    mixedFlows.push({ candidate, confirmedActors });
+    // 확정 Actor 하나만 존재하면 그 신원 경계를 그대로 대표 흐름으로 사용한다.
+    // 쿠키 삭제 등으로 확정 Actor가 여러 개 생겼거나 미확정 세션이 섞였을 때는
+    // 신원을 병합하지 않고 상위 Client Flow 한 행에서 하위 흐름으로 연결한다.
+    if (!hasPending && resolvedIds.length === 1 && confirmedActors.length === 1) continue;
+    for (const confirmed of confirmedActors) suppressedConfirmedIds.add(confirmed.resolvedActorId);
+    const confirmedRequests = Math.min(
+      Number(candidate.totalRequests) || 0,
+      confirmedActors.reduce((sum, actor) => sum + Number(actor.totalRequests || 0), 0)
+    );
+    const unresolvedRequests = Math.max(0, Number(candidate.totalRequests || 0) - confirmedRequests);
+    mixedFlows.push({ candidate, confirmedActors, confirmedRequests, unresolvedRequests });
   }
 
   return {
     mixedFlows,
-    confirmedActors: resolvedActors.filter(actor => actor.continuityConfirmed),
+    standaloneConfirmed: resolvedActors.filter(
+      actor => actor.continuityConfirmed && !suppressedConfirmedIds.has(actor.resolvedActorId)
+    ),
   };
 }
 
@@ -899,17 +849,9 @@ function buildActorFlowPresentation(resolvedActors, actors) {
    표시한다. Client Flow는 동일인 확정이 아니라 시간순 요청 연속성 집계다. */
 function buildUserRows(resolvedActors, actors, clientFlows = []) {
   const presentation = buildActorFlowPresentation(resolvedActors, actors);
-  const confirmedInCandidateFlow = new Set(presentation.mixedFlows.flatMap(flow =>
-    flow.confirmedActors.map(actor => actor.resolvedActorId)
-  ));
-  const confirmedInClientFlow = new Set(clientFlows.flatMap(group =>
-    group.flowLinked ? (group.resolvedActorIds || []) : []
-  ));
   const rows = [];
 
-  for (const actor of presentation.confirmedActors) {
-    const alsoInCandidateFlow = confirmedInCandidateFlow.has(actor.resolvedActorId)
-      || confirmedInClientFlow.has(actor.resolvedActorId);
+  for (const actor of presentation.standaloneConfirmed) {
     rows.push({
       kind: 'resolved-actors',
       id: actor.resolvedActorId,
@@ -935,7 +877,7 @@ function buildUserRows(resolvedActors, actors, clientFlows = []) {
         ...(actor.candidateIds || []),
         ...(actor.observedIps || []),
       ],
-      note: `서명 ID 확인 세션 ${Number(actor.confirmedMembershipCount || 0)}개${Number(actor.provisionalMembershipCount || 0) ? ` · 잠정 연결 ${Number(actor.provisionalMembershipCount)}개` : ''}${alsoInCandidateFlow ? ' · 후보 흐름에도 표시' : ''}`,
+      note: '',
     });
   }
 
@@ -966,6 +908,8 @@ function buildUserRows(resolvedActors, actors, clientFlows = []) {
       attackHistory: candidate.attackHistory,
       deceptionHistory: candidate.deceptionHistory,
       linkedResolvedIds: flow.confirmedActors.map(actor => actor.resolvedActorId),
+      confirmedRequests: flow.confirmedRequests,
+      unresolvedRequests: flow.unresolvedRequests,
       fingerprint: candidate.fingerprint,
       relatedIds: [
         candidate.actorId,
@@ -974,21 +918,25 @@ function buildUserRows(resolvedActors, actors, clientFlows = []) {
         ...flow.confirmedActors.map(actor => actor.resolvedActorId),
       ],
       note: flow.confirmedActors.length > 1
-        ? `서명 ID 흐름 ${flow.confirmedActors.length}개는 별도 유지`
-        : flow.confirmedActors.length === 1
-          ? '서명 ID 흐름과 미확정 흐름을 같은 후보에서 관찰'
-          : '서명 ID 확인 전 · 후보 단서만 관찰',
+        ? `분리된 DCID 흐름 ${flow.confirmedActors.length}개를 요청 흐름으로 연결`
+        : `확정 ${flow.confirmedRequests} + 미확정 ${flow.unresolvedRequests}`,
     });
   }
 
   const flowCandidateIds = new Set(
     clientFlows.flatMap(group => group.flowLinked ? (group.candidateIds || []) : [])
   );
+  const flowResolvedIds = new Set(
+    clientFlows.flatMap(group => group.flowLinked ? (group.resolvedActorIds || []) : [])
+  );
   const visibleRows = rows.filter(row =>
-    !(row.kind === 'actors' && flowCandidateIds.has(row.id))
+    !(row.kind === 'actors' && flowCandidateIds.has(row.id)) &&
+    !(row.kind === 'resolved-actors' && flowResolvedIds.has(row.id))
   );
   for (const group of clientFlows) {
     if (!group.flowLinked && group.status !== 'CONFLICT') continue;
+    const scores = (group.links || []).map(link => Number(link.score || 0));
+    const lowestScore = scores.length ? Math.min(...scores) : 0;
     visibleRows.push({
       kind: 'client-flows',
       id: group.clientFlowId,
@@ -1008,14 +956,12 @@ function buildUserRows(resolvedActors, actors, clientFlows = []) {
       lastSeen: group.lastSeen,
       attackHistory: group.attackHistory,
       deceptionHistory: group.deceptionHistory,
-      verifiedClientCount: Number(group.verifiedClientCount || 0),
-      linkCount: (group.links || []).length,
       relatedIds: [group.clientFlowId, ...(group.candidateIds || []), ...(group.resolvedActorIds || []), ...(group.observedIps || [])],
       note: group.status === 'CONFLICT'
         ? 'Fingerprint 충돌 · 자동 합산 중단'
         : group.candidateCount > 1
-          ? `후보 ${group.candidateCount}개 · 지문 연결 ${(group.links || []).length}건${Number(group.verifiedClientCount || 0) > 1 ? ` · 서명 ID ${group.verifiedClientCount}개는 별도` : ''}`
-          : '같은 후보의 세션 요청을 함께 표시',
+          ? `Fingerprint 연관 ${lowestScore.toFixed(0)}점 이상 · 흐름 자동 연결`
+          : `동일 Candidate의 세션·DCID 흐름 연결`,
     });
   }
   return visibleRows;
@@ -1046,20 +992,10 @@ function filterAndSortUsers(rows) {
   return filtered.sort(sorters[state.userSort] || sorters.lastSeen);
 }
 
-function userCardTitle(row) {
-  if (row.kind === 'resolved-actors') return '서명 ID가 확인된 방문 흐름';
-  if (row.status === 'CONFLICT') return '연결 근거가 충돌한 흐름';
-  if (row.kind === 'client-flows') return '지문 단서로 연결한 요청 흐름';
-  return '후보 클라이언트의 요청 흐름';
-}
-
 function renderUserList() {
   const rows = filterAndSortUsers(state.users);
   const list = document.getElementById('userList');
   const scrollTop = list.scrollTop;
-  const focusedCard = document.activeElement?.closest?.('.user-card');
-  const focusedKind = focusedCard?.dataset.userKind;
-  const focusedId = focusedCard?.dataset.userId;
 
   document.getElementById('userListMeta').textContent = rows.length === state.users.length
     ? `${rows.length.toLocaleString()}개 흐름`
@@ -1067,15 +1003,14 @@ function renderUserList() {
 
   list.innerHTML = rows.map(row => {
     const detection = detectionFor(row);
-    const scoreScope = row.identity === 'confirmed' ? 'confirmed' : 'heuristic';
     const selected = state.selected && state.selected.kind === row.kind && state.selected.id === row.id;
     const badgeTitle = `확인 상태 ${statusText(row.status)}${row.note ? ` · ${row.note}` : ''}`;
     const badge = row.identity === 'confirmed'
-      ? `<span class="badge confirmed" title="${escapeHtml(badgeTitle)}">서명 ID 확인</span>`
+      ? `<span class="badge confirmed" title="${escapeHtml(badgeTitle)}">연속성 확정</span>`
       : `<span class="badge candidate" title="${escapeHtml(badgeTitle)}">클라이언트 흐름</span>`;
     const flags = [
-      detection.automationDetected ? `<span class="badge neutral" title="현재 Automation Score ${detection.automationScore}점 ≥ ${detection.threshold}점 · ${detectionScopeNote(scoreScope)}">${detectionLabel('automation', scoreScope)}</span>` : '',
-      detection.attackDetected ? `<span class="badge danger" title="최고 Attack Score ${detection.maxAttackScore}점 ≥ ${detection.threshold}점 · ${detectionScopeNote(scoreScope)}">${detectionLabel('attack', scoreScope)}</span>` : '',
+      detection.automationDetected ? `<span class="badge neutral" title="현재 Automation Score ${detection.automationScore}점 ≥ ${detection.threshold}점">AI 접근 식별</span>` : '',
+      detection.attackDetected ? `<span class="badge danger" title="최고 Attack Score ${detection.maxAttackScore}점 ≥ ${detection.threshold}점">공격 식별</span>` : '',
       row.deceptionHistory?.hasEvidence ? '<span class="badge neutral" title="허니 신호가 관찰되었습니다.">허니</span>' : '',
     ].join('');
     return `<button type="button" class="user-card${selected ? ' selected' : ''}" data-user-kind="${escapeHtml(row.kind)}" data-user-id="${escapeHtml(row.id)}" aria-pressed="${selected ? 'true' : 'false'}">
@@ -1083,51 +1018,32 @@ function renderUserList() {
         ${badge}
         ${flags}
       </span>
-      <span class="user-card-title">${escapeHtml(userCardTitle(row))}</span>
-      <span class="user-card-evidence">${escapeHtml(row.note || '관찰된 요청 단서')}${row.identity === 'confirmed' ? ' · 같은 사람인지 미확인' : ' · 동일 클라이언트 미확정'}</span>
+      <span class="user-card-id" title="${escapeHtml(row.id)}">${escapeHtml(shortId(row.id, 30))}</span>
+      <span class="user-card-scores">
+        ${miniScore('자동화', row.automationScore, 'automation', detection.automationDetected)}
+        ${miniScore('공격', detection.maxAttackScore / 100, 'attack', detection.attackDetected)}
+      </span>
       <span class="user-card-facts">
         <span>요청 <b>${row.totalRequests.toLocaleString()}</b></span>
         <span>세션 <b>${row.sessionCount.toLocaleString()}</b></span>
-        <span>최근 <b>${escapeHtml(formatRelative(row.lastSeen))}</b></span>
         <span>최초 <b>${escapeHtml(formatClock(row.firstSeen))}</b></span>
+        <span>최근 <b>${escapeHtml(formatRelative(row.lastSeen))}</b></span>
       </span>
-      <span class="user-card-scores">
-        ${miniScore('자동화', row.automationScore, 'automation')}
-        ${miniScore('공격', detection.maxAttackScore / 100, 'attack')}
-      </span>
-      ${row.identity === 'heuristic' ? '<span class="user-card-score-scope">후보 흐름 전체의 관찰 점수 · 개별 서명 ID의 방어 판단과 다를 수 있음</span>' : ''}
-      <span class="user-card-id" title="${escapeHtml(row.id)}">흐름 ID ${escapeHtml(shortId(row.id, 24))}</span>
       ${row.backgroundRequests > 0 ? `<span class="sub">점수 분석 ${row.behaviorAnalyzedRequests.toLocaleString()} · 백그라운드 ${row.backgroundRequests.toLocaleString()}</span>` : ''}
     </button>`;
-  }).join('') || (state.users.length
-    ? '<p class="empty" style="padding:20px 16px;">검색·필터와 일치하는 흐름이 없습니다. 조건을 바꿔 보세요.</p>'
-    : '<p class="empty" style="padding:20px 16px;">아직 관찰된 흐름이 없습니다. 위의 공개 경로에서 사이트를 열고 요청을 보낸 뒤 확인하세요.</p>');
+  }).join('') || '<p class="empty" style="padding:20px 16px;">조건에 맞는 클라이언트 흐름이 없습니다.</p>';
 
+  list.scrollTop = scrollTop;
   list.querySelectorAll('.user-card').forEach(card => {
     card.addEventListener('click', () => {
       state.userSelectionTouched = true;
-      selectUser(card.dataset.userKind, card.dataset.userId).then(() => {
-        if (window.matchMedia('(max-width:900px)').matches) {
-          document.getElementById('userDetail').scrollIntoView({ behavior:'smooth', block:'start' });
-        }
-      });
+      selectUser(card.dataset.userKind, card.dataset.userId);
     });
   });
-  if (focusedKind && focusedId) {
-    [...list.querySelectorAll('.user-card')]
-      .find(card => card.dataset.userKind === focusedKind && card.dataset.userId === focusedId)
-      ?.focus({ preventScroll: true });
-  }
-  list.scrollTop = scrollTop;
 }
 
 async function selectUser(kind, id, { keepTimelineFilters = false } = {}) {
-  const changed = state.selected?.kind !== kind || state.selected?.id !== id;
   state.selected = { kind, id };
-  if (changed) {
-    state.userDetail = null;
-    document.getElementById('userDetail').innerHTML = '<p class="detail-empty">선택한 흐름의 근거를 불러오는 중입니다.</p>';
-  }
   state.connectionDetailsExpanded = false;
   if (!keepTimelineFilters) {
     state.timelineQuery = '';
@@ -1142,19 +1058,15 @@ async function selectUser(kind, id, { keepTimelineFilters = false } = {}) {
 async function loadUserDetail() {
   if (!state.selected) return;
   const { kind, id } = state.selected;
-  const generation = ++state.detailLoadGeneration;
   try {
     const response = await fetch(`/__detection/api/${kind}/${encodeURIComponent(id)}`);
-    if (generation !== state.detailLoadGeneration || state.selected?.kind !== kind || state.selected?.id !== id) return;
     if (!response.ok) {
       state.userDetail = null;
       document.getElementById('userDetail').innerHTML =
         '<p class="detail-empty">선택한 흐름의 상세 데이터를 찾을 수 없습니다. 목록이 갱신되었을 수 있습니다.</p>';
       return;
     }
-    const detail = await response.json();
-    if (generation !== state.detailLoadGeneration || state.selected?.kind !== kind || state.selected?.id !== id) return;
-    state.userDetail = detail;
+    state.userDetail = await response.json();
     renderUserDetail();
   } catch (_) {
     // 자동 갱신 중 일시적인 통신 오류는 기존 화면을 유지한다.
@@ -1171,7 +1083,7 @@ function buildSessionNodes(detail, kind) {
   for (const request of requests) {
     const sessionId = request.sessionId || '(unknown)';
     if (!byId.has(sessionId)) {
-      byId.set(sessionId, { sessionId, requestCount: 0, firstSeen: request.ts, lastSeen: request.ts, status: null, confidence: null, candidateId: request.actorId || null, timelineAvailable: true });
+      byId.set(sessionId, { sessionId, requestCount: 0, firstSeen: request.ts, lastSeen: request.ts, status: null, confidence: null, candidateId: request.actorId || null });
       order.push(sessionId);
     }
     const node = byId.get(sessionId);
@@ -1190,7 +1102,6 @@ function buildSessionNodes(detail, kind) {
           status: membership.status,
           confidence: membership.confidence,
           candidateId: membership.candidateId || null,
-          timelineAvailable: false,
         });
         order.push(membership.sessionId);
       } else {
@@ -1210,7 +1121,6 @@ function isFlaggedRequest(request) {
   return Boolean(
     (request.deceptionEvents || []).length ||
     (request.tags || []).length ||
-    request.responseTransportOutcome === 'error' ||
     Number(request.attackDetection?.anomalyScore || 0) > 0 ||
     Number(request.status) >= 400
   );
@@ -1255,12 +1165,6 @@ function renderRelation(detail, kind, sessionNodes) {
   const sessionChips = sessionNodes.map(node => {
     const active = state.timelineSession === node.sessionId;
     const status = node.status ? `\n연결 상태 ${statusText(node.status)}` : '';
-    if (!node.timelineAvailable) {
-      return `<span class="node-chip unavailable" title="${escapeHtml(node.sessionId)}${escapeHtml(status)}&#10;이 세션의 요청은 선택한 흐름의 타임라인에 포함되지 않습니다.">
-        <span class="dot" style="background:${node.color}"></span>#${node.index} ${escapeHtml(shortId(node.sessionId, 8))}
-        <span class="chip-status">타임라인 없음</span>
-      </span>`;
-    }
     return `<button type="button" class="node-chip${active ? ' active' : ''}" data-session-filter="${escapeHtml(node.sessionId)}" title="이 세션만 타임라인에 표시&#10;${escapeHtml(node.sessionId)}${escapeHtml(status)}">
       <span class="dot" style="background:${node.color}"></span>#${node.index} ${escapeHtml(shortId(node.sessionId, 8))}
       <span class="chip-status">${node.requestCount}</span>
@@ -1272,7 +1176,7 @@ function renderRelation(detail, kind, sessionNodes) {
     ? `<div class="relation-row"><span class="relation-key">후보 클라이언트 ${candidateIds.length}</span><span class="relation-chips">${candidateChips}</span></div>`
     : '';
   const linkedRow = linkedResolvedIds.length
-    ? `<div class="relation-row"><span class="relation-key" title="첫 요청에서 생성된 잠정 연결도 포함될 수 있습니다. 서명 ID 확인 여부는 해당 기록에서 확인하세요.">연결된 행위자 기록</span><span class="relation-chips">${linkedResolvedIds.map(id =>
+    ? `<div class="relation-row"><span class="relation-key">연결된 확정 흐름</span><span class="relation-chips">${linkedResolvedIds.map(id =>
         `<button type="button" class="node-chip" data-open-kind="resolved-actors" data-open-id="${escapeHtml(id)}" title="${escapeHtml(id)}">${escapeHtml(shortId(id, 14))}</button>`).join('')}</span></div>`
     : '';
 
@@ -1289,96 +1193,19 @@ function renderRelation(detail, kind, sessionNodes) {
   </div>`;
 }
 
-const fingerprintFieldNames = {
-  ip: 'IP 관찰',
-  userAgentFamily: '브라우저 종류',
-  userAgentVersion: '브라우저 버전',
-  userAgentRaw: '전체 User-Agent',
-  primaryLanguage: '기본 언어',
-  acceptEncodings: '응답 인코딩',
-  clientHints: '브라우저 힌트',
-  headerOrder: 'HTTP 헤더 순서',
-};
-
-function fingerprintFieldsText(fields) {
-  return [...new Set(fields || [])].map(field => fingerprintFieldNames[field] || field).join(' · ') || '없음';
-}
-
-function renderEvidenceOverview(detail, kind, sessionNodes) {
-  const isResolved = kind === 'resolved-actors';
-  const isClientFlow = kind === 'client-flows';
-  const ips = detail.observedIps || (detail.ip ? [detail.ip] : []);
-  const points = [];
-  let lead;
-  let limit;
-  let badge;
-
-  if (isResolved) {
-    const confirmed = Number(detail.confirmedMembershipCount || 0);
-    const provisional = Number(detail.provisionalMembershipCount || 0);
-    const verifiedAccounts = (detail.accountAffiliations || []).filter(item => item.verified).length;
-    if (detail.continuityConfirmed) {
-      badge = '<span class="badge confirmed">서명 ID 근거</span>';
-      lead = '서명된 클라이언트 ID가 방문 연속성의 확인 근거입니다.';
-      points.push({ text: `서명 ID ${(detail.clientIds || []).length}개` });
-      points.push({ text: `확정 연결 세션 ${confirmed}개` });
-      if (provisional) points.push({ text: `잠정 연결 세션 ${provisional}개`, tone: 'observed' });
-      if (verifiedAccounts) points.push({ text: `확인된 계정 단서 ${verifiedAccounts}개`, tone: 'observed' });
-      limit = '함께 표시된 모든 세션이나 실제 사람의 동일성까지 확인된 것은 아닙니다.';
-    } else {
-      badge = '<span class="badge candidate">연속성 미확인</span>';
-      lead = '클라이언트 기록은 있지만 서명 ID로 방문 연속성이 아직 확인되지 않았습니다.';
-      if ((detail.clientIds || []).length) points.push({ text: `관찰된 클라이언트 ID ${(detail.clientIds || []).length}개`, tone: 'observed' });
-      if (provisional) points.push({ text: `잠정 연결 세션 ${provisional}개`, tone: 'observed' });
-      if (verifiedAccounts) points.push({ text: `확인된 계정 단서 ${verifiedAccounts}개`, tone: 'observed' });
-      limit = '처음 발급된 ID가 반환되기 전에는 방문 연속성이나 실제 사람의 동일성을 확정할 수 없습니다.';
-    }
-  } else if (isClientFlow) {
-    const links = detail.links || [];
-    const latest = links[links.length - 1];
-    const verified = Number(detail.verifiedClientCount || 0);
-    badge = detail.status === 'CONFLICT'
-      ? '<span class="badge danger">연결 충돌</span>'
-      : '<span class="badge candidate">지문 단서</span>';
-    lead = detail.status === 'CONFLICT'
-      ? '지문 연결에 충돌 근거가 있어 자동 점수 합산이 중단된 흐름입니다.'
-      : 'HTTP 지문 유사성과 요청 시각으로 후보 흐름을 함께 표시합니다.';
-    points.push({ text: `후보 클라이언트 ${(detail.candidateIds || []).length}개` });
-    points.push({ text: `지문 연결 ${links.length}건` });
-    if (latest?.matchedFields?.length) points.push({ text: `최근 연결 일치: ${fingerprintFieldsText(latest.matchedFields)}` });
-    if (latest?.changedFields?.length) points.push({ text: `최근 연결 변경: ${fingerprintFieldsText(latest.changedFields)}`, tone: 'observed' });
-    if (verified > 1) points.push({ text: `서명 ID ${verified}개는 별도`, tone: 'conflict' });
-    limit = '지문 유사도는 동일인 확률이 아닙니다. 흐름 점수는 각 서명 ID의 정책 점수가 아니며, 서로 다른 서명 ID는 별도 클라이언트로 유지합니다.';
-  } else {
-    const resolved = new Set(detail.resolvedActorIds || []);
-    badge = '<span class="badge candidate">관찰 단서</span>';
-    lead = 'IP와 HTTP 헤더 지문으로 묶은 후보 클라이언트의 요청입니다.';
-    points.push({ text: `세션 ${sessionNodes.length}개` });
-    if (resolved.size) points.push({ text: `연결된 행위자 기록 ${resolved.size}개${resolved.size > 1 ? '는 별도' : ''}`, tone: resolved.size > 1 ? 'conflict' : 'observed' });
-    limit = '연결된 기록에는 첫 요청의 잠정 연결도 포함될 수 있습니다. IP와 헤더 정보만으로 같은 클라이언트나 사람이라고 확정할 수 없습니다.';
-  }
-  if (ips.length) points.push({ text: `IP ${ips.length}개 관찰`, tone: 'observed' });
-  return `<section class="evidence-overview" aria-label="연결 근거 요약">
-    <div class="evidence-overview-head"><h3>이 흐름을 묶은 근거</h3>${badge}</div>
-    <p class="evidence-lead">${escapeHtml(lead)}</p>
-    <div class="evidence-points">${points.map(point => `<span class="evidence-point${point.tone ? ` ${point.tone}` : ''}">${escapeHtml(point.text)}</span>`).join('')}</div>
-    <p>${escapeHtml(limit)}</p>
-  </section>`;
-}
-
 function renderFingerprintSimilarity(detail) {
   const links = detail.links || detail.clientFlow?.links || [];
   if (!links.length) return '';
   const items = links.map(link => `<div class="path-item">
     <div class="meta">Fingerprint 연관 점수 <b>${Number(link.score || 0).toFixed(1)}/100</b> · 판정 ${escapeHtml(link.decision || '—')} · ${escapeHtml(link.reason || '—')}</div>
     <div class="url"><code>${escapeHtml(shortId(link.fromCandidateId, 18))}</code> → <code>${escapeHtml(shortId(link.toCandidateId, 18))}</code></div>
-    <div class="meta">일치: ${escapeHtml(fingerprintFieldsText(link.matchedFields))}</div>
-    <div class="meta">변경: ${escapeHtml(fingerprintFieldsText(link.changedFields))}</div>
-    <div class="meta">비교 제외: ${escapeHtml(fingerprintFieldsText(link.ignoredFields))}</div>
+    <div class="meta">일치: ${escapeHtml((link.matchedFields || []).join(', ') || '—')}</div>
+    <div class="meta">변경: ${escapeHtml((link.changedFields || []).join(', ') || '—')}</div>
+    <div class="meta">비교 제외: ${escapeHtml((link.ignoredFields || []).join(', ') || '—')}</div>
   </div>`).join('');
   const beforeAttack = detail.preMergeAttackScore === undefined ? ''
     : `<p class="sub">연결 전 최고 Attack ${scoreNumber(detail.preMergeAttackScore)}점 → Client Flow 연결 후 ${scoreNumber(detail.attackScore)}점 · 연결 전 최고 Automation ${scoreNumber(detail.preMergeAutomationScore)}점 → 연결 후 ${scoreNumber(detail.automationScore)}점</p>`;
-  return `<div class="panel"><h3>Fingerprint 유사도 · ${escapeHtml(detail.similarityVersion || 'fingerprint-similarity-v1')}</h3><p class="sub">0–100은 관찰 단서의 유사도 점수이며 동일인 확률이 아닙니다.</p>${beforeAttack}${items}</div>`;
+  return `<div class="panel"><h3>Fingerprint 유사도 · ${escapeHtml(detail.similarityVersion || 'fingerprint-similarity-v1')}</h3>${beforeAttack}${items}</div>`;
 }
 
 /* 세션·연결 흐름이 많아도 요청 타임라인이 먼저 보이도록, 관계 근거는 접어서 제공한다. */
@@ -1399,7 +1226,7 @@ function renderConnectionDetails(detail, kind, sessionNodes) {
   const summary = [
     `세션 ${sessionNodes.length}`,
     candidateCount ? `후보 ${candidateCount}` : '',
-    linkedResolvedCount ? `연결 기록 ${linkedResolvedCount}` : '',
+    linkedResolvedCount ? `확정 흐름 ${linkedResolvedCount}` : '',
     similarity ? `Fingerprint 연결 ${detail.links?.length || detail.clientFlow?.links?.length || 0}` : '',
   ].filter(Boolean).join(' · ');
 
@@ -1421,15 +1248,15 @@ function renderTimeline(detail, sessionNodes) {
     if (state.timelineSession !== 'all' && request.sessionId !== state.timelineSession) return false;
     if (state.timelineFlaggedOnly && !isFlaggedRequest(request)) return false;
     if (!query) return true;
-    return [request.url, request.method, request.operation, request.status, request.sessionId, request.requestId]
+    return [request.url, request.method, request.operation, request.status, request.sessionId]
       .some(value => String(value ?? '').toLowerCase().includes(query));
   });
 
   const backgroundCount = filtered.filter(isBackgroundRequest).length;
-  const entries = state.timelineBackgroundExpanded || query
+  const entries = state.timelineBackgroundExpanded
     ? filtered.map(request => ({ type: 'request', request }))
     : collapseBackgroundRuns(filtered);
-  const multiSession = sessionNodes.filter(node => node.timelineAvailable).length > 1;
+  const multiSession = sessionNodes.length > 1;
   let lastSession = null;
   const rows = entries.map(entry => {
     if (entry.type === 'background-group') {
@@ -1447,7 +1274,6 @@ function renderTimeline(detail, sessionNodes) {
       return `<div class="timeline-background-group"><span class="tag background">백그라운드</span><b>${escapeHtml(category)} ${grouped.length.toLocaleString()}건</b><span>${escapeHtml(methodText)} · ${escapeHtml(formatClock(first.ts))}${last.ts !== first.ts ? `–${escapeHtml(formatClock(last.ts))}` : ''} · 자동화 행동 점수 제외</span></div>`;
     }
     const request = entry.request;
-    const responseFailed = request.responseTransportOutcome === 'error';
     const node = colorBySession.get(request.sessionId) || { color: 'var(--muted)', index: '?' };
     const divider = multiSession && request.sessionId !== lastSession
       ? `<div class="session-divider"><span class="dot" style="display:inline-block;width:9px;height:9px;background:${node.color}"></span>세션 #${node.index} · ${escapeHtml(shortId(request.sessionId || '—', 8))} · ${escapeHtml(formatTime(request.ts))}</div>`
@@ -1474,12 +1300,11 @@ function renderTimeline(detail, sessionNodes) {
       <div class="timeline-main">
         <div class="line1">
           <span class="method">${escapeHtml(request.method || '')}</span>
-          <span class="${statusClass(responseFailed ? 502 : request.status)}">${escapeHtml(request.status)}${responseFailed ? ' · 전송 오류' : ''}</span>
+          <span class="${statusClass(request.status)}">${escapeHtml(request.status)}</span>
           ${multiSession ? `<span class="session-marker"><span class="dot" style="display:inline-block;width:7px;height:7px;background:${node.color}"></span>#${node.index} ${escapeHtml(shortId(request.sessionId || '—', 8))}</span>` : ''}
           ${backgroundTag}${tags}${honeyTags}
         </div>
         <div class="url">${escapeHtml(request.url)}</div>
-        ${renderPolicyTrace(request)}
         ${metaParts.length ? `<div class="meta">${metaParts.join(' · ')}</div>` : ''}
         ${request.body ? `<div class="meta">본문: ${escapeHtml(typeof request.body === 'string' ? request.body : JSON.stringify(request.body))}</div>` : ''}
         ${request.experimentRunId ? `<div class="meta">실험 실행 ID: ${escapeHtml(request.experimentRunId)}</div>` : ''}
@@ -1488,7 +1313,7 @@ function renderTimeline(detail, sessionNodes) {
   }).join('') || '<p class="empty">조건에 맞는 요청이 없습니다.</p>';
 
   const sessionOptions = ['<option value="all">모든 세션</option>']
-    .concat(sessionNodes.filter(node => node.timelineAvailable).map(node =>
+    .concat(sessionNodes.map(node =>
       `<option value="${escapeHtml(node.sessionId)}"${state.timelineSession === node.sessionId ? ' selected' : ''}>#${node.index} ${escapeHtml(shortId(node.sessionId, 8))} (${node.requestCount}건)</option>`
     )).join('');
 
@@ -1498,9 +1323,9 @@ function renderTimeline(detail, sessionNodes) {
         ${filtered.length === requests.length ? '' : `<p class="sub">${filtered.length.toLocaleString()} / ${requests.length.toLocaleString()}건 표시</p>`}
       </div>
       <div class="timeline-filters">
-        <input class="search-input" type="search" id="timelineSearch" placeholder="요청 ID·URL·메서드·상태 검색" value="${escapeHtml(state.timelineQuery)}" aria-label="요청 검색" />
+        <input class="search-input" type="search" id="timelineSearch" placeholder="URL·메서드·상태 검색" value="${escapeHtml(state.timelineQuery)}" aria-label="요청 검색" />
         <select class="select-input" id="timelineSessionSelect" aria-label="세션 필터">${sessionOptions}</select>
-        <button class="chip-button${state.timelineFlaggedOnly ? ' active' : ''}" type="button" id="timelineFlaggedToggle" title="공격 태그·허니 신호·CRS 탐지·전송 오류·4xx/5xx 응답만 표시합니다.">신호 있는 요청만</button>
+        <button class="chip-button${state.timelineFlaggedOnly ? ' active' : ''}" type="button" id="timelineFlaggedToggle" title="공격 태그·허니 신호·CRS 탐지·4xx/5xx 응답만 표시합니다.">신호 있는 요청만</button>
         ${backgroundCount ? `<button class="chip-button${state.timelineBackgroundExpanded ? ' active' : ''}" type="button" id="timelineBackgroundToggle" title="Socket.IO 같은 백그라운드 통신은 기록에는 남지만 자동화 행동 점수에서는 제외됩니다.">${state.timelineBackgroundExpanded ? '백그라운드 접기' : `백그라운드 ${backgroundCount.toLocaleString()}건 펼치기`}</button>` : ''}
       </div>
     </div>
@@ -1520,17 +1345,11 @@ function renderUserDetail() {
   const activeId = document.activeElement?.id || '';
   const activeCaret = document.activeElement?.selectionStart ?? null;
   const sessionNodes = buildSessionNodes(detail, kind);
-  if (state.timelineSession !== 'all' && !sessionNodes.some(node =>
-    node.sessionId === state.timelineSession && node.timelineAvailable
-  )) state.timelineSession = 'all';
-  const continuityConfirmed = kind === 'resolved-actors' && detail.continuityConfirmed === true;
-  const identityBadge = continuityConfirmed
-    ? '<span class="badge confirmed" title="서명된 클라이언트 ID로 적어도 일부 방문의 연속성이 확인됐습니다. 실제 사람의 동일성을 뜻하지 않습니다.">서명 ID 확인</span>'
-    : kind === 'resolved-actors'
-      ? '<span class="badge candidate" title="서명 ID로 방문 연속성이 아직 확인되지 않은 잠정 기록입니다.">연속성 미확인</span>'
-      : kind === 'client-flows'
-        ? '<span class="badge candidate" title="Fingerprint와 요청 연속성으로 연결한 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>'
-        : '<span class="badge candidate" title="IP + HTTP 헤더 지문으로 묶은 요청 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>';
+  const identityBadge = kind === 'resolved-actors'
+    ? '<span class="badge confirmed" title="서명된 클라이언트 ID로 동일 클라이언트 연속성이 확인된 흐름입니다(Continuity Confirmed).">연속성 확정</span>'
+    : kind === 'client-flows'
+      ? '<span class="badge candidate" title="Fingerprint와 요청 연속성으로 연결한 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>'
+      : '<span class="badge candidate" title="IP + HTTP 헤더 지문으로 묶은 요청 흐름이며 동일 클라이언트 확정이 아닙니다.">클라이언트 흐름</span>';
   const detection = detectionFor(detail);
 
   pane.innerHTML = `
@@ -1550,17 +1369,17 @@ function renderUserDetail() {
         <span class="ds"><i>세션</i><b>${Number(detail.sessionCount ?? sessionNodes.length).toLocaleString()}</b></span>
         <span class="ds" title="${escapeHtml(formatTime(detail.firstSeen))}"><i>최초</i><b>${escapeHtml(formatClock(detail.firstSeen))}</b></span>
         <span class="ds" title="${escapeHtml(formatTime(detail.lastSeen))}"><i>최근</i><b>${escapeHtml(formatRelative(detail.lastSeen))}</b></span>
-        <span class="ds" title="현재 Automation Score를 선택 기준과 비교합니다."><i>${kind === 'resolved-actors' ? '자동화' : '흐름 자동화'}</i>${scoreCell(detail.automationScore, 'automation', detection.automationDetected, continuityConfirmed ? 'confirmed' : kind === 'resolved-actors' ? 'observed' : 'heuristic')}</span>
-        <span class="ds" title="현재값이 아니라 과거 최고 Attack Score를 선택 기준과 비교합니다."><i>${kind === 'resolved-actors' ? '공격 최고' : '흐름 공격 최고'}</i>${scoreCell(detection.maxAttackScore / 100, 'attack', detection.attackDetected, continuityConfirmed ? 'confirmed' : kind === 'resolved-actors' ? 'observed' : 'heuristic')}</span>
+        <span class="ds" title="현재 Automation Score를 선택 기준과 비교합니다."><i>자동화</i>${scoreCell(detail.automationScore, 'automation', detection.automationDetected)}</span>
+        <span class="ds" title="현재값이 아니라 과거 최고 Attack Score를 선택 기준과 비교합니다."><i>공격 최고</i>${scoreCell(detection.maxAttackScore / 100, 'attack', detection.attackDetected)}</span>
       </div>
       <p class="sub" style="margin-top:8px;">
         ${detail.status ? `확인 상태 ${escapeHtml(statusText(detail.status))}${detail.confidence ? ` · 신뢰도 ${escapeHtml(statusText(detail.confidence))}` : ''} · ` : ''}
         판정 기준 ${state.detectionLevel.toUpperCase()} ${detection.threshold}점 · 현재 Attack ${detection.currentAttackScore}점 ·
         허니 신호 ${honeySignalsCell(detail.deceptionHistory)} ·
-        공격 이력 ${attackHistoryCell(detail.attackHistory)}
+        공격 이력 ${attackHistoryCell(detail.attackHistory)} ·
+        IP ${escapeHtml((detail.observedIps || (detail.ip ? [detail.ip] : [])).join(', ') || '—')}
       </p>
     </div>
-    ${renderEvidenceOverview(detail, kind, sessionNodes)}
     ${renderConnectionDetails(detail, kind, sessionNodes)}
     ${renderTimeline(detail, sessionNodes)}
   `;
@@ -1623,7 +1442,7 @@ function updateSummary(userRows, sessions, actors, authGroups, ipEntries) {
   const heuristicFlows = userRows.length - confirmed;
   document.getElementById('summaryResolvedActors').textContent = userRows.length.toLocaleString();
   document.getElementById('summaryResolvedActorsSub').textContent =
-    `서명 ID 확인 ${confirmed.toLocaleString()} · 휴리스틱 흐름 ${heuristicFlows.toLocaleString()}`;
+    `연속성 확정 ${confirmed.toLocaleString()} · 휴리스틱 흐름 ${heuristicFlows.toLocaleString()}`;
   document.getElementById('summarySessions').textContent = sessions.length.toLocaleString();
   document.getElementById('summaryRequests').textContent = totalRequests.toLocaleString();
   document.getElementById('summaryRequestsSub').textContent = `분석 ${behaviorAnalyzedRequests.toLocaleString()} · 백그라운드 ${backgroundRequests.toLocaleString()}`;
@@ -1639,16 +1458,11 @@ async function refresh() {
     fetch('/__detection/api/resolved-actors'), fetch('/__detection/api/sessions'), fetch('/__detection/api/actors'),
     fetch('/__detection/api/auth-groups'), fetch('/__detection/api/ip-entries'), fetch('/__detection/api/client-flows')
   ]);
-  if (responses.some(response => !response.ok)) throw new Error('탐지 기록 응답 오류');
   const [resolvedActors, sessions, actors, authGroups, ipEntries, clientFlows] = await Promise.all(responses.map(r => r.json()));
 
   state.users = buildUserRows(resolvedActors, actors, clientFlows);
   updateSummary(state.users, sessions, actors, authGroups, ipEntries);
   renderUserList();
-  if (!state.users.length && !state.selected) {
-    document.getElementById('userDetail').innerHTML =
-      '<p class="detail-empty">요청이 들어오면 이곳에 점수와 연결 근거, 요청 순서가 표시됩니다.</p>';
-  }
   // 데이터가 처음 들어온 순간에만 첫 흐름을 자동 선택한다. 사용자가 직접 고른
   // 뒤에는 2초 자동 갱신이 선택을 옮기지 않는다.
   if (!state.selected && !state.userSelectionTouched) {
@@ -1716,39 +1530,6 @@ async function refresh() {
   document.querySelectorAll('tr[data-kind]').forEach(row => {
     row.addEventListener('click', () => openDetail(row.dataset.kind, row.dataset.id));
   });
-}
-
-async function monitoredRefresh() {
-  const status = document.getElementById('detectionDataStatus');
-  try {
-    await refresh();
-    status.textContent = '탐지 기록 연결됨';
-    status.classList.remove('error');
-  } catch (_) {
-    status.textContent = '탐지 기록을 불러오지 못했습니다';
-    status.classList.add('error');
-  } finally {
-    await loadPublicTarget();
-  }
-}
-
-async function loadPublicTarget() {
-  const link = document.getElementById('publicTargetLink');
-  const fallback = document.getElementById('publicTargetFallback');
-  try {
-    const response = await nativeFetch('/__ruby/target', { cache:'no-store' });
-    if (!response.ok) throw new Error('target metadata unavailable');
-    const { publicPath } = await response.json();
-    if (!/^\/[a-z][a-z0-9-]{0,39}\/$/.test(publicPath)) throw new Error('invalid public path');
-    link.href = publicPath;
-    link.textContent = publicPath;
-    link.hidden = false;
-    fallback.hidden = true;
-  } catch (_) {
-    link.hidden = true;
-    fallback.textContent = '경로 확인 불가';
-    fallback.hidden = false;
-  }
 }
 
 function flattenMetrics(object, prefix = '') {
@@ -1827,26 +1608,10 @@ function renderHoneyBreakdown(honeyBreakdown) {
   </div>`;
 }
 
-function renderPolicyTrace(request) {
-  const policy = request.policyDecision;
-  const post = request.detectionResult;
-  if (!request.requestId && !policy && !post) return '';
-  return `<div class="meta">요청 ID <code>${escapeHtml(request.requestId || '—')}</code>
-    ${policy ? ` · 전달 전 점수: 자동화 ${scoreNumber(policy.automationScore)}, 공격 ${scoreNumber(policy.attackScore)}, 위험 ${scoreNumber(policy.riskScore)}
-      · 확정 공격 근거 ${scoreNumber(policy.confirmedAttackScore)} · 출처 ${escapeHtml(policy.source || '—')}
-      · 전략 ${escapeHtml((policy.strategies || []).join(', ') || '없음')}` : ''}
-    ${post ? ` · 응답 후 본 클라이언트 점수: 자동화 ${scoreNumber(post.automationScore)}, 공격 ${scoreNumber(post.effectiveAttackScore)}
-      · 출처 ${escapeHtml(post.source || '—')}` : ''}
-    ${request.defenseSignal ? ` · 방어 신호 ${escapeHtml(request.defenseSignal)}` : ''}
-    ${request.responseTransportOutcome === 'error' ? ' · 응답 전달 중 오류(본문 불완전)' : ''}
-    ${request.responseTransportOutcome === 'complete' && request.responseBodyInspected === false ? ' · 응답 본문 검사 생략(스트리밍·크기 제한)' : ''}
-  </div>`;
-}
-
 function renderRequests(requests) {
   return (requests || []).map((r,index) => `<div class="path-item">
     <div class="meta">#${index+1} · ${new Date(r.ts).toLocaleTimeString()} · ${escapeHtml(r.method)}
-      <span class="${statusClass(r.responseTransportOutcome === 'error' ? 502 : r.status)}">${escapeHtml(r.status)}${r.responseTransportOutcome === 'error' ? ' · 전송 오류' : ''}</span>
+      <span class="${statusClass(r.status)}">${escapeHtml(r.status)}</span>
       · 세션 <code>${escapeHtml((r.sessionId || '').slice(0,8))}</code>
       ${isBackgroundRequest(r) ? '<span class="tag background">백그라운드 · 행동 점수 제외</span>' : ''}
       ${(r.tags || []).map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}
@@ -1854,7 +1619,6 @@ function renderRequests(requests) {
     </div>
     <div class="operation">${escapeHtml(r.operation || '')}</div>
     <div class="url">${escapeHtml(r.url)}</div>
-    ${renderPolicyTrace(r)}
     ${r.attackDetection?.available ? `<div class="meta">OWASP CRS ${escapeHtml(r.attackDetection.crsVersion || '')} · 이상 점수 ${Number(r.attackDetection.anomalyScore || 0)} · 규칙 ${escapeHtml((r.attackDetection.hits || []).map(hit => hit.ruleId).join(', ') || '—')}</div>` : '<div class="meta">OWASP CRS · 미관찰 (legacy fallback)</div>'}
     ${renderHttpMetadata(r)}
     ${r.body ? `<div class="body">본문: ${escapeHtml(typeof r.body === 'string' ? r.body : JSON.stringify(r.body))}</div>` : ''}
@@ -1907,9 +1671,7 @@ async function openDetail(kind, id) {
   const scoreHtml = observationOnly ? '<p class="notice">IP 관찰(IP Observation)은 관찰 전용이며 점수(Score) 및 차단 기준에 사용하지 않습니다.</p>' : `
     <div class="score-grid">
       ${metricPanel(`자동화 점수 (Automation Score) · ${scoreNumber(data.automationScore)}`, data.automationBreakdown)}
-      ${metricPanel(`공격 점수 (Attack Score) · ${scoreNumber(data.attackScore)}`, {
-        ...(data.attackBreakdown || {}), repeatedEvidenceBonus: data.attackEvidenceBonus || 0
-      })}
+      ${metricPanel(`공격 점수 (Attack Score) · ${scoreNumber(data.attackScore)}`, data.attackBreakdown)}
     </div>`;
   const features = data.features || {};
   const sequence = features.behavior?.recentSequence || [];
@@ -1942,7 +1704,7 @@ function closeModal() {
   document.getElementById('backdrop').style.display = 'none';
   state.modalOpen = false;
   clearInterval(state.timer);
-  state.timer = setInterval(monitoredRefresh, 2000);
+  state.timer = setInterval(refresh, 2000);
 }
 
 document.getElementById('closeButton').addEventListener('click', closeModal);
@@ -1969,8 +1731,8 @@ document.getElementById('loginForm').addEventListener('submit', async event => {
   document.getElementById('dashboardPassword').value = '';
   document.getElementById('loginBackdrop').classList.remove('visible');
   document.getElementById('logoutButton').hidden = false;
-  await monitoredRefresh();
-  state.timer = setInterval(monitoredRefresh, 2000);
+  await refresh();
+  state.timer = setInterval(() => refresh().catch(() => {}), 2000);
 });
 document.getElementById('logoutButton').addEventListener('click', async () => {
   await nativeFetch('/__detection/api/logout', {method:'POST'});
@@ -2033,20 +1795,11 @@ detectionLevelSelect.addEventListener('change', event => {
   localStorage.setItem('detectionLevel', state.detectionLevel);
   renderUserList();
   renderUserDetail();
-  monitoredRefresh();
-});
-
-const startHelp = document.getElementById('startHelp');
-try { startHelp.open = localStorage.getItem('ruby-detection-start-help') !== 'closed'; }
-catch (_) { startHelp.open = true; }
-startHelp.addEventListener('toggle', () => {
-  try { localStorage.setItem('ruby-detection-start-help', startHelp.open ? 'open' : 'closed'); }
-  catch (_) { /* 도움말은 저장소가 없어도 사용할 수 있다. */ }
+  refresh();
 });
 
 initializeTheme();
 setTab('users');
-loadPublicTarget();
 nativeFetch('/__detection/api/auth/status')
   .then(response => response.json())
   .then(status => {
@@ -2055,8 +1808,8 @@ nativeFetch('/__detection/api/auth/status')
       showLogin();
       return;
     }
-    return monitoredRefresh().then(() => {
-      state.timer = setInterval(monitoredRefresh, 2000);
+    return refresh().then(() => {
+      state.timer = setInterval(() => refresh().catch(() => {}), 2000);
     });
   })
   .catch(() => showLogin('인증 상태를 확인하지 못했습니다.'));

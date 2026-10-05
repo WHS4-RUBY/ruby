@@ -1,3 +1,0 @@
--r app/backend/requirements-dev.txt
--r app/requirements-evaluation.txt
--r tools/requirements.txt

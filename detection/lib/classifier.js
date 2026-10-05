@@ -214,16 +214,6 @@ function scoreReflectedXss(features) {
   return clamp(risk + variety);
 }
 
-function scoreRepeatedAttackEvidence(features) {
-  const count = Number(features.attack?.repeatedEvidence?.count) || 0;
-  if (count >= 32) return 0.5;
-  if (count >= 16) return 0.4;
-  if (count >= 8) return 0.3;
-  if (count >= 4) return 0.2;
-  if (count >= 2) return 0.1;
-  return 0;
-}
-
 function classify(features) {
   const automationHoney = scoreAutomationHoney(features);
   const attackHoney = scoreAttackHoney(features);
@@ -251,9 +241,7 @@ function classify(features) {
   return {
     scoreType: "heuristic-not-probability",
     automationScore: weightedScore(automationBreakdown, AUTOMATION_WEIGHTS),
-    attackScore: Number(clamp(weightedScore(attackBreakdown, ATTACK_WEIGHTS) +
-      scoreRepeatedAttackEvidence(features)).toFixed(3)),
-    attackEvidenceBonus: scoreRepeatedAttackEvidence(features),
+    attackScore: weightedScore(attackBreakdown, ATTACK_WEIGHTS),
     automationBreakdown,
     attackBreakdown,
     honeyBreakdown: {
@@ -271,6 +259,5 @@ module.exports = {
   ATTACK_HONEY_POINTS,
   scoreAutomationHoney,
   scoreAttackHoney,
-  scoreRepeatedAttackEvidence,
   NORMALIZATION,
 };

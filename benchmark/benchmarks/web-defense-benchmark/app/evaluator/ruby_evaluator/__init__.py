@@ -1,1 +1,0 @@
-"""Private internal-event evaluator."""

@@ -33,25 +33,6 @@
       {
         "min_score": 0.8,
         "max_score": 1.01,
-        "min_confirmed_attack_score": 0.8,
-        "strategies": [
-          {
-            "name": "rate_limit_strict",
-            "params": {
-              "max_rps": 1
-            }
-          },
-          {
-            "name": "delay",
-            "params": {
-              "delay_ms": 500
-            }
-          }
-        ]
-      },
-      {
-        "min_score": 0.8,
-        "max_score": 1.01,
         "strategies": [
           {
             "name": "delay",

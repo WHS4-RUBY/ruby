@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { selectClientId, selectEffectiveDetection, confirmedAttackScore } = require("../lib/detectionPolicy");
+const { selectClientId, selectEffectiveDetection } = require("../lib/detectionPolicy");
 
 function analysis(automationScore, attackScore, totalRequests = 1, maxAttackScore = attackScore) {
   return {
@@ -95,16 +95,4 @@ test("근거가 없으면 Candidate 식별자로 떨어진다", () => {
     selectClientId({}, { actorId: "actor:aaa", resolvedActorId: null, clientFlowId: null }),
     "actor:aaa"
   );
-});
-
-test("공유 fingerprint Flow와 미검증 Bearer 점수는 자동 제한 근거로 쓰지 않는다", () => {
-  assert.equal(confirmedAttackScore({
-    session: analysis(0.1, 0.05),
-    candidate: analysis(0.2, 0.9),
-    clientFlow: analysis(0.1, 0.95),
-    authGroup: analysis(0.1, 0.9),
-    resolved: analysis(0.1, 0.12),
-  }), 0.12);
-  assert.equal(confirmedAttackScore({ session: analysis(0.1, 0.85) }), 0);
-  assert.equal(confirmedAttackScore({ resolved: analysis(0.1, 0.85) }), 0.85);
 });

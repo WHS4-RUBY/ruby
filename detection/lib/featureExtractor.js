@@ -48,17 +48,32 @@ function extractIdorWalkSignal(attackRequests) {
   };
 }
 
+const LOGIN_ROUTE_METHOD = "POST";
+const LOGIN_ROUTE_PATH = "/rest/user/login";
+const RESET_PASSWORD_ROUTE_METHOD = "POST";
+const RESET_PASSWORD_ROUTE_PATH = "/rest/user/reset-password";
+const SECURITY_QUESTION_ROUTE_METHOD = "GET";
+const SECURITY_QUESTION_ROUTE_PATH = "/rest/user/security-question";
+
 function extractLoginBruteForceSignal(attackRequests) {
   const failedLogins = attackRequests.filter(
     (request) =>
-      request.loginAttemptEmail &&
-      (request.loginFailed ?? request.status === 401)
+      request.method === LOGIN_ROUTE_METHOD &&
+      request.normalizedPath === LOGIN_ROUTE_PATH &&
+      request.status === 401 &&
+      request.loginAttemptEmail
   );
   const resetPasswordAttempts = attackRequests.filter(
-    (request) => request.resetPasswordEmail
+    (request) =>
+      request.method === RESET_PASSWORD_ROUTE_METHOD &&
+      request.normalizedPath === RESET_PASSWORD_ROUTE_PATH &&
+      request.resetPasswordEmail
   );
   const securityQuestionProbes = attackRequests.filter(
-    (request) => request.securityQuestionEmail
+    (request) =>
+      request.method === SECURITY_QUESTION_ROUTE_METHOD &&
+      request.normalizedPath === SECURITY_QUESTION_ROUTE_PATH &&
+      request.securityQuestionEmail
   );
 
   const attemptsByEmail = new Map();
@@ -85,36 +100,6 @@ function maxConsecutiveRepeats(operations) {
     maximum = Math.max(maximum, current);
   }
   return maximum;
-}
-
-const ATTACK_EVIDENCE_WINDOW_MS = 60 * 60_000;
-const ATTACK_HONEY_SIGNALS = new Set([
-  "watermark_reuse", "ssh_cred_reuse", "password_list_reuse",
-  "writable_file_write", "writable_file_found", "script_hint_access",
-]);
-
-function hasAttackEvidence(request) {
-  // A missing Origin, repeated normal operation, or a numeric resource URL
-  // alone is not an attack attempt. Count only a specific attack finding.
-  return Boolean(
-    (request.attackDetection?.available && Number(request.attackDetection.anomalyScore) >= 5) ||
-    (request.tags || []).some((tag) => tag !== "idor-probe") ||
-    (request.blTags || []).length ||
-    (request.csrfTags || []).some((tag) => tag !== "csrf:missing-origin") ||
-    (request.xssTags || []).length ||
-    (request.deceptionEvents || []).some((event) => ATTACK_HONEY_SIGNALS.has(event.signal))
-  );
-}
-
-function repeatedAttackEvidence(requests) {
-  const latest = requests.at(-1)?.ts;
-  if (!Number.isFinite(latest)) return { count: 0, windowMs: ATTACK_EVIDENCE_WINDOW_MS };
-  return {
-    count: requests.filter((request) =>
-      Number.isFinite(request.ts) && latest - request.ts <= ATTACK_EVIDENCE_WINDOW_MS &&
-      hasAttackEvidence(request)).length,
-    windowMs: ATTACK_EVIDENCE_WINDOW_MS,
-  };
 }
 
 function emptyTelemetry() {
@@ -338,7 +323,6 @@ function extractStreamFeatures({
       distinctXssCategories: xssCategories.length,
       xssCategories,
       maxXssRisk,
-      repeatedEvidence: repeatedAttackEvidence(attackRequests),
       csrfCategories,
     },
   };
@@ -437,6 +421,4 @@ module.exports = {
   maxRequestsInWindow,
   extractIdorWalkSignal,
   extractLoginBruteForceSignal,
-  repeatedAttackEvidence,
-  hasAttackEvidence,
 };
