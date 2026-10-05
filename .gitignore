@@ -1,3 +1,7 @@
+# XSS 후보 SQLite DB(런타임 데이터, 커밋 제외) — /app/data 영속 볼륨에 생성됨
+data/*.db
+data/*.db-wal
+data/*.db-shm
 # Secrets and local configuration
 .env
 .env.*
