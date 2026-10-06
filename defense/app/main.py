@@ -412,6 +412,8 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
     methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 async def catch_all(request: Request, full_path: str):
+    # Defense stage 1: path aliases run before every other strategy, so later stages see the
+    # real path and the alias rewrite is the last change to the outgoing response (README).
     alias_client = path_alias.valid_client_id(request.cookies.get(path_alias.COOKIE_NAME))
     alias = await _alias_db(PATH_ALIAS_TABLE.resolve, request.url.path, request.method,
                             time.time(), alias_client)
