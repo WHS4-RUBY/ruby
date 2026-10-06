@@ -21,7 +21,28 @@ from .monitoring import event_store
 from .strategies.state import StateCapacityError, StrategyStateStore
 from .strategies.registry import STRATEGY_REGISTRY
 
-BENCHMARK_TARGET_URL = os.getenv("BENCHMARK_TARGET_URL", "http://localhost:9000")
+
+def resolve_target_url(env=None) -> str:
+    """Build the upstream URL from TARGET_HOST and TARGET_PORT.
+
+    The target is an application listening on a port of the same host.
+    Misconfiguration fails at startup instead of silently proxying elsewhere.
+    """
+    env = os.environ if env is None else env
+    host = (env.get("TARGET_HOST") or "").strip() or "localhost"
+    raw_port = (env.get("TARGET_PORT") or "").strip() or "9000"
+    try:
+        port = int(raw_port)
+    except ValueError:
+        raise RuntimeError(f"TARGET_PORT must be an integer, got {raw_port!r}") from None
+    if not 1 <= port <= 65535:
+        raise RuntimeError(f"TARGET_PORT must be between 1 and 65535, got {port}")
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"  # bare IPv6 literal
+    return f"http://{host}:{port}"
+
+
+TARGET_URL = resolve_target_url()
 
 
 def _positive_int(name: str, default: int) -> int:
@@ -219,7 +240,7 @@ def _rewrite_response_header(key: str, value: str, request: Request | None) -> s
     if request is None:
         return value
     if key.lower() == "location":
-        target = BENCHMARK_TARGET_URL.rstrip("/")
+        target = TARGET_URL.rstrip("/")
         if value == target or value.startswith(f"{target}/"):
             return f"{_public_origin(request)}{value[len(target):]}"
     if key.lower() == "set-cookie":
@@ -293,7 +314,7 @@ def streaming_proxy_response(upstream: httpx.Response, request: Request, on_comp
 
 
 def _websocket_target(full_path: str, query: str) -> str:
-    target = urlsplit(BENCHMARK_TARGET_URL)
+    target = urlsplit(TARGET_URL)
     scheme = "wss" if target.scheme == "https" else "ws"
     base_path = target.path.rstrip("/")
     path = f"{base_path}/{full_path}" if full_path else (base_path or "/")
@@ -326,7 +347,7 @@ async def healthz():
 @app.get("/readyz")
 async def readyz():
     """Report ready only while the configured target accepts TCP connections."""
-    target = urlsplit(BENCHMARK_TARGET_URL)
+    target = urlsplit(TARGET_URL)
     if target.scheme not in {"http", "https"} or not target.hostname:
         return Response(status_code=503)
     try:
@@ -505,7 +526,7 @@ async def catch_all(request: Request, full_path: str):
     try:
         upstream_request = request.app.state.http_client.build_request(
             method=request.method,
-            url=f"{BENCHMARK_TARGET_URL.rstrip('/')}/{full_path}",
+            url=f"{TARGET_URL.rstrip('/')}/{full_path}",
             headers=headers,
             content=request.stream() if request.method not in {"GET", "HEAD"} else None,
             params=list(request.query_params.multi_items()),
