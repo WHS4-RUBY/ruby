@@ -202,13 +202,21 @@ def _log_alias(request: Request, resolution: path_alias.Resolution, decision: st
     ))
 
 
-def _rotate_on_event(resolution: path_alias.Resolution, alias_client: str | None) -> str | None:
+async def _alias_db(call, *args):
+    """Alias table calls block on the database; keep them off the event loop."""
+    if PATH_ALIAS.mode == "off":
+        return call(*args)
+    return await asyncio.to_thread(call, *args)
+
+
+async def _rotate_on_event(resolution: path_alias.Resolution, alias_client: str | None) -> str | None:
     """Replace a client's aliases as soon as it hits a real route or a bad alias."""
     if resolution.kind not in PATH_ALIAS.rotate_on or alias_client is None:
         return None
     if PATH_ALIAS.mode != "enforce":
         return "would_rotate"
-    return "rotated" if PATH_ALIAS_TABLE.rotate_client(alias_client, time.time(), resolution.kind) else None
+    rotated = await _alias_db(PATH_ALIAS_TABLE.rotate_client, alias_client, time.time(), resolution.kind)
+    return "rotated" if rotated else None
 
 
 def _alias_not_found() -> Response:
@@ -248,7 +256,8 @@ async def alias_proxy_response(upstream: httpx.Response, request: Request,
             response = streaming_proxy_response(upstream, request, _replay_body(consumed, stream, upstream))
         else:
             await upstream.aclose()
-            body, rewrites = PATH_ALIAS_TABLE.rewrite_body(b"".join(consumed), time.time(), client_id)
+            body, rewrites = await _alias_db(PATH_ALIAS_TABLE.rewrite_body, b"".join(consumed),
+                                             time.time(), client_id)
             skip = _REWRITTEN_RESPONSE_SKIP if rewrites else _RESPONSE_SKIP
             response = Response(content=body, status_code=upstream.status_code)
             for key, value in upstream.headers.multi_items():
@@ -267,7 +276,8 @@ async def alias_proxy_response(upstream: httpx.Response, request: Request,
     for key, value in response.raw_headers:
         if key.lower() == b"location":
             original = value.decode("latin-1")
-            rewritten = PATH_ALIAS_TABLE.rewrite_location(original, host, time.time(), client_id)
+            rewritten = await _alias_db(PATH_ALIAS_TABLE.rewrite_location, original, host,
+                                        time.time(), client_id)
             location_rewritten |= rewritten != original
             value = rewritten.encode("latin-1")
         raw_headers.append((key, value))
@@ -403,9 +413,10 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
 )
 async def catch_all(request: Request, full_path: str):
     alias_client = path_alias.valid_client_id(request.cookies.get(path_alias.COOKIE_NAME))
-    alias = PATH_ALIAS_TABLE.resolve(request.url.path, request.method, time.time(), alias_client)
+    alias = await _alias_db(PATH_ALIAS_TABLE.resolve, request.url.path, request.method,
+                            time.time(), alias_client)
     alias_decision = path_alias.decide(alias, PATH_ALIAS)
-    rotation = _rotate_on_event(alias, alias_client)
+    rotation = await _rotate_on_event(alias, alias_client)
     translated = alias.kind == "alias"
     record_path = alias.upstream_path if translated else request.url.path
 

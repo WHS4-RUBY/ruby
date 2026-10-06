@@ -84,7 +84,8 @@ services:
       - PATH_ALIAS_GRACE_EPOCHS=${PATH_ALIAS_GRACE_EPOCHS:-1}
       - PATH_ALIAS_PREFIXES=${PATH_ALIAS_PREFIXES:-/rest/,/api/}
       - PATH_ALIAS_ROUTES_FILE=${PATH_ALIAS_ROUTES_FILE:-/app/config/juice-shop-routes.json}
-      - PATH_ALIAS_DB_PATH=${PATH_ALIAS_DB_PATH:-/app/data/path-alias.sqlite3}
+      - PATH_ALIAS_DB_URL=postgresql://ruby:${PATH_ALIAS_DB_PASSWORD:?Set PATH_ALIAS_DB_PASSWORD}@path-alias-db:5432/ruby
+      - PATH_ALIAS_DB_POOL_SIZE=${PATH_ALIAS_DB_POOL_SIZE:-10}
       - PATH_ALIAS_MAX_REWRITE_BYTES=${PATH_ALIAS_MAX_REWRITE_BYTES:-8388608}
       - PATH_ALIAS_APP_ID=${PATH_ALIAS_APP_ID:-}
       - PATH_ALIAS_ROTATE_ON=${PATH_ALIAS_ROTATE_ON:-direct,reject}
@@ -98,8 +99,6 @@ services:
       - DEFENSE_DASHBOARD_MAX_SESSIONS=${DEFENSE_DASHBOARD_MAX_SESSIONS:-1000}
       - DEFENSE_DASHBOARD_LOGIN_ATTEMPTS=${DEFENSE_DASHBOARD_LOGIN_ATTEMPTS:-5}
       - DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS=${DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS:-300}
-    volumes:
-      - path-alias-data:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
       interval: 10s
@@ -108,6 +107,26 @@ services:
     depends_on:
       benchmark-target:
         condition: service_healthy
+      path-alias-db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ai-defense-net
+
+  # Shared alias table for every Defense worker/host. Not published outside the compose network.
+  path-alias-db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=ruby
+      - POSTGRES_DB=ruby
+      - POSTGRES_PASSWORD=${PATH_ALIAS_DB_PASSWORD:?Set PATH_ALIAS_DB_PASSWORD}
+    volumes:
+      - path-alias-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "ruby", "-d", "ruby"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
     networks:
       - ai-defense-net
@@ -128,4 +147,4 @@ services:
 
 volumes:
   detection-data:
-  path-alias-data:
+  path-alias-pg:

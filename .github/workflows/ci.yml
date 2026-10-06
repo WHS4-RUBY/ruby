@@ -40,6 +40,20 @@ jobs:
     strategy:
       matrix:
         service: [defense]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ruby
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ruby
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ruby -d ruby"
+          --health-interval 2s --health-timeout 3s --health-retries 15
+    env:
+      PATH_ALIAS_TEST_DB_URL: postgresql://ruby:ci@127.0.0.1:5432/ruby
     steps:
       - uses: actions/checkout@v4
 

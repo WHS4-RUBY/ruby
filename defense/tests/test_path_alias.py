@@ -1,9 +1,9 @@
 import json
-import sqlite3
+import os
+import secrets
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -69,10 +69,13 @@ class ConfigTests(unittest.TestCase):
 
 
 class TableTests(unittest.TestCase):
-    def setUp(self):
+    def make_cfg(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.cfg = replace(CFG, db_path=str(Path(directory.name) / "aliases.sqlite3"))
+        return replace(CFG, db_path=str(Path(directory.name) / "aliases.sqlite3"))
+
+    def setUp(self):
+        self.cfg = self.make_cfg()
         self.table = pa.PathAliasTable(self.cfg)
         p = patch.object(pa, "emit")
         self.emitted = p.start()
@@ -80,6 +83,11 @@ class TableTests(unittest.TestCase):
 
     def a(self, route, now=NOW, client=ALICE):
         return self.table.current_aliases(now, client)[route]
+
+    def sql(self, query, params=()):
+        with self.table._store.connect() as db:
+            return [tuple(row.values()) if isinstance(row, dict) else tuple(row)
+                    for row in db.execute(query, params).fetchall()]
 
     def test_independent_rows_and_server_lookup(self):
         login = self.a("/rest/user/login")
@@ -134,21 +142,33 @@ class TableTests(unittest.TestCase):
     def test_idle_clients_are_cleaned_up(self):
         self.a("/rest/products/search", client=BOB)
         self.a("/rest/products/search", NOW + 25)  # a new client triggers housekeeping
-        with closing(sqlite3.connect(self.cfg.db_path)) as db:
-            clients = {row[0] for row in db.execute("SELECT client_id FROM path_alias_clients")}
-            bob_rows = db.execute("SELECT COUNT(*) FROM path_alias_client_rows WHERE client_id=?",
-                                  (BOB,)).fetchone()[0]
+        clients = {row[0] for row in self.sql("SELECT client_id FROM path_alias_clients")}
+        bob_rows = self.sql("SELECT COUNT(*) FROM path_alias_client_rows WHERE client_id=?", (BOB,))[0][0]
         self.assertEqual(clients, {ALICE})
         self.assertEqual(bob_rows, 0)
+
+    def test_sweep_runs_at_most_once_per_interval(self):
+        clients = lambda: {row[0] for row in self.sql("SELECT client_id FROM path_alias_clients")}
+        self.a("/rest/products/search", client=BOB)
+        self.table._next_sweep = NOW + 26  # as if another client had just swept
+        self.a("/rest/products/search", NOW + 25)
+        self.assertEqual(clients(), {ALICE, BOB})  # BOB expired, but the interval has not passed
+        self.a("/rest/products/search", NOW + 26, client="c" * 26)
+        self.assertEqual(clients(), {ALICE, "c" * 26})
+
+    def test_sweep_failure_does_not_fail_issuance(self):
+        with patch.object(self.table, "_sweep", side_effect=RuntimeError("db down")):
+            self.assertRegex(self.a("/rest/products/search"), r"^/__ruby_alias_")
+        self.assertEqual(self.emitted.call_args.args[0]["event"], "path_alias_rotation")
+        events = [call.args[0]["event"] for call in self.emitted.call_args_list]
+        self.assertIn("path_alias_sweep_failed", events)
 
     def test_parallel_instances_share_one_issuance(self):
         tables = [pa.PathAliasTable(self.cfg) for _ in range(6)]
         with ThreadPoolExecutor(max_workers=6) as pool:
             aliases = list(pool.map(lambda table: table.current_aliases(NOW, ALICE), tables))
         self.assertTrue(all(item == aliases[0] for item in aliases))
-        with closing(sqlite3.connect(self.cfg.db_path)) as db:
-            rows = db.execute("SELECT COUNT(*) FROM path_alias_client_rows WHERE client_id=?",
-                              (ALICE,)).fetchone()[0]
+        rows = self.sql("SELECT COUNT(*) FROM path_alias_client_rows WHERE client_id=?", (ALICE,))[0][0]
         self.assertEqual(rows, len(self.cfg.routes))
 
     def test_config_change_invalidates_existing_aliases(self):
@@ -220,8 +240,7 @@ class TableTests(unittest.TestCase):
 
     def test_bodies_without_routes_create_no_client(self):
         self.assertEqual(self.table.rewrite_body(b'{"rest":"/restaurant"}', NOW, BOB)[1], 0)
-        with closing(sqlite3.connect(self.cfg.db_path)) as db:
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM path_alias_clients").fetchone()[0], 0)
+        self.assertEqual(self.sql("SELECT COUNT(*) FROM path_alias_clients")[0][0], 0)
 
     def test_observe_and_off(self):
         direct = self.table.resolve("/rest/user/login", "POST", NOW, ALICE)
@@ -230,6 +249,42 @@ class TableTests(unittest.TestCase):
         self.assertEqual(pa.PathAliasTable(pa.PathAliasConfig()).resolve("/rest/x", "GET", NOW).kind,
                          "other")
 
+
+
+PG_TEST_URL = os.environ.get("PATH_ALIAS_TEST_DB_URL", "")
+
+
+@unittest.skipUnless(PG_TEST_URL, "set PATH_ALIAS_TEST_DB_URL=postgresql://... to run")
+class PostgresTableTests(TableTests):
+    """Every table test again, against a throwaway schema in a real PostgreSQL server."""
+
+    def make_cfg(self):
+        import psycopg
+
+        schema = "path_alias_test_" + secrets.token_hex(6)
+        with psycopg.connect(PG_TEST_URL, autocommit=True) as conn:
+            conn.execute(f"CREATE SCHEMA {schema}")
+
+        def drop():
+            with psycopg.connect(PG_TEST_URL, autocommit=True) as conn:
+                conn.execute(f"DROP SCHEMA {schema} CASCADE")
+
+        self.addCleanup(drop)
+        url = f"{PG_TEST_URL}{'&' if '?' in PG_TEST_URL else '?'}options=-csearch_path%3D{schema}"
+        cfg = replace(CFG, db_url=url)
+        self.addCleanup(lambda: (pool := pa._PG_POOLS.pop((url, cfg.db_pool_size), None)) and pool.close())
+        return cfg
+
+    def test_writers_lock_per_client_not_database_wide(self):
+        self.a("/rest/products/search")
+        store = self.table._store
+        with store.connect() as db:
+            self.table._write_lock(db, ALICE)  # held until rollback
+            try:
+                bob = self.a("/rest/products/search", client=BOB)  # would block under BEGIN IMMEDIATE
+                self.assertEqual(self.table.resolve(bob, "GET", NOW, BOB).kind, "alias")
+            finally:
+                db.rollback()
 
 class _AsyncBody(httpx.AsyncByteStream):
     def __init__(self, body):
