@@ -49,6 +49,7 @@ ModSecurity/OWASP CRS, 행동 기반 휴리스틱, Honey/Deception 신호와 실
 ```bash
 cp .env.example .env
 # .env의 IMAGE_PREFIX와 IMAGE_TAG를 배포 값으로 수정
+# 보호할 앱이 이 서버의 다른 포트에서 실행 중이면 TARGET_PORT도 지정(기본 3000)
 docker network create ai-defense-net
 docker compose pull
 docker compose up -d
@@ -62,7 +63,7 @@ Docker Desktop을 실행한 뒤, 아래 명령으로 로컬 소스를 빌드해 
 docker compose -f docker-compose.local.yml up --build
 ```
 
-브라우저에서 `http://localhost:8081`로 접속하거나, 다음처럼 Detection → Defense → 벤치마크 대상의 전체 경로를 확인합니다.
+먼저 보호할 애플리케이션을 이 호스트의 포트에서 실행합니다. 기본 포트는 `3000`이며 `.env`나 셸의 `TARGET_PORT`로 바꿀 수 있습니다. 예를 들어 Juice Shop은 `docker run -d -p 3000:3000 bkimminich/juice-shop`으로 띄울 수 있습니다. 브라우저에서 `http://localhost:8081`로 접속하거나, 다음처럼 Detection → Defense → Target의 전체 경로를 확인합니다.
 
 ```bash
 curl http://localhost:8081/healthz

@@ -78,7 +78,8 @@ services:
       - "8080"
     environment:
       - RUBY_ENV=production
-      - BENCHMARK_TARGET_URL=http://benchmark-target:3000
+      - TARGET_HOST=host.docker.internal
+      - TARGET_PORT=${TARGET_PORT:-3000}
       - DEFENSE_DASHBOARD_PASSWORD=${DEFENSE_DASHBOARD_PASSWORD:?Set DEFENSE_DASHBOARD_PASSWORD}
       - ALLOW_INSECURE_DASHBOARD_HTTP=${ALLOW_INSECURE_DASHBOARD_HTTP:-false}
       - DEFENSE_DASHBOARD_COOKIE_SECURE=${DEFENSE_DASHBOARD_COOKIE_SECURE:?Set DEFENSE_DASHBOARD_COOKIE_SECURE}
@@ -92,23 +93,8 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-    depends_on:
-      benchmark-target:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - ai-defense-net
-
-  benchmark-target:
-    image: ${BENCHMARK_IMAGE:-bkimminich/juice-shop:latest}
-    expose:
-      - "3000"
-    healthcheck:
-      test: ["CMD", "/nodejs/bin/node", "-e", "require('net').connect({port:3000,host:'127.0.0.1'}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
-      interval: 2s
-      timeout: 3s
-      retries: 15
-      start_period: 3s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - ai-defense-net

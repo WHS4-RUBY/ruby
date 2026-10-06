@@ -10,7 +10,7 @@ class ReadinessTests(unittest.IsolatedAsyncioTestCase):
     async def test_ready_only_when_configured_target_accepts_tcp(self):
         writer = Mock()
         writer.wait_closed = AsyncMock()
-        with patch("defense.app.main.BENCHMARK_TARGET_URL", "http://target.example:3000/base"), patch(
+        with patch("defense.app.main.TARGET_URL", "http://target.example:3000/base"), patch(
             "defense.app.main.asyncio.open_connection", new_callable=AsyncMock,
             return_value=(object(), writer),
         ) as connect:
@@ -25,7 +25,7 @@ class ReadinessTests(unittest.IsolatedAsyncioTestCase):
         writer.wait_closed.assert_awaited_once_with()
 
     async def test_unreachable_target_is_unready_but_process_is_live(self):
-        with patch("defense.app.main.BENCHMARK_TARGET_URL", "http://unreachable.invalid:3000"), patch(
+        with patch("defense.app.main.TARGET_URL", "http://unreachable.invalid:3000"), patch(
             "defense.app.main.asyncio.open_connection", side_effect=OSError("unreachable")
         ):
             async with httpx.AsyncClient(
