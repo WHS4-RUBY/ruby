@@ -706,3 +706,57 @@ test("모달 키보드 순환은 닫힌 details의 컨트롤을 제외하고 sum
     assert.equal(ui.document.activeElement, close);
   }
 });
+
+test("해시 화면 전환을 요청 사이에 시간순으로 끼워 넣고 요청과 구분해 표시한다", () => {
+  const ui = loadPresentation();
+  const nodes = [{ sessionId: "session:one", timelineAvailable: true, index: 1,
+    color: "#123456", requestCount: 2 }];
+  const detail = {
+    requests: [
+      { requestId: "request:first", sessionId: "session:one", ts: 1000,
+        method: "GET", url: "/", status: 200 },
+      { requestId: "request:last", sessionId: "session:one", ts: 3000,
+        method: "GET", url: "/rest/products", status: 200 },
+    ],
+    features: { client: { browserInteraction: { routeHistory: [
+      { url: "/#/administration", at: 2000, sessionId: "session:one", reported: true },
+    ] } } },
+  };
+
+  const html = ui.renderTimeline(detail, nodes);
+  assert.match(html, /화면 이동/);
+  assert.match(html, /#\/administration/);
+  assert.match(html, /tag route"[^>]*title="[^"]*위조[^"]*"/, "클라이언트 보고값이라는 설명은 태그 툴팁에 남긴다");
+  // 최신순이므로 3000 → 2000 → 1000 순서로 놓인다.
+  assert.ok(
+    html.indexOf("request:last") < html.indexOf("#/administration")
+      && html.indexOf("#/administration") < html.indexOf("request:first"),
+    "화면 이동이 두 요청 사이 시각에 놓인다"
+  );
+
+  ui.state.timelineFlaggedOnly = true;
+  assert.doesNotMatch(ui.renderTimeline(detail, nodes), /#\/administration/,
+    "신호 있는 요청만 보기에서는 화면 이동을 섞지 않는다");
+  ui.state.timelineFlaggedOnly = false;
+
+  ui.state.timelineSession = "session:other";
+  assert.doesNotMatch(ui.renderTimeline(detail, nodes), /#\/administration/,
+    "다른 세션을 고르면 그 세션이 보고한 이동만 남는다");
+  ui.state.timelineSession = "all";
+});
+
+test("화면 이동 기록의 주소는 HTML로 해석하지 않는다", () => {
+  const ui = loadPresentation();
+  const nodes = [{ sessionId: "session:one", timelineAvailable: true, index: 1,
+    color: "#123456", requestCount: 1 }];
+  const detail = {
+    requests: [{ requestId: "request:one", sessionId: "session:one", ts: 1000,
+      method: "GET", url: "/", status: 200 }],
+    features: { client: { browserInteraction: { routeHistory: [
+      { url: "/#/<img src=x onerror=alert(1)>", at: 1500, sessionId: "session:one" },
+    ] } } },
+  };
+  const html = ui.renderTimeline(detail, nodes);
+  assert.doesNotMatch(html, /<img src=x/);
+  assert.match(html, /&lt;img src=x/);
+});

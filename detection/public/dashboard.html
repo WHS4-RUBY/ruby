@@ -347,6 +347,10 @@
   .tag.muted,.tag.repeat { border-color:var(--border); background:var(--btn-bg); color:var(--muted); }
   .tag.repeat { font-family:var(--mono); font-weight:700; }
   .tag.background { border-color:transparent; background:var(--select-bg); color:var(--blue); }
+  /* 서버 요청이 아니라 브라우저가 보고한 화면 전환이라 요청 행과 구분해 표시한다. */
+  .tag.route { border-color:transparent; background:var(--select-bg); color:var(--muted); }
+  .log-group.route-change { border-left:2px solid var(--border); }
+  .log-group.route-change b { font-family:var(--mono, ui-monospace, monospace); }
   .log-group { display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; padding:7px 18px 7px 21px; border-bottom:1px solid var(--border); background:var(--surface-muted); color:var(--muted); font-size:12.5px; }
   .log-group b { color:var(--text-2); font-weight:650; }
 
@@ -854,6 +858,7 @@ const metricLabels = {
   domEventDiversity: 'DOM 이벤트 다양성 (DOM Event Diversity)',
   pageLoads: '문서 로드 (Page Loads)',
   currentUrl: '현재 화면 경로 (Current URL)',
+  routeHistory: '화면 이동 기록 (Route History) · 클라이언트 보고값',
   hasTelemetry: '텔레메트리 수집 (Telemetry Available)',
   payloadSignatureHits: '공격 서명 탐지 수 (Payload Signature Hits)',
   distinctPayloadCategories: '공격 유형 수 (Distinct Payload Categories)',
@@ -1692,6 +1697,28 @@ function buildLogEntries(requests, { collapseBackground = true, dedupe = false }
   return entries;
 }
 
+/* 요청 행과 화면 이동 행을 한 줄기로 세우기 위한 대표 시각. 묶인 행은 가장 최근 것을 쓴다. */
+function logEntryTimestamp(entry) {
+  if (entry.type === 'route') return Number(entry.route?.at) || 0;
+  if (entry.type === 'background-group') {
+    return Math.max(...entry.requests.map(request => Number(request.ts) || 0));
+  }
+  return Number(entry.request?.ts) || 0;
+}
+
+/* telemetry가 보고한 화면 전환을 요청 타임라인과 같은 필터로 걸러 시간순으로 섞는다. */
+function mergeRouteEntries(entries, routeHistory, { session, range, flaggedOnly, rawQuery }) {
+  if (flaggedOnly) return entries;
+  const needle = rawQuery.trim().toLowerCase();
+  const routeEntries = (routeHistory || [])
+    .filter(route => session === 'all' || route.sessionId === session)
+    .filter(route => !range || (Number(route.at) >= range.from && Number(route.at) <= range.to))
+    .filter(route => !needle || String(route.url || '').toLowerCase().includes(needle))
+    .map(route => ({ type: 'route', route }));
+  if (!routeEntries.length) return entries;
+  return [...entries, ...routeEntries].sort((left, right) => logEntryTimestamp(right) - logEntryTimestamp(left));
+}
+
 function rememberLogExpanded(key, expanded) {
   if (!expanded) {
     state.logExpanded.delete(key);
@@ -1795,6 +1822,10 @@ function renderLogDetail(request) {
 
 function renderLogEntries(entries, { keys, lookup, sessionCell = () => '', terms = [], autoExpandId = '' }) {
   return entries.map(entry => {
+    if (entry.type === 'route') {
+      const route = entry.route;
+      return `<div class="log-group route-change"><span class="log-time">${escapeHtml(formatClockMs(Number(route.at)))}</span><span class="tag route" title="브라우저가 telemetry로 보고한 SPA 화면 전환입니다. 주소의 # 뒤는 HTTP 요청에 실리지 않아 서버 기록에는 남지 않습니다. 클라이언트 보고값이므로 위조될 수 있고 점수에는 쓰이지 않습니다.">화면 이동</span><b>${escapeHtml(route.url || '—')}</b></div>`;
+    }
     if (entry.type === 'background-group') {
       const grouped = entry.requests;
       const times = grouped.map(request => Number(request.ts));
@@ -2126,10 +2157,14 @@ function renderTimeline(detail, sessionNodes) {
   state.timelineNewestTs = Math.max(previousNewest || 0, ...filtered.map(request => Number(request.ts) || 0));
 
   const backgroundCount = filtered.filter(isBackgroundRequest).length;
-  const entries = buildLogEntries(filtered, {
-    collapseBackground: !(state.timelineBackgroundExpanded || rawQuery),
-    dedupe: state.timelineDedup,
-  });
+  const entries = mergeRouteEntries(
+    buildLogEntries(filtered, {
+      collapseBackground: !(state.timelineBackgroundExpanded || rawQuery),
+      dedupe: state.timelineDedup,
+    }),
+    detail.features?.client?.browserInteraction?.routeHistory,
+    { session: state.timelineSession, range, flaggedOnly: state.timelineFlaggedOnly, rawQuery }
+  );
   const multiSession = sessionNodes.filter(node => node.timelineAvailable).length > 1;
   const lookup = new Map();
   state.logLookup.timeline = lookup;

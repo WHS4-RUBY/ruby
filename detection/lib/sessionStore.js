@@ -25,6 +25,8 @@ const MAX_REQUESTS_PER_SESSION = 500; // 메모리 보호용 링버퍼 상한
 const MAX_REQUESTS_PER_AUTH_GROUP = MAX_REQUESTS_PER_SESSION * 2;
 const MAX_REQUESTS_PER_IP_ENTRY = MAX_REQUESTS_PER_SESSION * 2;
 const MAX_REQUESTS_PER_RESOLVED_ACTOR = MAX_REQUESTS_PER_SESSION * 2;
+// 클라이언트가 보고한 화면 이동 기록. 관찰용 표시 전용이며 점수에 쓰지 않는다.
+const MAX_TELEMETRY_ROUTES = 100;
 
 // 엔티티 "개수" 상한 + idle TTL.
 // 위의 MAX_REQUESTS_*는 엔티티 하나가 쥔 요청 이력(링버퍼)만 제한할 뿐,
@@ -297,6 +299,7 @@ function getOrCreateSession(sessionId, ip, now = Date.now(), enforce = true) {
         domEventTypes: new Set(),
         pageLoads: 0,
         currentUrl: null,
+        routeHistory: [],
         lastTelemetryAt: null,
       },
     });
@@ -608,7 +611,22 @@ function recordTelemetry(sessionId, ip, payload) {
   }
   t.pageLoads += payload.pageLoad ? 1 : 0;
   if (typeof payload.url === "string") t.currentUrl = payload.url.slice(0, 2048);
-  t.lastTelemetryAt = Date.now();
+  // 클라이언트가 보고한 값이므로 동일성 근거가 아니다. 순서를 신뢰할 수 있도록
+  // 시각은 받은 시점을 쓰고, 보고된 시각은 그 범위 안일 때만 그대로 둔다.
+  const receivedAt = Date.now();
+  for (const entry of Array.isArray(payload.routes) ? payload.routes : []) {
+    if (typeof entry?.url !== "string") continue;
+    const reportedAt = Number(entry.at);
+    t.routeHistory.push({
+      url: entry.url.slice(0, 2048),
+      at: Number.isFinite(reportedAt) && reportedAt > 0 && reportedAt <= receivedAt ? reportedAt : receivedAt,
+      reported: true,
+    });
+  }
+  if (t.routeHistory.length > MAX_TELEMETRY_ROUTES) {
+    t.routeHistory.splice(0, t.routeHistory.length - MAX_TELEMETRY_ROUTES);
+  }
+  t.lastTelemetryAt = receivedAt;
   return s;
 }
 
