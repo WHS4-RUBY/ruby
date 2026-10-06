@@ -1,0 +1,50 @@
+x-image: &image
+  image: "${OVERLAY_IMAGE:?Set OVERLAY_IMAGE in deploy/.env}"
+  build:
+    context: ..
+x-hardening: &hardening
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 64
+  mem_limit: 512m
+  cpus: 1.0
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+services:
+  init-security:
+    <<: [*image, *hardening]
+    profiles: [tools]
+    entrypoint: [python, -m, defense.cli]
+    command: [init-security, --database, /app/state/security.sqlite3]
+    network_mode: none
+    volumes:
+      - overlay-state:/app/state
+  response-overlay:
+    <<: [*image, *hardening]
+    environment:
+      OVERLAY_CONFIG: "${OVERLAY_CONFIG:-/app/config/overlay-server-v2.toml}"
+      OVERLAY_ORIGIN_URL: "${OVERLAY_ORIGIN_URL:?Set the fixed Juice Shop origin URL}"
+      DEFENSE_SECRET_FILE: /app/state/session.key
+      DEFENSE_DETECTOR_SECRET_FILE: /app/state/detector.key
+      DEFENSE_SECURITY_DB: /app/state/security.sqlite3
+    volumes:
+      - overlay-state:/app/state
+    networks:
+      detector-link:
+        aliases: [account-response-overlay]
+      origin-link: {}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+networks:
+  detector-link:
+    external: true
+    name: "${DETECTOR_NETWORK:?Set the private detector network}"
+  origin-link:
+    external: true
+    name: "${ORIGIN_NETWORK:?Set the Juice Shop origin network}"
+volumes:
+  overlay-state: {}
