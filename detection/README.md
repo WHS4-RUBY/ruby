@@ -15,7 +15,7 @@ ModSecurity 및 OWASP CRS의 버전과 라이선스는
 Client
   -> Detection :8080        # 탐지 + 정책 결정 (X-Defense-Plan 생성)
        -> Defense :8080     # 계획 실행 (지연·차단 등)
-            -> benchmark-target :3000
+            -> Target (같은 호스트의 TARGET_PORT)
 ```
 
 별도의 Policy 프록시는 두지 않습니다. 구간별 방어 전략은
