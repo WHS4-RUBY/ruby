@@ -71,7 +71,8 @@ services:
     build: ./defense
     container_name: defense
     environment:
-      BENCHMARK_TARGET_URL: http://benchmark-target:3000
+      TARGET_HOST: host.docker.internal
+      TARGET_PORT: ${TARGET_PORT:-3000}
       DEFENSE_DASHBOARD_PASSWORD: ${DEFENSE_DASHBOARD_PASSWORD:-}
       DEFENSE_DASHBOARD_COOKIE_SECURE: ${DEFENSE_DASHBOARD_COOKIE_SECURE:-false}
       DEFENSE_DASHBOARD_REQUIRE_HTTPS: "false"
@@ -87,21 +88,8 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
-    depends_on:
-      benchmark-target:
-        condition: service_healthy
-    networks:
-      - ai-defense-net
-
-  benchmark-target:
-    container_name: target
-    image: ${BENCHMARK_IMAGE:-bkimminich/juice-shop:latest}
-    healthcheck:
-      test: ["CMD", "/nodejs/bin/node", "-e", "require('net').connect({port:3000,host:'127.0.0.1'}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
-      interval: 2s
-      timeout: 3s
-      retries: 15
-      start_period: 3s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - ai-defense-net
 
