@@ -48,6 +48,7 @@ const { checkCsrf, buildAllowedOrigins } = require("./lib/csrfDetection");
 const { analyzeExchange: analyzeXssExchange, extractCandidates: extractXssCandidates } = require("./lib/xssReflection");
 const { XssCandidateStore } = require("./lib/xssCandidateStore");
 const { attributeStoredFindings } = require("./lib/xssAttribution");
+const { XssEvidenceStore } = require("./lib/xssEvidenceStore");
 const { extractLoginAttemptEmail } = require("./lib/loginBruteForce");
 const {
   extractResetPasswordEmail,
@@ -483,6 +484,37 @@ if (String(process.env.XSS_STORE || "sqlite").toLowerCase() === "memory") {
     console.warn("[detection] SQLite 사용 불가 → 인메모리 폴백:", e && e.message);
   }
 }
+
+// XSS 증거(확정 stored / reflected) 영속 저장소 — 각각 별도 DB 파일.
+// 후보(candidate)는 detect-once로 제거되므로, 실제 탐지된 증거는 여기 별도 보존(재시작에도 유지).
+let xssEvidenceStore;
+{
+  const evOpts = {
+    maxConfirmed: Number(process.env.XSS_MAX_CONFIRMED) || 1000,
+    maxReflected: Number(process.env.XSS_MAX_REFLECTED) || 1000,
+  };
+  if (String(process.env.XSS_STORE || "sqlite").toLowerCase() === "memory") {
+    xssEvidenceStore = new XssEvidenceStore(evOpts);
+    console.log("[detection] XSS evidence store: in-memory (XSS_STORE=memory)");
+  } else {
+    try {
+      const fsMod = require("fs");
+      const pathMod = require("path");
+      const confirmedDbPath = process.env.XSS_CONFIRMED_DB_PATH || pathMod.join(__dirname, "data", "xss-confirmed.db");
+      const reflectedDbPath = process.env.XSS_REFLECTED_DB_PATH || pathMod.join(__dirname, "data", "xss-reflected.db");
+      fsMod.mkdirSync(pathMod.dirname(confirmedDbPath), { recursive: true });
+      fsMod.mkdirSync(pathMod.dirname(reflectedDbPath), { recursive: true });
+      xssEvidenceStore = new XssEvidenceStore({ ...evOpts, confirmedDbPath, reflectedDbPath });
+      console.log("[detection] XSS evidence store: SQLite -> 확정:" + confirmedDbPath + " · reflected:" + reflectedDbPath
+        + (xssEvidenceStore.persistent ? "" : " (인메모리 폴백)"));
+    } catch (e) {
+      xssEvidenceStore = new XssEvidenceStore(evOpts);
+      console.warn("[detection] XSS 증거 저장소 SQLite 불가 → 인메모리 폴백:", e && e.message);
+    }
+  }
+}
+// payload 원문은 그대로 노출하지 않고 짧게 잘라 미리보기만.
+const xssPreview = (v) => { const s = String(v || ""); return s.length > 120 ? s.slice(0, 120) + "…" : s; };
 // XSS 반영 검사에 넘길 응답 본문 최대 크기(과대 응답은 body 검사 생략, 헤더 검사만).
 const configuredXssBodyBytes = Number(process.env.XSS_MAX_BODY_BYTES);
 const XSS_MAX_BODY_BYTES = Number.isSafeInteger(configuredXssBodyBytes) && configuredXssBodyBytes > 0
@@ -509,6 +541,13 @@ function computeXssDetection(req, responseBuffer, responseHeaders) {
       attachFinding: store.attachStoredXssFinding,
       refreshOrigin: refreshXssOriginScores,
     });
+    // 탐지된 증거를 영속 저장소에 기록(확정 stored = 심은 자, reflected = 보낸 요청).
+    for (const f of result.findings || []) {
+      if (f.vulnerabilityType === "stored") xssEvidenceStore.recordConfirmed(f);
+      else if (f.vulnerabilityType === "reflected") {
+        xssEvidenceStore.recordReflected(f, { endpoint: normalizePath(req.originalUrl) });
+      }
+    }
     return result.reflected;
   } catch {
     return { tags: [], maxRisk: 0 };
@@ -777,6 +816,59 @@ app.post("/__detection/telemetry", (req, res) => {
   const ip = getClientIp(req);
   store.recordTelemetry(req.detectionSessionId, ip, req.body || {});
   res.status(204).end();
+});
+
+// 탐지 담당자용: XSS 후보/확정/reflected 조회 + 관리자 삭제·상태.
+app.get("/__detection/api/xss/candidates", (_req, res) => {
+  let items = [];
+  try {
+    items = (xssCandidateStore.all() || []).map((c) => ({
+      value: c.value, payloadPreview: xssPreview(c.value), parameter: c.parameter,
+      endpoint: c.endpoint, originSession: c.origin && c.origin.sessionId,
+      firstSeenAt: c.firstSeen ? new Date(c.firstSeen).toISOString() : null,
+      lastSeenAt: c.lastSeen ? new Date(c.lastSeen).toISOString() : null, timesSeen: c.timesSeen,
+    }));
+  } catch (_) {}
+  res.json({ count: items.length, items });
+});
+app.get("/__detection/api/xss/confirmed", (_req, res) => {
+  const items = xssEvidenceStore.confirmedList().map((c) => ({
+    value: c.value, payloadPreview: xssPreview(c.value), parameter: c.parameter,
+    severity: c.severity, riskScore: c.riskScore, originSession: c.originSession,
+    endpoint: c.endpoint, status: c.status || "open", note: c.note || "",
+    firstAt: c.firstAt ? new Date(c.firstAt).toISOString() : null,
+    lastAt: c.lastAt ? new Date(c.lastAt).toISOString() : null, times: c.times,
+  }));
+  res.json({ count: items.length, persistent: xssEvidenceStore.persistent, items });
+});
+app.get("/__detection/api/xss/reflected", (_req, res) => {
+  const items = xssEvidenceStore.reflectedList().map((c) => ({
+    value: c.value, payloadPreview: xssPreview(c.value), parameter: c.parameter,
+    severity: c.severity, riskScore: c.riskScore, originSession: c.originSession,
+    endpoint: c.endpoint,
+    firstAt: c.firstAt ? new Date(c.firstAt).toISOString() : null,
+    lastAt: c.lastAt ? new Date(c.lastAt).toISOString() : null, times: c.times,
+  }));
+  res.json({ count: items.length, items });
+});
+app.post("/__detection/api/xss/confirmed/update", express.json({ limit: "256kb" }), (req, res) => {
+  const { value, status, note } = req.body || {};
+  if (!value) return res.status(400).json({ ok: false, error: "value required" });
+  const allowed = new Set(["open", "investigating", "resolved", "false_positive"]);
+  const patch = {};
+  if (status !== undefined) patch.status = allowed.has(status) ? status : "open";
+  if (note !== undefined) patch.note = String(note).slice(0, 2000);
+  res.json({ ok: xssEvidenceStore.updateConfirmed(value, patch) });
+});
+app.post("/__detection/api/xss/confirmed/delete", express.json({ limit: "256kb" }), (req, res) => {
+  const { value } = req.body || {};
+  if (!value) return res.status(400).json({ ok: false, error: "value required" });
+  res.json({ ok: xssEvidenceStore.removeConfirmed(value) });
+});
+app.post("/__detection/api/xss/reflected/delete", express.json({ limit: "256kb" }), (req, res) => {
+  const { value } = req.body || {};
+  if (!value) return res.status(400).json({ ok: false, error: "value required" });
+  res.json({ ok: xssEvidenceStore.removeReflected(value) });
 });
 
 app.get("/__detection/api/sessions", (req, res) => {
