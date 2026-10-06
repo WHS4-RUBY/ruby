@@ -648,7 +648,8 @@
             <div class="filter-chips" id="userIdentityFilters" role="group" aria-label="확인 상태 필터">
               <button class="chip-button active" type="button" data-identity="all">전체</button>
               <button class="chip-button" type="button" data-identity="confirmed">서명 ID 확인</button>
-              <button class="chip-button" type="button" data-identity="heuristic">휴리스틱 흐름</button>
+              <button class="chip-button" type="button" data-identity="heuristic">클라이언트 흐름</button>
+              <span class="hint" title="서명 ID 확인은 쿠키로 연속성이 확인된 흐름만 봅니다. 쿠키를 돌려주지 않거나 바꾸는 클라이언트는 여기서 여러 개로 나뉘므로, 한 클라이언트의 활동 전체를 보려면 클라이언트 흐름으로 시작하세요. 지문으로 묶은 흐름은 동일 클라이언트 확정이 아닙니다.">?</span>
             </div>
           </div>
           <p class="list-meta" id="userListMeta" title="서명 ID는 클라이언트 연속성만 확인합니다. 확정 흐름은 후보 흐름에도 함께 보일 수 있으므로 요청 수를 합산하지 마세요. 후보 흐름의 점수는 개별 서명 ID의 방어 판단이 아닙니다.">—</p>
@@ -2395,7 +2396,7 @@ function updateSummary(userRows, sessions, actors, authGroups, ipEntries) {
   const heuristicFlows = userRows.length - confirmed;
   document.getElementById('summaryResolvedActors').textContent = userRows.length.toLocaleString();
   document.getElementById('summaryResolvedActorsSub').textContent =
-    `서명 ID 확인 ${confirmed.toLocaleString()} · 휴리스틱 흐름 ${heuristicFlows.toLocaleString()}`;
+    `서명 ID 확인 ${confirmed.toLocaleString()} · 클라이언트 흐름 ${heuristicFlows.toLocaleString()}`;
   const attackFlows = userRows.filter(row => detectionFor(row).attackDetected).length;
   const attackFlowsElement = document.getElementById('summaryAttackFlows');
   attackFlowsElement.textContent = attackFlows.toLocaleString();
