@@ -659,11 +659,24 @@ function attachDetectionResult(origin, result) {
 }
 
 function getSession(sessionId) {
-  return sessions.get(sessionId);
+  return canonicalizeClientFlowReferences(sessions.get(sessionId));
 }
 
 function getAllSessions() {
-  return Array.from(sessions.values());
+  return Array.from(sessions.values(), canonicalizeClientFlowReferences);
+}
+
+function canonicalizeClientFlowReferences(session) {
+  if (!session) return session;
+  if (!clientFlowStore.aliasVersion || session.flowAliasVersion === clientFlowStore.aliasVersion) return session;
+  const flow = clientFlowStore.get(session.clientFlowId);
+  if (flow) session.clientFlowId = flow.id;
+  for (const request of session.requests) {
+    const current = clientFlowStore.get(request.clientFlowId);
+    if (current) request.clientFlowId = current.id;
+  }
+  session.flowAliasVersion = clientFlowStore.aliasVersion;
+  return session;
 }
 
 function getAllActors() {
@@ -945,7 +958,7 @@ function getClientFlowAggregate(idOrCandidateId) {
   const group = clientFlowStore.get(idOrCandidateId) || clientFlowStore.getByCandidate(idOrCandidateId);
   if (!group) return null;
   const summary = summarizeClientFlowGroup(group);
-  const memberSessions = [...group.sessionIds].map((id) => sessions.get(id)).filter(Boolean);
+  const memberSessions = [...group.sessionIds].map((id) => canonicalizeClientFlowReferences(sessions.get(id))).filter(Boolean);
   const requestIds = new Set();
   const requests = [];
   for (const session of memberSessions) {

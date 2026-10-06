@@ -93,6 +93,8 @@ test("서로 다른 서명 ID가 한 Client Flow에 있어도 동일 클라이�
     status: "FLOW_LINKED",
     confidence: "MEDIUM",
     flowLinked: true,
+    aggregationEnabled: true,
+    anchorCandidateId: "actor:a",
     candidateIds: ["actor:a", "actor:b"],
     resolvedActorIds: ["resolved:a", "resolved:b"],
     observedIps: ["203.0.113.10", "198.51.100.20"],
@@ -109,14 +111,12 @@ test("서로 다른 서명 ID가 한 Client Flow에 있어도 동일 클라이�
   };
 
   const rows = ui.buildUserRows(actors, candidates, [flow]);
-  assert.equal(rows.length, 3);
+  assert.equal(rows.length, 1, "서명 ID는 요청 흐름 목록에 중복 행으로 표시하지 않는다");
   const flowRow = rows.find(row => row.kind === "client-flows");
   assert.equal(flowRow.identity, "heuristic");
   assert.equal(flowRow.verifiedClientCount, 2);
-  assert.equal(rows.filter(row => row.identity === "confirmed").length, 2);
-  ui.state.identityFilter = "confirmed";
-  assert.equal(ui.filterAndSortUsers(rows).length, 2, "각 서명 ID 흐름은 확인 필터에서 찾을 수 있다");
-  ui.state.identityFilter = "all";
+  assert.equal(flowRow.relatedIds.includes("resolved:a"), true);
+  assert.equal(flowRow.relatedIds.includes("resolved:b"), true);
   assert.equal(actors[1].attackScore, 0.1, "다른 서명 ID의 점수는 변경되지 않는다");
 
   ui.state.users = rows;
@@ -124,7 +124,7 @@ test("서로 다른 서명 ID가 한 Client Flow에 있어도 동일 클라이�
   const listHtml = ui.elements.get("userList").innerHTML;
   assert.match(listHtml, /서명 ID 2개는 별도/);
   assert.match(listHtml, /동일 클라이언트 미확정/);
-  assert.match(listHtml, /서명 ID 확인/);
+  assert.doesNotMatch(listHtml, /data-user-kind="resolved-actors"/);
 
   const overview = ui.renderEvidenceOverview(flow, "client-flows", []);
   assert.match(overview, /서명 ID 2개는 별도/);
@@ -141,6 +141,8 @@ test("후보 흐름의 합산 공격 점수는 개별 서명 ID의 공격 식별
     status: "FLOW_LINKED",
     confidence: "MEDIUM",
     flowLinked: true,
+    aggregationEnabled: true,
+    anchorCandidateId: "actor:a",
     candidateIds: ["actor:a", "actor:b"],
     resolvedActorIds: ["resolved:a", "resolved:b"],
     observedIps: ["203.0.113.10"],
@@ -157,8 +159,7 @@ test("후보 흐름의 합산 공격 점수는 개별 서명 ID의 공격 식별
   };
 
   const rows = ui.buildUserRows(actors, candidates, [flow]);
-  assert.equal(rows.length, 3);
-  assert.equal(rows.filter(row => row.identity === "confirmed").length, 2);
+  assert.equal(rows.length, 1);
   ui.state.users = rows;
   ui.renderUserList();
   const listHtml = ui.elements.get("userList").innerHTML;
@@ -168,22 +169,19 @@ test("후보 흐름의 합산 공격 점수는 개별 서명 ID의 공격 식별
     return card[0];
   };
   const flowCard = cardFor("client-flow:linked");
-  const firstClientCard = cardFor("resolved:a");
-  const secondClientCard = cardFor("resolved:b");
 
   assert.match(flowCard, /<span class="mini-value">50<\/span>/);
   assert.match(flowCard, /후보 흐름 공격 신호/);
   assert.doesNotMatch(flowCard, />공격 식별<\/span>/);
-  assert.match(firstClientCard, /<span class="mini-value">40<\/span>/);
-  for (const card of [firstClientCard, secondClientCard]) {
-    assert.doesNotMatch(card, /후보 흐름 공격 신호|>공격 식별<\/span>|<span class="mini-value">50<\/span>/);
-  }
+  assert.doesNotMatch(listHtml, /data-user-id="resolved:/);
+  assert.equal(actors[0].attackScore, 0.4);
+  assert.equal(actors[1].attackScore, 0);
 
   ui.state.riskFilter = "attack-detected";
   assert.equal(ui.filterAndSortUsers(rows).map(row => row.id).join(), "client-flow:linked");
 });
 
-test("확정 흐름과 미확정 요청이 섞인 후보를 목록에서 숨기지 않는다", () => {
+test("서명 ID 확인 여부와 관계없이 연결되지 않은 후보의 요청은 주 목록에 남는다", () => {
   const ui = loadPresentation();
   const resolved = confirmedActor("resolved:a", "actor:a");
   const mixed = {
@@ -192,12 +190,54 @@ test("확정 흐름과 미확정 요청이 섞인 후보를 목록에서 숨기�
     unresolvedRequestCount: 1,
   };
   const rows = ui.buildUserRows([resolved], [mixed], []);
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 1);
   const mixedRow = rows.find(row => row.kind === "actors");
   assert.equal(mixedRow.identity, "heuristic");
   assert.equal(mixedRow.totalRequests, 3);
-  assert.match(mixedRow.note, /미확정 흐름/);
-  assert.equal(rows.filter(row => row.identity === "confirmed").length, 1);
+  assert.match(mixedRow.note, /연결된 Client Flow 없음/);
+  assert.equal(mixedRow.relatedIds.includes("resolved:a"), true);
+});
+
+test("연결된 흐름 64건과 단독 관찰 3건을 한 번씩 주 목록에서 열 수 있다", () => {
+  const ui = loadPresentation();
+  const candidates = [
+    { ...candidate("actor:main", "resolved:main"), totalRequests: 64, sessionCount: 25 },
+    ...[1, 2, 3].map(n => ({ ...candidate(`actor:single-${n}`, `resolved:single-${n}`), totalRequests: 1 })),
+  ];
+  const flow = {
+    clientFlowId: "client-flow:main", flowLinked: true, status: "FLOW_LINKED",
+    anchorCandidateId: "actor:main", candidateIds: ["actor:main"],
+    totalRequests: 64, sessionCount: 25, candidateCount: 1,
+    observedIps: ["203.0.113.10"], lastSeen: 1000,
+  };
+  const rows = ui.buildUserRows([], candidates, [flow]);
+  assert.equal(rows.length, 4);
+  assert.equal(rows.reduce((sum, row) => sum + row.totalRequests, 0), 67);
+  assert.equal(rows.filter(row => row.flowType === "standalone").length, 3);
+  assert.equal(ui.filterAndSortUsers(rows)[0].id, "client-flow:main", "Client Flow를 먼저 보여 준다");
+  assert.equal(rows.some(row => row.id === "actor:main"), false, "Flow에 완전히 포함된 Candidate는 중복하지 않는다");
+});
+
+test("연결 Flow가 없어도 요청 86건을 단독 관찰 흐름에서 열 수 있다", () => {
+  const ui = loadPresentation();
+  const rows = ui.buildUserRows([], [{ ...candidate("actor:only", "resolved:only"), totalRequests: 86 }], []);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].kind, "actors");
+  assert.equal(rows[0].flowType, "standalone");
+  assert.equal(rows[0].totalRequests, 86);
+});
+
+test("Flow 집계가 일부 요청만 포함하면 후보 행을 보존해 요청 누락을 피한다", () => {
+  const ui = loadPresentation();
+  const candidates = [candidate("actor:a", "resolved:a"), candidate("actor:b", "resolved:b")];
+  const flow = {
+    clientFlowId: "client-flow:partial", flowLinked: true, aggregationEnabled: true,
+    status: "FLOW_LINKED", candidateIds: ["actor:a", "actor:b"], totalRequests: 3,
+  };
+  const rows = ui.buildUserRows([], candidates, [flow]);
+  assert.equal(rows.length, 3);
+  assert.equal(rows.filter(row => row.flowType === "standalone").length, 2);
+  assert.match(rows[0].note, /누락 방지를 위해 후보 요청도 표시/);
 });
 
 test("타임라인에 요청이 없는 잠정 세션은 필터 버튼으로 표시하지 않는다", () => {
@@ -245,7 +285,7 @@ test("첫 요청의 잠정 행위자 연결을 서명 ID 확인이나 확정 흐
   const rows = ui.buildUserRows([pending], [observed]);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].identity, "heuristic");
-  assert.match(rows[0].note, /서명 ID 확인 전/);
+  assert.match(rows[0].note, /서명 ID 기록 1개는 별도 보기/);
 
   const overview = ui.renderEvidenceOverview(observed, "actors", []);
   assert.match(overview, /연결된 행위자 기록 1개/);
@@ -310,7 +350,7 @@ test("단서와 목록 텍스트를 HTML로 해석하지 않는다", () => {
   assert.doesNotMatch(overview, /<img/);
   assert.match(overview, /&lt;img/);
 
-  const row = ui.buildUserRows([confirmedActor("resolved:a", "actor:a")], [], [])[0];
+  const row = ui.buildUserRows([], [candidate("actor:a", "resolved:a")], [])[0];
   row.id = injection;
   row.note = injection;
   ui.state.users = [row];
@@ -320,20 +360,23 @@ test("단서와 목록 텍스트를 HTML로 해석하지 않는다", () => {
   assert.match(listHtml, /&lt;img/);
 });
 
-test("확인 상태·위험 필터와 원본 점수는 표시 변경 후에도 분리된다", () => {
+test("연결 상태·위험 필터와 원본 점수는 표시 변경 후에도 분리된다", () => {
   const ui = loadPresentation();
-  const confirmed = ui.buildUserRows([confirmedActor("resolved:low", "actor:low", 0.1)], [], [])[0];
-  const heuristic = ui.buildUserRows([], [candidate("actor:high", null, 0.8)], [])[0];
-  ui.state.users = [confirmed, heuristic];
-  ui.state.identityFilter = "confirmed";
-  assert.equal(ui.filterAndSortUsers(ui.state.users).map(row => row.id).join(), "resolved:low");
-  ui.state.identityFilter = "heuristic";
+  const standalone = ui.buildUserRows([], [candidate("actor:high", null, 0.8)], [])[0];
+  const linked = ui.buildUserRows([], [], [{
+    clientFlowId: "client-flow:low", flowLinked: true, status: "FLOW_LINKED",
+    totalRequests: 2, attackScore: 0.1, automationScore: 0.1,
+  }])[0];
+  ui.state.users = [standalone, linked];
+  ui.state.flowFilter = "linked";
+  assert.equal(ui.filterAndSortUsers(ui.state.users).map(row => row.id).join(), "client-flow:low");
+  ui.state.flowFilter = "standalone";
   assert.equal(ui.filterAndSortUsers(ui.state.users).map(row => row.id).join(), "actor:high");
-  ui.state.identityFilter = "all";
+  ui.state.flowFilter = "all";
   ui.state.riskFilter = "attack-detected";
   assert.equal(ui.filterAndSortUsers(ui.state.users).map(row => row.id).join(), "actor:high");
-  assert.equal(confirmed.attackScore, 0.1);
-  assert.equal(heuristic.attackScore, 0.8);
+  assert.equal(linked.attackScore, 0.1);
+  assert.equal(standalone.attackScore, 0.8);
 });
 
 test("표시 점수가 임계값 아래의 원점수를 반올림해 넘기지 않는다", () => {
@@ -392,51 +435,51 @@ test("A 상세 응답이 B 선택 뒤 늦게 도착해도 B 상세를 덮지 않
   const requested = [];
   const ui = loadPresentation((url) => {
     requested.push(url);
-    return url.endsWith("resolved%3Aa") ? aResponse.promise : Promise.resolve({
+    return url.endsWith("actor%3Aa") ? aResponse.promise : Promise.resolve({
       status: 200,
       ok: true,
-      json: async () => ({ resolvedActorId: "resolved:b" }),
+      json: async () => ({ actorId: "actor:b" }),
     });
   });
   // 이 테스트는 비동기 상세 선택의 상태 경쟁만 확인한다.
   vm.runInContext("renderUserDetail = () => {};", ui.context);
   ui.state.users = [
-    ui.buildUserRows([confirmedActor("resolved:a", "actor:a")], [], [])[0],
-    ui.buildUserRows([confirmedActor("resolved:b", "actor:b")], [], [])[0],
+    ui.buildUserRows([], [candidate("actor:a", "resolved:a")], [])[0],
+    ui.buildUserRows([], [candidate("actor:b", "resolved:b")], [])[0],
   ];
 
-  const selectingA = ui.selectUser("resolved-actors", "resolved:a");
-  const selectingB = ui.selectUser("resolved-actors", "resolved:b");
+  const selectingA = ui.selectUser("actors", "actor:a");
+  const selectingB = ui.selectUser("actors", "actor:b");
   await selectingB;
-  assert.equal(ui.state.userDetail.resolvedActorId, "resolved:b");
-  aResponse.resolve({ status: 200, ok: true, json: async () => ({ resolvedActorId: "resolved:a" }) });
+  assert.equal(ui.state.userDetail.actorId, "actor:b");
+  aResponse.resolve({ status: 200, ok: true, json: async () => ({ actorId: "actor:a" }) });
   await selectingA;
-  assert.equal(ui.state.userDetail.resolvedActorId, "resolved:b");
+  assert.equal(ui.state.userDetail.actorId, "actor:b");
   assert.deepEqual(requested, [
-    "/__detection/api/resolved-actors/resolved%3Aa",
-    "/__detection/api/resolved-actors/resolved%3Ab",
+    "/__detection/api/actors/actor%3Aa",
+    "/__detection/api/actors/actor%3Ab",
   ]);
 });
 
 test("자동 목록 재렌더는 선택 카드의 키보드 포커스와 스크롤 위치를 유지한다", () => {
   const ui = loadPresentation();
   ui.state.users = [
-    ui.buildUserRows([confirmedActor("resolved:a", "actor:a")], [], [])[0],
-    ui.buildUserRows([confirmedActor("resolved:b", "actor:b")], [], [])[0],
+    ui.buildUserRows([], [candidate("actor:a", "resolved:a")], [])[0],
+    ui.buildUserRows([], [candidate("actor:b", "resolved:b")], [])[0],
   ];
   const list = ui.document.getElementById("userList");
   list.scrollTop = 120;
   const oldFocused = {
-    dataset: { userKind: "resolved-actors", userId: "resolved:b" },
+    dataset: { userKind: "actors", userId: "actor:b" },
     closest(selector) { return selector === ".user-card" ? this : null; },
   };
   const otherCard = {
-    dataset: { userKind: "resolved-actors", userId: "resolved:a" },
+    dataset: { userKind: "actors", userId: "actor:a" },
     addEventListener() {},
     focus() { throw new Error("다른 카드로 포커스가 이동하면 안 된다"); },
   };
   const replacement = {
-    dataset: { userKind: "resolved-actors", userId: "resolved:b" },
+    dataset: { userKind: "actors", userId: "actor:b" },
     addEventListener() {},
     focus(options) { ui.document.activeElement = this; this.focusOptions = options; },
   };
