@@ -1383,7 +1383,7 @@ function renderUserList() {
     </button>`;
   }).join('') || (state.users.length
     ? '<p class="empty" style="padding:20px 16px;">검색·필터와 일치하는 흐름이 없습니다. 조건을 바꿔 보세요.</p>'
-    : '<p class="empty" style="padding:20px 16px;">아직 관찰된 흐름이 없습니다. 위의 공개 경로에서 사이트를 열고 요청을 보낸 뒤 확인하세요.</p>');
+    : '<p class="empty" style="padding:20px 16px;">아직 관찰된 흐름이 없습니다. 사이트를 열고 요청을 보낸 뒤 확인하세요.</p>');
 
   list.querySelectorAll('.user-card').forEach(card => {
     card.addEventListener('click', () => {
@@ -2504,27 +2504,6 @@ async function monitoredRefresh() {
   } catch (_) {
     status.textContent = '탐지 기록을 불러오지 못했습니다';
     status.classList.add('error');
-  } finally {
-    await loadPublicTarget();
-  }
-}
-
-async function loadPublicTarget() {
-  const link = document.getElementById('publicTargetLink');
-  const fallback = document.getElementById('publicTargetFallback');
-  try {
-    const response = await nativeFetch('/__ruby/target', { cache:'no-store' });
-    if (!response.ok) throw new Error('target metadata unavailable');
-    const { publicPath } = await response.json();
-    if (!/^\/[a-z][a-z0-9-]{0,39}\/$/.test(publicPath)) throw new Error('invalid public path');
-    link.href = publicPath;
-    link.textContent = publicPath;
-    link.hidden = false;
-    fallback.hidden = true;
-  } catch (_) {
-    link.hidden = true;
-    fallback.textContent = '경로 확인 불가';
-    fallback.hidden = false;
   }
 }
 
@@ -2898,7 +2877,6 @@ initializeTheme();
 try { applyLogDensity(localStorage.getItem('detection-log-density')); }
 catch (_) { applyLogDensity('comfortable'); }
 setTab('users');
-loadPublicTarget();
 nativeFetch('/__detection/api/auth/status')
   .then(response => response.json())
   .then(status => {

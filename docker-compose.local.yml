@@ -1,33 +1,11 @@
 name: ruby-local
 
 services:
-  gateway:
-    image: nginx:alpine3.23@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa
-    ports:
-      - "8081:8080"
-    environment:
-      RUBY_PUBLIC_NAME: juice-shop
-      RUBY_FORWARDED_PROTO: ${RUBY_FORWARDED_PROTO:-http}
-    volumes:
-      - ./gateway/default.conf.template:/etc/nginx/ruby/default.conf.template:ro
-      - ./gateway/render-config.sh:/etc/nginx/ruby/render-config.sh:ro
-    entrypoint: ["/bin/sh", "/etc/nginx/ruby/render-config.sh"]
-    depends_on:
-      detection:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
-      interval: 2s
-      timeout: 3s
-      retries: 15
-    networks:
-      - ai-defense-net
-
   detection:
     build: ./detection
     container_name: detection
-    expose:
-      - "8080"
+    ports:
+      - "8081:8080"
     environment:
       TARGET_URL: http://defense:8080
       PORT: "8080"
@@ -46,7 +24,7 @@ services:
       DCID_HMAC_SECRET: ${DCID_HMAC_SECRET:-}
       DCID_TTL_MS: ${DCID_TTL_MS:-2592000000}
       DCID_COOKIE_SECURE: ${DCID_COOKIE_SECURE:-false}
-      TRUST_PROXY: ${TRUST_PROXY:-loopback,linklocal,uniquelocal}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
       ACCOUNT_JWT_PUBLIC_KEY: ${ACCOUNT_JWT_PUBLIC_KEY:-}
       ACCOUNT_ID_HASH_KEY: ${ACCOUNT_ID_HASH_KEY:-}
       DETECTION_DASHBOARD_PASSWORD: ${DETECTION_DASHBOARD_PASSWORD:-}
@@ -105,10 +83,13 @@ services:
       - ./defense/app:/app/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload --no-proxy-headers
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/readyz', timeout=2)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
       interval: 2s
       timeout: 3s
       retries: 15
+    depends_on:
+      benchmark-target:
+        condition: service_healthy
     networks:
       - ai-defense-net
 

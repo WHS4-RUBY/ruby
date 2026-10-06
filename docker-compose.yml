@@ -1,36 +1,12 @@
 networks:
   ai-defense-net:
-    name: ${RUBY_PIPELINE_NETWORK:-ruby_ai-defense-net}
 
 services:
-  gateway:
-    image: nginx:alpine3.23@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa
-    ports:
-      - "80:8080"
-    environment:
-      RUBY_PUBLIC_NAME: juice-shop
-      RUBY_FORWARDED_PROTO: ${RUBY_FORWARDED_PROTO:-http}
-    volumes:
-      - ./gateway/default.conf.template:/etc/nginx/ruby/default.conf.template:ro
-      - ./gateway/render-config.sh:/etc/nginx/ruby/render-config.sh:ro
-    entrypoint: ["/bin/sh", "/etc/nginx/ruby/render-config.sh"]
-    depends_on:
-      detection:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - ai-defense-net
-
   detection:
     image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/detection:${IMAGE_TAG:-latest}
     container_name: detection
-    expose:
-      - "8080"
+    ports:
+      - "80:8080"
     environment:
       - NODE_ENV=production
       - TARGET_URL=http://defense:8080
@@ -112,10 +88,13 @@ services:
       - DEFENSE_DASHBOARD_LOGIN_ATTEMPTS=${DEFENSE_DASHBOARD_LOGIN_ATTEMPTS:-5}
       - DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS=${DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS:-300}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/readyz', timeout=2)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
       interval: 10s
       timeout: 3s
       retries: 5
+    depends_on:
+      benchmark-target:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - ai-defense-net

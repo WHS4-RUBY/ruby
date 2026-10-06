@@ -24,69 +24,19 @@ jobs:
       - name: Test Detection
         working-directory: detection
         run: npm test
-
+      
       - name: Test Defense dashboard presentation
         run: node --test defense/tests/dashboardPresentation.test.js
 
-      - name: Test gateway target path metadata
-        run: node --test gateway/test-target-meta.mjs
-
       - name: Audit Detection dependencies
         working-directory: detection
-        run: npm audit --audit-level=moderate
+        # TEMP: braces에 패치 버전이 없어서 이 advisory만 예외 처리.
+        # braces 패치가 나오면 npm update braces 후 --allowlist 제거할 것.
+        # https://github.com/advisories/GHSA-vfj7-8cjw-p6xm
+        run: npx --yes audit-ci@^7 --moderate --allowlist GHSA-vfj7-8cjw-p6xm
 
       - name: Build Detection image
         run: docker build -t detection:ci ./detection
-
-      - name: Validate Detection, Defense, and selectable target contract
-        env:
-          IMAGE_PREFIX: ghcr.io/whs4-ruby/ruby
-          PAYLOAD_FINGERPRINT_KEY: compose-validation-key
-          DCID_HMAC_SECRET: compose-validation-dcid-key
-          ACCOUNT_ID_HASH_KEY: compose-validation-account-key
-          DETECTION_DASHBOARD_PASSWORD: compose-validation-detection-password
-          DEFENSE_DASHBOARD_PASSWORD: compose-validation-defense-password
-          DCID_COOKIE_SECURE: "true"
-          DETECTION_DASHBOARD_COOKIE_SECURE: "true"
-          DEFENSE_DASHBOARD_COOKIE_SECURE: "true"
-          RUBY_TARGET_URL: https://site.example.test
-          RUBY_TARGET_PROFILE_FILE: ./target-profiles/site.example.json
-        run: |
-          docker compose \
-            -f docker-compose.yml \
-            -f docker-compose.target.juice-shop.yml \
-            config --quiet
-          docker compose \
-            -f docker-compose.yml \
-            -f docker-compose.target.site.yml \
-            config --quiet
-          docker compose \
-            -f docker-compose.yml \
-            -f docker-compose.target.ruby-web.yml \
-            config --format json | node -e '
-              let text = "";
-              process.stdin.on("data", chunk => { text += chunk; });
-              process.stdin.on("end", () => {
-                const config = JSON.parse(text);
-                const services = config.services;
-                if (services.policy) throw new Error("separate policy service must not return");
-                if (services.detection.environment.TARGET_URL !== "http://defense:8080") {
-                  throw new Error("Detection must send requests directly to Defense");
-                }
-                if (services.defense.environment.BENCHMARK_TARGET_URL !== "http://ruby-web-target:8080") {
-                  throw new Error("RUBY web overlay did not select the public web target");
-                }
-                if (services.gateway.environment.RUBY_PUBLIC_NAME !== "ruby-market") {
-                  throw new Error("RUBY web overlay did not select the public path");
-                }
-                if (services.detection.environment.TARGET_PROFILE_FILE !== "/app/config/target.json") {
-                  throw new Error("RUBY web overlay did not select the detection profile");
-                }
-                if (config.networks["ai-defense-net"].name !== "ruby_ai-defense-net") {
-                  throw new Error("root and RUBY web stacks do not share the fixed pipeline network");
-                }
-              });
-            '
 
   python-check:
     runs-on: ubuntu-26.04
@@ -145,11 +95,7 @@ jobs:
             http://127.0.0.1:8081/__defense/api/login >/dev/null
           curl --fail --silent --show-error -b defense.cookies \
             http://127.0.0.1:8081/__defense/api/snapshot >/dev/null
-          test "$(curl --silent --output /dev/null --write-out '%{redirect_url}' http://127.0.0.1:8081/)" = "http://127.0.0.1:8081/juice-shop/"
-          test "$(curl --fail --silent --show-error http://127.0.0.1:8081/__ruby/target)" = '{"publicPath":"/juice-shop/"}'
-          curl --fail --silent --show-error http://127.0.0.1:8081/juice-shop/ >/dev/null
-          curl --fail --silent --show-error 'http://127.0.0.1:8081/rest/products/search?q=' >/dev/null
-          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8081/ruby-market/)" = "404"
+          curl --fail --silent --show-error http://127.0.0.1:8081/ >/dev/null
 
       - name: Show service logs on failure
         if: failure()

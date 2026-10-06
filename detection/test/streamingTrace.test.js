@@ -57,7 +57,7 @@ test("Detection traces complete streams and partial upstream errors by request I
     cwd: path.join(__dirname, ".."),
     env: { ...process.env, NODE_ENV: "test", PORT: String(port),
       TARGET_URL: `http://127.0.0.1:${backend.address().port}`,
-      TARGET_PROFILE_FILE: "", CRS_ENABLED: "false", DECEPTION_ENABLED: "false",
+      CRS_ENABLED: "false", DECEPTION_ENABLED: "false",
       DETECTION_DASHBOARD_PASSWORD: password,
       DCID_HMAC_SECRET: crypto.randomBytes(32).toString("hex"),
       ACCOUNT_ID_HASH_KEY: crypto.randomBytes(32).toString("hex"),

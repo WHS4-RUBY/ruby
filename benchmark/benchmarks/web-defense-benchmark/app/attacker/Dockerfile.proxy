@@ -1,8 +1,0 @@
-# 공격자 상자의 유일한 출구다. 정책은 egress_proxy.py 에 있다.
-FROM python:3.13-slim
-RUN useradd --create-home --uid 10002 gateway \
-    && mkdir -p /var/log && chown gateway:gateway /var/log
-COPY egress_proxy.py /opt/egress_proxy.py
-USER gateway
-EXPOSE 3128
-ENTRYPOINT ["python", "/opt/egress_proxy.py"]

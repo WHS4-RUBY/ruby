@@ -43,10 +43,6 @@
     .page { width:min(100% - 40px,1760px); margin:0 auto; padding:24px 0 36px; }
     .workspace { border:1px solid var(--border); background:var(--surface); }
     .start-guide { padding:16px 18px; border-bottom:1px solid var(--border); background:var(--surface-subtle); }
-    .target-route { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; margin-bottom:13px; }
-    .target-route strong { font-size:13px; }
-    .target-route a { color:var(--blue); font-weight:700; overflow-wrap:anywhere; }
-    .target-route span { color:var(--muted); font-size:12px; }
     .guide-steps { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:0; padding:0; list-style:none; }
     .guide-steps li { min-width:0; padding:10px 12px; border:1px solid var(--border); background:var(--surface); }
     .guide-steps strong { display:block; margin-bottom:3px; font-size:12px; }
@@ -204,13 +200,11 @@
   <main class="page">
     <section class="workspace">
       <section class="start-guide" aria-label="방어 화면 읽는 순서">
-        <div class="target-route"><strong>선택된 공개 경로</strong><a id="targetLink" hidden></a><span id="targetUnavailable">경로 확인 중</span></div>
         <details class="guide-details" id="defenseGuide" open>
           <summary>처음 보는 분: 탐지부터 방어 결과까지 확인하기</summary>
           <ol class="guide-steps">
-            <li><strong>1. 공개 경로 확인</strong><span>웹사이트 이용자와 시험 요청이 방문할 주소입니다.</span></li>
-            <li><strong>2. 탐지 결과 확인</strong><span><a href="/__detection/dashboard">탐지 화면</a>에서 방문 흐름과 점수를 확인합니다. 두 화면의 점수는 0~100 관찰 지표이며 공격 성공 확률이 아닙니다.</span></li>
-            <li><strong>3. 방어 결과 대조</strong><span>아래에서 요청을 열고 적용 전략·응답을 확인합니다. 요청 ID로 탐지 기록과 대조할 수 있습니다.</span></li>
+            <li><strong>1. 탐지 결과 확인</strong><span><a href="/__detection/dashboard">탐지 화면</a>에서 방문 흐름과 점수를 확인합니다. 두 화면의 점수는 0~100 관찰 지표이며 공격 성공 확률이 아닙니다.</span></li>
+            <li><strong>2. 방어 결과 대조</strong><span>아래에서 요청을 열고 적용 전략·응답을 확인합니다. 요청 ID로 탐지 기록과 대조할 수 있습니다.</span></li>
           </ol>
         </details>
       </section>
@@ -318,27 +312,6 @@
       return typeof value === 'number' && Number.isFinite(value) ? String(Math.floor(value * 10000) / 100) : '—';
     }
 
-    async function loadTarget() {
-      const link = document.getElementById('targetLink');
-      const unavailable = document.getElementById('targetUnavailable');
-      try {
-        const response = await fetch('/__ruby/target', { cache:'no-store' });
-        if (!response.ok) throw new Error('target unavailable');
-        const { publicPath } = await response.json();
-        if (typeof publicPath !== 'string' || !/^\/[a-z][a-z0-9-]{0,39}\/$/.test(publicPath)) {
-          throw new Error('invalid public path');
-        }
-        link.href = publicPath;
-        link.textContent = publicPath;
-        link.hidden = false;
-        unavailable.hidden = true;
-      } catch (_) {
-        link.hidden = true;
-        unavailable.textContent = '경로 확인 불가';
-        unavailable.hidden = false;
-      }
-    }
-
     async function api(path, options) {
       const response = await fetch(`/__defense/api/${path}`, options);
       if (response.status === 401) {
@@ -413,7 +386,7 @@
       const root = document.getElementById('actionList');
       const actions = data.actions || [];
       if (!actions.length) {
-        root.innerHTML = '<p class="empty">아직 방어 기록이 없습니다. 위의 공개 경로를 열면 요청과 적용 전략을 확인할 수 있습니다.</p>';
+        root.innerHTML = '<p class="empty">아직 방어 기록이 없습니다. 사이트로 요청이 들어오면 요청과 적용 전략을 확인할 수 있습니다.</p>';
         return;
       }
       const max = Math.max(...actions.map(action => action.count), 1);
@@ -539,7 +512,7 @@
       if (!groups.length) {
         root.innerHTML = state.requests.length
           ? '<p class="empty">검색 조건에 맞는 요청이 없습니다.</p>'
-          : '<p class="empty">아직 최근 요청이 없습니다. 위의 공개 경로를 열면 이곳에 요청 결과가 표시됩니다.</p>';
+          : '<p class="empty">아직 최근 요청이 없습니다. 사이트로 요청이 들어오면 이곳에 요청 결과가 표시됩니다.</p>';
         return;
       }
       root.innerHTML = groups.map((group, index) => {
@@ -601,8 +574,6 @@
         if (String(error.message).includes('authentication')) return;
         document.getElementById('statusDot').classList.add('error');
         document.getElementById('statusText').textContent = '대시보드 데이터 연결 오류';
-      } finally {
-        await loadTarget();
       }
     }
 
@@ -618,7 +589,6 @@
       // 탐지 화면의 "방어 기록에서 보기" 링크(?q=요청 ID)로 들어오면 해당 요청을 바로 검색한다.
       const initialQuery = new URLSearchParams(window.location.search).get('q');
       if (initialQuery) document.getElementById('requestSearch').value = initialQuery.slice(0, 200);
-      loadTarget();
       const status = await api('auth/status');
       state.authEnabled = status.enabled;
       document.getElementById('logoutButton').hidden = !status.enabled;

@@ -9,10 +9,6 @@ RUBY에서 논문과 오픈소스 프로젝트의 벤치마킹 과정, 실행 �
 - 실행 과정에서 발견한 오류와 제약사항
 - 이후 공통 서버 실험에 필요한 환경 조건
 
-## 바로 실행할 수 있는 벤치마크
-
-- [RUBY Market 구조와 실행 안내](benchmarks/web-defense-benchmark/README.md): 공격 대상 웹, 실험 관리 UI, 비공개 성공 판정기와 측정 기록을 함께 제공합니다. 전체 등록 34개 중 본 실험은 29개이며, XSS/CSRF 관련 5개는 재현 자료로 보존합니다.
-
 ## 저장소 구조
 
 ```text
@@ -25,15 +21,18 @@ benchmark/
 
 ## 방어 파이프라인 연결 실행
 
-루트 통합 파이프라인은 `Detection -> Defense -> Target` 순서입니다. 저장소 루트의 `.env`에 배포 이미지 경로를 설정하며, 기본 벤치마크 대상은 OWASP Juice Shop입니다.
+컨테이너로 제공되는 벤치마크는 루트 [`.env.example`](../.env.example)을 복사해 만든 `.env`에서 선택합니다. 기본 선택은 OWASP Juice Shop이며, 이 설정은 컨테이너 이미지·서비스 포트와 Defense가 요청을 전달할 내부 주소를 함께 지정합니다.
 
 ```bash
-# .env 설정 후 기본 Juice Shop 파이프라인 기동
+# 최초 한 번: 파이프라인이 공유할 Docker 네트워크 생성
+docker network create ai-defense-net
+
+# .env에 선택된 벤치마크와 파이프라인을 함께 기동
 docker compose pull
 docker compose up -d
 ```
 
-공유 네트워크는 Compose가 생성하며 기본 이름은 `ruby_ai-defense-net`입니다. 자체 웹을 사용할 때는 별도 8개 서비스 스택을 준비하고 대상 선택 오버레이로 Defense의 전달 주소를 바꿉니다. 자체 웹에서는 `web` 서비스만 이 공유망에 연결하고, API와 데이터 서비스, 판정기는 내부망에 둡니다. 준비 조건과 대상 전환 후 Detection 상태 초기화는 [서버 대상 전환 안내](benchmarks/web-defense-benchmark/docs/operations/04-server-target-selection.md)를 따릅니다. 자체 웹을 시작하거나 본 실험을 실행하는 작업은 기본 배포에 포함되지 않습니다.
+선택된 profile의 컨테이너만 생성됩니다. 모든 계층과 선택된 벤치마크는 `ai-defense-net`에 연결되므로 Defense는 `BENCHMARK_TARGET_URL`에 설정된 서비스 이름(기본값: `benchmark-target`)으로 타깃에 접근합니다. 다른 컨테이너형 벤치마크로 바꿀 때는 `.env`의 profile, 이미지, 포트와 URL만 함께 갱신합니다.
 
 각 벤치마크는 다음 형태로 추가합니다.
 
@@ -69,7 +68,7 @@ benchmarks/agent-webcloak/
 
 - `README.md`: 원본 URL, 논문, 검증 commit/tag, 목표, 설치 및 실행 명령
 - `environment.md`: 해당 실험 당시의 Host OS, Docker 이미지, Codex 및 도구 버전
-- `results.md`: 성공, 부분 성공, 실패 여부, 확인한 기능, 오류, 논문 결과와의 차이
+- `results.md`: 성공·부분 성공·실패 여부, 확인한 기능, 오류, 논문 결과와의 차이
 - `scripts/`: 반복 실행에 필요한 `setup.sh`, `run.sh` 등의 스크립트
 - `patches/`: 원본 프로젝트를 실행하기 위해 적용한 패치와 변경 설명
 
@@ -116,7 +115,7 @@ results/
 
 다음 내용을 정리합니다.
 
-- 프로젝트별 성공, 부분 성공, 실패 비교
+- 프로젝트별 성공·부분 성공·실패 비교
 - 주차별 진행 상황과 발표용 요약
 - 여러 프로젝트에서 공통으로 발생한 오류와 제약사항
 - 팀원별 실행 결과를 비교할 때의 환경 차이
@@ -157,4 +156,4 @@ results/
 - 개인 식별 정보 또는 외부 공개가 제한된 데이터
 - 라이선스상 재배포할 수 없는 데이터셋과 모델 파일
 
-실수로 비밀 정보를 커밋했다면 해당 값을 즉시 폐기하고 재발급한 뒤 관리자에게 알립니다. 파일을 삭제하는 것만으로는 Git 기록에서 제거되지 않습니다.
+실수로 비밀 정보를 커밋했다면 해당 값을 즉시 폐기·재발급하고 관리자에게 알립니다. 파일을 삭제하는 것만으로는 Git 기록에서 제거되지 않습니다.
