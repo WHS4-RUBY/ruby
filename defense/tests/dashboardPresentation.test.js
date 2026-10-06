@@ -91,7 +91,7 @@ test("WebSocket 업그레이드와 연결 결과를 HTTP 응답으로 표시하�
   ];
   for (const [event, label] of cases) {
     const card = ui.renderRequestCard(event);
-    assert.match(card, new RegExp(`<span class="badge mono">${label}</span>`));
+    assert.match(card, new RegExp(`<span class="badge mono">${label}</span>`), "WebSocket 결과에는 HTTP 상태 색을 붙이지 않는다");
     assert.doesNotMatch(card, /HTTP \d+/);
   }
   assert.match(ui.renderRequestCard({ method: "GET", status: 502, outcome: "error" }), /HTTP 502/);
@@ -102,4 +102,16 @@ test("정책 점수를 올림 표시해 방어 경계값을 잘못 암시하지 
   assert.equal(ui.formatScore(0.796), "79.6");
   assert.equal(ui.formatScore(0.799999), "79.99");
   assert.equal(ui.formatScore(0.8), "80");
+});
+
+test("요청 행은 결과별 색 막대와 메서드·상태 색을 붙이고 검색한 요청 ID를 강조한다", () => {
+  const ui = loadDashboard();
+  const blocked = ui.renderRequestCard({ requestId: "request:a", method: "POST", path: "/login", status: 429, outcome: "blocked", strategies: ["rate_limit_strict"] });
+  assert.match(blocked, /class="request-card sev-blocked"/);
+  assert.match(blocked, /class="method-badge m-post">POST</);
+  assert.match(blocked, /class="badge mono s-4xx">HTTP 429</);
+  const defended = ui.renderRequestCard({ requestId: "request:b", method: "GET", status: 200, outcome: "forwarded", strategies: ["delay"] }, "request:b");
+  assert.match(defended, /class="request-card sev-defended highlight"/);
+  const plain = ui.renderRequestCard({ requestId: "request:c", method: "GET", status: 200, outcome: "forwarded", strategies: [] }, "request:b");
+  assert.match(plain, /class="request-card sev-forwarded"/);
 });

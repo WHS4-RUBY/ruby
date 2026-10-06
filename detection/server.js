@@ -148,6 +148,7 @@ app.disable("x-powered-by");
 app.set("trust proxy", parseTrustProxy());
 app.use(cookieParser());
 app.use((req, res, next) => {
+  delete req.headers["x-forwarded-for"];
   if (req.path === "/__detection" || req.path.startsWith("/__detection/")) {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");

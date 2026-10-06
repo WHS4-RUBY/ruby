@@ -198,15 +198,12 @@ def build_upstream_headers(request: Request, extra: dict) -> dict[str, str]:
             continue
         headers[key] = _header_value(value)
     headers["accept-encoding"] = "identity"
-    headers["x-forwarded-for"] = request.headers.get("x-forwarded-for") or (
-        request.client.host if request.client else "unknown"
-    )
     headers["x-forwarded-host"] = request.headers.get("x-forwarded-host") or request.headers.get(
         "host", ""
     )
     headers["x-forwarded-proto"] = request.headers.get("x-forwarded-proto") or request.url.scheme
     for key, value in extra.items():
-        if key.lower() in _HOP_BY_HOP | _DEFENSE_INTERNAL_HEADERS:
+        if key.lower() in _HOP_BY_HOP | _DEFENSE_INTERNAL_HEADERS | {"x-forwarded-for"}:
             continue
         headers[key] = _header_value(value)
     return headers
@@ -309,9 +306,6 @@ def _websocket_headers(websocket: WebSocket, extra: dict[str, str]) -> dict[str,
         for key, value in websocket.headers.items()
         if key.lower() not in _WEBSOCKET_SKIP
     }
-    headers["x-forwarded-for"] = websocket.headers.get("x-forwarded-for") or (
-        websocket.client.host if websocket.client else "unknown"
-    )
     headers["x-forwarded-host"] = websocket.headers.get("x-forwarded-host") or websocket.headers.get(
         "host", ""
     )

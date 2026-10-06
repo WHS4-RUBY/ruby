@@ -5,6 +5,10 @@
   var domEventTypes = new Set();
   var pageLoadPending = true;
   var currentUrl = getCurrentUrl();
+  // 전송 주기(5초) 안에 여러 번 이동하면 마지막 주소만 남으므로, 거쳐 간 화면을
+  // 따로 모아 보낸다. 한 전송에 담을 수 있는 수를 제한해 길이를 묶는다.
+  var MAX_ROUTES_PER_BATCH = 50;
+  var routes = [{ url: currentUrl, at: Date.now() }];
   var TRACKED_EVENTS = [
     "click",
     "keydown",
@@ -41,6 +45,7 @@
     if (nextUrl === currentUrl) return;
     currentUrl = nextUrl;
     routeChangeCount++;
+    if (routes.length < MAX_ROUTES_PER_BATCH) routes.push({ url: nextUrl, at: Date.now() });
   }
 
   function instrumentHistoryMethod(methodName) {
@@ -67,6 +72,7 @@
       // 실제 문서가 로드되어 이 스크립트가 실행된 최초 구간에만 true다.
       pageLoad: pageLoadPending,
       url: currentUrl,
+      routes: routes,
     };
     // 누적치는 리셋하고 다음 구간을 다시 센다 (서버에서 합산)
     mouseMoveCount = 0;
@@ -74,6 +80,7 @@
     routeChangeCount = 0;
     domEventTypes = new Set();
     pageLoadPending = false;
+    routes = [];
 
     var body = JSON.stringify(payload);
     if (navigator.sendBeacon) {

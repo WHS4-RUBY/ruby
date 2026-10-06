@@ -163,6 +163,29 @@ test("dlsid와 dcid가 모두 바뀌어도 같은 Candidate의 요청은 하나�
   assert.deepEqual(flow.conflicts, []);
 });
 
+test("분리된 Client Flow가 세션을 공유하면 과거 요청도 병합된 Flow ID로 조회된다", () => {
+  const first = record("flow-overlap-a", "203.0.113.251", "/flow/a", {
+    "user-agent": "curl/44.0", accept: "*/*",
+  });
+  const second = record("flow-overlap-b", "198.51.100.252", "/flow/b", {
+    "user-agent": "python-requests/44.0", accept: "*/*",
+  });
+  const firstFlowId = first.requests[0].clientFlowId;
+  const secondFlowId = second.requests[0].clientFlowId;
+  assert.notEqual(firstFlowId, secondFlowId);
+  record("flow-overlap-a", "198.51.100.252", "/flow/c", {
+    "user-agent": "python-requests/44.0", accept: "*/*",
+  });
+
+  const aggregate = store.getClientFlowAggregate(firstFlowId);
+  assert.equal(aggregate.id, store.getClientFlowAggregate(secondFlowId).id);
+  assert.equal(aggregate.totalRequests, 3);
+  assert.equal(new Set(aggregate.requests.map((request) => request.requestId)).size, 3);
+  assert.deepEqual(new Set(aggregate.requests.map((request) => request.clientFlowId)), new Set([aggregate.id]));
+  assert.equal(store.getSession("flow-overlap-b").clientFlowId, aggregate.id);
+  assert.notEqual(first.actorId, second.actorId);
+});
+
 test("동일 세션 쿠키와 curl 지문을 공유해도 signed dcid별 공격 이력은 분리한다", () => {
   const headers = { "user-agent": "curl/77.77", accept: "*/*" };
   const a = store.recordRequest("shared-cookie-two-users", "203.0.113.221", {

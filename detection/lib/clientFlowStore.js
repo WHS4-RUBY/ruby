@@ -31,6 +31,82 @@ class ClientFlowStore {
     this.lastCleanupAt = 0;
     this.groups = new Map();
     this.candidateIndex = new Map();
+    this.sessionIndex = new Map();
+    this.aliases = new Map();
+    this.aliasVersion = 0;
+  }
+
+  addSession(group, sessionId) {
+    if (!sessionId) return false;
+    const added = !group.sessionIds.has(sessionId);
+    group.sessionIds.add(sessionId);
+    if (!this.sessionIndex.has(sessionId)) this.sessionIndex.set(sessionId, new Set());
+    this.sessionIndex.get(sessionId).add(group.id);
+    return added;
+  }
+
+  merge(left, right, sharedSessionId, now) {
+    const [target, source] = left.firstSeen < right.firstSeen ||
+      (left.firstSeen === right.firstSeen && left.id < right.id)
+      ? [left, right] : [right, left];
+    const sharedSessionCount = [...source.sessionIds].filter((id) => target.sessionIds.has(id)).length;
+    const sourceCoverage = sharedSessionCount / source.sessionIds.size;
+    const targetCoverage = sharedSessionCount / target.sessionIds.size;
+    for (const candidateId of source.candidateIds) {
+      target.candidateIds.add(candidateId);
+      this.candidateIndex.set(candidateId, target.id);
+    }
+    for (const [candidateId, observation] of source.observations) {
+      target.observations.set(candidateId, observation);
+    }
+    for (const sessionId of source.sessionIds) {
+      target.sessionIds.add(sessionId);
+      const owners = this.sessionIndex.get(sessionId);
+      if (owners) {
+        owners.delete(source.id);
+        owners.add(target.id);
+      }
+    }
+    for (const clientId of source.verifiedClientIds) target.verifiedClientIds.add(clientId);
+    target.links.push(...source.links, {
+      fromCandidateId: target.anchorCandidateId,
+      toCandidateId: source.anchorCandidateId,
+      reason: "shared_session_continuity",
+      sharedSessionCount,
+      sourceCoverage,
+      targetCoverage,
+      sharedSessionId,
+      observedAt: now,
+    });
+    target.firstSeen = Math.min(target.firstSeen, source.firstSeen);
+    target.lastSeen = Math.max(target.lastSeen, source.lastSeen, now);
+    target.maxAttackScore = Math.max(target.maxAttackScore, source.maxAttackScore);
+    target.conflicts.push(...source.conflicts);
+    target.aggregationEnabled = target.conflicts.length === 0 && target.candidateIds.size > 1;
+    this.groups.delete(source.id);
+    this.aliases.set(source.id, target.id);
+    this.aliasVersion++;
+    return target;
+  }
+
+  mergeSessionOverlaps(group, sessionId, now) {
+    if (!sessionId) return group;
+    let current = group;
+    let pending = [sessionId];
+    while (pending.length) {
+      const sharedSessionId = pending.pop();
+      const owners = [...(this.sessionIndex.get(sharedSessionId) || [])];
+      let merged = false;
+      for (const id of owners) {
+        const peer = this.groups.get(id);
+        if (!peer || peer === current || now - peer.lastSeen > this.ttlMs) continue;
+        current = this.merge(current, peer, sharedSessionId, now);
+        merged = true;
+        break;
+      }
+      if (merged) pending = [...current.sessionIds];
+    }
+    return current;
   }
 
   create(candidateId, observation, sessionId, clientIdentity, now) {
@@ -47,7 +123,7 @@ class ClientFlowStore {
       anchorCandidateId: candidateId,
       anchorObservation: observation,
       candidateIds: new Set([candidateId]),
-      sessionIds: new Set(sessionId ? [sessionId] : []),
+      sessionIds: new Set(),
       verifiedClientIds,
       observations: new Map([[candidateId, observation]]),
       links: [],
@@ -61,8 +137,10 @@ class ClientFlowStore {
     };
     this.groups.set(id, group);
     this.candidateIndex.set(candidateId, id);
+    this.addSession(group, sessionId);
+    const linked = this.mergeSessionOverlaps(group, sessionId, now);
     this.enforceLimits();
-    return group;
+    return linked;
   }
 
   observe({ candidateId, observation, sessionId, clientIdentity = null, ts = Date.now() }) {
@@ -78,17 +156,23 @@ class ClientFlowStore {
       indexed.lastSeen = ts;
       indexed.observations.set(candidateId, observation);
       if (indexed.anchorCandidateId === candidateId) indexed.anchorObservation = observation;
-      if (sessionId) indexed.sessionIds.add(sessionId);
+      this.addSession(indexed, sessionId);
       if (clientIdentity?.continuityVerified && clientIdentity.clientId) {
         indexed.verifiedClientIds.add(clientIdentity.clientId);
         while (indexed.verifiedClientIds.size > 100) indexed.verifiedClientIds.delete(indexed.verifiedClientIds.values().next().value);
       }
-      return indexed;
+      return this.mergeSessionOverlaps(indexed, sessionId, ts);
     }
 
     let best = null;
     for (const group of this.groups.values()) {
-      if (ts - group.lastSeen > this.ttlMs || group.candidateIds.size >= this.maxCandidates) continue;
+      if (ts - group.lastSeen > this.ttlMs) continue;
+      if (sessionId && group.sessionIds.has(sessionId)) {
+        best = { group, comparison: compareClientObservations(group.anchorObservation, observation),
+          eligibility: { eligible: true, reason: "shared_session_continuity" } };
+        break;
+      }
+      if (group.candidateIds.size >= this.maxCandidates) continue;
       const comparison = compareClientObservations(group.anchorObservation, observation);
       const eligibility = canAutoAggregate(comparison, group.anchorObservation, observation, {
         windowMs: this.ttlMs,
@@ -105,7 +189,7 @@ class ClientFlowStore {
     const { group, comparison, eligibility } = best;
     group.candidateIds.add(candidateId);
     group.observations.set(candidateId, observation);
-    if (sessionId) group.sessionIds.add(sessionId);
+    this.addSession(group, sessionId);
     if (clientIdentity?.continuityVerified && clientIdentity.clientId) {
       group.verifiedClientIds.add(clientIdentity.clientId);
       while (group.verifiedClientIds.size > 100) group.verifiedClientIds.delete(group.verifiedClientIds.values().next().value);
@@ -126,16 +210,18 @@ class ClientFlowStore {
     group.lastSeen = ts;
     group.aggregationEnabled = group.conflicts.length === 0 && group.candidateIds.size > 1;
     this.candidateIndex.set(candidateId, group.id);
-    return group;
+    return this.mergeSessionOverlaps(group, sessionId, ts);
   }
 
   updateAttackScore(groupId, score) {
-    const group = this.groups.get(groupId);
+    const group = this.get(groupId);
     if (group && Number.isFinite(score)) group.maxAttackScore = Math.max(group.maxAttackScore, score);
   }
 
   get(id) {
-    return this.groups.get(id);
+    let canonicalId = id;
+    while (this.aliases.has(canonicalId)) canonicalId = this.aliases.get(canonicalId);
+    return this.groups.get(canonicalId);
   }
 
   getByCandidate(candidateId) {
@@ -149,7 +235,15 @@ class ClientFlowStore {
 
   pruneSessions(isRetained) {
     for (const group of this.groups.values()) {
-      for (const id of group.sessionIds) if (!isRetained(id)) group.sessionIds.delete(id);
+      for (const id of group.sessionIds) {
+        if (isRetained(id)) continue;
+        group.sessionIds.delete(id);
+        const owners = this.sessionIndex.get(id);
+        if (owners) {
+          owners.delete(group.id);
+          if (!owners.size) this.sessionIndex.delete(id);
+        }
+      }
     }
   }
 
@@ -162,16 +256,23 @@ class ClientFlowStore {
     this.lastCleanupAt = now;
     for (const [id, group] of this.groups) {
       if (now - group.lastSeen <= this.ttlMs) continue;
-      for (const candidateId of group.candidateIds) this.candidateIndex.delete(candidateId);
-      this.groups.delete(id);
+      this.remove(id);
     }
   }
 
   remove(id) {
-    const group = this.groups.get(id);
+    const group = this.get(id);
     if (!group) return;
+    const aliases = [...this.aliases.keys()].filter((alias) => this.get(alias)?.id === group.id);
+    for (const alias of aliases) this.aliases.delete(alias);
     for (const candidateId of group.candidateIds) this.candidateIndex.delete(candidateId);
-    this.groups.delete(id);
+    for (const sessionId of group.sessionIds) {
+      const owners = this.sessionIndex.get(sessionId);
+      if (!owners) continue;
+      owners.delete(group.id);
+      if (!owners.size) this.sessionIndex.delete(sessionId);
+    }
+    this.groups.delete(group.id);
   }
 
   enforceLimits() {
