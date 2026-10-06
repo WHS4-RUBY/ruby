@@ -1,7 +1,11 @@
-import io
 import json
+import sqlite3
+import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
@@ -9,193 +13,226 @@ from starlette.testclient import TestClient
 
 from defense.app import main, path_alias as pa
 
-SEC = "sixteen-byte-key"  # exactly MIN_SECRET_BYTES
-CFG = pa.PathAliasConfig(mode="enforce", secret=b"test-only-key-16b", epoch_s=10, grace_epochs=1)
-NOW = 100.25  # epoch 10
-
-
-def alias(epoch=10, prefix="/rest/"):
-    return pa.alias_for(CFG.secret, CFG.app_id, epoch, prefix)
+ROUTES = (
+    pa.Route("/rest/user/login", ("POST",)),
+    pa.Route("/rest/user/whoami"),
+    pa.Route("/rest/user/{tail*}"),
+    pa.Route("/rest/products/search"),
+    pa.Route("/rest/basket/{id}/checkout"),
+    pa.Route("/api/Products/{tail*}"),
+)
+CFG = pa.PathAliasConfig(mode="enforce", epoch_s=10, grace_epochs=1, routes=ROUTES)
+NOW = 100.25
+ALICE = "a" * 26
+BOB = "b" * 26
 
 
 class ConfigTests(unittest.TestCase):
-    def test_off_reads_nothing_else(self):
-        with patch.object(pa, "_configure_logger") as setup:
-            cfg = pa.PathAliasConfig.from_env({"PATH_ALIAS_MODE": "off", "PATH_ALIAS_EPOCH_S": "bad"})
-        self.assertEqual(cfg, pa.PathAliasConfig())
-        setup.assert_not_called()
+    def test_off_ignores_other_settings(self):
+        self.assertEqual(pa.PathAliasConfig.from_env({"PATH_ALIAS_MODE": "off",
+                                                      "PATH_ALIAS_EPOCH_S": "bad"}), pa.PathAliasConfig())
 
-    def test_invalid_values_fail_start(self):
-        for env in (
-            {"PATH_ALIAS_MODE": "block"},
-            {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_EPOCH_S": "0"},
-            {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_GRACE_EPOCHS": "11"},
-            {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_MAX_REWRITE_BYTES": "x"},
-            {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_PREFIXES": "/rest"},
-            {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_PREFIXES": "/"},
-            {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_PREFIXES": " , "},
-            {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_PREFIXES": "/café/"},  # non-ASCII would crash alias_for
-            {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_APP_ID": "café"},
-            {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_SECRET": "short"},     # below MIN_SECRET_BYTES
-        ):
+    def test_route_file_and_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "routes.json"
+            path.write_text(json.dumps({"routes": ["/rest/a", {"path": "/api/Items/{id}",
+                                                 "methods": ["GET"]}]}), encoding="utf-8")
+            cfg = pa.PathAliasConfig.from_env({"PATH_ALIAS_MODE": "enforce",
+                                               "PATH_ALIAS_ROUTES_FILE": str(path),
+                                               "PATH_ALIAS_DB_PATH": str(Path(directory) / "aliases.sqlite3"),
+                                               "PATH_ALIAS_ROTATE_ON": "direct"})
+        self.assertEqual(len(cfg.routes), 2)
+        self.assertEqual(next(r.methods for r in cfg.routes if r.path == "/api/Items/{id}"), ("GET",))
+        self.assertEqual(cfg.rotate_on, ("direct",))
+        self.assertEqual(cfg.epoch_s, 1800)
+
+    def test_invalid_config_fails_at_start(self):
+        for env in ({"PATH_ALIAS_MODE": "wrong"},
+                    {"PATH_ALIAS_MODE": "enforce"},
+                    {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_EPOCH_S": "0"},
+                    {"PATH_ALIAS_MODE": "observe", "PATH_ALIAS_GRACE_EPOCHS": "11"}):
             with self.subTest(env=env), self.assertRaises(ValueError):
-                pa.PathAliasConfig.from_env({"PATH_ALIAS_SECRET": SEC, **env})
-
-    def test_enforce_requires_secret(self):
+                pa.PathAliasConfig.from_env(env)
         with self.assertRaises(ValueError):
-            pa.PathAliasConfig.from_env({"PATH_ALIAS_MODE": "enforce"})
+            pa._parse_triggers("direct,other")
+        self.assertEqual(pa._parse_triggers(""), ())
+        for path in ("/", "/rest/{x}/more/{x}", "/rest/{tail*}/more", "/__ruby_alias_real"):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                pa.Route(path)
 
-    def test_prefixes_are_normalized_and_longest_first(self):
-        cfg = pa.PathAliasConfig.from_env({"PATH_ALIAS_MODE": "OBSERVE", "PATH_ALIAS_SECRET": SEC,
-                                           "PATH_ALIAS_PREFIXES": " /API/ ,/api/v2/,/rest/"})
-        self.assertEqual(cfg.mode, "observe")
-        self.assertEqual(cfg.prefixes, ("/api/v2/", "/rest/", "/api/"))
-
-    def test_empty_secret_in_observe_generates_key_with_warning(self):
-        output = io.StringIO()
-        with patch.object(pa.sys, "stdout", output):
-            pa.logging.getLogger(pa.LOGGER_NAME).handlers.clear()
-            cfg = pa.PathAliasConfig.from_env({"PATH_ALIAS_MODE": "observe"})
-        self.assertEqual(len(cfg.secret), 32)
-        self.assertIn("PATH_ALIAS_SECRET is empty", output.getvalue())
-        pa.logging.getLogger(pa.LOGGER_NAME).handlers.clear()
-
-    def test_app_id_changes_alias_for_same_secret(self):
-        a = pa.alias_for(CFG.secret, "app-one", 10, "/rest/")
-        b = pa.alias_for(CFG.secret, "app-two", 10, "/rest/")
-        self.assertNotEqual(a, b)
+    def test_client_id_format(self):
+        self.assertEqual(pa.valid_client_id(ALICE), ALICE)
+        self.assertRegex(pa.new_client_id(), r"^[a-z2-7]{26}$")
+        for value in (None, "", "A" * 26, "a" * 25, "a" * 27, "a" * 25 + ";"):
+            with self.subTest(value=value):
+                self.assertIsNone(pa.valid_client_id(value))
 
 
-class AliasTests(unittest.TestCase):
-    def test_alias_is_deterministic_and_rotates(self):
-        self.assertRegex(alias(), r"^/__ruby_alias_[a-z2-7]{16}/$")
-        self.assertEqual(alias(), alias())
-        self.assertNotEqual(alias(10), alias(11))
-        self.assertNotEqual(alias(10, "/rest/"), alias(10, "/api/"))
-        self.assertNotEqual(alias(), pa.alias_for(b"other-key-16byte", CFG.app_id, 10, "/rest/"))
-
-    def test_resolve_alias_states(self):
-        for path, state in ((alias(10) + "products/search", "current"),
-                            (alias(9) + "products/search", "grace")):
-            with self.subTest(path=path):
-                result = pa.resolve(path, NOW, CFG)
-                self.assertEqual((result.kind, result.alias_state), ("alias", state))
-                self.assertEqual(result.upstream_path, "/rest/products/search")
-        self.assertEqual(pa.resolve(alias(10, "/api/") + "Products/1", NOW, CFG).upstream_path,
-                         "/api/Products/1")
-        self.assertEqual(pa.resolve(alias(10).rstrip("/"), NOW, CFG).upstream_path, "/rest/")
-
-    def test_forward_skew_alias_is_accepted(self):
-        # One epoch ahead (issuer's clock slightly faster) is still served.
-        result = pa.resolve(alias(11) + "x", NOW, CFG)
-        self.assertEqual((result.kind, result.alias_state), ("alias", "current"))
-
-    def test_expired_or_forged_alias_is_rejected(self):
-        # Alias-shaped but matching no live epoch must be refused, never forwarded.
-        for path in (alias(8) + "x", alias(12) + "x", "/__ruby_alias_zzzzzzzzzzzzzzzz/x"):
-            with self.subTest(path=path):
-                result = pa.resolve(path, NOW, CFG)
-                self.assertEqual(result.kind, "reject")
-                self.assertEqual(result.reason, "unknown_alias")
-
-    def test_alias_with_traversal_tail_is_rejected(self):
-        result = pa.resolve(alias(10, "/api/") + "../rest/secret", NOW, CFG)
-        self.assertEqual((result.kind, result.reason), ("reject", "ambiguous_alias_tail"))
-
-    def test_clean_protected_paths_are_direct(self):
-        # A clean path on a protected prefix is a direct hit (case-insensitive).
-        for path in ("/rest/products/search", "/REST/products", "/Rest/Products/Search",
-                     "/rest", "/rest/", "/api/Products/1", "/API/Products"):
-            with self.subTest(path=path):
-                result = pa.resolve(path, NOW, CFG)
-                self.assertEqual(result.kind, "direct")
-                self.assertEqual(result.upstream_path, path)
-
-    def test_ambiguous_variants_are_rejected(self):
-        # Anything a backend might re-route (encoding, //, .., backslash, trailing dot) is refused
-        # instead of guessed at.
-        for path in ("//rest/x", "/./rest/x", "/foo/../rest/x", "/%72est/products", "/rest%2fx",
-                     "/api%2f..%2fapi/x", "/rest./x", "/rest%2e/x", r"\rest\x", "/%2e/rest/x",
-                     "/api%2FProducts", "/rest;x=1/users", "/rest/\u0000", "/ｒｅｓｔ/x"):
-            with self.subTest(path=path):
-                self.assertEqual(pa.resolve(path, NOW, CFG).kind, "reject")
-
-    def test_unrelated_paths_pass(self):
-        for path in ("/", "/restaurant", "/api-docs/", "/socket.io/", "/assets/i18n/en.json",
-                     "/foo/rest/x", "/ftp/legal.md", "/main.js"):
-            with self.subTest(path=path):
-                self.assertEqual(pa.resolve(path, NOW, CFG).kind, "other")
-
-    def test_off_never_resolves(self):
-        self.assertEqual(pa.resolve("/rest/x", NOW, replace(CFG, mode="off")).kind, "other")
-
-    def test_decide_by_mode(self):
-        observe = replace(CFG, mode="observe")
-        direct = pa.resolve("/rest/x", NOW, CFG)
-        reject = pa.resolve(alias(8) + "x", NOW, CFG)
-        current = pa.resolve(alias() + "x", NOW, CFG)
-        self.assertEqual(pa.decide(current, CFG), "translate")
-        self.assertEqual(pa.decide(direct, CFG), "block")
-        self.assertEqual(pa.decide(reject, CFG), "block")
-        self.assertEqual(pa.decide(direct, observe), "would_block")
-        self.assertEqual(pa.decide(reject, observe), "would_block")
-        self.assertEqual(pa.decide(pa.resolve("/", NOW, CFG), CFG), "pass")
-
-
-class RewriteTests(unittest.TestCase):
+class TableTests(unittest.TestCase):
     def setUp(self):
-        self.aliases = pa.current_aliases(CFG, NOW)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.cfg = replace(CFG, db_path=str(Path(directory.name) / "aliases.sqlite3"))
+        self.table = pa.PathAliasTable(self.cfg)
+        p = patch.object(pa, "emit")
+        self.emitted = p.start()
+        self.addCleanup(p.stop)
 
-    def test_rewrites_bundle_forms_seen_in_juice_shop(self):
-        body = (b"get(this.hostServer+`/rest/web3`);get(`${this.hostServer}/rest/basket/${e}`);"
-                b"host=this.hostServer+`/api/Feedbacks`;u='./rest/x';h=\"/api/Users\"")
-        out, count = pa.rewrite_body(body, self.aliases)
-        self.assertEqual(count, 5)
-        self.assertNotIn(b"/rest/", out)
-        self.assertNotIn(b"/api/", out)
-        self.assertIn(b"`" + alias().encode() + b"web3`", out)
-        self.assertIn(b"./" + alias().lstrip("/").encode() + b"x", out)
+    def a(self, route, now=NOW, client=ALICE):
+        return self.table.current_aliases(now, client)[route]
 
-    def test_leaves_other_urls_alone(self):
-        body = b'"https://example.com/api/v1" "/foo/rest/x" "/restaurant" "/api-docs"'
-        out, count = pa.rewrite_body(body, self.aliases)
-        self.assertEqual((out, count), (body, 0))
+    def test_independent_rows_and_server_lookup(self):
+        login = self.a("/rest/user/login")
+        search = self.a("/rest/products/search")
+        self.assertRegex(login, r"^/__ruby_alias_[a-z2-7]{26}$")
+        self.assertNotEqual(login, search)
+        self.assertEqual(self.table.resolve(login, "POST", NOW, ALICE).upstream_path, "/rest/user/login")
+        self.assertEqual(self.table.resolve(search, "GET", NOW, ALICE).upstream_path, "/rest/products/search")
+        self.assertEqual(self.table.resolve(login, "GET", NOW, ALICE).reason, "method_not_allowed")
+        self.assertEqual(pa.PathAliasTable(self.cfg).resolve(login, "POST", NOW, ALICE).upstream_path,
+                         "/rest/user/login")
 
-    def test_case_insensitive_like_direct_detection(self):
-        out, count = pa.rewrite_body(b'"/API/Products" "/Rest/x"', self.aliases)
-        self.assertEqual(count, 2)
-        self.assertIn(alias(10, "/api/").encode() + b"Products", out)
+    def test_aliases_are_bound_to_one_client(self):
+        alice = self.a("/rest/products/search")
+        bob = self.a("/rest/products/search", client=BOB)
+        self.assertNotEqual(alice, bob)
+        self.assertEqual(self.table.resolve(alice, "GET", NOW, BOB).reason, "foreign_alias")
+        self.assertEqual(self.table.resolve(alice, "GET", NOW, None).reason, "foreign_alias")
+        self.assertEqual(self.table.resolve(bob, "GET", NOW, BOB).kind, "alias")
 
-    def test_longest_prefix_wins(self):
-        aliases = {"/api/": "/pa/", "/api/v2/": "/pb/"}
-        out, _ = pa.rewrite_body(b'"/api/v2/x" "/api/x"', aliases)
-        self.assertEqual(out, b'"/pb/x" "/pa/x"')
+    def test_event_rotation_is_immediate_and_per_client(self):
+        old = self.a("/rest/products/search")
+        bob = self.a("/rest/products/search", client=BOB)
+        self.assertTrue(self.table.rotate_client(ALICE, NOW + 1, "direct"))
+        self.assertEqual(self.table.resolve(old, "GET", NOW + 1, ALICE).reason, "unknown_alias")
+        new = self.a("/rest/products/search", NOW + 1)
+        self.assertNotEqual(old, new)
+        self.assertEqual(self.table.resolve(new, "GET", NOW + 1, ALICE).alias_state, "current")
+        self.assertEqual(self.table.resolve(bob, "GET", NOW + 1, BOB).kind, "alias")
+        self.assertFalse(self.table.rotate_client("c" * 26, NOW, "direct"))
+        rotation = self.emitted.call_args_list[-1].args[0]
+        self.assertEqual((rotation["event"], rotation["reason"]), ("path_alias_rotation", "direct"))
+        self.assertNotIn(ALICE, json.dumps(rotation))
 
-    def test_rewritable_types(self):
-        for args, expected in [
-            (("text/html; charset=utf-8", "", 200, "GET"), True),
-            (("application/javascript", "identity", 200, "GET"), True),
-            (("application/problem+json", "", 404, "GET"), True),
-            (("image/png", "", 200, "GET"), False),
-            (("text/html", "gzip", 200, "GET"), False),
-            (("text/html", "", 304, "GET"), False),
-            (("text/html", "", 200, "HEAD"), False),
-        ]:
-            with self.subTest(args=args):
-                self.assertEqual(pa.rewritable(*args), expected)
+    def test_time_backstop_keeps_grace_then_expires(self):
+        old = self.a("/rest/products/search")
+        new = self.a("/rest/products/search", NOW + 10)
+        self.assertNotEqual(old, new)
+        self.assertEqual(self.table.resolve(old, "GET", NOW + 10, ALICE).alias_state, "grace")
+        self.assertEqual(self.table.resolve(new, "GET", NOW + 10, ALICE).alias_state, "current")
+        self.assertEqual(self.table.resolve(old, "GET", NOW + 20, ALICE).reason, "unknown_alias")
+        self.assertEqual(self.table.resolve(new, "GET", NOW + 20, ALICE).alias_state, "grace")
 
-    def test_location_rewrite(self):
-        a = alias()
-        self.assertEqual(pa.rewrite_location("/rest/x?y=1", self.aliases, "shop"), f"{a}x?y=1")
-        self.assertEqual(pa.rewrite_location("http://shop/api/Products", self.aliases, "shop"),
-                         "http://shop" + alias(10, "/api/") + "Products")
-        self.assertEqual(pa.rewrite_location("https://other/rest/x", self.aliases, "shop"),
-                         "https://other/rest/x")
-        self.assertEqual(pa.rewrite_location("/#/login", self.aliases, "shop"), "/#/login")
+    def test_event_rotation_drops_grace_rows_too(self):
+        old = self.a("/rest/products/search")
+        grace = self.a("/rest/products/search", NOW + 10)
+        self.assertNotEqual(old, grace)
+        self.table.rotate_client(ALICE, NOW + 11, "reject")
+        for alias in (old, grace):
+            self.assertEqual(self.table.resolve(alias, "GET", NOW + 11, ALICE).reason, "unknown_alias")
+
+    def test_idle_clients_are_cleaned_up(self):
+        self.a("/rest/products/search", client=BOB)
+        self.a("/rest/products/search", NOW + 25)  # a new client triggers housekeeping
+        with closing(sqlite3.connect(self.cfg.db_path)) as db:
+            clients = {row[0] for row in db.execute("SELECT client_id FROM path_alias_clients")}
+            bob_rows = db.execute("SELECT COUNT(*) FROM path_alias_client_rows WHERE client_id=?",
+                                  (BOB,)).fetchone()[0]
+        self.assertEqual(clients, {ALICE})
+        self.assertEqual(bob_rows, 0)
+
+    def test_parallel_instances_share_one_issuance(self):
+        tables = [pa.PathAliasTable(self.cfg) for _ in range(6)]
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            aliases = list(pool.map(lambda table: table.current_aliases(NOW, ALICE), tables))
+        self.assertTrue(all(item == aliases[0] for item in aliases))
+        with closing(sqlite3.connect(self.cfg.db_path)) as db:
+            rows = db.execute("SELECT COUNT(*) FROM path_alias_client_rows WHERE client_id=?",
+                              (ALICE,)).fetchone()[0]
+        self.assertEqual(rows, len(self.cfg.routes))
+
+    def test_config_change_invalidates_existing_aliases(self):
+        old = self.a("/rest/products/search")
+        updated = pa.PathAliasTable(replace(self.cfg, routes=(pa.Route("/rest/new"),)))
+        self.assertEqual(updated.resolve(old, "GET", NOW, ALICE).reason, "unknown_alias")
+        new = updated.current_aliases(NOW, ALICE)["/rest/new"]
+        self.assertEqual(updated.resolve(new, "GET", NOW, ALICE).kind, "alias")
+
+    def test_run_ids_isolate_aliases_in_one_database(self):
+        old = self.a("/rest/products/search")
+        second = pa.PathAliasTable(replace(self.cfg, app_id="experiment-b"))
+        new = second.current_aliases(NOW, ALICE)["/rest/products/search"]
+        self.assertNotEqual(old, new)
+        self.assertEqual(second.resolve(old, "GET", NOW, ALICE).reason, "unknown_alias")
+        self.assertEqual(self.table.resolve(old, "GET", NOW, ALICE).kind, "alias")
+
+    def test_generated_alias_collision_is_retried(self):
+        two = replace(self.cfg, routes=(pa.Route("/rest/a"), pa.Route("/rest/b")))
+        with patch.object(pa.secrets, "token_bytes", side_effect=[b"\0" * 17, b"\0" * 17,
+                                                                 b"\1" * 17]):
+            aliases = pa.PathAliasTable(two).current_aliases(NOW, ALICE)
+        self.assertNotEqual(aliases["/rest/a"], aliases["/rest/b"])
+
+    def test_template_and_shadowed_wildcard(self):
+        basket = self.a("/rest/basket/{id}/checkout")
+        self.assertEqual(self.table.resolve(basket + "/5", "POST", NOW, ALICE).upstream_path,
+                         "/rest/basket/5/checkout")
+        self.assertEqual(self.table.resolve(basket + "/5/../x", "POST", NOW, ALICE).kind, "reject")
+        product = self.a("/api/Products/{tail*}")
+        self.assertEqual(self.table.resolve(product + "/1/reviews", "GET", NOW, ALICE).upstream_path,
+                         "/api/Products/1/reviews")
+        self.assertEqual(self.table.resolve(product + "/", "GET", NOW, ALICE).upstream_path,
+                         "/api/Products/")
+        user = self.a("/rest/user/{tail*}")
+        self.assertEqual(self.table.resolve(user + "/login", "POST", NOW, ALICE).reason, "shadowed_route")
+
+    def test_malformed_alias_paths_are_rejected(self):
+        login = self.a("/rest/user/login")
+        for path in (login + "x", login.upper(), "/__ruby_alias_" + "a" * 26,
+                     "/%5f_ruby_alias_" + "a" * 26, "/x/__ruby_alias_" + "a" * 26):
+            with self.subTest(path=path):
+                self.assertEqual(self.table.resolve(path, "POST", NOW, ALICE).kind, "reject")
+
+    def test_direct_detection_is_scoped(self):
+        for path in ("/rest/user/login", "/REST/user/login", "/%72est/user/login",
+                     "//rest/user/login", "/rest;x/user/login"):
+            with self.subTest(path=path):
+                self.assertEqual(self.table.resolve(path, "POST", NOW, ALICE).kind, "direct")
+        for path in ("/assets/café.png", "/unrelated;x", "/foo/rest/x"):
+            with self.subTest(path=path):
+                self.assertEqual(self.table.resolve(path, "GET", NOW, ALICE).kind, "other")
+
+    def test_rewrite_literal_template_and_location(self):
+        body = (b'fetch("/rest/products/search?q=x");'
+                b'fetch(`/rest/basket/${e}/checkout`);'
+                b'host="/api/Products";external="https://other/api/Products";'
+                b'notRoute="/rest/products/search/extra";notResource="/api/ProductsExtra"')
+        output, count = self.table.rewrite_body(body, NOW, ALICE)
+        self.assertEqual(count, 3)
+        self.assertIn(self.a("/rest/basket/{id}/checkout").encode() + b"/${e}", output)
+        self.assertIn(b"https://other/api/Products", output)
+        self.assertIn(b"/rest/products/search/extra", output)
+        self.assertIn(b"/api/ProductsExtra", output)
+        self.assertEqual(self.table.rewrite_location("/rest/products/search?q=x", "shop", NOW, ALICE),
+                         self.a("/rest/products/search") + "?q=x")
+        self.assertEqual(self.table.rewrite_location("https://other/rest/products/search", "shop", NOW, ALICE),
+                         "https://other/rest/products/search")
+
+    def test_bodies_without_routes_create_no_client(self):
+        self.assertEqual(self.table.rewrite_body(b'{"rest":"/restaurant"}', NOW, BOB)[1], 0)
+        with closing(sqlite3.connect(self.cfg.db_path)) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM path_alias_clients").fetchone()[0], 0)
+
+    def test_observe_and_off(self):
+        direct = self.table.resolve("/rest/user/login", "POST", NOW, ALICE)
+        self.assertEqual(pa.decide(direct, CFG), "block")
+        self.assertEqual(pa.decide(direct, replace(CFG, mode="observe")), "would_block")
+        self.assertEqual(pa.PathAliasTable(pa.PathAliasConfig()).resolve("/rest/x", "GET", NOW).kind,
+                         "other")
 
 
 class _AsyncBody(httpx.AsyncByteStream):
-    def __init__(self, body: bytes):
+    def __init__(self, body):
         self.body = body
 
     async def __aiter__(self):
@@ -204,9 +241,13 @@ class _AsyncBody(httpx.AsyncByteStream):
 
 
 class IntegrationTests(unittest.TestCase):
+    PAGE = (200, [("content-type", "text/html"), ("etag", "one")],
+            b'<script>fetch("/rest/products/search")</script>')
+    JSON = (200, [("content-type", "application/json")], b'{"ok":true}')
+
     def setUp(self):
         self.calls = []
-        self.upstream = (200, [("content-type", "application/json")], b'{"ok":true}')
+        self.upstream = self.JSON
         case = self
 
         class FakeClient:
@@ -220,134 +261,122 @@ class IntegrationTests(unittest.TestCase):
 
         main.app.state.http_client = FakeClient()
         self.addCleanup(delattr, main.app.state, "http_client")
-        self.cfg_patch = patch.object(main, "PATH_ALIAS", CFG)
-        self.cfg_patch.start()
-        self.addCleanup(self.cfg_patch.stop)
-        time_patch = patch.object(main.time, "time", return_value=NOW)
-        time_patch.start()
-        self.addCleanup(time_patch.stop)
-        self.real_emit = pa.emit
-        emit_patch = patch.object(pa, "emit")
-        self.emitted = emit_patch.start()
-        self.addCleanup(emit_patch.stop)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.cfg = replace(CFG, db_path=str(Path(directory.name) / "aliases.sqlite3"))
+        self.table = pa.PathAliasTable(self.cfg)
+        for name, value in (("PATH_ALIAS", self.cfg), ("PATH_ALIAS_TABLE", self.table)):
+            p = patch.object(main, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        p = patch.object(main.time, "time", return_value=NOW)
+        p.start()
+        self.addCleanup(p.stop)
+        p = patch.object(pa, "emit")
+        self.emitted = p.start()
+        self.addCleanup(p.stop)
         self.client = TestClient(main.app, follow_redirects=False)
         self.addCleanup(self.client.close)
 
-    def logs(self):
-        return [call.args[0] for call in self.emitted.call_args_list]
+    def logs(self, event="path_alias"):
+        return [c.args[0] for c in self.emitted.call_args_list if c.args[0]["event"] == event]
 
-    def test_page_body_is_rewritten_and_not_cached(self):
-        body = b'<script>fetch("./rest/products/search")</script>'
-        self.upstream = (200, [("content-type", "text/html"), ("etag", 'W/"1"'),
-                               ("cache-control", "public, max-age=0"), ("x-app", "kept")], body)
-        response = self.client.get("/", headers={"If-None-Match": 'W/"1"', "If-Modified-Since": "x"})
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(alias().lstrip("/"), response.text)
-        self.assertNotIn("/rest/", response.text)
-        self.assertEqual(response.headers["cache-control"], "no-store")
-        self.assertNotIn("etag", response.headers)
-        self.assertEqual(response.headers["x-app"], "kept")
-        self.assertEqual(int(response.headers["content-length"]), len(response.content))
-        sent = {key.lower() for key in self.calls[0]["headers"]}
-        self.assertNotIn("if-none-match", sent)
-        self.assertNotIn("if-modified-since", sent)
-        self.assertEqual(self.logs()[-1]["rewrites"], 1)
+    def open_page(self):
+        self.upstream = self.PAGE
+        page = self.client.get("/")
+        self.upstream = self.JSON
+        client_id = self.client.cookies.get(pa.COOKIE_NAME)
+        return page, client_id, self.table.current_aliases(NOW, client_id)["/rest/products/search"]
 
-    def test_unchanged_body_keeps_cache_headers(self):
-        self.upstream = (200, [("content-type", "text/html"), ("etag", 'W/"1"')], b"<p>hello</p>")
-        response = self.client.get("/about")
-        self.assertEqual(response.headers["etag"], 'W/"1"')
-        self.assertEqual(response.content, b"<p>hello</p>")
+    def test_page_issues_cookie_and_alias_forwards(self):
+        page, client_id, alias = self.open_page()
+        self.assertRegex(client_id, r"^[a-z2-7]{26}$")
+        self.assertIn(alias, page.text)
+        self.assertIn("HttpOnly", page.headers["set-cookie"])
+        self.assertEqual(page.headers["cache-control"], "no-store")
+        self.assertNotIn("etag", page.headers)
+        result = self.client.get(alias, params={"q": "apple"})
+        self.assertEqual(result.status_code, 200)
+        self.assertNotIn("set-cookie", result.headers)
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search?q=apple"))
+        self.assertNotIn("params", self.calls[-1])
+        self.assertEqual(self.logs()[-1]["route_id"], "/rest/products/search")
+        self.assertNotIn(client_id, json.dumps(self.emitted.call_args_list[-1].args[0]))
+
+    def test_query_path_bytes_survive_alias_translation(self):
+        _, _, alias = self.open_page()
+        raw_query = "next=%2Fapi%2FProducts%2F1&next=/rest/user/login&empty=&flag"
+        result = self.client.get(alias + "?" + raw_query)
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(self.calls[-1]["url"],
+                         "http://localhost:9000/rest/products/search?" + raw_query)
+        self.assertNotIn("params", self.calls[-1])
+
+    def test_path_mentioned_in_unconfigured_query_is_not_a_direct_hit(self):
+        result = self.client.get("/?next=%2Frest%2Fuser%2Flogin")
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(self.calls[-1]["url"],
+                         "http://localhost:9000/?next=%2Frest%2Fuser%2Flogin")
         self.assertEqual(self.logs(), [])
 
-    def test_binary_is_streamed_untouched(self):
-        body = b"\x89PNG/rest/binary"
-        self.upstream = (200, [("content-type", "image/png"), ("etag", "x")], body)
-        response = self.client.get("/assets/logo.png")
-        self.assertEqual(response.content, body)
-        self.assertEqual(response.headers["etag"], "x")
+    def test_alias_without_its_cookie_is_refused(self):
+        _, _, alias = self.open_page()
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get(alias).status_code, 404)
+        self.assertEqual(self.logs()[-1]["reason"], "foreign_alias")
 
-    def test_alias_request_is_forwarded_to_real_path(self):
-        response = self.client.get(alias() + "products/search", params={"q": "apple"})
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(self.calls[0]["url"].endswith("/rest/products/search"))
-        self.assertEqual(self.calls[0]["params"], [("q", "apple")])
-        self.assertEqual(self.calls[0]["headers"]["X-Defense-Applied"], "path_alias")
-        log = self.logs()[-1]
-        self.assertEqual((log["kind"], log["alias_state"], log["decision"]), ("alias", "current", "translate"))
-        self.assertEqual(log["real_path"], "/rest/products/search")
+    def test_direct_hit_rotates_that_clients_aliases(self):
+        _, client_id, alias = self.open_page()
+        backend_calls = len(self.calls)
+        self.assertEqual(self.client.get("/rest/products/search").status_code, 404)
+        self.assertEqual(self.logs()[-1]["rotation"], "rotated")
+        self.assertEqual(self.client.get(alias).status_code, 404)
+        self.assertEqual(len(self.calls), backend_calls)
+        page, same_client, fresh = self.open_page()
+        self.assertEqual(same_client, client_id)
+        self.assertNotEqual(fresh, alias)
+        self.assertIn(fresh, page.text)
+        self.assertEqual(self.client.get(fresh).status_code, 200)
 
-    def test_enforce_blocks_direct_reject_and_ambiguous_without_forwarding(self):
-        for path in ("/rest/products/search", "/REST/products", "/API/Products",
-                     alias(8) + "x", "/rest%2fx", "/rest%2e%2e/x"):
+    def test_direct_and_unknown_alias_never_reach_backend(self):
+        self.open_page()
+        backend_calls = len(self.calls)
+        client_id = self.client.cookies.get(pa.COOKIE_NAME)
+        user_alias = self.table.current_aliases(NOW, client_id)["/rest/user/{tail*}"]
+        for path in ("/rest/products/search", "/__ruby_alias_" + "a" * 26, user_alias + "/login"):
             with self.subTest(path=path):
-                self.calls.clear()
-                response = self.client.get(path)
-                self.assertEqual(response.status_code, 404)
-                self.assertEqual(response.json(), {"error": "not_found"})
-                self.assertEqual(response.headers["cache-control"], "no-store")
-                self.assertEqual(self.calls, [])
-                self.assertEqual(self.logs()[-1]["decision"], "block")
+                self.assertEqual(self.client.get(path).status_code, 404)
+        self.assertEqual(len(self.calls), backend_calls)
 
-    def test_observe_forwards_direct_and_reject_with_would_block(self):
-        with patch.object(main, "PATH_ALIAS", replace(CFG, mode="observe")):
-            direct = self.client.get("/rest/products/search")
-            reject = self.client.get("/rest;probe")  # ";" survives ASGI decoding, stays ambiguous
-        self.assertEqual([direct.status_code, reject.status_code], [200, 200])
-        self.assertTrue(self.calls[0]["url"].endswith("/rest/products/search"))
-        self.assertEqual([log["decision"] for log in self.logs()], ["would_block", "would_block"])
-        self.assertEqual([log["kind"] for log in self.logs()], ["direct", "reject"])
+    def test_observe_forwards_direct_and_does_not_rotate(self):
+        _, _, alias = self.open_page()
+        with patch.object(main, "PATH_ALIAS", replace(self.cfg, mode="observe")):
+            response = self.client.get("/rest/products/search")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
+        log = self.logs()[-1]
+        self.assertEqual((log["decision"], log["rotation"]), ("would_block", "would_rotate"))
+        self.assertEqual(self.client.get(alias).status_code, 200)
 
-    def test_json_api_response_is_rewritten(self):
-        self.upstream = (200, [("content-type", "application/json")], b'{"next":"/api/Products/2"}')
-        response = self.client.get(alias(10, "/api/") + "Products")
-        self.assertEqual(response.json()["next"], alias(10, "/api/") + "Products/2")
+    def test_rotation_triggers_can_be_disabled(self):
+        _, _, alias = self.open_page()
+        with patch.object(main, "PATH_ALIAS", replace(self.cfg, rotate_on=())):
+            self.assertEqual(self.client.get("/rest/products/search").status_code, 404)
+        self.assertIsNone(self.logs()[-1]["rotation"])
+        self.assertEqual(self.client.get(alias).status_code, 200)
 
-    def test_location_header_uses_alias(self):
-        self.upstream = (302, [("content-type", "text/plain"), ("location", "/rest/next")], b"")
-        response = self.client.get(alias() + "start")
-        self.assertEqual(response.headers["location"], alias() + "next")
-
-    def test_oversized_body_is_passed_through_and_logged(self):
-        body = b'"/rest/x"' * 10
+    def test_oversized_stream_and_off(self):
+        body = b'"/rest/products/search"' * 10
         self.upstream = (200, [("content-type", "application/javascript")], body)
-        with patch.object(main, "PATH_ALIAS", replace(CFG, max_rewrite_bytes=20)):
+        with patch.object(main, "PATH_ALIAS", replace(self.cfg, max_rewrite_bytes=20)):
             response = self.client.get("/main.js")
         self.assertEqual(response.content, body)
+        self.assertNotIn("set-cookie", response.headers)
         self.assertEqual(self.logs()[-1]["rewrite_skipped"], "too_large")
-
-    def test_head_is_not_rewritten(self):
-        self.upstream = (200, [("content-type", "text/html")], b"")
-        response = self.client.head("/")
+        with patch.object(main, "PATH_ALIAS", pa.PathAliasConfig()), patch.object(
+                main, "PATH_ALIAS_TABLE", pa.PathAliasTable(pa.PathAliasConfig())):
+            response = self.client.get("/rest/products/search")
         self.assertEqual(response.status_code, 200)
-
-    def test_off_is_plain_proxy(self):
-        body = b'fetch("/rest/x")'
-        self.upstream = (200, [("content-type", "text/html"), ("etag", "e")], body)
-        with patch.object(main, "PATH_ALIAS", pa.PathAliasConfig()):
-            page = self.client.get("/", headers={"If-None-Match": "e"})
-            direct = self.client.get("/rest/x")
-        self.assertEqual(page.content, body)
-        self.assertEqual(page.headers["etag"], "e")
-        self.assertIn("If-None-Match".lower(), {key.lower() for key in self.calls[0]["headers"]})
-        self.assertEqual(direct.status_code, 200)
-        self.assertEqual(self.calls[1]["headers"]["X-Defense-Applied"], "none")
-        self.assertEqual(self.logs(), [])
-
-    def test_real_log_handler_emits_one_line_without_query(self):
-        output = io.StringIO()
-        logger = pa.logging.getLogger(pa.LOGGER_NAME)
-        logger.handlers.clear()
-        with patch.object(pa.sys, "stdout", output):
-            pa._configure_logger()
-        self.addCleanup(logger.handlers.clear)
-        with patch.object(pa, "emit", self.real_emit):
-            self.client.get(alias() + "x", params={"q": "secret-value"})
-        lines = output.getvalue().splitlines()
-        self.assertEqual(len(lines), 1)
-        record = json.loads(lines[0])
-        self.assertEqual((record["event"], record["decision"]), ("path_alias", "translate"))
-        self.assertNotIn("secret-value", lines[0])
 
 
 if __name__ == "__main__":

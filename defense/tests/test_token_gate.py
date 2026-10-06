@@ -397,7 +397,8 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(headers["accept"], "*/*")
         self.assertEqual(headers["sec-fetch-site"], "same-origin")
         self.assertEqual(headers["cookie"], f"{tg.COOKIE_NAME}={token}; app=1")
-        self.assertEqual(self.calls[0]["params"], [("q", "one"), ("q", "two")])
+        self.assertTrue(self.calls[0]["url"].endswith("/api?q=one&q=two"))
+        self.assertNotIn("params", self.calls[0])
         record = self.emitted.call_args.args[0]
         self.assertEqual(record["path"], "/api")
         self.assertNotIn(token, json.dumps(record))

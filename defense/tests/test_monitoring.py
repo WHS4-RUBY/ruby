@@ -73,6 +73,11 @@ class DefenseEventStoreTests(unittest.TestCase):
         self.assertEqual(len(buckets), 6)
         self.assertEqual(buckets[-1]["total"], 1)
         self.assertEqual(buckets[-1]["defended"], 1)
+        at_end = store._timeline(
+            [{"timestamp": 3600, "strategies": [], "outcome": "forwarded"}],
+            buckets=6, window_seconds=60, end=3600,
+        )
+        self.assertEqual(at_end[-1]["total"], 1)
 
     def test_dashboard_snapshot_uses_one_consistent_event_set(self):
         store = DefenseEventStore(max_events=10)

@@ -26,6 +26,8 @@ Detection 프록시를 통해 `http://localhost:8081/__defense/dashboard`에서 
 
 `DEFENSE_DASHBOARD_PASSWORD`를 지정하면 관리 API가 로그인 세션으로 보호됩니다. 배포용 Compose는 이 값이 없으면 시작하지 않으며 GitHub Actions에서는 같은 이름의 Repository Secret을 전달합니다. 운영에서는 기본적으로 HTTPS와 Secure 쿠키가 필요합니다. 현재 포트 80만 공개된 서버에서 HTTP 로그인을 사용하려면 `ALLOW_INSECURE_DASHBOARD_HTTP=true`, `DEFENSE_DASHBOARD_REQUIRE_HTTPS=false`, `DEFENSE_DASHBOARD_COOKIE_SECURE=false`를 함께 지정해야 합니다. 이 모드에서는 비밀번호와 세션 쿠키가 암호화되지 않으므로 접근 IP를 제한하고 HTTPS를 구성하면 세 설정을 되돌리세요.
 
+경로 별칭 단독 공격 실험에서는 `DEFENSE_DASHBOARD_ENABLED=false`로 `/__defense/` 화면·관리 API를 모두 404로 숨깁니다. 기본값은 `true`이며, 실험용 Compose에서만 `false`로 설정합니다.
+
 로그인은 클라이언트별 실패 횟수를 제한하고, 세션은 만료 시간과 최대 개수에 따라 정리합니다. 이벤트는 요청 본문이나 인증 정보를 저장하지 않으며, 메모리에 최근 `DEFENSE_EVENT_LIMIT`건만 보관합니다. 단일 Uvicorn 프로세스의 운영 지표이므로 여러 worker로 확장할 때는 외부 저장소로 교체해야 합니다.
 
 ## 구현 구조
@@ -39,12 +41,18 @@ Detection 프록시를 통해 `http://localhost:8081/__defense/dashboard`에서 
 
 새 방어 기법은 `DefenseStrategy`를 구현해 Registry에 등록하면 대시보드에 자동으로 집계됩니다.
 
-## 경로 별칭 (별칭 기법 2b단계, 2026-09-30)
+## 경로 별칭 (클라이언트별 별칭·이벤트 교체 v3, 2026-10-01)
 
-`/rest/`, `/api/` 같은 보호 접두사를 주기마다 바뀌는 별칭(`/pxxxxxxxxxx/`)으로 바꿔 공급합니다.
-Defense가 HTML·JS·JSON 응답의 경로를 별칭으로 바꿔 쓰고, 들어온 별칭 요청을 원래 경로로 되돌려 전달합니다.
-외워 둔 원래 경로로 바로 온 요청은 `observe`에서 기록하고, `enforce`에서 404로 막습니다.
-기본값은 `PATH_ALIAS_MODE=off`이며, 설계·설정·검증 결과·한계는 [경로 별칭 기획](docs/path-alias-plan.md)을 참고하세요.
+`PATH_ALIAS_ROUTES_FILE`의 경로·템플릿마다 **클라이언트별** 난수 별칭을 발급하고 SQLite 테이블에서 조회합니다. 클라이언트는 Defense가 발급하는 `ruby_alias_client` 쿠키로 구분하며, 다른 클라이언트의 별칭은 거부합니다.
+원래 경로 직접 호출(`direct`)이나 잘못된 별칭(`reject`)을 보낸 클라이언트는 별칭이 즉시 교체되고(`PATH_ALIAS_ROTATE_ON`, enforce에서만), 이벤트가 없어도 `PATH_ALIAS_EPOCH_S`(기본 1800초)마다 교체됩니다.
+HTML·JS·JSON 응답과 `Location`에서 설정된 경로를 별칭으로 바꾸고, 들어온 유효 별칭은 원래 경로로 복원합니다.
+`PATH_ALIAS_PREFIXES` 아래 원래 주소 직접 요청은 `observe`에서 기록하고 `enforce`에서 404로 막습니다.
+기본값은 `PATH_ALIAS_MODE=off`입니다. 로컬 Juice Shop의 경로 예시는 [`config/juice-shop-routes.json`](config/juice-shop-routes.json)에 있습니다.
+다른 앱에는 경로 파일·보호 접두사를 바꿔 정상 사용을 먼저 검증해야 합니다. `PATH_ALIAS_DB_PATH`는 영속 SQLite 파일 경로이며, 로컬·배포 Compose는 `/app/data/path-alias.sqlite3`를 `path-alias-data` 볼륨에 보관합니다. 같은 DB 파일과 같은 경로 설정을 쓰는 worker는 발급 결과를 공유하고 프로세스 재시작 후에도 현재 별칭을 유지합니다. 서로 다른 서버 간 공유에는 별도의 DB가 필요합니다.
+DB는 `(app_id, client_id)`별 세대와 `(app_id, client_id, route_path, generation)`별 별칭을 분리해 저장합니다. 한 사용자의 별칭 교체가 다른 사용자에게 영향을 주지 않으며, SQLite WAL과 짧은 트랜잭션으로 같은 호스트의 여러 worker가 공유합니다. WAL은 네트워크 파일 시스템이나 여러 호스트를 위한 저장 방식이 아니므로 그런 배포에서는 중앙 DB 설계가 필요합니다.
+프록시는 쿼리 문자열의 원본 바이트를 업스트림에 전달합니다. 쿼리 값이 경로인 앱에서도 인코딩과 중복 키를 임의로 바꾸지 않습니다. 쿼리 값 자체를 보호 대상 경로로 취급할지는 해당 앱의 라우팅 규칙을 확인한 뒤 별도로 정해야 합니다.
+AI가 경로 목록을 검토할 때는 별칭 적용 전 앱에서 `python -m defense.scripts.discover_path_alias_routes --fetch http://APP_ORIGIN --asset-dir local-assets --output route-report.json`으로 공개 JS·HTML을 자동 수집할 수 있습니다. 저장한 JS·HTML 또는 브라우저 HAR도 입력 파일로 지정할 수 있습니다. 보고서는 이미 설정된 경로와 동적 접두사, 경로를 담은 쿼리 키를 구분하며 설정 파일을 자동 변경하지 않습니다. HAR 원본에는 세션 정보가 있을 수 있으므로 로컬 임시 경로에 보관하세요.
+설계·검증 결과·한계는 [경로 별칭 설계](docs/path-alias-plan.md), 설치형 경로 수집과 DB 키 설계는 [경로 발견 설계](docs/route-discovery-design.md)를 참고하세요.
 
 ## 토큰 관찰과 CRS 차단 (2026-09-30)
 

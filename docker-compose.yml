@@ -79,6 +79,17 @@ services:
     environment:
       - RUBY_ENV=production
       - BENCHMARK_TARGET_URL=http://benchmark-target:3000
+      - PATH_ALIAS_MODE=${PATH_ALIAS_MODE:-off}
+      - PATH_ALIAS_EPOCH_S=${PATH_ALIAS_EPOCH_S:-1800}
+      - PATH_ALIAS_GRACE_EPOCHS=${PATH_ALIAS_GRACE_EPOCHS:-1}
+      - PATH_ALIAS_PREFIXES=${PATH_ALIAS_PREFIXES:-/rest/,/api/}
+      - PATH_ALIAS_ROUTES_FILE=${PATH_ALIAS_ROUTES_FILE:-/app/config/juice-shop-routes.json}
+      - PATH_ALIAS_DB_PATH=${PATH_ALIAS_DB_PATH:-/app/data/path-alias.sqlite3}
+      - PATH_ALIAS_MAX_REWRITE_BYTES=${PATH_ALIAS_MAX_REWRITE_BYTES:-8388608}
+      - PATH_ALIAS_APP_ID=${PATH_ALIAS_APP_ID:-}
+      - PATH_ALIAS_ROTATE_ON=${PATH_ALIAS_ROTATE_ON:-direct,reject}
+      - PATH_ALIAS_COOKIE_SECURE=${PATH_ALIAS_COOKIE_SECURE:-false}
+      - DEFENSE_DASHBOARD_ENABLED=${DEFENSE_DASHBOARD_ENABLED:-true}
       - DEFENSE_DASHBOARD_PASSWORD=${DEFENSE_DASHBOARD_PASSWORD:?Set DEFENSE_DASHBOARD_PASSWORD}
       - ALLOW_INSECURE_DASHBOARD_HTTP=${ALLOW_INSECURE_DASHBOARD_HTTP:-false}
       - DEFENSE_DASHBOARD_COOKIE_SECURE=${DEFENSE_DASHBOARD_COOKIE_SECURE:?Set DEFENSE_DASHBOARD_COOKIE_SECURE}
@@ -87,6 +98,8 @@ services:
       - DEFENSE_DASHBOARD_MAX_SESSIONS=${DEFENSE_DASHBOARD_MAX_SESSIONS:-1000}
       - DEFENSE_DASHBOARD_LOGIN_ATTEMPTS=${DEFENSE_DASHBOARD_LOGIN_ATTEMPTS:-5}
       - DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS=${DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS:-300}
+    volumes:
+      - path-alias-data:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
       interval: 10s
@@ -115,3 +128,4 @@ services:
 
 volumes:
   detection-data:
+  path-alias-data:

@@ -48,7 +48,12 @@ auth_manager = DashboardAuthManager(
     attempt_window_seconds=_positive_int("DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS", 300),
 )
 
-router = APIRouter()
+def require_dashboard_enabled() -> None:
+    if os.getenv("DEFENSE_DASHBOARD_ENABLED", "true").strip().lower() == "false":
+        raise HTTPException(status_code=404, detail="not found")
+
+
+router = APIRouter(dependencies=[Depends(require_dashboard_enabled)])
 
 
 class DashboardLogin(BaseModel):

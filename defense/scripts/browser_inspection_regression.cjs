@@ -1,7 +1,7 @@
 // Run in the local Playwright test image on ruby-local_ai-defense-net.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
-const base = 'http://detection:8080';
+const base = process.env.BROWSER_TEST_BASE || 'http://detection:8080';
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
@@ -14,23 +14,38 @@ const base = 'http://detection:8080';
         status: response.status(), resourceType: response.request().resourceType() });
     });
     page.on('pageerror', error => errors.push(String(error)));
+    async function dismissPopups() {
+      const dismiss = page.locator('mat-dialog-container').getByText('Dismiss', { exact: true });
+      if (await dismiss.isVisible().catch(() => false)) await dismiss.click();
+      const cookies = page.getByText('Me want it!', { exact: true });
+      if (await cookies.isVisible().catch(() => false)) {
+        try { await cookies.click({ timeout: 1500 }); }
+        catch (error) {
+          // The welcome dialog can appear between the visibility check and cookie click.
+          if (!await dismiss.isVisible().catch(() => false)) throw error;
+          await dismiss.click();
+          await cookies.click();
+        }
+      }
+    }
     async function step(name, operation) {
-      try { await operation(); steps.push({ name, passed: true }); }
-      catch (error) { steps.push({ name, passed: false, error: String(error) }); }
+      const started = performance.now();
+      try { await operation(); steps.push({ name, passed: true,
+        durationMs: Math.round((performance.now() - started) * 1000) / 1000 }); }
+      catch (error) { steps.push({ name, passed: false, error: String(error),
+        durationMs: Math.round((performance.now() - started) * 1000) / 1000 }); }
     }
     await step('first_page', async () => {
       await page.goto(base, { waitUntil: 'domcontentloaded' });
-      const dismiss = page.getByRole('button', { name: 'Dismiss', exact: true });
-      if (await dismiss.count()) await dismiss.click();
-      const cookies = page.getByText('Me want it!', { exact: true });
-      if (await cookies.count()) await cookies.click();
       await page.getByText('All Products', { exact: true }).waitFor();
+      await dismissPopups();
     });
     await step('search', async () => {
       await page.goto(base + '/#/search?q=apple', { waitUntil: 'domcontentloaded' });
       await page.getByText('Apple Juice (1000ml)', { exact: true }).waitFor();
     });
     await step('product_detail', async () => {
+      await dismissPopups();
       await page.getByText('Apple Juice (1000ml)', { exact: true }).click();
       await page.locator('mat-dialog-container').waitFor();
       await page.keyboard.press('Escape');
