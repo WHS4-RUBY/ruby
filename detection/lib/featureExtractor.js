@@ -95,11 +95,12 @@ const ATTACK_HONEY_SIGNALS = new Set([
 
 function hasAttackEvidence(request) {
   // A missing Origin, repeated normal operation, or a numeric resource URL
-  // alone is not an attack attempt. Count only a specific attack finding.
+  // or a claimed-role mismatch alone is not an attack attempt.
+  // Count only a specific attack finding.
   return Boolean(
     (request.attackDetection?.available && Number(request.attackDetection.anomalyScore) >= 5) ||
     (request.tags || []).some((tag) => tag !== "idor-probe") ||
-    (request.blTags || []).length ||
+    (request.blTags || []).some((tag) => !tag.startsWith("role-gated:")) ||
     (request.csrfTags || []).some((tag) => tag !== "csrf:missing-origin") ||
     (request.xssTags || []).length ||
     (request.deceptionEvents || []).some((event) => ATTACK_HONEY_SIGNALS.has(event.signal))

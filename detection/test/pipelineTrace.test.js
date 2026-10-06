@@ -56,11 +56,14 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
       const plan = JSON.parse(req.headers["x-defense-plan"] || "[]");
       const strict = plan.some((step) => step.name === "rate_limit_strict");
       const clientId = req.headers["x-client-id"];
-      const now = Date.now();
+      // Use logical milliseconds so the stub's quota does not depend on test speed.
+      const now = seen.length;
       const blocked = strict && strictLastSeen.has(clientId) &&
         now - strictLastSeen.get(clientId) < 1000;
       if (strict) strictLastSeen.set(clientId, now);
       seen.push({ requestId: req.headers["x-ruby-request-id"],
+        forwardedFor: req.headers["x-forwarded-for"],
+        forwardedProto: req.headers["x-forwarded-proto"],
         attackScore: Number(req.headers["x-ruby-attack-score"]),
         riskScore: Number(req.headers["x-ruby-risk-score"]),
         source: req.headers["x-ruby-policy-source"], plan, clientId, blocked });
@@ -86,6 +89,7 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
     socket.on("close", () => upgradeSockets.delete(socket));
     seenUpgrades.push({
       requestId: req.headers["x-ruby-request-id"],
+      forwardedFor: req.headers["x-forwarded-for"],
       attackScore: Number(req.headers["x-ruby-attack-score"]),
       riskScore: Number(req.headers["x-ruby-risk-score"]),
       source: req.headers["x-ruby-policy-source"],
@@ -114,6 +118,7 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
     env: { ...process.env, NODE_ENV: "test", PORT: String(detectionPort),
       TARGET_URL: `http://127.0.0.1:${defenseStub.address().port}`,
       TARGET_PROFILE_FILE: "", CRS_ENABLED: "false", DECEPTION_ENABLED: "false",
+      TRUST_PROXY: "true",
       DETECTION_DASHBOARD_PASSWORD: dashboardPassword,
       DCID_HMAC_SECRET: crypto.randomBytes(32).toString("hex"),
       ACCOUNT_ID_HASH_KEY: crypto.randomBytes(32).toString("hex"),
@@ -123,23 +128,33 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   let startupError = "";
   detection.stderr.on("data", (chunk) => { startupError += chunk.toString().slice(0, 2000); });
   t.after(() => detection.kill());
-  let ready = false;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    try {
-      const health = await request(detectionPort, "GET", "/healthz");
-      if (health.status === 200) { ready = true; break; }
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  assert.equal(ready, true, `Detection did not start: ${startupError}`);
+  await new Promise((resolve, reject) => {
+    let output = "";
+    const onExit = (code) => reject(new Error(`Detection exited ${code}: ${startupError}`));
+    const onData = (chunk) => {
+      output += chunk.toString();
+      if (output.includes(`[detection-proxy] listening on :${detectionPort} ->`)) {
+        detection.stdout.off("data", onData);
+        detection.off("exit", onExit);
+        detection.off("error", reject);
+        resolve();
+      }
+    };
+    detection.stdout.on("data", onData);
+    detection.once("error", reject);
+    detection.once("exit", onExit);
+  });
+  const health = await request(detectionPort, "GET", "/healthz");
+  assert.equal(health.status, 200);
 
   const cookies = new Map();
   const attackBody = JSON.stringify({ payload: "union select <script>alert(1)</script>" });
   let blockedResponse = null;
-  for (let index = 1; index <= 40; index++) {
+  for (let index = 1; index <= 66; index++) {
     const cookie = [...cookies.values()].join("; ");
     const response = await request(detectionPort, "POST", `/api/orders/${index}`, {
       headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(attackBody),
+        "X-Forwarded-For": "203.0.113.9", "X-Forwarded-Proto": "https",
         "User-Agent": "curl/8.0", ...(cookie ? { Cookie: cookie } : {}) },
       body: attackBody,
     });
@@ -157,9 +172,13 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.ok(last.attackScore >= 0.8);
   assert.ok(last.riskScore >= 0.8);
   assert.ok(last.plan.some((step) => step.name === "rate_limit_strict"));
+  assert.ok(seen.every((item) => item.forwardedFor === undefined));
+  assert.ok(seen.every((item) => item.forwardedProto === "https"));
 
   assert.ok(cookies.has("dlsid") && cookies.has("dcid"), "high-risk client has both session and signed client cookies");
-  const anonymousUpgrade = await upgrade(detectionPort, "/socket", { "User-Agent": "curl/8.0" });
+  const anonymousUpgrade = await upgrade(detectionPort, "/socket", {
+    "User-Agent": "curl/8.0", "X-Forwarded-For": "203.0.113.9",
+  });
   assert.equal(anonymousUpgrade.status, 101);
   const anonymousPolicy = seenUpgrades.at(-1);
   assert.deepEqual(anonymousPolicy.plan, [], "cookie-less upgrade must not inherit attack delay or rate limit");
@@ -176,6 +195,7 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
 
   const signedUpgrade = await upgrade(detectionPort, "/socket", {
     "User-Agent": "curl/8.0", Cookie: [...cookies.values()].join("; "),
+    "X-Forwarded-For": "198.51.100.9",
   });
   assert.equal(signedUpgrade.status, 101);
   const signedPolicy = seenUpgrades.at(-1);
@@ -185,6 +205,7 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.ok(signedPolicy.plan.some((step) => step.name === "rate_limit_strict"));
   assert.ok(signedPolicy.plan.some((step) => step.name === "delay"));
   assert.notEqual(signedPolicy.requestId, last.requestId);
+  assert.ok(seenUpgrades.every((item) => item.forwardedFor === undefined));
 
   const loginBody = JSON.stringify({ password: dashboardPassword });
   const login = await request(detectionPort, "POST", "/__detection/api/login", {
@@ -205,6 +226,7 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   const record = recordedRequests
     .find((item) => item.requestId === last.requestId);
   assert.ok(record);
+  assert.match(record.ip, /^(::ffff:)?127\.0\.0\.1$/);
   assert.equal(record.status, 429);
   assert.equal(record.policyDecision.basis, "prior-completed-requests");
   assert.ok(record.policyDecision.strategies.includes("rate_limit_strict"));

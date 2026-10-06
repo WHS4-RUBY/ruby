@@ -6,7 +6,7 @@ function parseTrustProxy(value = process.env.TRUST_PROXY) {
 }
 
 function getClientIp(req) {
-  return req.ip || req.socket?.remoteAddress || "unknown";
+  return req.socket?.remoteAddress || "unknown";
 }
 
 module.exports = { parseTrustProxy, getClientIp };

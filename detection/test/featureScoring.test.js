@@ -102,7 +102,7 @@ test("Automation과 Attack 가중치는 각각 100%이고 XSS 가중치는 15%�
   assert.equal(ATTACK_WEIGHTS.payloadSignature, 0.2);
 });
 
-test("60분 내 근거 있는 반복 공격만 2/4/8/16/32건 구간별로 가점한다", () => {
+test("60분 내 근거 있는 반복 공격만 4/8/16/32/64건 구간별로 최대 30점 가점한다", () => {
   const build = (count, fields) => extractStreamFeatures({
     requests: Array.from({ length: count }, (_, index) => ({
       ts: index * 1000, method: "GET", url: `/search?q=${index}`,
@@ -113,18 +113,41 @@ test("60분 내 근거 있는 반복 공격만 2/4/8/16/32건 구간별로 가�
     userAgent: "curl/8.0", telemetry, firstSeen: 0, lastSeen: count * 1000,
     sessionChurn: 1,
   });
-  for (const [count, bonus] of [[1, 0], [2, 0.1], [4, 0.2], [8, 0.3], [16, 0.4], [32, 0.5]]) {
+  for (const [count, bonus] of [
+    [1, 0], [2, 0], [3, 0], [4, 0.05], [7, 0.05], [8, 0.1],
+    [15, 0.1], [16, 0.15], [31, 0.15], [32, 0.2],
+    [63, 0.2], [64, 0.3], [128, 0.3],
+  ]) {
     assert.equal(classify(build(count, { tags: ["sqli"] })).attackEvidenceBonus, bonus);
   }
   assert.equal(classify(build(32, { tags: [], csrfTags: ["csrf:missing-origin"] })).attackEvidenceBonus, 0);
   assert.equal(classify(build(32, { tags: ["idor-probe"] })).attackEvidenceBonus, 0);
-  const expired = build(2, { tags: ["sqli"] });
+  for (const blTags of [
+    ["role-gated:admin-config"], ["role-gated:admin-version"],
+    ["role-gated:learned"], ["role-gated:admin-config", "role-gated:admin-version"],
+  ]) {
+    const features = build(64, { tags: [], blTags });
+    assert.equal(features.attack.businessLogicHits, 64 * blTags.length);
+    assert.equal(features.attack.repeatedEvidence.count, 0);
+    assert.equal(classify(features).attackEvidenceBonus, 0);
+    assert.ok(classify(features).attackBreakdown.businessLogicViolation > 0);
+  }
+  for (const fields of [
+    { tags: ["sqli"], blTags: ["role-gated:admin-config"] },
+    { tags: [], blTags: ["role-gated:admin-config", "mass-assignment"] },
+    { tags: [], blTags: ["role-gated:admin-config"], attackDetection: { available: true, anomalyScore: 5 } },
+  ]) {
+    const features = build(64, fields);
+    assert.equal(features.attack.repeatedEvidence.count, 64);
+    assert.equal(classify(features).attackEvidenceBonus, 0.3);
+  }
+  const expired = build(4, { tags: ["sqli"] });
   expired.attack.repeatedEvidence.count = 0;
   assert.equal(classify(expired).attackEvidenceBonus, 0);
 });
 
-test("반복 공격 + 독립 증거가 실제 0.8 정책 구간에 도달한다", () => {
-  const requests = Array.from({ length: 32 }, (_, index) => ({
+test("64건 반복 공격 + 독립 증거가 실제 0.8 정책 구간에 도달한다", () => {
+  const requests = Array.from({ length: 64 }, (_, index) => ({
     ts: index * 1000, method: "GET", url: `/api/orders/${index + 1}`,
     normalizedPath: "/api/orders/:id", operation: "GET /api/orders/:id", status: 404,
     tags: ["sqli", "xss", "command-injection", "nosql-injection"],
@@ -133,8 +156,10 @@ test("반복 공격 + 독립 증거가 실제 0.8 정책 구간에 도달한다"
   }));
   const features = extractStreamFeatures({ requests,
     headerSample: { "user-agent": "curl/8.0" }, fingerprint: "high-attack-test",
-    userAgent: "curl/8.0", telemetry, firstSeen: 0, lastSeen: 31_000, sessionChurn: 1 });
-  const score = classify(features).attackScore;
+    userAgent: "curl/8.0", telemetry, firstSeen: 0, lastSeen: 63_000, sessionChurn: 1 });
+  const result = classify(features);
+  assert.equal(result.attackEvidenceBonus, 0.3);
+  const score = result.attackScore;
   assert.ok(score >= 0.8);
   const plan = selectStrategies(score, loadPolicyRules(), { confirmedAttackScore: score });
   assert.deepEqual(plan.map((step) => step.name), ["rate_limit_strict", "delay"]);

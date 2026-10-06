@@ -36,7 +36,7 @@ function loadPresentation(fetchImpl = async () => ({ status: 200 })) {
   });
   context.fetch = (...args) => context.window.fetch(...args);
   vm.runInContext(
-    `${script.slice(0, bootstrapAt)}\nglobalThis.presentation = { state, scoreNumber, detectionFor, loadPublicTarget, buildUserRows, filterAndSortUsers, renderEvidenceOverview, renderUserList, renderUserDetail, selectUser, loadUserDetail, buildSessionNodes, renderRelation, renderConnectionDetails, renderTimeline };`,
+    `${script.slice(0, bootstrapAt)}\nglobalThis.presentation = { state, scoreNumber, detectionFor, loadPublicTarget, buildUserRows, filterAndSortUsers, renderEvidenceOverview, renderUserList, renderUserDetail, selectUser, loadUserDetail, buildSessionNodes, renderRelation, renderConnectionDetails, renderTimeline, renderRequests, renderLogDetail, renderModalDetail, parseLogQuery, matchesLogQuery, buildLogEntries, highlightText, highlightJson, toggleLogQueryToken, requestSeverity };`,
     context,
     { filename: dashboardPath }
   );
@@ -356,7 +356,8 @@ test("요청 ID 검색 결과에서는 백그라운드 요청을 접지 않는�
   assert.match(ui.renderTimeline(detail, nodes), /Socket\.IO polling 1건/);
   ui.state.timelineQuery = "request:polling";
   const result = ui.renderTimeline(detail, nodes);
-  assert.match(result, /요청 ID <code>request:polling<\/code>/);
+  assert.match(result, /class="log-entry[^"]*expanded"[^>]*data-log-key="request:polling"/, "요청 ID를 그대로 검색하면 해당 행을 펼친다");
+  assert.match(result, /<dt>요청 ID<\/dt><dd><code>request:polling<\/code>/);
   assert.doesNotMatch(result, /Socket\.IO polling 1건/);
 });
 
@@ -373,9 +374,13 @@ test("부분 응답 오류와 스트리밍 본문 미검사를 성공 응답과 
       responseBodyInspected: false },
   ] };
   const html = ui.renderTimeline(detail, nodes);
-  assert.match(html, /200 · 전송 오류/);
-  assert.match(html, /응답 전달 중 오류\(본문 불완전\)/);
-  assert.match(html, /응답 본문 검사 생략\(스트리밍·크기 제한\)/);
+  const rowFor = id => html.match(new RegExp(`<div class="log-entry[^"]*" data-log-key="${id}">[\\s\\S]*?</button>`))?.[0] || "";
+  assert.match(rowFor("request:partial"), /log-entry sev-error/, "전송 오류는 성공 응답과 다른 심각도로 표시한다");
+  assert.match(rowFor("request:partial"), />200<\/span>[\s\S]*>전송 오류<\/span>/);
+  assert.match(rowFor("request:events"), />본문 미검사<\/span>/);
+  assert.doesNotMatch(rowFor("request:events"), /전송 오류/);
+  assert.match(ui.renderLogDetail(detail.requests[0]), /200<\/span> <span class="kv-warn">응답 전달 중 오류\(본문 불완전\)/);
+  assert.match(ui.renderLogDetail(detail.requests[1]), /응답 본문 검사 생략\(스트리밍·크기 제한\)/);
   ui.state.timelineFlaggedOnly = true;
   const flagged = ui.renderTimeline(detail, nodes);
   assert.match(flagged, /request:partial/);
@@ -456,4 +461,262 @@ test("자동 목록 재렌더는 선택 카드의 키보드 포커스와 스크�
   assert.equal(ui.document.activeElement, replacement);
   assert.equal(replacement.focusOptions.preventScroll, true);
   assert.equal(list.scrollTop, 120);
+});
+
+function logKeysInOrder(html) {
+  return [...html.matchAll(/data-log-key="([^"]+)"/g)].map(match => match[1]);
+}
+
+test("요청 로그와 상세 모달 타임라인은 최신 요청을 맨 위에 둔다", () => {
+  const ui = loadPresentation();
+  const nodes = [{ sessionId: "session:one", timelineAvailable: true, index: 1, color: "#123456", requestCount: 3 }];
+  const requests = [
+    { requestId: "request:old", sessionId: "session:one", ts: 1000, method: "GET", url: "/a", status: 200 },
+    { requestId: "request:new", sessionId: "session:one", ts: 3000, method: "GET", url: "/c", status: 200 },
+    { requestId: "request:mid", sessionId: "session:one", ts: 2000, method: "GET", url: "/b", status: 200 },
+  ];
+  assert.deepEqual(logKeysInOrder(ui.renderTimeline({ requests }, nodes)), ["request:new", "request:mid", "request:old"]);
+  assert.deepEqual(logKeysInOrder(ui.renderRequests(requests)), ["request:new", "request:mid", "request:old"]);
+  assert.equal(requests[0].requestId, "request:old", "원본 요청 배열 순서는 바꾸지 않는다");
+});
+
+test("접힌 백그라운드 묶음의 시간 범위는 최신순에서도 오래된 시각부터 표시한다", () => {
+  const ui = loadPresentation();
+  const poll = (id, ts) => ({ requestId: id, sessionId: "session:one", ts, method: "GET", url: "/socket.io/?EIO=4", status: 200,
+    backgroundTraffic: { isBackground: true, category: "socket_io_polling" } });
+  const entries = ui.buildLogEntries([poll("b", 2000), poll("a", 1000)]);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].requests.length, 2);
+  const nodes = [{ sessionId: "session:one", timelineAvailable: true, index: 1, color: "#123456", requestCount: 2 }];
+  const html = ui.renderTimeline({ requests: [poll("a", 1000), poll("b", 2000)] }, nodes);
+  const first = new Date(1000).toLocaleTimeString();
+  const last = new Date(2000).toLocaleTimeString();
+  assert.ok(html.includes(`${first}–${last}`), "시간 범위가 거꾸로 표시되면 안 된다");
+});
+
+test("검색은 field:value 필터와 일반 검색어를 함께 해석한다", () => {
+  const ui = loadPresentation();
+  const login = { requestId: "request:1", method: "POST", url: "/rest/user/login", status: 401, tags: [] };
+  const honey = { requestId: "request:2", method: "GET", url: "/api/admin", status: 200,
+    deceptionEvents: [{ signal: "admin-probe" }] };
+  const poll = { requestId: "request:3", method: "GET", url: "/socket.io/?EIO=4", status: 200,
+    backgroundTraffic: { isBackground: true } };
+  const match = (text, request) => ui.matchesLogQuery(request, ui.parseLogQuery(text));
+  assert.equal(match("status:4xx method:post", login), true);
+  assert.equal(match("status:4xx", honey), false);
+  assert.equal(match("status:401", login), true);
+  assert.equal(match("tag:honey", honey), true);
+  assert.equal(match("tag:background", poll), true);
+  assert.equal(match("-path:/socket.io", poll), false);
+  assert.equal(match("-path:/socket.io", login), true);
+  assert.equal(match("rest login", login), true, "일반 검색어는 모두 포함해야 한다");
+  assert.equal(match("rest admin", login), false);
+  assert.equal(match("request:1", login), true, "요청 ID의 콜론은 필터로 해석하지 않는다");
+  assert.equal(ui.parseLogQuery("request:1").fields.length, 0);
+});
+
+test("패싯은 검색어 토큰을 켜고 끄며 대소문자를 구분하지 않는다", () => {
+  const ui = loadPresentation();
+  ui.state.timelineQuery = "login";
+  ui.toggleLogQueryToken("status:4xx");
+  assert.equal(ui.state.timelineQuery, "login status:4xx");
+  ui.toggleLogQueryToken("STATUS:4XX");
+  assert.equal(ui.state.timelineQuery, "login");
+});
+
+test("중복 접기는 신호 없는 연속 동일 요청만 ×N으로 묶는다", () => {
+  const ui = loadPresentation();
+  const same = ts => ({ sessionId: "s", ts, method: "GET", url: "/rest/products", status: 200 });
+  const attacked = { sessionId: "s", ts: 4, method: "GET", url: "/rest/products", status: 200, tags: ["sqli"] };
+  const entries = ui.buildLogEntries([same(3), same(2), attacked, same(1)], { dedupe: true });
+  assert.equal(entries.map(entry => entry.repeats.length).join(), "1,0,0");
+  assert.equal(ui.buildLogEntries([same(3), same(2)], { dedupe: false }).length, 2);
+
+  ui.state.timelineDedup = true;
+  const nodes = [{ sessionId: "s", timelineAvailable: true, index: 1, color: "#123456", requestCount: 3 }];
+  const html = ui.renderTimeline({ requests: [same(1000), same(2000), same(3000)] }, nodes);
+  assert.match(html, />×3<\/span>/);
+});
+
+test("심각도는 공격 신호 > 5xx·전송 오류 > 4xx 순으로 정한다", () => {
+  const ui = loadPresentation();
+  assert.equal(ui.requestSeverity({ status: 404, tags: ["sqli"] }), "critical");
+  assert.equal(ui.requestSeverity({ status: 200, attackDetection: { anomalyScore: 5 } }), "critical");
+  assert.equal(ui.requestSeverity({ status: 503 }), "error");
+  assert.equal(ui.requestSeverity({ status: 200, responseTransportOutcome: "error" }), "error");
+  assert.equal(ui.requestSeverity({ status: 403 }), "warn");
+  assert.equal(ui.requestSeverity({ status: 200 }), "info");
+});
+
+test("로그 행·검색 강조·원본 JSON은 요청 값을 HTML로 해석하지 않는다", () => {
+  const ui = loadPresentation();
+  const injection = '<img src=x onerror="alert(1)">';
+  assert.equal(ui.highlightText(`/a${injection}`, ["img"]), "/a&lt;<mark>img</mark> src=x onerror=&quot;alert(1)&quot;&gt;");
+  const request = { requestId: injection, sessionId: injection, ts: 1000, method: injection, url: injection,
+    status: 200, operation: injection, tags: [injection], body: injection };
+  ui.state.timelineQuery = "img";
+  const nodes = [{ sessionId: injection, timelineAvailable: true, index: 1, color: "#123456", requestCount: 1 }];
+  const html = ui.renderTimeline({ requests: [request] }, nodes) + ui.renderLogDetail(request) + ui.highlightJson(request);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(ui.highlightJson({ a: '"<b>"', n: 1, ok: true }), /<span class="j-key">&quot;a&quot;<\/span>: <span class="j-str">&quot;\\&quot;&lt;b&gt;\\&quot;&quot;<\/span>/);
+});
+
+test("히스토그램 구간을 고르면 그 시간대 요청만 표시한다", () => {
+  const ui = loadPresentation();
+  const nodes = [{ sessionId: "s", timelineAvailable: true, index: 1, color: "#123456", requestCount: 3 }];
+  const requests = [1000, 5000, 9000].map(ts => ({ requestId: `request:${ts}`, sessionId: "s", ts, method: "GET", url: "/", status: 200 }));
+  const all = ui.renderTimeline({ requests }, nodes);
+  assert.match(all, /data-hist-from="1000"/);
+  ui.state.timelineRange = { from: 4000, to: 6000 };
+  const ranged = ui.renderTimeline({ requests }, nodes);
+  assert.deepEqual(logKeysInOrder(ranged), ["request:5000"]);
+  assert.match(ranged, /id="timelineRangeClear"/);
+});
+
+test("로그 필터와 연결 근거의 펼침 상태는 상세 재렌더 뒤에도 유지된다", () => {
+  const ui = loadPresentation();
+  ui.state.selected = { kind: "resolved-actors", id: "resolved:one" };
+  ui.state.userDetail = { requests: [], observedIps: [] };
+  const handlers = new Map();
+  for (const id of ["logOptionsDisclosure", "evidenceDisclosure"]) {
+    ui.document.getElementById(id).addEventListener = (name, handler) => {
+      if (name === "toggle") handlers.set(id, handler);
+    };
+  }
+  const disclosure = id => ui.elements.get("userDetail").innerHTML
+    .match(new RegExp(`<details[^>]*id="${id}"[^>]*>`))?.[0];
+  ui.renderUserDetail();
+  assert.equal(handlers.size, 2, "두 펼침 영역 모두 상태 변경을 구독해야 한다");
+  for (const id of handlers.keys()) assert.doesNotMatch(disclosure(id), /\bopen\b/);
+  for (const handler of handlers.values()) handler({ currentTarget: { open: true } });
+  ui.renderUserDetail();
+  for (const id of handlers.keys()) assert.match(disclosure(id), /\bopen\b/);
+  for (const handler of handlers.values()) handler({ currentTarget: { open: false } });
+  ui.renderUserDetail();
+  for (const id of handlers.keys()) assert.doesNotMatch(disclosure(id), /\bopen\b/);
+});
+
+test("접힌 상세 필터도 선택한 세션·중복·시간 범위를 그대로 적용한다", () => {
+  const ui = loadPresentation();
+  const request = (id, sessionId, ts) => ({ requestId: id, sessionId, ts, method: "GET", url: "/", status: 200 });
+  const requests = [request("old", "s1", 1000), request("a", "s1", 2000),
+    request("b", "s1", 3000), request("other", "s2", 3000)];
+  const nodes = ["s1", "s2"].map((sessionId, index) =>
+    ({ sessionId, index, timelineAvailable: true, requestCount: 2, color: "#123456" }));
+  ui.state.timelineSession = "s1";
+  ui.state.timelineDedup = true;
+  ui.state.timelineRange = { from: 2000, to: 3000 };
+  const collapsed = ui.renderTimeline({ requests }, nodes);
+  ui.state.logOptionsExpanded = true;
+  const expanded = ui.renderTimeline({ requests }, nodes);
+  assert.deepEqual(logKeysInOrder(collapsed), ["b"]);
+  assert.deepEqual(logKeysInOrder(expanded), ["b"]);
+});
+
+test("상세 재렌더는 펼침 버튼의 키보드 포커스와 화면 위치를 유지한다", () => {
+  const ui = loadPresentation();
+  ui.state.selected = { kind: "resolved-actors", id: "resolved:one" };
+  ui.state.userDetail = { requests: [], observedIps: [] };
+  for (const id of ["logOptionsSummary", "evidenceSummary"]) {
+    ui.document.activeElement = { id };
+    let options;
+    ui.document.getElementById(id).focus = value => { options = value; };
+    ui.renderUserDetail();
+    assert.ok(ui.elements.get("userDetail").innerHTML.includes(`<summary id="${id}">`),
+      "포커스 복원 대상이 새 DOM에도 있어야 한다");
+    assert.equal(options?.preventScroll, true);
+  }
+});
+
+test("상세 모달은 요청을 먼저 표시하고 모든 계산·이력·연결·특성을 접어서 보존한다", () => {
+  const ui = loadPresentation();
+  const data = {
+    continuityConfirmed: true, totalRequests: 2, automationScore: 0.2, attackScore: 0.1,
+    automationBreakdown: { timingRegularity: 0.123 }, attackBreakdown: { csrf: 0.456 },
+    honeyBreakdown: { automation: { contributions: { "honey-marker": 7 } } },
+    attackHistory: { attackCategories: ["attack-marker"] },
+    deceptionHistory: { distinctSignals: ["deception-marker"] },
+    memberships: [{ sessionId: "session:member", reasonCodes: ["connection-marker"] }],
+    features: { temporal: { avgIntervalMs: 111 }, behavior: { recentSequence: ["sequence-marker"] },
+      exploration: { marker: "exploration-marker" }, client: { marker: "client-marker" },
+      deception: { marker: "honey-feature-marker" }, attack: { marker: "attack-feature-marker" } },
+    agenticEvidence: { marker: "agentic-marker" },
+    requests: [{ requestId: "request:one", sessionId: "session:member", ts: 1000, method: "GET", url: "/", status: 200 }],
+  };
+  const html = ui.renderModalDetail(data, "resolved-actors", "resolved:one");
+  const disclosures = [...html.matchAll(/<details class="modal-disclosure"[^>]*>/g)].map(match => match[0]);
+  assert.equal(disclosures.length, 4);
+  for (const disclosure of disclosures) assert.doesNotMatch(disclosure, /\bopen\b/);
+  assert.ok(html.indexOf('data-log-key="request:one"') < html.indexOf('id="modalScores"'));
+  for (const marker of ["honey-marker", "attack-marker", "deception-marker", "connection-marker",
+    "sequence-marker", "exploration-marker", "client-marker", "honey-feature-marker",
+    "attack-feature-marker", "agentic-marker"]) assert.ok(html.includes(marker), marker);
+  assert.match(html, /0\.12/);
+  assert.match(html, /0\.46/);
+  assert.match(html, /111\.00/);
+  assert.match(html, /id="modalJsonButton"/);
+});
+
+test("모달 요약은 현재 점수와 과거 최고를 구분하며 IP에는 점수를 넣지 않는다", () => {
+  const ui = loadPresentation();
+  const data = { totalRequests: 19, automationScore: 0.4, attackScore: 0.1,
+    attackHistory: { maxAttackScore: 0.9 }, sessionCount: 3, actorCandidateCount: 2, requests: [] };
+  const actorHtml = ui.renderModalDetail(data, "resolved-actors", "resolved:one");
+  const summary = actorHtml.split('id="modalRequests"')[0];
+  const values = [...summary.matchAll(/<dd><b>([\d.]+)/g)].map(match => Number(match[1]));
+  assert.deepEqual(values, [19, 0, 40, 10], "현재 공격 점수 자리에 과거 최고 점수를 넣지 않는다");
+  assert.match(summary, /class="badge danger"/, "과거 고점의 신호는 별도 표시한다");
+  const ipHtml = ui.renderModalDetail(data, "ip-entries", "127.0.0.1");
+  assert.doesNotMatch(ipHtml, /id="modalScores"|id="modalHistory"|modal-findings|score-grid/);
+  const ipValues = [...ipHtml.split('id="modalRequests"')[0].matchAll(/<dd><b>([\d.]+)/g)].map(match => Number(match[1]));
+  assert.deepEqual(ipValues, [19, 0, 3, 2]);
+});
+
+test("후보 흐름의 지문 연결과 모달 입력값은 누락하거나 HTML로 해석하지 않는다", () => {
+  const ui = loadPresentation();
+  const unsafe = '<img src=x onerror="alert(1)">';
+  const data = { clientFlow: { links: [{ score: 74, decision: unsafe, reason: "fingerprint-marker",
+    fromCandidateId: "actor:from", toCandidateId: "actor:to" }] },
+    features: { behavior: { recentSequence: [unsafe] } }, requests: [] };
+  for (const kind of ["actors", "client-flows", "sessions", "auth-groups", "ip-entries"]) {
+    const html = ui.renderModalDetail(data, kind, unsafe);
+    assert.match(html, /id="modalConnections"/);
+    assert.match(html, /fingerprint-marker/);
+    assert.doesNotMatch(html, /<img/);
+    assert.match(html, /&lt;img/);
+  }
+});
+
+test("모달 키보드 순환은 닫힌 details의 컨트롤을 제외하고 summary는 유지한다", () => {
+  const ui = loadPresentation();
+  const dashboard = fs.readFileSync(path.join(__dirname, "../public/dashboard.html"), "utf8");
+  const script = dashboard.match(/<script>([\s\S]*?)<\/script>/)[1];
+  let keydown;
+  ui.document.addEventListener = (name, handler) => { if (name === "keydown") keydown = handler; };
+  vm.runInContext(script.slice(script.indexOf("document.addEventListener('keydown', event => {"),
+    script.indexOf("document.getElementById('themeToggle').addEventListener")), ui.context);
+  assert.equal(typeof keydown, "function");
+  ui.state.modalOpen = true;
+  const modal = { id: "modal" };
+  const details = { tagName: "DETAILS", open: false, parentElement: modal };
+  const close = { parentElement: modal };
+  const summary = { parentElement: details };
+  const json = { parentElement: details };
+  details.firstElementChild = summary;
+  for (const control of [close, summary, json]) {
+    // Chrome can report a rectangle for a control in closed details, even though it cannot receive focus.
+    control.getClientRects = () => [{}];
+    control.focus = () => { ui.document.activeElement = control; };
+  }
+  ui.document.getElementById("modal").querySelectorAll = () => [close, summary, json];
+  for (const open of [false, true]) {
+    details.open = open;
+    ui.document.activeElement = close;
+    let prevented = false;
+    keydown({ key: "Tab", shiftKey: true, preventDefault: () => { prevented = true; } });
+    assert.equal(prevented, true);
+    assert.equal(ui.document.activeElement, open ? json : summary);
+    keydown({ key: "Tab", shiftKey: false, preventDefault: () => {} });
+    assert.equal(ui.document.activeElement, close);
+  }
 });

@@ -3,37 +3,43 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css" />
   <title>RUBY 방어 대시보드</title>
   <style>
+    /* 탐지 대시보드와 같은 GitHub Primer 계열 색. 요청 행의 메서드·상태·결과 색도 공유한다. */
     :root {
       color-scheme: light;
-      --bg:#f4f6f8; --surface:#fff; --surface-subtle:#f8fafb; --text:#17202a;
-      --muted:#697684; --border:#dce2e7; --border-strong:#bcc6cf; --blue:#276aa5;
-      --green:#23845f; --orange:#bd6b24; --red:#b9473f; --hover:#edf3f8;
-      --header:#111b24; --header-text:#f4f7fa;
+      --font:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR","Segoe UI",sans-serif;
+      --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+      --bg:#f6f8fa; --surface:#fff; --surface-subtle:#f6f8fa; --text:#1f2328;
+      --muted:#59636e; --border:#d1d9e0; --border-strong:#b7c0c9; --blue:#0969da;
+      --green:#1a7f37; --orange:#bc4c00; --amber:#9a6700; --red:#d1242f; --purple:#8250df; --hover:#eff2f5;
+      --header:#1f2328; --header-text:#f6f8fa; --select-bg:#ddf4ff; --select-border:#0969da; --mark-bg:#fff8c5; --mark-fg:#1f2328;
     }
     html[data-theme="dark"] {
-      color-scheme:dark; --bg:#11171d; --surface:#182129; --surface-subtle:#141c23;
-      --text:#edf2f6; --muted:#94a3af; --border:#2c3943; --border-strong:#42515d;
-      --blue:#67a9e4; --green:#67c49d; --orange:#e1a160; --red:#e47f77;
-      --hover:#202c35; --header:#0c1217; --header-text:#f5f8fa;
+      color-scheme:dark; --bg:#010409; --surface:#0d1117; --surface-subtle:#151b23;
+      --text:#e6edf3; --muted:#9198a1; --border:#30363d; --border-strong:#3d444d;
+      --blue:#58a6ff; --green:#3fb950; --orange:#f0883e; --amber:#d29922; --red:#f85149; --purple:#bc8cff;
+      --hover:#1c2128; --header:#010409; --header-text:#f0f6fc; --select-bg:rgba(56,139,253,.15); --select-border:#1f6feb;
+      --mark-bg:rgba(187,128,9,.4); --mark-fg:#f0f6fc;
     }
     * { box-sizing:border-box; }
-    body { margin:0; min-width:320px; background:var(--bg); color:var(--text); font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    body { margin:0; min-width:320px; background:var(--bg); color:var(--text); font:14px/1.45 var(--font); }
     button,input { font:inherit; }
     button { border:1px solid var(--border-strong); background:var(--surface); color:var(--text); cursor:pointer; }
     button:hover { background:var(--hover); }
-    .app-header { background:var(--header); color:var(--header-text); border-bottom:1px solid #25323c; }
+    .app-header { background:var(--header); color:var(--header-text); border-bottom:1px solid var(--border); }
     .header-inner { width:min(100% - 40px,1760px); min-height:94px; margin:auto; display:flex; align-items:center; gap:34px; }
-    .product-label { margin:0 0 3px; color:#8dbbe0; font-size:11px; font-weight:700; text-transform:uppercase; }
+    .product-label { margin:0 0 3px; color:#58a6ff; font-size:11px; font-weight:700; text-transform:uppercase; }
     h1 { margin:0; font-size:23px; letter-spacing:0; }
-    .header-stats { display:flex; gap:0; margin-left:18px; border-left:1px solid #33424d; }
-    .header-stats span { min-width:104px; padding:5px 20px; border-right:1px solid #33424d; color:#aebac4; font-size:12px; }
+    .header-stats { display:flex; gap:0; margin-left:18px; border-left:1px solid #30363d; }
+    .header-stats span { min-width:104px; padding:5px 20px; border-right:1px solid #30363d; color:#9198a1; font-size:12px; }
     .header-stats b { display:block; color:#fff; font-size:20px; font-variant-numeric:tabular-nums; }
     .header-actions { margin-left:auto; display:flex; align-items:center; gap:10px; }
-    .refresh-note { color:#9cabb6; font-size:12px; }
-    .header-button { display:inline-block; padding:7px 11px; border:1px solid #485866; background:transparent; color:#e8eef2; text-decoration:none; white-space:nowrap; }
-    .header-button:hover { background:#263540; }
+    .refresh-note { color:#9198a1; font-size:12px; }
+    .header-button { display:inline-block; padding:7px 11px; border:1px solid #3d444d; background:transparent; color:#e6edf3; text-decoration:none; white-space:nowrap; }
+    .header-button:hover { background:#1c2128; }
     .page { width:min(100% - 40px,1760px); margin:0 auto; padding:24px 0 36px; }
     .workspace { border:1px solid var(--border); background:var(--surface); }
     .start-guide { padding:16px 18px; border-bottom:1px solid var(--border); background:var(--surface-subtle); }
@@ -106,7 +112,7 @@
     .request-card { padding:13px 16px; border-bottom:1px solid var(--border); }
     .request-card:last-child { border-bottom:0; }
     .request-top { display:flex; flex-wrap:wrap; align-items:center; gap:7px 10px; }
-    .request-path { min-width:0; overflow-wrap:anywhere; font-size:12px; }
+    .request-path { min-width:0; overflow-wrap:anywhere; font-size:12.5px; }
     .request-time { margin-left:auto; color:var(--muted); font-size:12px; white-space:nowrap; }
     .request-meta { display:grid; grid-template-columns:minmax(150px,1.4fr) minmax(150px,1fr) minmax(150px,1fr); gap:8px 16px; margin-top:10px; font-size:12px; }
     .request-field { min-width:0; overflow-wrap:anywhere; }
@@ -114,9 +120,22 @@
     .request-id-line { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
     .request-id-line code { min-width:0; overflow-wrap:anywhere; }
     .copy-button { padding:2px 7px; color:var(--blue); font-size:11px; white-space:nowrap; }
-    .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .mono { font-family:var(--mono); }
+    /* 요청 행: 왼쪽 색 막대는 결과(차단 빨강 · 오류 주황 · 방어 적용 노랑), 메서드·상태는 고정 색 */
+    .request-card { border-left:3px solid transparent; }
+    .request-card:nth-child(even) { background:rgba(127,127,127,.035); }
+    .request-card.sev-blocked { border-left-color:var(--red); }
+    .request-card.sev-error { border-left-color:var(--orange); }
+    .request-card.sev-defended { border-left-color:var(--amber); }
+    .request-card.highlight { box-shadow:inset 0 0 0 1px var(--select-border); background:var(--select-bg); }
+    .method-badge { padding:0 5px; border:1px solid currentColor; font-family:var(--mono); font-size:11px; font-weight:700; line-height:1.55; }
+    .m-get { color:var(--blue); } .m-post { color:var(--green); } .m-put { color:var(--amber); }
+    .m-patch { color:var(--purple); } .m-delete { color:var(--red); } .m-other { color:var(--muted); }
+    .badge.s-2xx { color:var(--green); } .badge.s-3xx { color:var(--blue); } .badge.s-4xx { color:var(--amber); } .badge.s-5xx { color:var(--red); }
+    .request-time { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+    mark { padding:0 1px; background:var(--mark-bg); color:var(--mark-fg); }
     .badge { display:inline-block; padding:2px 6px; border:1px solid var(--border-strong); background:var(--surface-subtle); color:var(--muted); font-size:10px; margin:0 4px 2px 0; }
-    .badge.active { border-color:#a8733f; color:var(--orange); }
+    .badge.active { border-color:var(--amber); color:var(--amber); }
     .outcome-blocked { color:var(--red); font-weight:700; }
     .outcome-error { color:var(--red); }
     .outcome-forwarded { color:var(--green); }
@@ -130,7 +149,7 @@
     .login-form label { display:block; margin-bottom:7px; color:var(--muted); font-size:12px; }
     .login-form input { width:100%; padding:9px; border:1px solid var(--border-strong); background:var(--surface-subtle); color:var(--text); }
     .login-actions { display:flex; justify-content:flex-end; margin-top:14px; }
-    .primary { padding:8px 14px; border-color:#2e6d9e; background:#2e6d9e; color:#fff; }
+    .primary { padding:8px 14px; border-color:#1f883d; background:#1f883d; color:#fff; }
     .login-error { min-height:20px; margin-top:8px; color:var(--red); font-size:12px; }
     @media (max-width:1050px) {
       .header-inner { flex-wrap:wrap; padding:15px 0; gap:16px; }
@@ -272,6 +291,27 @@
     function formatTime(timestamp) {
       const date = new Date(Number(timestamp) * 1000);
       return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString('ko-KR', { hour12:false });
+    }
+
+    function formatTimeMs(timestamp) {
+      const date = new Date(Number(timestamp) * 1000);
+      if (Number.isNaN(date.getTime())) return '—';
+      const pad = (number, width = 2) => String(number).padStart(width, '0');
+      return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+    }
+
+    const METHOD_CLASSES = Object.freeze({ GET:'m-get', HEAD:'m-get', POST:'m-post', PUT:'m-put', PATCH:'m-patch', DELETE:'m-delete' });
+
+    function requestSeverity(event) {
+      if (event.outcome === 'blocked') return 'blocked';
+      if (event.outcome === 'error') return 'error';
+      return Array.isArray(event.strategies) && event.strategies.length ? 'defended' : 'forwarded';
+    }
+
+    function statusFamilyClass(event) {
+      const status = Number(event.status);
+      if (String(event.method || '').toUpperCase() === 'WEBSOCKET' || !(status >= 200 && status < 600)) return '';
+      return ` s-${Math.floor(status / 100)}xx`;
     }
 
     function formatScore(value) {
@@ -446,20 +486,22 @@
       return 'WS 업그레이드 오류';
     }
 
-    function renderRequestCard(event) {
+    function renderRequestCard(event, query = '') {
       const requestId = String(event.requestId || '');
+      const method = String(event.method || '—').toUpperCase();
+      const highlighted = query && requestId.toLowerCase() === query;
       const strategies = Array.isArray(event.strategies) && event.strategies.length
         ? event.strategies.map(name => `<span class="badge active">${escapeHtml(displayName(name, STRATEGY_NAMES))}</span>`).join('')
         : '<span class="badge">없음</span>';
       const duration = Number(event.durationMs);
       const durationText = Number.isFinite(duration) ? `${Math.round(duration).toLocaleString()} ms` : '—';
-      return `<article class="request-card">
+      return `<article class="request-card sev-${requestSeverity(event)}${highlighted ? ' highlight' : ''}">
         <div class="request-top">
-          <strong class="mono">${escapeHtml(event.method || '—')}</strong>
+          <span class="method-badge ${METHOD_CLASSES[method] || 'm-other'}">${escapeHtml(method)}</span>
           <span class="request-path mono">${escapeHtml(event.path || '—')}</span>
-          <span class="badge mono">${escapeHtml(transportResult(event))}</span>
+          <span class="badge mono${statusFamilyClass(event)}">${escapeHtml(transportResult(event))}</span>
           <span class="${outcomeClass(event.outcome)}">${escapeHtml(outcomeLabel(event.outcome))}</span>
-          <time class="request-time">${formatTime(event.timestamp)}</time>
+          <time class="request-time" title="${escapeHtml(formatTime(event.timestamp))}">${formatTimeMs(event.timestamp)}</time>
         </div>
         <div class="request-meta">
           <div class="request-field"><span class="field-label">대조에 사용할 요청 ID</span>
@@ -516,7 +558,7 @@
             <span class="summary-counts"><span class="badge">요청 ${group.events.length}</span><span class="badge active">방어 ${defended}</span><span class="badge">차단 ${blocked}</span><span class="badge">오류 ${errors}</span></span>
             <span class="summary-chevron" aria-hidden="true">⌄</span>
           </button>
-          <div class="client-requests" id="${panelId}" ${open ? '' : 'hidden'}>${group.missingClientId ? '' : `<div class="client-group-identity"><span class="summary-label">정책 클라이언트 ID 전체</span><code class="mono">${escapeHtml(group.label)}</code></div>`}${group.events.map(renderRequestCard).join('')}</div>
+          <div class="client-requests" id="${panelId}" ${open ? '' : 'hidden'}>${group.missingClientId ? '' : `<div class="client-group-identity"><span class="summary-label">정책 클라이언트 ID 전체</span><code class="mono">${escapeHtml(group.label)}</code></div>`}${group.events.map(event => renderRequestCard(event, query)).join('')}</div>
         </section>`;
       }).join('');
       if (focusedClientId !== null && focusedClientId !== undefined) {
@@ -573,6 +615,9 @@
         catch (_) { /* 안내는 저장소가 없어도 사용할 수 있다. */ }
       });
       applyTheme(localStorage.getItem('defense-dashboard-theme') || 'dark');
+      // 탐지 화면의 "방어 기록에서 보기" 링크(?q=요청 ID)로 들어오면 해당 요청을 바로 검색한다.
+      const initialQuery = new URLSearchParams(window.location.search).get('q');
+      if (initialQuery) document.getElementById('requestSearch').value = initialQuery.slice(0, 200);
       loadTarget();
       const status = await api('auth/status');
       state.authEnabled = status.enabled;

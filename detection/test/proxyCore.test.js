@@ -364,7 +364,7 @@ test("중간에 끊긴 스트림은 성공 훅 없이 한 번만 오류 훅으�
   assert.equal(errors[0].res.headersSent, true);
 });
 
-test("외부 Forwarded 헤더를 제거하고 Express가 검증한 연결 정보로 교체한다", () => {
+test("전달 IP 헤더는 제거하고 Host와 Proto만 재구성한다", () => {
   const headers = new Map([
     ["forwarded", "for=attacker"],
     ["x-forwarded-for", "attacker"],
@@ -383,7 +383,7 @@ test("외부 Forwarded 헤더를 제거하고 Express가 검증한 연결 정보
   applyForwardedHeaders(proxyReq, req);
 
   assert.equal(headers.has("forwarded"), false);
-  assert.equal(headers.get("x-forwarded-for"), "203.0.113.10");
+  assert.equal(headers.has("x-forwarded-for"), false);
   assert.equal(headers.get("x-forwarded-host"), "ruby.example.com");
   assert.equal(headers.get("x-forwarded-proto"), "https");
 });
