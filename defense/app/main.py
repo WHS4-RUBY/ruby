@@ -6,7 +6,7 @@ import json
 import os
 import re
 import time
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import httpx
 import websockets
@@ -447,6 +447,16 @@ async def catch_all(request: Request, full_path: str):
     plan = parse_plan(request.headers.get("x-defense-plan"))
     applied_names: list[str] = ["path_alias"] if alias.kind != "other" else []
     extra_headers: dict[str, str] = {}
+    strategy_request = request
+    if translated:
+        # Keep the ingress request for alias logs, but expose the restored route
+        # consistently to subsequent strategies (including cached Request.url).
+        scope = dict(request.scope)
+        scope["path"] = unquote(alias.upstream_path)
+        scope["raw_path"] = quote(alias.upstream_path, safe="/%:@!$&'()*+,;=-._~").encode("ascii")
+        scope["path_params"] = {**scope.get("path_params", {}),
+                                "full_path": scope["path"].lstrip("/")}
+        strategy_request = Request(scope, request.receive)
 
     for step in plan:
         name = step.get("name")
@@ -454,7 +464,7 @@ async def catch_all(request: Request, full_path: str):
         if strategy_impl is None:
             continue
 
-        result = await strategy_impl.apply(request, step.get("params") or {})
+        result = await strategy_impl.apply(strategy_request, step.get("params") or {})
         applied_names.append(name)
         extra_headers.update(result.extra_headers)
 
@@ -492,7 +502,7 @@ async def catch_all(request: Request, full_path: str):
             method=request.method,
             url=str(upstream_url),
             headers=headers,
-            content=request.stream() if request.method not in {"GET", "HEAD"} else None,
+            content=strategy_request.stream() if request.method not in {"GET", "HEAD"} else None,
         )
         upstream = await request.app.state.http_client.send(upstream_request, stream=True)
     except httpx.RequestError as exc:

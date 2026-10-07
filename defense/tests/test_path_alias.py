@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import secrets
@@ -6,12 +7,13 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 from starlette.testclient import TestClient
 
 from defense.app import main, path_alias as pa
+from defense.app.strategies.base import DefenseResult
 
 ROUTES = (
     pa.Route("/rest/user/login", ("POST",)),
@@ -366,6 +368,60 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(self.calls[-1]["url"],
                          "http://localhost:9000/rest/products/search?" + raw_query)
         self.assertNotIn("params", self.calls[-1])
+
+    def test_later_strategy_sees_restored_route_and_original_query(self):
+        _, _, alias = self.open_page()
+        raw_query = "q=apple&next=%2Fapi%2FProducts&empty=&flag"
+        strategy = AsyncMock()
+        strategy.apply.return_value = DefenseResult()
+        with patch.dict(main.STRATEGY_REGISTRY, {"inspect_route": strategy}):
+            response = self.client.get(alias + "?" + raw_query, headers={
+                "x-defense-plan": '[{"name":"inspect_route"}]',
+            })
+        self.assertEqual(response.status_code, 200)
+        request = strategy.apply.call_args.args[0]
+        self.assertEqual(request.url.path, "/rest/products/search")
+        self.assertEqual(request.scope["path"], "/rest/products/search")
+        self.assertEqual(request.scope["raw_path"], b"/rest/products/search")
+        self.assertEqual(request.path_params["full_path"], "rest/products/search")
+        self.assertEqual(request.scope["query_string"], raw_query.encode())
+        self.assertEqual(self.calls[-1]["url"],
+                         "http://localhost:9000/rest/products/search?" + raw_query)
+
+    def test_stage_one_blocks_before_later_strategies(self):
+        self.open_page()
+        strategy = AsyncMock()
+        strategy.apply.return_value = DefenseResult()
+        with patch.dict(main.STRATEGY_REGISTRY, {"inspect_route": strategy}):
+            response = self.client.get("/rest/products/search", headers={
+                "x-defense-plan": '[{"name":"inspect_route"}]',
+            })
+        self.assertEqual(response.status_code, 404)
+        strategy.apply.assert_not_awaited()
+
+    def test_later_strategy_can_read_body_without_losing_forwarded_body(self):
+        _, client_id, _ = self.open_page()
+        alias = self.table.current_aliases(NOW, client_id)["/rest/user/login"]
+        payload = b'{"email":"test@example.invalid","password":"example"}'
+        seen = []
+
+        async def inspect(request, params):
+            seen.append((request.url.path, await request.body()))
+            return DefenseResult()
+
+        strategy = AsyncMock()
+        strategy.apply.side_effect = inspect
+        with patch.dict(main.STRATEGY_REGISTRY, {"inspect_route": strategy}):
+            response = self.client.post(alias, content=payload, headers={
+                "x-defense-plan": '[{"name":"inspect_route"}]',
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(seen, [("/rest/user/login", payload)])
+
+        async def forwarded_body():
+            return b"".join([chunk async for chunk in self.calls[-1]["content"]])
+
+        self.assertEqual(asyncio.run(forwarded_body()), payload)
 
     def test_path_mentioned_in_unconfigured_query_is_not_a_direct_hit(self):
         result = self.client.get("/?next=%2Frest%2Fuser%2Flogin")
