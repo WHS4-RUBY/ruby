@@ -165,6 +165,19 @@ json scan_request(modsecurity::ModSecurity &engine,
   transaction.processRequestBody();
   transaction.processLogging();
 
+  // DetectionOnly can continue after a parser/engine limit. Do not label a
+  // partial inspection as clean merely because no attack rule was logged.
+  json inspection_errors = json::array();
+  for (const auto *variable : {&transaction.m_variableInboundDataError,
+       &transaction.m_variableReqbodyError, &transaction.m_variableReqbodyProcessorError,
+       &transaction.m_variableMscPcreError, &transaction.m_variableMscPcreLimitsExceeded,
+       &transaction.m_variableUrlEncodedError}) {
+    if (!variable->m_value.empty() && variable->m_value != "0") {
+      inspection_errors.push_back(variable->m_name);
+    }
+  }
+  if (request.value("bodyTruncated", false)) inspection_errors.push_back("BODY_TRUNCATED");
+
   int total_points = 0;
   std::set<std::string> categories;
   json hits = json::array();
@@ -177,6 +190,8 @@ json scan_request(modsecurity::ModSecurity &engine,
   return {
       {"id", id},
       {"available", true},
+      {"inspectionComplete", inspection_errors.empty()},
+      {"inspectionErrors", inspection_errors},
       {"engine", "owasp-modsecurity"},
       {"crsVersion", CRS_VERSION},
       {"anomalyScore", total_points},

@@ -26,6 +26,8 @@ Detection 프록시를 통해 `http://localhost:8081/__defense/dashboard`에서 
 
 `DEFENSE_DASHBOARD_PASSWORD`를 지정하면 관리 API가 로그인 세션으로 보호됩니다. 배포용 Compose는 이 값이 없으면 시작하지 않으며 GitHub Actions에서는 같은 이름의 Repository Secret을 전달합니다. 운영에서는 기본적으로 HTTPS와 Secure 쿠키가 필요합니다. 현재 포트 80만 공개된 서버에서 HTTP 로그인을 사용하려면 `ALLOW_INSECURE_DASHBOARD_HTTP=true`, `DEFENSE_DASHBOARD_REQUIRE_HTTPS=false`, `DEFENSE_DASHBOARD_COOKIE_SECURE=false`를 함께 지정해야 합니다. 이 모드에서는 비밀번호와 세션 쿠키가 암호화되지 않으므로 접근 IP를 제한하고 HTTPS를 구성하면 세 설정을 되돌리세요.
 
+경로 별칭 단독 공격 실험에서는 `DEFENSE_DASHBOARD_ENABLED=false`로 `/__defense/` 화면·관리 API를 모두 404로 숨깁니다. 기본값은 `true`이며, 실험용 Compose에서만 `false`로 설정합니다.
+
 로그인은 클라이언트별 실패 횟수를 제한하고, 세션은 만료 시간과 최대 개수에 따라 정리합니다. 이벤트는 요청 본문이나 인증 정보를 저장하지 않으며, 메모리에 최근 `DEFENSE_EVENT_LIMIT`건만 보관합니다. 단일 Uvicorn 프로세스의 운영 지표이므로 여러 worker로 확장할 때는 외부 저장소로 교체해야 합니다.
 
 ## 구현 구조
@@ -41,15 +43,31 @@ Detection 프록시를 통해 `http://localhost:8081/__defense/dashboard`에서 
 
 ## 경로 별칭 (클라이언트별 별칭·이벤트 교체 v3, 2026-10-01)
 
-`PATH_ALIAS_ROUTES_FILE`의 경로·템플릿마다 **클라이언트별** 난수 별칭을 발급하고 SQLite 테이블에서 조회합니다. 클라이언트는 Defense가 발급하는 `ruby_alias_client` 쿠키로 구분하며, 다른 클라이언트의 별칭은 거부합니다.
+`PATH_ALIAS_ROUTES_FILE`의 경로·템플릿마다 **클라이언트별** 난수 별칭을 발급하고 DB 테이블(운영: PostgreSQL)에서 조회합니다. 클라이언트는 Defense가 발급하는 `ruby_alias_client` 쿠키로 구분하며, 다른 클라이언트의 별칭은 거부합니다.
 원래 경로 직접 호출(`direct`)이나 잘못된 별칭(`reject`)을 보낸 클라이언트는 별칭이 즉시 교체되고(`PATH_ALIAS_ROTATE_ON`, enforce에서만), 이벤트가 없어도 `PATH_ALIAS_EPOCH_S`(기본 1800초)마다 교체됩니다.
 HTML·JS·JSON 응답과 `Location`에서 설정된 경로를 별칭으로 바꾸고, 들어온 유효 별칭은 원래 경로로 복원합니다.
 `PATH_ALIAS_PREFIXES` 아래 원래 주소 직접 요청은 `observe`에서 기록하고 `enforce`에서 404로 막습니다.
 기본값은 `PATH_ALIAS_MODE=off`입니다. 로컬 Juice Shop의 경로 예시는 [`config/juice-shop-routes.json`](config/juice-shop-routes.json)에 있습니다.
-다른 앱에는 경로 파일·보호 접두사를 바꿔 정상 사용을 먼저 검증해야 합니다. `PATH_ALIAS_DB_PATH`는 영속 SQLite 파일 경로이며, 로컬·배포 Compose는 `/app/data/path-alias.sqlite3`를 `path-alias-data` 볼륨에 보관합니다. 같은 DB 파일과 같은 경로 설정을 쓰는 worker는 발급 결과를 공유하고 프로세스 재시작 후에도 현재 별칭을 유지합니다. 서로 다른 서버 간 공유에는 별도의 DB가 필요합니다.
-설계·검증 결과·한계는 [경로 별칭 설계](docs/path-alias-plan.md)를 참고하세요.
+다른 앱에는 경로 파일·보호 접두사를 바꿔 정상 사용을 먼저 검증해야 합니다. 저장소는 `PATH_ALIAS_DB_URL`(PostgreSQL)이 있으면 그것을, 없으면 `PATH_ALIAS_DB_PATH`(영속 SQLite 파일)를 씁니다. 로컬·배포 Compose는 `path-alias-db`(PostgreSQL 16) 컨테이너와 `path-alias-pg` 볼륨을 쓰며, 배포 Compose는 `PATH_ALIAS_DB_PASSWORD`가 없으면 시작하지 않습니다(GitHub Secret `PATH_ALIAS_DB_PASSWORD` 필요). 같은 DB와 같은 경로 설정을 쓰는 worker·서버는 발급 결과를 공유하고 재시작 후에도 현재 별칭을 유지합니다. 프로세스마다 `PATH_ALIAS_DB_POOL_SIZE`(기본 10)개까지 연결을 재사용합니다. SQLite는 단일 호스트 실험(`benchmark/experiments/path_alias_ab`)과 테스트용으로 남겨 둡니다.
+DB는 `(app_id, client_id)`별 세대와 `(app_id, client_id, route_path, generation)`별 별칭을 분리해 저장합니다. 한 사용자의 별칭 교체가 다른 사용자에게 영향을 주지 않으며, 쓰기는 PostgreSQL에서 클라이언트별 advisory lock으로 직렬화하므로 서로 다른 사용자의 발급·교체는 서로 기다리지 않습니다(SQLite는 DB 전체 쓰기 잠금). 만료 행 청소는 프로세스당 최대 `min(EPOCH_S, 60)`초에 한 번, 한 worker만 수행합니다. DB 호출은 이벤트 루프를 막지 않도록 스레드에서 실행합니다. PostgreSQL 테이블 테스트는 `PATH_ALIAS_TEST_DB_URL=postgresql://...`을 지정하면 실행되며 CI에서는 항상 실행합니다.
+프록시는 쿼리 문자열의 원본 바이트를 업스트림에 전달합니다. 쿼리 값이 경로인 앱에서도 인코딩과 중복 키를 임의로 바꾸지 않습니다. 쿼리 값 자체를 보호 대상 경로로 취급할지는 해당 앱의 라우팅 규칙을 확인한 뒤 별도로 정해야 합니다.
+AI가 경로 목록을 검토할 때는 별칭 적용 전 앱에서 `python -m defense.scripts.discover_path_alias_routes --fetch http://APP_ORIGIN --asset-dir local-assets --output route-report.json`으로 공개 JS·HTML을 자동 수집할 수 있습니다. 저장한 JS·HTML 또는 브라우저 HAR도 입력 파일로 지정할 수 있습니다. 보고서는 이미 설정된 경로와 동적 접두사, 경로를 담은 쿼리 키를 구분하며 설정 파일을 자동 변경하지 않습니다. HAR 원본에는 세션 정보가 있을 수 있으므로 로컬 임시 경로에 보관하세요.
+설계·검증 결과·한계는 [경로 별칭 설계](docs/path-alias-plan.md), 설치형 경로 수집과 DB 키 설계는 [경로 발견 설계](docs/route-discovery-design.md)를 참고하세요.
 
-## 토큰 관찰 (별칭 기법 1단계, 2026-09-30)
+### 방어 단계에서의 위치: 1단계 (2026-10-07)
+
+설계상 요청은 탐지 프록시를 거친 뒤 방어 프록시의 4단계를 차례로 통과합니다. 경로 별칭은 방어 프록시에서 **가장 먼저 적용되는 1단계**입니다. 현재 코드는 `catch_all`에서 별칭 해석·차단을 마친 뒤 `X-Defense-Plan`의 전략을 배열 순서대로 실행합니다. 2~4단계를 구분하는 실행기와 각 단계의 구체적인 구성은 아직 구현되어 있지 않습니다.
+
+- **뒤 단계가 진짜 경로를 봅니다.** 별칭을 풀기 전 경로는 `/__ruby_alias_...`라서 경로별 규칙(경로별 요청 제한, 특정 API 보호 등)이 동작하지 않습니다. 1단계에서 원래 경로로 복원한 요청 객체를 뒤 전략에 전달합니다. 이 객체의 URL·ASGI 경로·라우트 매개변수는 복원된 경로를 가리키며, 쿼리 원본 바이트와 요청 본문은 유지합니다. 별칭 로그에는 원래 들어온 요청을 사용합니다.
+- **값싸고 확실한 차단을 먼저 합니다.** DB 조회 한 번으로 발급받은 주소를 아는 클라이언트인지 판정합니다. 원래 주소를 직접 호출하는 스캐너·에이전트를 여기서 404로 막으면 뒤 단계의 부담이 줄어듭니다.
+- **교체 신호를 놓치지 않습니다.** 별칭 교체는 `direct`·`reject` 요청을 보고 일어납니다. 앞 단계가 그런 요청을 먼저 막으면 교체가 일어나지 않습니다.
+- **응답 치환은 클라이언트에 가장 가까운 곳에서 마지막으로 하는 것이 설계 목표입니다.** 현재는 업스트림 응답의 경로와 `Location`을 치환합니다. 전략의 응답 처리 훅과 역순 실행은 아직 없으며, 전략이 즉시 반환한 응답(`short_circuit`)도 현재 치환 대상이 아닙니다. 뒤 단계가 응답에 미끼 링크 등을 추가하려면 이 응답 처리 구조를 먼저 구현해야 합니다.
+
+단계가 위험도에 따라 올라가는 구조여도 별칭은 **모든 클라이언트에 처음부터 적용**해야 합니다. 이미 원래 경로가 담긴 JS를 받은 클라이언트에게 도중에 별칭을 켜면 앱이 깨지고, 공격자에게 탐지됐다는 신호를 줍니다. 위험도가 오르면 별칭을 새로 켜는 대신 교체 강도를 올립니다(짧은 주기, 유예 0, 즉시 교체). 클라이언트별로 이 값을 다르게 주려면 추가 구현이 필요합니다.
+
+별칭은 **경로를 아는가**만 거릅니다. JS나 브라우저에서 정상 별칭을 얻은 공격자의 요청 내용은 통과하므로, 페이로드 검사(SQLi·XSS 등)는 2단계 이후에 원래 경로를 기준으로 해야 합니다. 경로가 필요 없는 아주 가벼운 차단(IP 차단 등)은 1단계보다 앞에 둘 수 있습니다. 탐지 프록시는 방어 프록시보다 앞에 있으므로 별칭 주소(`/__ruby_alias_...`)를 그대로 봅니다. `path_alias_rotation` 로그의 `direct`·`reject`를 탐지 쪽 공격 신호로 넘길지는 탐지 담당과 정합니다.
+
+## 토큰 관찰과 CRS 차단 (2026-09-30)
 
 토큰이 없거나 만료·변조되었다는 이유만으로 요청을 차단하지 않습니다.
 `TOKEN_GATE_MODE=observe`는 쿠키 발급·갱신과 상태 기록만 수행하고, `off`는 이를 끕니다.
@@ -57,7 +75,14 @@ HTML·JS·JSON 응답과 `Location`에서 설정된 경로를 별칭으로 바�
 정상 사용자 증명이 아니며, 현재의 시간 구간별 공통 토큰은 개별 세션 식별에도 쓰지 않습니다.
 기록에는 Detection이 전달한 `X-Client-Id`를 사용합니다. 탐지 정확도 개선은 아직 미검증입니다.
 
+현재 요청의 SQL 인젝션 등 차단은 앞단 Detection의 `CRS_MODE=enforce`가 수행합니다.
+로컬 Compose는 CRS `enforce` + 토큰 `observe`가 기본입니다.
+검사 범위·실패 처리·설정은 [Detection README](../detection/README.md#전달-전-crs-검사-2026-09-30)를 참고하세요.
+
 `scripts/token_gate_smoke.py`는 정상 요청이 토큰 유무·만료와 관계없이 통과하는지 확인합니다.
+`scripts/verify_request_inspection.py`는 로컬 Compose 네트워크 안에서만 실행하는 Juice Shop 회귀 검사이며,
+직접 대상의 양성 대조군, 쿠키 전후 SQLi 차단, 정상 계정 생성·로그인·사용자 확인을 검사합니다.
+`--expiry-wait 21`은 테스트용 epoch 10초, grace 1 설정에서 만료 후 동작까지 확인합니다.
 `scripts/browser_inspection_regression.cjs`는 Playwright가 설치된 로컬 테스트 이미지에서 실행하며,
 화면 5단계와 모든 HTTP 4xx/5xx 응답을 함께 검사합니다. 결과 경로는 `/results`입니다.
 

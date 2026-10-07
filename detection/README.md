@@ -28,8 +28,9 @@ Client
 ```text
 Express app
   ├─ /healthz, /__detection/*        # Detection 전용 라우트
-  └─ proxyCore([detectionHook])       # 나머지 요청
-       ├─ onRequest                   # 식별·사전 점수·CRS 시작
+  ├─ requestInspection              # 현재 요청의 CRS 검사 완료 → 차단/허용
+  └─ proxyCore([detectionHook])       # 허용된 요청만 전달
+       ├─ onRequest                   # 이전 이력 기반 정책·검사한 본문 재전송
        └─ onResponse                  # 결과 기록·점수 갱신·Telemetry/Deception 주입
 ```
 
@@ -47,10 +48,52 @@ Detection은 다음 두 점수를 각각 0~1로 계산합니다.
 max(현재 automationScore, 누적 최고 attackScore)
 ```
 
-정책 결정은 요청을 넘기기 전에 내려야 하는데 일부 탐지 신호(CRS 결과, 응답 상태)는
-upstream 응답이 돌아온 뒤에 확정됩니다. 따라서 각 요청에 적용되는 위험도는 **해당
-Client/Session/Auth Group에서 직전까지 완료된 요청의 관찰 이력**을 기준으로 합니다.
-첫 요청은 0이며, 그 요청에서 확정된 신호는 다음 요청부터 반영됩니다.
+기존 지연 전략에 사용하는 위험도는 **해당 Client/Session/Auth Group에서 직전까지
+완료된 요청의 관찰 이력**을 기준으로 합니다. 현재 요청의 CRS 차단은 이 위험도와
+별개로 전달 전에 결정합니다. 첫 요청이나 유효한 쿠키를 가진 요청도 검사합니다.
+
+### 전달 전 CRS 검사 (2026-09-30)
+
+`CRS_MODE=enforce`이면 `lib/requestInspection.js`가 비동기 검사를 완료한 뒤에만
+프록시를 호출합니다. `onProxyReq`에서 비동기 검사를 시작하는 방식이 아닙니다.
+ModSecurity는 계속 `DetectionOnly`로 규칙을 평가하며 **Node 미들웨어가 차단을 실행**합니다.
+
+| 검사 결과 | enforce 응답 | 백엔드 전달 |
+|---|---|---|
+| 완전한 검사, 공격 규칙 점수 < 기준 | 애플리케이션 응답 | 예 |
+| 완전한 검사, 공격 규칙 점수 ≥ 기준 | 403 `request_blocked` | 아니요 |
+| 검사 시간 초과·사용 불가·엔진 내부 검사 오류 | 503 `request_inspection_incomplete` | 아니요 |
+| 검사 본문 제한 초과 | 413 | 아니요 |
+| 지원하지 않는 본문 형식·압축·문자 인코딩 | 415 | 아니요 |
+| JSON 등 본문 파싱 실패 | 400 `request_body_unreadable` | 아니요 |
+
+본문은 UTF-8 JSON(`+json` 포함), URL-encoded form, `text/plain`을 지원합니다.
+텍스트는 검사 엔진에만 JSON 문자열로 감싸 전달해 CRS의 ARGS 규칙으로 검사하고,
+백엔드에는 검사 전 원문 바이트를 그대로 전달합니다. Socket.IO polling의 정상 텍스트를
+경로 예외 없이 처리하지만, Socket.IO 의미 분석이나 WebSocket 중계까지 제공하지는 않습니다.
+multipart·임의 바이너리·압축 요청은 현재 enforce 지원 범위 밖입니다.
+본문 제한은 기본 및 상한 1 MiB이며, 텍스트는 JSON 감싸기 이후 크기에도 적용합니다.
+
+`CRS_BLOCK_THRESHOLD`의 기본 5는 helper가 반환하는 **공격 규칙의 심각도 합계**에
+적용합니다. 프로토콜 준수 규칙을 포함한 CRS 원래 전체 anomaly score와는 다릅니다.
+Authorization/Cookie 원문은 기존 정책대로 검사 helper에 보내지 않습니다.
+이 범위의 검사 완료가 모든 공격에 안전하다는 뜻은 아닙니다.
+
+`observe`는 공격·불완전 검사를 기록하고 전달합니다. `off`는 해당 검사를 생략합니다.
+로컬 Compose 기본은 `enforce`, 직접 Node 실행 기본은 `observe`입니다. 기존 `BLOCK_MODE`는
+이 설정과 독립된 행동 탐지 로그 옵션이며 CRS 차단 스위치가 아닙니다.
+거부된 요청도 관찰 이력에 남지만 앱 스키마 학습에는 사용하지 않습니다.
+`request_inspection` 로그와 `/__detection/api/crs-status`에서 모드를 확인합니다.
+
+실제 엔진과 HTTP 백엔드를 사용하는 테스트:
+
+```bash
+docker compose -f docker-compose.local.yml build detection
+docker run --rm -e REQUIRE_CRS_BINARY_TESTS=true ruby-local-detection node --test test/crsBinaryIntegration.test.js test/requestInspection.test.js
+```
+
+이 테스트는 공격 요청의 백엔드 도달 건수가 0인지, 정상 요청의 원문 본문이 보존되는지,
+검사 실패·제한 초과가 정상 검사로 오인되지 않는지 확인합니다. CI에서도 이미지 빌드 후 실행합니다.
 
 ### 다음 계층으로 나가는 헤더
 
@@ -107,6 +150,10 @@ npm test
 | `DETECTION_LEVEL` | `medium` | `low` 0.3, `medium` 0.5, `high` 0.7 |
 | `SCHEMA_LEARNING_FILE` | 없음 | 승인된 스키마 학습 결과 저장 경로 |
 | `CRS_ENABLED` | `true` | ModSecurity/OWASP CRS 활성화 |
+| `CRS_MODE` | `observe` (로컬 Compose: `enforce`) | `off` / `observe` / `enforce` |
+| `CRS_BLOCK_THRESHOLD` | `5` | 현재 요청의 공격 규칙 점수 차단 기준 |
+| `CRS_MAX_BODY_BYTES` | `1048576` | 검사 본문 바이트 한도. native 한도보다 크게 설정해도 1 MiB로 제한 |
+| `CRS_SCAN_TIMEOUT_MS` | `2000` | 검사 시간 제한. enforce에서는 실패 시 503 |
 | `DECEPTION_ENABLED` | `true` | Honey/Deception 신호 활성화 |
 | `TRUST_PROXY` | `false` | 신뢰할 리버스 프록시가 있을 때만 설정 |
 | `FINGERPRINT_SIMILARITY_TTL_MS` | `1800000` | Fingerprint Client Flow 비교 시간, 기본 30분 |

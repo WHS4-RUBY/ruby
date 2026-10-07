@@ -32,11 +32,28 @@ jobs:
       - name: Build Detection image
         run: docker build -t detection:ci ./detection
 
+      - name: Test native CRS inspection and pre-forward blocking
+        run: docker run --rm -e REQUIRE_CRS_BINARY_TESTS=true detection:ci node --test test/crsBinaryIntegration.test.js test/requestInspection.test.js
+
   python-check:
     runs-on: ubuntu-26.04
     strategy:
       matrix:
         service: [defense]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ruby
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ruby
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ruby -d ruby"
+          --health-interval 2s --health-timeout 3s --health-retries 15
+    env:
+      PATH_ALIAS_TEST_DB_URL: postgresql://ruby:ci@127.0.0.1:5432/ruby
     steps:
       - uses: actions/checkout@v4
 

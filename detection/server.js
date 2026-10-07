@@ -65,6 +65,7 @@ const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
 const { applyDefensePlan, loadPolicyRules } = require("./lib/policyEngine");
 const { createProxyCore } = require("./lib/proxyCore");
+const { loadInspectionConfig, createRequestInspection, replayInspectedBody } = require("./lib/requestInspection");
 const {
   DashboardAuthManager,
   installDashboardRoutes,
@@ -124,6 +125,7 @@ const CSRF_ALLOWED_ORIGINS = buildAllowedOrigins(
 
 const SESSION_COOKIE = "dlsid";
 const DCID_COOKIE = "dcid";
+const inspectionConfig = loadInspectionConfig();
 const crsScanner = new CrsScanner();
 const deceptionEngine = new DeceptionEngine();
 const dcidManager = new DcidManager();
@@ -506,6 +508,7 @@ function recordCompletedRequest(req, {
   responseContentLength = null,
   responseBodyBytes = null,
   attackDetection,
+  upstreamReached = true,
 }) {
   const ip = getClientIp(req);
   const detection = attackDetection || {
@@ -516,7 +519,8 @@ function recordCompletedRequest(req, {
   };
   const tags = detection.available ? detection.categories : tagPayload(req.originalUrl, req.body);
   const normalizedPath = normalizePath(req.originalUrl);
-  observeSchemaLearning(req, status, normalizedPath);
+  // A locally rejected request provides no evidence about the application's schema.
+  if (upstreamReached) observeSchemaLearning(req, status, normalizedPath);
   const session = store.recordRequest(req.detectionSessionId, ip, {
     method: req.method,
     url: req.originalUrl,
@@ -634,10 +638,17 @@ function captureParsedBodyBytes(req, _res, buffer) {
   req.detectionRequestBodyBuffer = Buffer.from(buffer);
 }
 
-// JSON / urlencoded body만 파싱 (multipart, 바이너리 등은 그대로 통과되어 스트림이 안 깨짐).
-// 파싱된 body는 onProxyReq에서 fixRequestBody()로 다시 스트림에 실어 upstream으로 전달한다.
-app.use(express.json({ limit: "5mb", verify: captureParsedBodyBytes }));
+// Capture supported bodies before inspection. Unsupported body formats remain
+// unconsumed: enforce rejects them; observe/off can still forward their streams.
+app.use(express.json({ type: ["application/json", "application/*+json"],
+  limit: "5mb", verify: captureParsedBodyBytes }));
 app.use(express.urlencoded({ extended: true, limit: "5mb", verify: captureParsedBodyBytes }));
+app.use(express.text({ type: "text/plain", limit: "5mb", verify: captureParsedBodyBytes }));
+app.use((error, _req, res, next) => {
+  if (!error.type || ![400, 413, 415].includes(error.status)) return next(error);
+  res.setHeader("Cache-Control", "no-store");
+  res.status(error.status).json({ error: "request_body_unreadable" });
+});
 
 // 대상 페이지에 삽입되는 telemetry만 공개하고, 운영 UI/API는 별도 세션으로 보호한다.
 installDashboardRoutes({
@@ -1004,7 +1015,7 @@ app.get("/__detection/api/ip-entries/:ip", (req, res) => {
 
 app.get("/__detection/api/crs-status", (req, res) => {
   res.json({
-    mode: "detection-only",
+    ...inspectionConfig,
     ...crsScanner.status(),
   });
 });
@@ -1141,7 +1152,6 @@ const detectionHook = {
   },
 
   onRequest({ proxyReq, req }) {
-    prepareRequestObservation(req);
     // RUBY Policy 계약: 외부 입력을 제거하고, 완료된 탐지 이력에서 계산한
     // 0~1 risk score와 가명 client id만 내부 헤더로 전달한다.
     req.rubyPolicyDecision = buildPriorPolicyDecision(req);
@@ -1153,16 +1163,14 @@ const detectionHook = {
     proxyReq.setHeader("X-Client-Id", req.rubyPolicyDecision.clientId);
     // Ground truth용 헤더는 탐지 프록시에서 소비하고 RUBY Policy에는 전달하지 않는다.
     proxyReq.removeHeader(EXPERIMENT_RUN_HEADER);
-    // ModSecurity/CRS 검사는 응답을 차단하지 않으며 결과만 비동기로 기록한다.
-    req.crsScanPromise = crsScanner.scan(req, getClientIp(req));
     // express.json()/urlencoded()가 body를 이미 읽어버렸다면 upstream으로 다시 실어준다.
     // (안 해주면 로그인/주문 등 POST 요청 body가 Policy에 도달하지 않는다)
-    fixRequestBody(proxyReq, req);
+    if (!replayInspectedBody(proxyReq, req)) fixRequestBody(proxyReq, req);
   },
 
   async onResponse({ responseBuffer, proxyRes, req }) {
-    const attackDetection = req.crsScanPromise
-      ? await req.crsScanPromise
+    const attackDetection = req.attackDetection
+      ? req.attackDetection
       : { available: false, error: "scan was not started", categories: [], hits: [] };
     const xssDetection = computeXssDetection(req, responseBuffer, proxyRes.headers);
     req.xssTags = xssDetection.tags;
@@ -1245,6 +1253,24 @@ const detectionHook = {
 
 // 공통 Express 프록시 코어에 탐지와 정책 훅을 함께 장착한다. TARGET_URL은
 // Defense 또는 보호할 애플리케이션을 직접 가리키며, 별도 Policy 프록시는 없다.
+app.use((req, _res, next) => { prepareRequestObservation(req); next(); });
+app.use(createRequestInspection({
+  scanner: crsScanner,
+  config: inspectionConfig,
+  getClientIp,
+  onRejected: recordCompletedRequest,
+  onDecision(req, decision, result) {
+    if (inspectionConfig.mode === "off") return;
+    console.log(JSON.stringify({ event: "request_inspection", mode: inspectionConfig.mode,
+      session_id: req.detectionSessionId, method: req.method, path: req.path,
+      action: decision.action, reason: decision.reason, status: decision.status,
+      scanner_available: result.available, inspection_complete: result.inspectionComplete === true,
+      body_mode: result.inspectionBodyMode || null,
+      attack_rule_score: result.anomalyScore, threshold: inspectionConfig.threshold,
+      rule_ids: (result.hits || []).map((hit) => hit.ruleId),
+    }));
+  },
+}));
 const mainProxy = createProxyCore({ target: TARGET, hooks: [detectionHook] });
 app.use("/", mainProxy);
 
@@ -1260,7 +1286,7 @@ const server = app.listen(PORT, () => {
   console.log(`[detection-proxy] DCID status=${JSON.stringify(dcidManager.status())}`);
   console.log(`[detection-proxy] Account identity status=${JSON.stringify(accountIdentityResolver.status())}`);
   console.log(`[detection-proxy] Resolution status=${JSON.stringify(store.getResolutionStatus())}`);
-  console.log(`[detection-proxy] CRS status=${JSON.stringify(crsScanner.status())}`);
+  console.log(`[detection-proxy] CRS status=${JSON.stringify({ ...crsScanner.status(), ...inspectionConfig })}`);
   console.log(`[detection-proxy] Deception status=${JSON.stringify(deceptionEngine.status())}`);
   if (!configuredPayloadFingerprintKey) {
     console.warn(

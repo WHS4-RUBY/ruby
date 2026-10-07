@@ -6,7 +6,7 @@ import json
 import os
 import re
 import time
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import httpx
 import websockets
@@ -202,13 +202,21 @@ def _log_alias(request: Request, resolution: path_alias.Resolution, decision: st
     ))
 
 
-def _rotate_on_event(resolution: path_alias.Resolution, alias_client: str | None) -> str | None:
+async def _alias_db(call, *args):
+    """Alias table calls block on the database; keep them off the event loop."""
+    if PATH_ALIAS.mode == "off":
+        return call(*args)
+    return await asyncio.to_thread(call, *args)
+
+
+async def _rotate_on_event(resolution: path_alias.Resolution, alias_client: str | None) -> str | None:
     """Replace a client's aliases as soon as it hits a real route or a bad alias."""
     if resolution.kind not in PATH_ALIAS.rotate_on or alias_client is None:
         return None
     if PATH_ALIAS.mode != "enforce":
         return "would_rotate"
-    return "rotated" if PATH_ALIAS_TABLE.rotate_client(alias_client, time.time(), resolution.kind) else None
+    rotated = await _alias_db(PATH_ALIAS_TABLE.rotate_client, alias_client, time.time(), resolution.kind)
+    return "rotated" if rotated else None
 
 
 def _alias_not_found() -> Response:
@@ -248,7 +256,8 @@ async def alias_proxy_response(upstream: httpx.Response, request: Request,
             response = streaming_proxy_response(upstream, request, _replay_body(consumed, stream, upstream))
         else:
             await upstream.aclose()
-            body, rewrites = PATH_ALIAS_TABLE.rewrite_body(b"".join(consumed), time.time(), client_id)
+            body, rewrites = await _alias_db(PATH_ALIAS_TABLE.rewrite_body, b"".join(consumed),
+                                             time.time(), client_id)
             skip = _REWRITTEN_RESPONSE_SKIP if rewrites else _RESPONSE_SKIP
             response = Response(content=body, status_code=upstream.status_code)
             for key, value in upstream.headers.multi_items():
@@ -267,7 +276,8 @@ async def alias_proxy_response(upstream: httpx.Response, request: Request,
     for key, value in response.raw_headers:
         if key.lower() == b"location":
             original = value.decode("latin-1")
-            rewritten = PATH_ALIAS_TABLE.rewrite_location(original, host, time.time(), client_id)
+            rewritten = await _alias_db(PATH_ALIAS_TABLE.rewrite_location, original, host,
+                                        time.time(), client_id)
             location_rewritten |= rewritten != original
             value = rewritten.encode("latin-1")
         raw_headers.append((key, value))
@@ -402,10 +412,13 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
     methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 async def catch_all(request: Request, full_path: str):
+    # Defense stage 1: path aliases run before every other strategy, so later stages see the
+    # real path and the alias rewrite is the last change to the outgoing response (README).
     alias_client = path_alias.valid_client_id(request.cookies.get(path_alias.COOKIE_NAME))
-    alias = PATH_ALIAS_TABLE.resolve(request.url.path, request.method, time.time(), alias_client)
+    alias = await _alias_db(PATH_ALIAS_TABLE.resolve, request.url.path, request.method,
+                            time.time(), alias_client)
     alias_decision = path_alias.decide(alias, PATH_ALIAS)
-    rotation = _rotate_on_event(alias, alias_client)
+    rotation = await _rotate_on_event(alias, alias_client)
     translated = alias.kind == "alias"
     record_path = alias.upstream_path if translated else request.url.path
 
@@ -434,6 +447,16 @@ async def catch_all(request: Request, full_path: str):
     plan = parse_plan(request.headers.get("x-defense-plan"))
     applied_names: list[str] = ["path_alias"] if alias.kind != "other" else []
     extra_headers: dict[str, str] = {}
+    strategy_request = request
+    if translated:
+        # Keep the ingress request for alias logs, but expose the restored route
+        # consistently to subsequent strategies (including cached Request.url).
+        scope = dict(request.scope)
+        scope["path"] = unquote(alias.upstream_path)
+        scope["raw_path"] = quote(alias.upstream_path, safe="/%:@!$&'()*+,;=-._~").encode("ascii")
+        scope["path_params"] = {**scope.get("path_params", {}),
+                                "full_path": scope["path"].lstrip("/")}
+        strategy_request = Request(scope, request.receive)
 
     for step in plan:
         name = step.get("name")
@@ -441,7 +464,7 @@ async def catch_all(request: Request, full_path: str):
         if strategy_impl is None:
             continue
 
-        result = await strategy_impl.apply(request, step.get("params") or {})
+        result = await strategy_impl.apply(strategy_request, step.get("params") or {})
         applied_names.append(name)
         extra_headers.update(result.extra_headers)
 
@@ -469,12 +492,17 @@ async def catch_all(request: Request, full_path: str):
     upstream_path = alias.upstream_path.lstrip("/") if translated else full_path
 
     try:
+        # Query values can themselves be paths (or signed URLs). Rebuilding them through
+        # QueryParams changes escaping, empty values, and sometimes the app's routing.
+        upstream_url = httpx.URL(f"{BENCHMARK_TARGET_URL.rstrip('/')}/{upstream_path}")
+        raw_query = request.scope.get("query_string", b"")
+        if raw_query:
+            upstream_url = upstream_url.copy_with(query=raw_query)
         upstream_request = request.app.state.http_client.build_request(
             method=request.method,
-            url=f"{BENCHMARK_TARGET_URL.rstrip('/')}/{upstream_path}",
+            url=str(upstream_url),
             headers=headers,
-            content=request.stream() if request.method not in {"GET", "HEAD"} else None,
-            params=list(request.query_params.multi_items()),
+            content=strategy_request.stream() if request.method not in {"GET", "HEAD"} else None,
         )
         upstream = await request.app.state.http_client.send(upstream_request, stream=True)
     except httpx.RequestError as exc:

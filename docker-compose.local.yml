@@ -14,6 +14,8 @@ services:
       CSRF_ALLOWED_ORIGINS: ${CSRF_ALLOWED_ORIGINS:-http://localhost:8081,http://127.0.0.1:8081}
       SCHEMA_LEARNING_FILE: /app/data/schema-learning.json
       CRS_ENABLED: "true"
+      CRS_MODE: ${CRS_MODE:-enforce}
+      CRS_BLOCK_THRESHOLD: ${CRS_BLOCK_THRESHOLD:-5}
       CRS_SCAN_TIMEOUT_MS: "2000"
       CRS_MAX_BODY_BYTES: "1048576"
       DECEPTION_ENABLED: "true"
@@ -83,11 +85,13 @@ services:
       PATH_ALIAS_GRACE_EPOCHS: ${PATH_ALIAS_GRACE_EPOCHS:-1}
       PATH_ALIAS_PREFIXES: ${PATH_ALIAS_PREFIXES:-/rest/,/api/}
       PATH_ALIAS_ROUTES_FILE: ${PATH_ALIAS_ROUTES_FILE:-/app/config/juice-shop-routes.json}
-      PATH_ALIAS_DB_PATH: ${PATH_ALIAS_DB_PATH:-/app/data/path-alias.sqlite3}
+      PATH_ALIAS_DB_URL: postgresql://ruby:${PATH_ALIAS_DB_PASSWORD:-ruby-local}@path-alias-db:5432/ruby
+      PATH_ALIAS_DB_POOL_SIZE: ${PATH_ALIAS_DB_POOL_SIZE:-10}
       PATH_ALIAS_MAX_REWRITE_BYTES: ${PATH_ALIAS_MAX_REWRITE_BYTES:-8388608}
       PATH_ALIAS_APP_ID: ${PATH_ALIAS_APP_ID:-}
       PATH_ALIAS_ROTATE_ON: ${PATH_ALIAS_ROTATE_ON:-direct,reject}
       PATH_ALIAS_COOKIE_SECURE: ${PATH_ALIAS_COOKIE_SECURE:-false}
+      DEFENSE_DASHBOARD_ENABLED: ${DEFENSE_DASHBOARD_ENABLED:-true}
       DEFENSE_DASHBOARD_PASSWORD: ${DEFENSE_DASHBOARD_PASSWORD:-}
       DEFENSE_DASHBOARD_COOKIE_SECURE: ${DEFENSE_DASHBOARD_COOKIE_SECURE:-false}
       DEFENSE_DASHBOARD_REQUIRE_HTTPS: "false"
@@ -98,7 +102,6 @@ services:
     volumes:
       - ./defense/app:/app/app
       - ./defense/config:/app/config:ro
-      - path-alias-data:/app/data
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
@@ -108,6 +111,24 @@ services:
     depends_on:
       benchmark-target:
         condition: service_healthy
+      path-alias-db:
+        condition: service_healthy
+    networks:
+      - ai-defense-net
+
+  path-alias-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ruby
+      POSTGRES_DB: ruby
+      POSTGRES_PASSWORD: ${PATH_ALIAS_DB_PASSWORD:-ruby-local}
+    volumes:
+      - path-alias-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "ruby", "-d", "ruby"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
     networks:
       - ai-defense-net
 
@@ -128,4 +149,4 @@ networks:
 
 volumes:
   detection-data:
-  path-alias-data:
+  path-alias-pg:
