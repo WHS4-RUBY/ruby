@@ -28,7 +28,7 @@ RUBY의 방어 계층을 개발하는 영역입니다. Detection Proxy의 Policy
 | `TARGET_PORT` | `9000` | 이름 붙은 대상이 없는 독립 실행/legacy 구성의 Target 포트. Compose 기본값은 `3000`입니다. |
 | `TARGET_HOST` | `localhost` | 독립 실행/legacy 구성의 Target 호스트. Compose는 `host.docker.internal`을 지정합니다. |
 
-Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사용합니다. 이때 Target은 Defense 컨테이너에서 접근 가능한 주소(`0.0.0.0` 또는 Docker 브리지 주소)에 바인딩해야 합니다. `/readyz`는 현재 선택된 Target의 TCP 연결만 확인하며 sidecar 상태는 검사하지 않습니다.
+Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사용합니다. 이때 Target은 Defense 컨테이너에서 접근 가능한 주소(`0.0.0.0` 또는 Docker 브리지 주소)에 바인딩해야 합니다. `/readyz`는 현재 선택된 Target과 그 대상에 설정된 sidecar의 TCP 연결을 확인합니다.
 
 ## 대시보드
 

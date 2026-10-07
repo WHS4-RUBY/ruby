@@ -370,23 +370,27 @@ async def healthz():
 
 @app.get("/readyz")
 async def readyz():
-    """Report ready only while the selected target accepts TCP connections."""
+    """Report ready only while the selected target and its sidecar are reachable."""
     try:
         selected = target_selection.target_selector.current()
     except TargetSelectionError:
         return Response(status_code=503)
-    target = urlsplit(selected.url)
-    if target.scheme not in {"http", "https"} or not target.hostname:
-        return Response(status_code=503)
-    try:
-        port = target.port or (443 if target.scheme == "https" else 80)
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(target.hostname, port), timeout=1.0
-        )
-        writer.close()
-        await writer.wait_closed()
-    except (OSError, ValueError, asyncio.TimeoutError):
-        return Response(status_code=503)
+    urls = [selected.url]
+    if decoy_url := DECOY_UPSTREAMS.get(selected.target_id):
+        urls.append(decoy_url)
+    for url in urls:
+        target = urlsplit(url)
+        if target.scheme not in {"http", "https"} or not target.hostname:
+            return Response(status_code=503)
+        try:
+            port = target.port or (443 if target.scheme == "https" else 80)
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(target.hostname, port), timeout=1.0
+            )
+            writer.close()
+            await writer.wait_closed()
+        except (OSError, ValueError, asyncio.TimeoutError):
+            return Response(status_code=503)
     return {"status": "ready", "service": "defense"}
 
 
