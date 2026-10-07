@@ -424,7 +424,7 @@ class IntegrationTests(unittest.TestCase):
         payload = b'{"email":"test@example.invalid","password":"example"}'
         seen = []
 
-        async def inspect(request, params):
+        async def inspect(request, params, state):
             seen.append((request.url.path, await request.body()))
             return DefenseResult()
 
@@ -533,6 +533,29 @@ class IntegrationTests(unittest.TestCase):
         self.client.cookies.clear()
         self.assertEqual(self.client.get(alias).status_code, 404)
         self.assertEqual(self.logs()[-1]["reason"], "foreign_alias")
+
+    def test_restored_alias_uses_selected_target(self):
+        _, _, alias = self.open_page()
+        selected = main.target_selection.SelectedTarget("alternate", "http://alternate:8080", "run", "now")
+        with patch.object(main.target_selection.target_selector, "for_request", return_value=selected):
+            response = self.client.get(alias + "?q=a%20b")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.calls[-1]["url"], "http://alternate:8080/rest/products/search?q=a%20b")
+
+    def test_alias_rewrite_runs_after_response_transform(self):
+        from starlette.responses import Response
+        self.upstream = self.JSON
+        strategy = AsyncMock()
+        strategy.uses_state = False
+        strategy.apply.return_value = DefenseResult(response_transform=lambda response: Response(
+            b'<script>fetch("/rest/products/search")</script>', media_type="text/html"))
+        with patch.dict(main.STRATEGY_REGISTRY, {"transform": strategy}):
+            page = self.client.get("/", headers={"x-defense-plan": '[{"name":"transform"}]'})
+        self.assertEqual(page.status_code, 200)
+        client = self.client.cookies.get(pa.COOKIE_NAME)
+        alias = self.table.current_aliases(NOW, client)["/rest/products/search"]
+        self.assertIn(alias, page.text)
+        self.assertNotIn("/rest/products/search", page.text)
 
     def test_direct_hit_rotates_that_clients_aliases(self):
         _, client_id, alias = self.open_page()

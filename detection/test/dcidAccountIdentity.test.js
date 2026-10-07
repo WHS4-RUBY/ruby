@@ -78,10 +78,11 @@ test("공개키가 없으면 JWT claim은 unverified 관찰값으로만 반환�
   assert.equal(identity.verification, "public_key_unavailable");
 });
 
-test("IP는 Express trust proxy 결과(req.ip)만 사용하고 raw X-Forwarded-For를 직접 신뢰하지 않는다", () => {
+test("IP는 X-Forwarded-For와 req.ip 대신 직접 연결된 소켓 주소만 사용한다", () => {
   assert.equal(
-    getClientIp({ ip: "10.0.0.5", headers: { "x-forwarded-for": "203.0.113.9" }, socket: {} }),
-    "10.0.0.5"
+    getClientIp({ ip: "10.0.0.5", headers: { "x-forwarded-for": "203.0.113.9" },
+      socket: { remoteAddress: "127.0.0.1" } }),
+    "127.0.0.1"
   );
   assert.equal(parseTrustProxy("false"), false);
   assert.equal(parseTrustProxy("1"), 1);

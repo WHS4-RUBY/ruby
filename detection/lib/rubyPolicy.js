@@ -6,6 +6,14 @@ const DETECTION_RESULT_HEADERS = Object.freeze([
   "x-risk-score",
   "x-classification",
   "x-defense-plan",
+  "x-ruby-request-id",
+  "x-ruby-automation-score",
+  "x-ruby-attack-score",
+  "x-ruby-risk-score",
+  "x-ruby-policy-source",
+  "x-ruby-target-id",
+  "x-ruby-run-id",
+  "x-defense-signal",
 ]);
 
 /**
@@ -13,11 +21,14 @@ const DETECTION_RESULT_HEADERS = Object.freeze([
  * 0~1 risk score로 만든다. 이 값은 이 프록시 안에서 정책을 고르는 입력으로만
  * 쓰이고, 다음 계층으로는 전달되지 않는다.
  */
-function buildPolicyDecision({ source = "none", analysis = null, clientId = "unknown" } = {}) {
+function buildPolicyDecision({ source = "none", analysis = null, clientId = "unknown", confirmedAttackScore = 0 } = {}) {
   return {
     source,
     clientId: String(clientId || "unknown"),
     riskScore: clampScore(analysis ? severity(analysis) : 0),
+    automationScore: clampScore(analysis?.automationScore),
+    attackScore: clampScore(analysis?.detection?.effectiveAttackScore ?? analysis?.attackScore),
+    confirmedAttackScore: clampScore(confirmedAttackScore),
   };
 }
 

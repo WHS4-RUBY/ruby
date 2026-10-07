@@ -68,7 +68,7 @@ class XssCandidateStore {
           source: String(c.source || '').slice(0, 32),
           endpoint: endpoint ? String(endpoint).slice(0, 2048) : null,
           origin: origin ? Object.fromEntries(
-            ['requestId', 'sessionId', 'actorId', 'authGroupId', 'clientFlowId', 'ip']
+            ['requestId', 'sessionId', 'actorId', 'resolvedActorId', 'authGroupId', 'clientFlowId', 'ip']
               .map((name) => [name, typeof origin[name] === 'string' ? origin[name].slice(0, 256) : null])
           ) : null,
           firstSeen: now,

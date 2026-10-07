@@ -11,11 +11,22 @@ RUBY의 방어 계층을 개발하는 영역입니다. Detection Proxy의 Policy
 - 방어 로그와 계층 간 인터페이스 정의
 - 방어 기법의 단위·통합 테스트
 
-공격 탐지와 위험도·정책에 따른 전략 선택은 모두 [`detection/`](../detection/)에서 관리합니다 (구간별 전략은 `detection/config/policy.json`). 실험 및 벤치마크 기록은 [`benchmark/`](../benchmark/)에서 관리합니다.
+공격 탐지와 위험도·정책에 따른 전략 선택은 모두 [`detection/`](../detection/)에서 관리합니다 (구간별 전략은 `detection/config/policy.json`).
+
+## Target 연결
+
+Defense는 같은 호스트에서 실행 중인 애플리케이션의 포트 번호로 요청을 전달합니다. 별도 컨테이너나 이미지를 가정하지 않습니다.
+
+| 환경변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `TARGET_PORT` | `9000` | Target이 수신하는 포트 번호(1–65535). 정수가 아니거나 범위를 벗어나면 시작 시 오류로 종료합니다. |
+| `TARGET_HOST` | `localhost` | Target 호스트. Compose는 컨테이너에서 호스트로 접근하도록 `host.docker.internal`로 지정합니다. |
+
+Compose에서는 루트 `.env`의 `TARGET_PORT`만 바꾸면 됩니다(기본 `3000`). Target은 `127.0.0.1` 전용이 아니라 `0.0.0.0`(또는 Docker 브리지 주소)에 바인딩되어야 컨테이너에서 접근할 수 있습니다. `/readyz`는 Target 포트에 TCP 연결이 되는 동안에만 200을 반환합니다.
 
 ## 대시보드
 
-Detection 프록시를 통해 `http://localhost:8081/__defense/dashboard`에서 접근합니다. 배포 환경에서는 서비스 주소의 `/__defense/dashboard`를 사용합니다.
+관리 포트 `http://127.0.0.1:18088/__defense/dashboard`에서 접근합니다. 공개 포트 8081에서는 관리 경로를 제공하지 않습니다. 배포 환경에서는 main의 관리 리스너 접근 설정을 따릅니다.
 
 대시보드는 공용 Defense 프로세스가 실제로 처리한 요청만 표시합니다.
 
@@ -51,7 +62,7 @@ HTML·JS·JSON 응답과 `Location`에서 설정된 경로를 별칭으로 바�
 다른 앱에는 경로 파일·보호 접두사를 바꿔 정상 사용을 먼저 검증해야 합니다. 저장소는 `PATH_ALIAS_DB_URL`(PostgreSQL)이 있으면 그것을, 없으면 `PATH_ALIAS_DB_PATH`(영속 SQLite 파일)를 씁니다. 로컬·배포 Compose는 `path-alias-db`(PostgreSQL 16) 컨테이너와 `path-alias-pg` 볼륨을 쓰며, 배포 Compose는 `PATH_ALIAS_DB_PASSWORD`가 없으면 시작하지 않습니다(GitHub Secret `PATH_ALIAS_DB_PASSWORD` 필요). 같은 DB와 같은 경로 설정을 쓰는 worker·서버는 발급 결과를 공유하고 재시작 후에도 현재 별칭을 유지합니다. 프로세스마다 `PATH_ALIAS_DB_POOL_SIZE`(기본 10)개까지 연결을 재사용합니다. SQLite는 단일 호스트 실험(`benchmark/experiments/path_alias_ab`)과 테스트용으로 남겨 둡니다.
 DB는 `(app_id, client_id)`별 세대와 `(app_id, client_id, route_path, generation)`별 별칭을 분리해 저장합니다. 한 사용자의 별칭 교체가 다른 사용자에게 영향을 주지 않으며, 쓰기는 PostgreSQL에서 클라이언트별 advisory lock으로 직렬화하므로 서로 다른 사용자의 발급·교체는 서로 기다리지 않습니다(SQLite는 DB 전체 쓰기 잠금). 만료 행 청소는 프로세스당 최대 `min(EPOCH_S, 60)`초에 한 번, 한 worker만 수행합니다. DB 호출은 이벤트 루프를 막지 않도록 스레드에서 실행합니다. PostgreSQL 테이블 테스트는 `PATH_ALIAS_TEST_DB_URL=postgresql://...`을 지정하면 실행되며 CI에서는 항상 실행합니다.
 프록시는 일반 쿼리 필드의 원본 바이트를 보존합니다. `query_routes`로 지정한 API 선택값은 별칭으로 치환·복원하고, 중복 라우팅 키는 거부합니다. 앱의 실제 규칙은 수집 자료 검토와 정상 흐름 검증을 거쳐 확정합니다.
-AI가 경로 목록을 검토할 때는 별칭 적용 전 앱에서 `python -m defense.scripts.discover_path_alias_routes --fetch http://APP_ORIGIN --asset-dir local-assets --output route-report.json`으로 공개 JS·HTML을 자동 수집할 수 있습니다. 저장한 JS·HTML 또는 브라우저 HAR도 입력 파일로 지정할 수 있습니다. 보고서는 이미 설정된 경로와 동적 접두사, 경로를 담은 쿼리 키를 구분하며 설정 파일을 자동 변경하지 않습니다. HAR 원본에는 세션 정보가 있을 수 있으므로 로컬 임시 경로에 보관하세요.
+경로 목록을 검토할 때는 별칭 적용 전 앱에서 `python -m defense.scripts.discover_path_alias_routes --fetch http://APP_ORIGIN --asset-dir local-assets --output route-report.json`으로 공개 JS·HTML을 자동 수집할 수 있습니다. 저장한 JS·HTML 또는 브라우저 HAR도 입력 파일로 지정할 수 있습니다. 보고서는 이미 설정된 경로와 동적 접두사, 경로를 담은 쿼리 키를 구분하며 설정 파일을 자동 변경하지 않습니다. HAR 원본에는 세션 정보가 있을 수 있으므로 로컬 임시 경로에 보관하세요.
 로그인 후·화면 상호작용 중에만 나타나는 API는 Playwright가 설치된 로컬 테스트 환경에서 `node defense/scripts/capture_api_requests.cjs --origin http://APP_ORIGIN --steps flow.json --output capture.runtime.json`으로 기록합니다. 필요하면 `--storage-state state.json`으로 테스트 계정의 브라우저 세션을 주입합니다. 흐름 파일의 `fill` 단계는 값 대신 환경변수 이름(`valueEnv`)을 받습니다. 생성된 `*.runtime.json`을 수집기의 입력으로 추가하면 관찰된 경로·메서드·응답 상태와 쿼리 라우팅 후보를 합칩니다. 보호 접두사 밖 dispatcher도 쿼리 값에 보호 경로가 있으면 기록합니다. 쿠키·헤더·본문·일반 쿼리 값은 저장하지 않지만 보호 경로를 담은 쿼리 값은 후보로 저장하므로 민감한 식별자가 있는지 검토하세요.
 
 수집 보고서는 운영자가 검토해 경로와 쿼리 라우팅 규칙을 설정합니다. AI 모델 호출과 설정 초안 생성은 제공하지 않으며, 정상 흐름 확인 후 `PATH_ALIAS_ROUTES_FILE`로 적용합니다.
@@ -92,6 +103,18 @@ AI가 경로 목록을 검토할 때는 별칭 적용 전 앱에서 `python -m d
 
 `docs/token-gate-plan.md`와 새벽 테스트 기록은 이전 설계의 이력입니다.
 이후 검증 결과는 [진행 기록](docs/token-gate-docker-progress.md)에 이어 기록합니다.
+
+## 전략 계약과 요청 추적
+
+Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사용합니다. Defense 이벤트는 같은 요청에 사용한 이전 완료 요청 기반 Automation·Attack·Risk 점수, 정책 출처, 실제 실행 전략, 백엔드 HTTP 상태와 `forwarded`·`blocked`·`error` 결과를 기록합니다. 이 내부 메타 헤더와 `X-Defense-Plan`은 Target으로 전달하지 않습니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
+
+전략의 `apply(request, params, state)`는 요청 단계에서 실행합니다. `DefenseResult`는 즉시 반환할 응답, Target에 보낼 헤더, 백엔드 응답 변형 함수, 다음 클라이언트 상태를 담을 수 있습니다. 상태는 전략 이름과 `X-Client-Id`별로 분리하고, 기본 10분 미사용 시 만료되며 최대 10,000개를 유지합니다. `DEFENSE_STATE_TTL_SECONDS`와 `DEFENSE_STATE_LIMIT`로 조절합니다. 동일 클라이언트의 동시 상태 변경은 순서대로 처리합니다. 해제 뒤에도 새 요청은 Detection에서 다시 점수화되고, 위험 정책이 재선택되면 전략에 재진입합니다. 현재 구현에는 영구적인 `blocked/released` 판정이나 다중 프로세스 공유 상태가 없습니다.
+
+응답 변형 전략이 있으면 백엔드 본문을 받아 변형한 뒤 전송합니다. 본문은 기본 4 MiB까지 허용하며 `DEFENSE_TRANSFORM_BODY_LIMIT`로 조절합니다. 한도를 넘으면 502와 오류 이벤트를 반환합니다. 변형 전략이 없는 응답은 스트리밍합니다. 스트림이 중간에 끊기면 이미 보낸 HTTP 상태를 502로 바꿀 수 없으므로 연결이 중단되고 Defense 이벤트는 `outcome=error`로 남습니다. 이벤트의 `status`는 이미 전송한 백엔드 상태일 수 있으므로 결과와 함께 읽어야 합니다.
+
+WebSocket은 업그레이드 요청 시 정책 전략을 한 번 적용하고 이후 텍스트·바이너리 프레임을 그대로 중계합니다. 프레임별 탐지나 응답 변형은 구현돼 있지 않습니다. `/__defense` 관리 경로는 WebSocket 엔드포인트가 없으므로 업그레이드를 거부합니다.
+
+`X-Client-Id`와 `X-Ruby-*`는 내부 Detection 프록시가 재생성하는 헤더입니다. Defense에 직접 접속할 수 있으면 헤더를 위조할 수 있으므로 배포에서는 Defense 포트를 외부에 공개하지 말고 Detection과 같은 비공개 네트워크에서만 접근시키세요. 이벤트와 전략 상태는 단일 프로세스 메모리에만 보관되고 재시작 시 사라집니다.
 
 ## 참여 방법
 

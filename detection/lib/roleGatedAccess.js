@@ -84,9 +84,9 @@ const SENSITIVE_ROUTES = [
 
 // 하드코딩된 SENSITIVE_ROUTES에 이 라우트가 있는지 — server.js가 schemaLearning 관찰 시점에
 // "이미 하드코딩돼 있으니 학습 대상 아님"을 판단할 때 재사용한다.
-function isHardcodedSensitiveRoute(method, normalizedPath) {
+function isHardcodedSensitiveRoute(method, normalizedPath, routes = SENSITIVE_ROUTES) {
   const upperMethod = String(method || '').toUpperCase();
-  return SENSITIVE_ROUTES.some((route) => route.method === upperMethod && route.normalizedPath === normalizedPath);
+  return routes.some((route) => route.method === upperMethod && route.normalizedPath === normalizedPath);
 }
 
 /**

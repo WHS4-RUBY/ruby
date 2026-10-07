@@ -12,8 +12,9 @@ from .base import DefenseStrategy, DefenseResult
 
 class DelayStrategy(DefenseStrategy):
     name = "delay"
+    uses_state = False
 
-    async def apply(self, request: Request, params: dict) -> DefenseResult:
+    async def apply(self, request: Request, params: dict, state: dict) -> DefenseResult:
         delay_ms = float(params.get("delay_ms", 0))
 
         # 정책 값은 이름 그대로 밀리초 단위다. asyncio.sleep는 초 단위를

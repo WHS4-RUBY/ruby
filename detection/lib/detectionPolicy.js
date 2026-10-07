@@ -43,4 +43,12 @@ function selectClientId(analyses = {}, { actorId, resolvedActorId, clientFlowId 
   return actorId;
 }
 
-module.exports = { selectClientId, selectEffectiveDetection, severity };
+function confirmedAttackScore(analyses = {}) {
+  // A shared fingerprint, Flow or unverified Bearer value can mix clients.
+  // Even a matching dlsid can have earlier requests from another signed DCID.
+  // The Resolved Actor aggregation filters by that actor's request membership.
+  return Math.max(0, ...[analyses.resolved].filter(Boolean)
+    .map((item) => Number(item.detection?.effectiveAttackScore ?? item.attackScore) || 0));
+}
+
+module.exports = { selectClientId, selectEffectiveDetection, severity, confirmedAttackScore };

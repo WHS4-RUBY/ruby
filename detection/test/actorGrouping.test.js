@@ -163,6 +163,55 @@ test("dlsid와 dcid가 모두 바뀌어도 같은 Candidate의 요청은 하나�
   assert.deepEqual(flow.conflicts, []);
 });
 
+test("분리된 Client Flow가 세션을 공유하면 과거 요청도 병합된 Flow ID로 조회된다", () => {
+  const first = record("flow-overlap-a", "203.0.113.251", "/flow/a", {
+    "user-agent": "curl/44.0", accept: "*/*",
+  });
+  const second = record("flow-overlap-b", "198.51.100.252", "/flow/b", {
+    "user-agent": "python-requests/44.0", accept: "*/*",
+  });
+  const firstFlowId = first.requests[0].clientFlowId;
+  const secondFlowId = second.requests[0].clientFlowId;
+  assert.notEqual(firstFlowId, secondFlowId);
+  record("flow-overlap-a", "198.51.100.252", "/flow/c", {
+    "user-agent": "python-requests/44.0", accept: "*/*",
+  });
+
+  const aggregate = store.getClientFlowAggregate(firstFlowId);
+  assert.equal(aggregate.id, store.getClientFlowAggregate(secondFlowId).id);
+  assert.equal(aggregate.totalRequests, 3);
+  assert.equal(new Set(aggregate.requests.map((request) => request.requestId)).size, 3);
+  assert.deepEqual(new Set(aggregate.requests.map((request) => request.clientFlowId)), new Set([aggregate.id]));
+  assert.equal(store.getSession("flow-overlap-b").clientFlowId, aggregate.id);
+  assert.notEqual(first.actorId, second.actorId);
+});
+
+test("동일 세션 쿠키와 curl 지문을 공유해도 signed dcid별 공격 이력은 분리한다", () => {
+  const headers = { "user-agent": "curl/77.77", accept: "*/*" };
+  const a = store.recordRequest("shared-cookie-two-users", "203.0.113.221", {
+    method: "GET", url: "/api/search?probe=1", status: 200, headers,
+    tags: ["sqli"], clientIdentity: { valid: true, continuityVerified: true,
+      source: "verified", clientId: "dcid:user-a" },
+  });
+  const first = a.requests.at(-1);
+  store.updateAttackScoreHistory({ resolvedActorId: first.resolvedActorId,
+    scores: { resolved: 0.9 } });
+  const b = store.recordRequest("shared-cookie-two-users", "203.0.113.221", {
+    method: "GET", url: "/", status: 200, headers, tags: [],
+    clientIdentity: { valid: true, continuityVerified: true,
+      source: "verified", clientId: "dcid:user-b" },
+  });
+  const second = b.requests.at(-1);
+  assert.equal(first.actorId, second.actorId);
+  assert.notEqual(first.resolvedActorId, second.resolvedActorId);
+  const actorA = store.getResolvedActorByClientId("dcid:user-a");
+  const actorB = store.getResolvedActorByClientId("dcid:user-b");
+  assert.deepEqual(actorA.requests.map((request) => request.requestId), [first.requestId]);
+  assert.deepEqual(actorB.requests.map((request) => request.requestId), [second.requestId]);
+  assert.equal(actorA.attackHistory.maxAttackScore, 0.9);
+  assert.equal(actorB.attackHistory.maxAttackScore, 0);
+});
+
 test("Candidate에 분산된 IDOR 흐름은 Client Flow 요청에서 Attack Score를 다시 계산한다", () => {
   const headers = {
     "user-agent": "curl/98.7.1",
@@ -209,6 +258,11 @@ test("확장 요청 레코드는 식별자와 operation을 저장하고 민감 �
     responseContentLength: 42,
     responseBodyBytes: 42,
     tags: [],
+    requestId: "request:trace-example",
+    policyDecision: { basis: "prior-completed-requests", source: "confirmed-resolved-actor",
+      automationScore: 0.2, attackScore: 0.85, confirmedAttackScore: 0.85,
+      riskScore: 0.85, strategies: ["rate_limit_strict", "delay"] },
+    defenseSignal: "rate_limited",
   });
 
   const request = session.requests[0];
@@ -223,6 +277,11 @@ test("확장 요청 레코드는 식별자와 operation을 저장하고 민감 �
   assert.equal(request.requestContentType, "application/json");
   assert.equal(request.requestContentLength, 17);
   assert.equal(request.requestBodyBytes, 17);
+  assert.equal(request.requestId, "request:trace-example");
+  assert.deepEqual(request.policyDecision.strategies, ["rate_limit_strict", "delay"]);
+  assert.equal(request.defenseSignal, "rate_limited");
+  store.attachDetectionResult(request, { source: "confirmed-resolved-actor", attackScore: 0.87 });
+  assert.equal(store.getActor(session.actorId).requests.at(-1).detectionResult.attackScore, 0.87);
   assert.equal(request.responseContentType, "application/json; charset=utf-8");
   assert.equal(request.responseContentLength, 42);
   assert.equal(request.responseBodyBytes, 42);

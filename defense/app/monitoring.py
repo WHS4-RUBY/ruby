@@ -17,6 +17,10 @@ def _positive_int(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
+def _bounded(value: str | None, limit: int) -> str | None:
+    return str(value)[:limit] if value is not None else None
+
+
 class DefenseEventStore:
     def __init__(self, max_events: int | None = None):
         self.max_events = max_events or _positive_int("DEFENSE_EVENT_LIMIT", 5000)
@@ -34,17 +38,33 @@ class DefenseEventStore:
         outcome: str,
         duration_ms: float,
         client_id: str | None,
+        request_id: str | None = None,
+        automation_score: float | None = None,
+        attack_score: float | None = None,
+        risk_score: float | None = None,
+        policy_source: str | None = None,
+        signal: str | None = None,
+        target_id: str | None = None,
+        run_id: str | None = None,
     ) -> dict:
         event = {
             "id": str(uuid.uuid4()),
             "timestamp": time.time(),
-            "method": method,
-            "path": path,
+            "method": _bounded(method, 16),
+            "path": _bounded(path, 1024),
             "status": status,
-            "strategies": list(strategies),
+            "strategies": [_bounded(name, 64) for name in strategies[:16]],
             "outcome": outcome,
             "durationMs": round(duration_ms, 3),
-            "clientId": client_id or "unknown",
+            "clientId": _bounded(client_id or "unknown", 128),
+            "requestId": _bounded(request_id, 128),
+            "automationScore": automation_score,
+            "attackScore": attack_score,
+            "riskScore": risk_score,
+            "policySource": _bounded(policy_source, 64),
+            "defenseSignal": _bounded(signal, 64),
+            "targetId": _bounded(target_id, 64),
+            "runId": _bounded(run_id, 128),
         }
         with self._lock:
             self._events.append(event)

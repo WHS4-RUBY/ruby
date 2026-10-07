@@ -25,9 +25,15 @@ jobs:
         working-directory: detection
         run: npm test
 
+      - name: Test Defense dashboard presentation
+        run: node --test defense/tests/dashboardPresentation.test.js
+
       - name: Audit Detection dependencies
         working-directory: detection
-        run: npm audit --audit-level=moderate
+        # TEMP: braces에 패치 버전이 없어서 이 advisory만 예외 처리.
+        # braces 패치가 나오면 npm update braces 후 --allowlist 제거할 것.
+        # https://github.com/advisories/GHSA-vfj7-8cjw-p6xm
+        run: npx --yes audit-ci@^7 --moderate --allowlist GHSA-vfj7-8cjw-p6xm
 
       - name: Build Detection image
         run: docker build -t detection:ci ./detection
@@ -90,30 +96,63 @@ jobs:
       PAYLOAD_FINGERPRINT_KEY: integration-payload-key
       DCID_HMAC_SECRET: integration-dcid-secret
       ACCOUNT_ID_HASH_KEY: integration-account-key
+      TARGET_PORT: "3000"
+      TARGET_CHOICES: legacy=http://host.docker.internal:3000,alternate=http://host.docker.internal:3000
+      TARGET_DEFAULT_ID: legacy
     steps:
       - uses: actions/checkout@v4
 
-      - name: Start Detection, Defense and target
+      - name: Start target on host port
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/target"
+          echo '<!doctype html><title>target</title><h1>ok</h1>' > "$RUNNER_TEMP/target/index.html"
+          nohup python3 -m http.server "$TARGET_PORT" --bind 0.0.0.0 \
+            --directory "$RUNNER_TEMP/target" > "$RUNNER_TEMP/target.log" 2>&1 &
+          for _ in $(seq 1 20); do
+            curl --fail --silent "http://127.0.0.1:${TARGET_PORT}/" >/dev/null && exit 0
+            sleep 0.5
+          done
+          cat "$RUNNER_TEMP/target.log" >&2
+          echo "Target did not start on port ${TARGET_PORT}" >&2
+          exit 1
+
+      - name: Start Detection and Defense
         run: docker compose -f docker-compose.local.yml up -d --build --wait --wait-timeout 180
 
       - name: Verify public traffic and protected management paths
         run: |
           set -Eeuo pipefail
-          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8081/__detection/api/sessions)" = "401"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8081/__detection/api/sessions)" = "404"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8081/__defense/dashboard)" = "404"
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{}' http://127.0.0.1:8081/__detection/telemetry)" = "204"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18088/)" = "404"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18088/__detection/api/sessions)" = "401"
 
           curl --fail --silent --show-error -c detection.cookies \
             -H 'Content-Type: application/json' --data '{"password":"integration-password"}' \
-            http://127.0.0.1:8081/__detection/api/login >/dev/null
+            http://127.0.0.1:18088/__detection/api/login >/dev/null
           curl --fail --silent --show-error -b detection.cookies \
-            http://127.0.0.1:8081/__detection/api/sessions >/dev/null
+            http://127.0.0.1:18088/__detection/api/sessions >/dev/null
+          curl --fail --silent --show-error -b detection.cookies \
+            http://127.0.0.1:18088/__detection/api/target-selection >/dev/null
+          curl --fail --silent --show-error -b detection.cookies \
+            -H 'Origin: http://127.0.0.1:18088' \
+            -H 'X-Ruby-Target-Selection: 1' \
+            -H 'Content-Type: application/json' \
+            --data '{"targetId":"alternate"}' \
+            http://127.0.0.1:18088/__detection/api/target-selection \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["active"]["targetId"] == "alternate"'
 
           curl --fail --silent --show-error -c defense.cookies \
             -H 'Content-Type: application/json' --data '{"password":"integration-password"}' \
-            http://127.0.0.1:8081/__defense/api/login >/dev/null
+            http://127.0.0.1:18088/__defense/api/login >/dev/null
           curl --fail --silent --show-error -b defense.cookies \
-            http://127.0.0.1:8081/__defense/api/snapshot >/dev/null
+            http://127.0.0.1:18088/__defense/api/snapshot >/dev/null
           curl --fail --silent --show-error http://127.0.0.1:8081/ >/dev/null
+          curl --fail --silent --show-error -b defense.cookies \
+            http://127.0.0.1:18088/__defense/api/requests \
+            | python3 -c 'import json,sys; assert any(item["targetId"] == "alternate" and item["runId"] for item in json.load(sys.stdin)["requests"])'
 
       - name: Show service logs on failure
         if: failure()

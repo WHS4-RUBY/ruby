@@ -9,7 +9,7 @@ class DelayStrategyTests(unittest.IsolatedAsyncioTestCase):
         strategy = DelayStrategy()
 
         with patch("defense.app.strategies.delay.asyncio.sleep", new_callable=AsyncMock) as sleep:
-            result = await strategy.apply(None, {"delay_ms": 200})
+            result = await strategy.apply(None, {"delay_ms": 200}, {})
 
         sleep.assert_awaited_once_with(0.2)
         self.assertEqual(result.extra_headers["X-Defense-Delay-Ms"], "200")

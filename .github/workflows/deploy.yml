@@ -130,18 +130,22 @@ jobs:
             DEFENSE_COOKIES="$(mktemp)"
             trap 'rm -f "$DETECTION_COOKIES" "$DEFENSE_COOKIES"' EXIT
             curl --fail --silent --show-error http://127.0.0.1/healthz >/dev/null
+            test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1/__detection/api/sessions)" = "404"
+            test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8088/)" = "404"
             curl --fail --silent --show-error -c "$DETECTION_COOKIES" \
               -H 'Content-Type: application/json' \
               --data "$(printf '{"password":"%s"}' "$DETECTION_DASHBOARD_PASSWORD")" \
-              http://127.0.0.1/__detection/api/login >/dev/null
+              http://127.0.0.1:8088/__detection/api/login >/dev/null
             curl --fail --silent --show-error -b "$DETECTION_COOKIES" \
-              http://127.0.0.1/__detection/api/sessions >/dev/null
+              http://127.0.0.1:8088/__detection/api/sessions >/dev/null
+            curl --fail --silent --show-error -b "$DETECTION_COOKIES" \
+              http://127.0.0.1:8088/__detection/api/target-selection >/dev/null
             curl --fail --silent --show-error -c "$DEFENSE_COOKIES" \
               -H 'Content-Type: application/json' \
               --data "$(printf '{"password":"%s"}' "$DEFENSE_DASHBOARD_PASSWORD")" \
-              http://127.0.0.1/__defense/api/login >/dev/null
+              http://127.0.0.1:8088/__defense/api/login >/dev/null
             curl --fail --silent --show-error -b "$DEFENSE_COOKIES" \
-              http://127.0.0.1/__defense/api/snapshot >/dev/null
+              http://127.0.0.1:8088/__defense/api/snapshot >/dev/null
             curl --fail --silent --show-error http://127.0.0.1/ >/dev/null
 
             printf '%s\n' "$IMAGE_TAG" > .deployed-image-tag

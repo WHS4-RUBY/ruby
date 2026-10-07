@@ -25,6 +25,8 @@ const MAX_REQUESTS_PER_SESSION = 500; // 메모리 보호용 링버퍼 상한
 const MAX_REQUESTS_PER_AUTH_GROUP = MAX_REQUESTS_PER_SESSION * 2;
 const MAX_REQUESTS_PER_IP_ENTRY = MAX_REQUESTS_PER_SESSION * 2;
 const MAX_REQUESTS_PER_RESOLVED_ACTOR = MAX_REQUESTS_PER_SESSION * 2;
+// 클라이언트가 보고한 화면 이동 기록. 관찰용 표시 전용이며 점수에 쓰지 않는다.
+const MAX_TELEMETRY_ROUTES = 100;
 
 // 엔티티 "개수" 상한 + idle TTL.
 // 위의 MAX_REQUESTS_*는 엔티티 하나가 쥔 요청 이력(링버퍼)만 제한할 뿐,
@@ -125,6 +127,14 @@ const SENSITIVE_DETECTION_HEADERS = new Set([
   "proxy-authorization",
   "cookie",
   "x-experiment-run-id",
+  "x-ruby-request-id",
+  "x-ruby-automation-score",
+  "x-ruby-attack-score",
+  "x-ruby-risk-score",
+  "x-ruby-policy-source",
+  "x-defense-plan",
+  "x-defense-signal",
+  "x-client-id",
 ]);
 
 function emptyAttackHistory() {
@@ -289,6 +299,7 @@ function getOrCreateSession(sessionId, ip, now = Date.now(), enforce = true) {
         domEventTypes: new Set(),
         pageLoads: 0,
         currentUrl: null,
+        routeHistory: [],
         lastTelemetryAt: null,
       },
     });
@@ -334,15 +345,22 @@ function recordRequest(
     payloadFingerprint = null,
     hasAuthorization,
     experimentRunId = null,
+    targetId = null,
+    targetRunId = null,
     requestContentType = null,
     requestContentLength = null,
     requestBodyBytes = null,
     responseContentType = null,
     responseContentLength = null,
     responseBodyBytes = null,
+    responseTransportOutcome = null,
+    responseBodyInspected = null,
     attackDetection = null,
     backgroundTraffic = null,
     deceptionEvents = [],
+    requestId = null,
+    policyDecision = null,
+    defenseSignal = null,
     clientIdentity = null,
     accountIdentity = null,
     ts,
@@ -380,7 +398,7 @@ function recordRequest(
   s.lastSeen = now;
 
   const requestRecord = {
-    requestId: `request:${crypto.randomUUID()}`,
+    requestId: requestId || `request:${crypto.randomUUID()}`,
     ts: now,
     method: normalizedMethod,
     url,
@@ -408,12 +426,18 @@ function recordRequest(
     payloadFingerprint,
     hasAuthorization: requestHasAuthorization,
     experimentRunId: experimentRunId || null,
+    targetId: targetId || null,
+    targetRunId: targetRunId || null,
+    policyDecision,
+    defenseSignal,
     requestContentType,
     requestContentLength,
     requestBodyBytes,
     responseContentType,
     responseContentLength,
     responseBodyBytes,
+    responseTransportOutcome,
+    responseBodyInspected,
     attackDetection,
     backgroundTraffic: backgroundTraffic?.isBackground
       ? {
@@ -442,6 +466,7 @@ function recordRequest(
     xssTags: xssTags || [],
     xssMaxRisk: Number.isFinite(xssMaxRisk) ? xssMaxRisk : 0,
     loginAttemptEmail: loginAttemptEmail || null,
+    loginFailed: Boolean(loginAttemptEmail) && status === 401,
     resetPasswordEmail: resetPasswordEmail || null,
     securityQuestionEmail: securityQuestionEmail || null,
     tags: tags || [],
@@ -570,9 +595,10 @@ function recordRequest(
   return s;
 }
 
-function updateAttackScoreHistory({ sessionId, actorId, authGroupId, clientFlowId, scores = {} }) {
+function updateAttackScoreHistory({ sessionId, actorId, resolvedActorId, authGroupId, clientFlowId, scores = {} }) {
   updateMaxAttackScore(sessions.get(sessionId), scores.session);
   updateMaxAttackScore(actors.get(actorId), scores.actor);
+  if (resolvedActorId) actorResolver.updateAttackScore(resolvedActorId, scores.resolved);
   if (authGroupId) updateMaxAttackScore(authGroups.get(authGroupId), scores.authGroup);
   if (clientFlowId) clientFlowStore.updateAttackScore(clientFlowId, scores.clientFlow);
 }
@@ -589,7 +615,22 @@ function recordTelemetry(sessionId, ip, payload) {
   }
   t.pageLoads += payload.pageLoad ? 1 : 0;
   if (typeof payload.url === "string") t.currentUrl = payload.url.slice(0, 2048);
-  t.lastTelemetryAt = Date.now();
+  // 클라이언트가 보고한 값이므로 동일성 근거가 아니다. 순서를 신뢰할 수 있도록
+  // 시각은 받은 시점을 쓰고, 보고된 시각은 그 범위 안일 때만 그대로 둔다.
+  const receivedAt = Date.now();
+  for (const entry of Array.isArray(payload.routes) ? payload.routes : []) {
+    if (typeof entry?.url !== "string") continue;
+    const reportedAt = Number(entry.at);
+    t.routeHistory.push({
+      url: entry.url.slice(0, 2048),
+      at: Number.isFinite(reportedAt) && reportedAt > 0 && reportedAt <= receivedAt ? reportedAt : receivedAt,
+      reported: true,
+    });
+  }
+  if (t.routeHistory.length > MAX_TELEMETRY_ROUTES) {
+    t.routeHistory.splice(0, t.routeHistory.length - MAX_TELEMETRY_ROUTES);
+  }
+  t.lastTelemetryAt = receivedAt;
   return s;
 }
 
@@ -607,12 +648,39 @@ function attachStoredXssFinding(origin, tags, maxRisk) {
   return true;
 }
 
+function attachDetectionResult(origin, result) {
+  if (!origin?.requestId) return false;
+  let updated = false;
+  for (const entity of [sessions.get(origin.sessionId), actors.get(origin.actorId),
+    authGroups.get(origin.authGroupId), ipEntries.get(origin.ip)]) {
+    for (const request of entity?.requests || []) {
+      if (request.requestId !== origin.requestId) continue;
+      request.detectionResult = result;
+      updated = true;
+    }
+  }
+  return updated;
+}
+
 function getSession(sessionId) {
-  return sessions.get(sessionId);
+  return canonicalizeClientFlowReferences(sessions.get(sessionId));
 }
 
 function getAllSessions() {
-  return Array.from(sessions.values());
+  return Array.from(sessions.values(), canonicalizeClientFlowReferences);
+}
+
+function canonicalizeClientFlowReferences(session) {
+  if (!session) return session;
+  if (!clientFlowStore.aliasVersion || session.flowAliasVersion === clientFlowStore.aliasVersion) return session;
+  const flow = clientFlowStore.get(session.clientFlowId);
+  if (flow) session.clientFlowId = flow.id;
+  for (const request of session.requests) {
+    const current = clientFlowStore.get(request.clientFlowId);
+    if (current) request.clientFlowId = current.id;
+  }
+  session.flowAliasVersion = clientFlowStore.aliasVersion;
+  return session;
 }
 
 function getAllActors() {
@@ -711,6 +779,19 @@ function aggregateDeceptionHistory(memberSessions) {
   };
 }
 
+function attackHistoryFromRequests(requests, maxAttackScore = 0) {
+  const holder = { attackHistory: emptyAttackHistory() };
+  for (const request of requests) recordCrsAttackHistory(holder, request.attackDetection, request.ts);
+  holder.attackHistory.maxAttackScore = maxAttackScore;
+  return holder.attackHistory;
+}
+
+function deceptionHistoryFromRequests(requests) {
+  const holder = { deceptionHistory: emptyDeceptionHistory() };
+  for (const request of requests) recordDeceptionHistory(holder, request.deceptionEvents, request.ts);
+  return holder.deceptionHistory;
+}
+
 function getResolvedActorAggregate(resolvedActorId, { includeProvisional = false } = {}) {
   const actor = actorResolver.getActor(resolvedActorId);
   if (!actor) return null;
@@ -726,6 +807,7 @@ function getResolvedActorAggregate(resolvedActorId, { includeProvisional = false
   const requests = [];
   for (const session of memberSessions) {
     for (const request of session.requests) {
+      if (request.resolvedActorId !== resolvedActorId) continue;
       const key = request.requestId || `${request.sessionId}\u0000${request.ts}\u0000${request.operation}`;
       if (requestIds.has(key)) continue;
       requestIds.add(key);
@@ -809,8 +891,8 @@ function getResolvedActorAggregate(resolvedActorId, { includeProvisional = false
     ),
     requests,
     memberSessions,
-    attackHistory: aggregateAttackHistory(memberSessions),
-    deceptionHistory: aggregateDeceptionHistory(memberSessions),
+    attackHistory: attackHistoryFromRequests(requests, actor.maxAttackScore || 0),
+    deceptionHistory: deceptionHistoryFromRequests(requests),
     aggregationPolicy: includeProvisional ? "CONFIRMED_AND_PROVISIONAL" : "CONFIRMED_ONLY",
   };
 }
@@ -833,6 +915,11 @@ function getResolutionStatus() {
     ...actorResolver.status(),
     fingerprintSimilarity: clientFlowStore.status(),
   };
+}
+
+function getResolvedActorByClientId(clientId) {
+  const actor = actorResolver.getActorByClientId(clientId);
+  return actor ? getResolvedActorAggregate(actor.id) : null;
 }
 
 function summarizeClientFlowGroup(group) {
@@ -875,7 +962,7 @@ function getClientFlowAggregate(idOrCandidateId) {
   const group = clientFlowStore.get(idOrCandidateId) || clientFlowStore.getByCandidate(idOrCandidateId);
   if (!group) return null;
   const summary = summarizeClientFlowGroup(group);
-  const memberSessions = [...group.sessionIds].map((id) => sessions.get(id)).filter(Boolean);
+  const memberSessions = [...group.sessionIds].map((id) => canonicalizeClientFlowReferences(sessions.get(id))).filter(Boolean);
   const requestIds = new Set();
   const requests = [];
   for (const session of memberSessions) {
@@ -939,6 +1026,7 @@ module.exports = {
   getAllIpEntries,
   getIpEntry,
   getResolvedActorAggregate,
+  getResolvedActorByClientId,
   getAllResolvedActorAggregates,
   getResolutionMemberships,
   deactivateResolutionMembership,
@@ -948,6 +1036,7 @@ module.exports = {
   getClientFlowState,
   updateAttackScoreHistory,
   attachStoredXssFinding,
+  attachDetectionResult,
   emptyAttackHistory,
   emptyDeceptionHistory,
   recordDeceptionHistory,

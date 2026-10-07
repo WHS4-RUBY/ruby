@@ -19,20 +19,9 @@ benchmark/
 └── templates/      # 새 벤치마크 작성용 템플릿
 ```
 
-## 방어 파이프라인 연결 실행
+## 방어 파이프라인과의 관계
 
-컨테이너로 제공되는 벤치마크는 루트 [`.env.example`](../.env.example)을 복사해 만든 `.env`에서 선택합니다. 기본 선택은 OWASP Juice Shop이며, 이 설정은 컨테이너 이미지·서비스 포트와 Defense가 요청을 전달할 내부 주소를 함께 지정합니다.
-
-```bash
-# 최초 한 번: 파이프라인이 공유할 Docker 네트워크 생성
-docker network create ai-defense-net
-
-# .env에 선택된 벤치마크와 파이프라인을 함께 기동
-docker compose pull
-docker compose up -d
-```
-
-선택된 profile의 컨테이너만 생성됩니다. 모든 계층과 선택된 벤치마크는 `ai-defense-net`에 연결되므로 Defense는 `BENCHMARK_TARGET_URL`에 설정된 서비스 이름(기본값: `benchmark-target`)으로 타깃에 접근합니다. 다른 컨테이너형 벤치마크로 바꿀 때는 `.env`의 profile, 이미지, 포트와 URL만 함께 갱신합니다.
+이 영역은 Detection·Defense 파이프라인의 실행에 필요하지 않으며, 파이프라인도 이 영역의 서비스나 이미지에 의존하지 않습니다. 벤치마크 대상을 파이프라인에 연결하려면 대상을 이 호스트의 임의 포트에서 실행하고, 루트 `.env`의 `TARGET_PORT`를 그 포트로 지정합니다(자세한 내용은 [`defense/README.md`](../defense/README.md#target-연결) 참고).
 
 각 벤치마크는 다음 형태로 추가합니다.
 

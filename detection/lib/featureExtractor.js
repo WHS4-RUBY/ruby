@@ -48,32 +48,17 @@ function extractIdorWalkSignal(attackRequests) {
   };
 }
 
-const LOGIN_ROUTE_METHOD = "POST";
-const LOGIN_ROUTE_PATH = "/rest/user/login";
-const RESET_PASSWORD_ROUTE_METHOD = "POST";
-const RESET_PASSWORD_ROUTE_PATH = "/rest/user/reset-password";
-const SECURITY_QUESTION_ROUTE_METHOD = "GET";
-const SECURITY_QUESTION_ROUTE_PATH = "/rest/user/security-question";
-
 function extractLoginBruteForceSignal(attackRequests) {
   const failedLogins = attackRequests.filter(
     (request) =>
-      request.method === LOGIN_ROUTE_METHOD &&
-      request.normalizedPath === LOGIN_ROUTE_PATH &&
-      request.status === 401 &&
-      request.loginAttemptEmail
+      request.loginAttemptEmail &&
+      (request.loginFailed ?? request.status === 401)
   );
   const resetPasswordAttempts = attackRequests.filter(
-    (request) =>
-      request.method === RESET_PASSWORD_ROUTE_METHOD &&
-      request.normalizedPath === RESET_PASSWORD_ROUTE_PATH &&
-      request.resetPasswordEmail
+    (request) => request.resetPasswordEmail
   );
   const securityQuestionProbes = attackRequests.filter(
-    (request) =>
-      request.method === SECURITY_QUESTION_ROUTE_METHOD &&
-      request.normalizedPath === SECURITY_QUESTION_ROUTE_PATH &&
-      request.securityQuestionEmail
+    (request) => request.securityQuestionEmail
   );
 
   const attemptsByEmail = new Map();
@@ -102,6 +87,37 @@ function maxConsecutiveRepeats(operations) {
   return maximum;
 }
 
+const ATTACK_EVIDENCE_WINDOW_MS = 60 * 60_000;
+const ATTACK_HONEY_SIGNALS = new Set([
+  "watermark_reuse", "ssh_cred_reuse", "password_list_reuse",
+  "writable_file_write", "writable_file_found", "script_hint_access",
+]);
+
+function hasAttackEvidence(request) {
+  // A missing Origin, repeated normal operation, or a numeric resource URL
+  // or a claimed-role mismatch alone is not an attack attempt.
+  // Count only a specific attack finding.
+  return Boolean(
+    (request.attackDetection?.available && Number(request.attackDetection.anomalyScore) >= 5) ||
+    (request.tags || []).some((tag) => tag !== "idor-probe") ||
+    (request.blTags || []).some((tag) => !tag.startsWith("role-gated:")) ||
+    (request.csrfTags || []).some((tag) => tag !== "csrf:missing-origin") ||
+    (request.xssTags || []).length ||
+    (request.deceptionEvents || []).some((event) => ATTACK_HONEY_SIGNALS.has(event.signal))
+  );
+}
+
+function repeatedAttackEvidence(requests) {
+  const latest = requests.at(-1)?.ts;
+  if (!Number.isFinite(latest)) return { count: 0, windowMs: ATTACK_EVIDENCE_WINDOW_MS };
+  return {
+    count: requests.filter((request) =>
+      Number.isFinite(request.ts) && latest - request.ts <= ATTACK_EVIDENCE_WINDOW_MS &&
+      hasAttackEvidence(request)).length,
+    windowMs: ATTACK_EVIDENCE_WINDOW_MS,
+  };
+}
+
 function emptyTelemetry() {
   return {
     mouseMoveCount: 0,
@@ -110,17 +126,25 @@ function emptyTelemetry() {
     domEventTypes: new Set(),
     pageLoads: 0,
     currentUrl: null,
+    routeHistory: [],
     lastTelemetryAt: null,
   };
 }
 
+// 흐름 하나가 여러 세션을 묶을 수 있으므로 합친 이동 기록도 상한을 둔다.
+const MAX_AGGREGATED_ROUTES = 200;
+
 function aggregateTelemetry(memberSessions) {
-  return memberSessions.reduce((result, session) => {
+  const merged = memberSessions.reduce((result, session) => {
     result.mouseMoveCount += session.telemetry.mouseMoveCount;
     result.scrollCount += session.telemetry.scrollCount;
     result.routeChangeCount += session.telemetry.routeChangeCount;
     session.telemetry.domEventTypes.forEach((eventType) => result.domEventTypes.add(eventType));
     result.pageLoads += session.telemetry.pageLoads;
+    // 타임라인에서 세션별로 거를 수 있도록 어느 세션이 보고한 이동인지 남긴다.
+    for (const entry of session.telemetry.routeHistory || []) {
+      result.routeHistory.push({ ...entry, sessionId: session.id });
+    }
     if (session.telemetry.lastTelemetryAt !== null) {
       if (result.lastTelemetryAt === null || session.telemetry.lastTelemetryAt >= result.lastTelemetryAt) {
         result.currentUrl = session.telemetry.currentUrl;
@@ -129,6 +153,11 @@ function aggregateTelemetry(memberSessions) {
     }
     return result;
   }, emptyTelemetry());
+  merged.routeHistory.sort((left, right) => left.at - right.at);
+  if (merged.routeHistory.length > MAX_AGGREGATED_ROUTES) {
+    merged.routeHistory.splice(0, merged.routeHistory.length - MAX_AGGREGATED_ROUTES);
+  }
+  return merged;
 }
 
 function extractStreamFeatures({
@@ -288,6 +317,7 @@ function extractStreamFeatures({
         domEventDiversity: interaction.domEventTypes.size,
         pageLoads: interaction.pageLoads,
         currentUrl: interaction.currentUrl,
+        routeHistory: interaction.routeHistory,
         hasTelemetry: interaction.lastTelemetryAt !== null,
       },
     },
@@ -323,6 +353,7 @@ function extractStreamFeatures({
       distinctXssCategories: xssCategories.length,
       xssCategories,
       maxXssRisk,
+      repeatedEvidence: repeatedAttackEvidence(attackRequests),
       csrfCategories,
     },
   };
@@ -334,7 +365,8 @@ function extractFeatures(session) {
     headerSample: session.headerSample,
     fingerprint: session.fingerprint,
     userAgent: session.userAgent,
-    telemetry: session.telemetry,
+    // 세션 하나여도 같은 집계 경로를 타야 화면 이동 기록에 세션 귀속이 붙는다.
+    telemetry: aggregateTelemetry([session]),
     firstSeen: session.firstSeen,
     lastSeen: session.lastSeen,
     sessionChurn: 1,
@@ -421,4 +453,6 @@ module.exports = {
   maxRequestsInWindow,
   extractIdorWalkSignal,
   extractLoginBruteForceSignal,
+  repeatedAttackEvidence,
+  hasAttackEvidence,
 };
