@@ -77,6 +77,7 @@ test("요청 경로와 식별자, 전략 이름을 HTML로 해석하지 않는�
     policySource: injection,
     targetId: injection,
     runId: injection,
+    decoyAction: injection,
     outcome: "forwarded",
   });
   assert.doesNotMatch(card, /<img/);

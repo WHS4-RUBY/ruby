@@ -123,7 +123,9 @@ import os
 import re
 import sqlite3
 import time
+import uuid
 from contextlib import closing
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Callable
 from urllib.parse import unquote
@@ -150,6 +152,8 @@ SPOOF_SERVER = (os.environ["SPOOF_SERVER"] if "SPOOF_SERVER" in os.environ
 # 때만 켠다 (레시피가 headers 로 지정하거나 SPOOF_POWERED_BY env 로).
 SPOOF_POWERED_BY = os.environ.get("SPOOF_POWERED_BY", "")
 EXPERIMENT_RUN = os.environ.get("EXPERIMENT_RUN", "adhoc")
+_REQUEST_RUN: ContextVar[str] = ContextVar("cheat_request_run", default=EXPERIMENT_RUN)
+_REQUEST_ACTION: ContextVar[str] = ContextVar("cheat_request_action", default="observe")
 
 # ---------------------------------------------------------------- client_id 별 상태 격리
 # 탐지팀 연동 전제: detection/server.js 가 모든 요청에 X-Client-Id 를 strip-then-reset
@@ -208,7 +212,18 @@ class ClientState:
     last_seen: float = field(default_factory=time.monotonic)
 
 
-_clients: dict[str, ClientState] = {}
+_clients: dict[tuple[str, str], ClientState] = {}
+
+
+def _resolve_run_id(request: Request) -> str:
+    """Use Detection's canonical experiment ID, or the local experiment label."""
+    run_id = request.headers.get("x-ruby-run-id", "").strip()
+    try:
+        if run_id and str(uuid.UUID(run_id)) == run_id:
+            return run_id
+    except ValueError:
+        pass
+    return EXPERIMENT_RUN
 
 
 def _resolve_client_id(request: Request) -> str:
@@ -225,10 +240,11 @@ def _resolve_client_id(request: Request) -> str:
 
 
 def _get_client(client_id: str) -> ClientState:
-    st = _clients.get(client_id)
+    key = (_REQUEST_RUN.get(), client_id)
+    st = _clients.get(key)
     if st is None:
         st = ClientState(client_id=client_id)
-        _clients[client_id] = st
+        _clients[key] = st
     st.last_seen = time.monotonic()
     return st
 
@@ -241,6 +257,10 @@ async def _sweep_clients_loop():
                 if now - st.last_seen > CLIENT_STATE_TTL_S]
         for cid in dead:
             del _clients[cid]
+        active_runs = {run_id for run_id, _ in _clients}
+        for run_id in list(_mazes):
+            if run_id not in active_runs:
+                del _mazes[run_id]
         if dead:
             print(f"[defense] client-state 청소: {len(dead)}개 만료 "
                   f"(TTL={CLIENT_STATE_TTL_S:.0f}s, 남은 클라이언트 {len(_clients)}개)",
@@ -304,7 +324,7 @@ def _plan_strategy_decoy_migration(params: dict, st: ClientState) -> float:
 # 전략 이름 -> (params, ClientState) -> 적용할 지연(초). defense/app/strategies/
 # registry.py 와 같은 등록 패턴 — 탐지팀이 "앞으로 우리가 적용할 CHeaT 기법을 전략
 # 이름으로 지정해서 넘기겠다"고 했으므로, 새 이름이 추가될 때마다 여기 핸들러만
-# 등록하면 된다. 지금 detection/config/policy.json 에는 "delay" 하나뿐.
+# 등록하면 된다. 운영에서는 공식 Defense가 CHeaT 전략만 골라 전달한다.
 _DEFENSE_PLAN_STRATEGIES: dict[str, Callable[[dict, ClientState], float]] = {
     "delay": _plan_strategy_delay,
     "maze": _plan_strategy_maze,
@@ -312,6 +332,20 @@ _DEFENSE_PLAN_STRATEGIES: dict[str, Callable[[dict, ClientState], float]] = {
     "decoy_t21_shell": _plan_strategy_decoy_t21_shell,   # 묶음 2: 묶음 1 + T2.1 + FAKE_SHELL
     "decoy_migration": _plan_strategy_decoy_migration,   # 묶음 3: 묶음 1 + MIGRATION_TRACES
 }
+
+
+def _active_strategies(st: ClientState, plan_applied: list[str] | None) -> list[str]:
+    """Report the effective plan, including a decoy kept alive by sticky state."""
+    active = ["delay"] if "delay" in (plan_applied or ()) else []
+    if st.recipe == "T2.1" and st.shell_planned:
+        active.append("decoy_t21_shell")
+    elif st.recipe == "MIGRATION_TRACES":
+        active.append("decoy_migration")
+    elif st.decoy_planned:
+        active.append("decoy_maze")
+    elif st.maze_planned:
+        active.append("maze")
+    return active
 
 
 def _parse_defense_plan(raw: "str | None") -> list:
@@ -396,15 +430,24 @@ _MAZE_ROOT_RE = re.compile(r"^/(\.(git|env|svn|aws|ssh)|_?internal|backup|config
 
 
 class _Maze:
-    # hits(에스컬레이션 트리거)는 ClientState.maze_hits 로 옮겼다 — 공격자별이어야
-    # 하는 카운터라 전역에 남아 있으면 안 됨. roots/shell 은 "세계관 일관성"·
-    # "백엔드 캐시"라 여기 전역에 그대로 둔다.
-    roots = set()          # 이미 미로로 삼은 상위 경로 (한 번 들어오면 그 아래는 계속 미로)
-    shell = None           # "/" (index.html) 본문 — SPA 폴백 200 판별용
-    real = set()           # 백엔드가 실제로 서빙한(2xx/3xx/401, SPA 폴백 아님) 경로 — 미로에서 영구 제외
+    def __init__(self):
+        # Shared among clients in one run for a consistent target, isolated
+        # between runs so an earlier experiment cannot teach or shadow paths.
+        self.roots: set[str] = set()
+        self.shell: bytes | None = None
+        self.real: set[str] = set()
 
 
-_maze = _Maze()
+_mazes: dict[str, _Maze] = {}
+
+
+def _maze_for_run() -> _Maze:
+    run_id = _REQUEST_RUN.get()
+    maze = _mazes.get(run_id)
+    if maze is None:
+        maze = _Maze()
+        _mazes[run_id] = maze
+    return maze
 
 # ---------------------------------------------------------------- 가짜 포스트-익스플로잇 셸
 # T2.1 의 CVE-2021-41773 traversal 미끼(_PASSWD_STUB)를 문 뒤, 에이전트가
@@ -771,6 +814,8 @@ init_db()
 
 def _log_req(method: str, path: str, status: int, action: str, client_id: str = "",
             plan_applied: "list | None" = None, authed: bool = False):
+    if method != "-":
+        _REQUEST_ACTION.set(action)
     if client_id and action.startswith(_DECOY_ACTION_PREFIXES) and _adaptive_active(_get_client(client_id)):
         is_lure = action.startswith("login-lure")
         if not (authed and _DECOY_SKIP_AUTHED and not is_lure):
@@ -783,7 +828,7 @@ def _log_req(method: str, path: str, status: int, action: str, client_id: str = 
         conn.execute(
             "INSERT INTO reqs (ts,run,method,path,status,defense_action,client_id,defense_plan) "
             "VALUES (?,?,?,?,?,?,?,?)",
-            (time.time(), EXPERIMENT_RUN, method, path, status, action, client_id,
+            (time.time(), _REQUEST_RUN.get(), method, path, status, action, client_id,
              ",".join(plan_applied) if plan_applied else ""))
         conn.commit()
 
@@ -813,10 +858,11 @@ def _maze_norm(path: str) -> str:
 
 def _is_maze_path(path: str) -> bool:
     pp = _maze_norm(path)
+    maze = _maze_for_run()
     # 실제 경로는 절대 미로로 바꾸지 않는다 — 수동 제외(MAZE_EXCLUDE)와, 백엔드가 실제로 서빙한 적 있는 경로
-    if (_MAZE_EXCLUDE_RE and _MAZE_EXCLUDE_RE.search(pp)) or pp in _maze.real:
+    if (_MAZE_EXCLUDE_RE and _MAZE_EXCLUDE_RE.search(pp)) or pp in maze.real:
         return False
-    if any(pp == r or pp.startswith(r + "/") for r in _maze.roots):
+    if any(pp == r or pp.startswith(r + "/") for r in maze.roots):
         return True
     return bool(_MAZE_RE.match(pp))
 
@@ -826,8 +872,9 @@ def _learn_real_path(path: str) -> None:
     진짜 /admin 이 로그인 사용자에겐 200, 비로그인에겐 403 이라면 한 번이라도 200 을 본 뒤로는 403 도
     미로로 바꾸지 않는다. 공격자가 이걸 악용해 미끼 경로를 "진짜"로 만들 수는 없다(백엔드가 실제로 줘야 함)."""
     pp = _maze_norm(path)
-    if len(_maze.real) < 4096 and _MAZE_RE.match(pp):
-        _maze.real.add(pp)
+    maze = _maze_for_run()
+    if len(maze.real) < 4096 and _MAZE_RE.match(pp):
+        maze.real.add(pp)
 
 
 def _maze_enabled(plan_applied, st: ClientState) -> bool:
@@ -862,9 +909,9 @@ async def _serve_maze(ctx: ProxyContext, path: str, client_id: str) -> None:
     clean = path.split("?")[0]
     root = clean.rstrip("/").rsplit("/", 1)[0]
     # 명백히 가짜인 접두어만 루트로 등록 (진짜 정적 디렉토리 shadowing 방지) — roots 는
-    # "세계관 일관성"이라 클라이언트 무관 전역(_maze)에 그대로 둔다.
+    # "세계관 일관성"이라 같은 run 의 모든 클라이언트에게 공유한다.
     if root and root != "/" and _MAZE_ROOT_RE.match(root + "/"):
-        _maze.roots.add(root)
+        _maze_for_run().roots.add(root)
 
     if st.esc_on:
         kb, delay_s = MAZE_MAX_KB, max(MAZE_ESC_DELAY_MS, int(_ESCALATE_DELAY_S * 1000)) / 1000
@@ -961,6 +1008,8 @@ def _match_fake_route(rec: "dict | None", method: str, path: str):
 # ---------------------------------------------------------------- 방어 훅
 class DefenseHook(ProxyHook):
     async def on_request(self, ctx: ProxyContext):
+        ctx.meta["_run_token"] = _REQUEST_RUN.set(_resolve_run_id(ctx.request))
+        ctx.meta["_action_token"] = _REQUEST_ACTION.set("observe")
         now = time.monotonic()
         # 탐지팀 연동 — client_id 해석은 이 요청 안에서 쓰는 모든 상태(AMBIG_TRAP·
         # FAKE_SHELL·미로)를 격리하는 키라 다른 무엇보다 먼저 한다.
@@ -1104,6 +1153,30 @@ class DefenseHook(ProxyHook):
         return None
 
     async def on_response(self, ctx: ProxyContext):
+        try:
+            await self._on_response_impl(ctx)
+            action = "error" if ctx.meta.get("error") else _REQUEST_ACTION.get()
+            if not re.fullmatch(r"[a-z0-9][a-z0-9:!_-]{0,63}", action):
+                action = "observe"
+            strategies = _active_strategies(
+                _get_client(ctx.meta.get("client_id", "")), ctx.meta.get("plan_applied")
+            )
+            ctx.response_headers = [
+                (key, value) for key, value in (ctx.response_headers or [])
+                if key.lower() not in {"x-ruby-decoy-action", "x-ruby-decoy-strategies"}
+            ]
+            ctx.response_headers.append(("X-Ruby-Decoy-Action", action))
+            if strategies:
+                ctx.response_headers.append(("X-Ruby-Decoy-Strategies", ",".join(strategies)))
+        finally:
+            action_token = ctx.meta.pop("_action_token", None)
+            run_token = ctx.meta.pop("_run_token", None)
+            if action_token is not None:
+                _REQUEST_ACTION.reset(action_token)
+            if run_token is not None:
+                _REQUEST_RUN.reset(run_token)
+
+    async def _on_response_impl(self, ctx: ProxyContext):
         if ctx.meta.get("error"):
             return
         # on_request 에서 이미 직접 _log_req 를 부르고 완성된 Response 를 반환한 단축 경로
@@ -1132,10 +1205,11 @@ class DefenseHook(ProxyHook):
         # ── 서버 무관 미로 ──
         if DECOY_MAZE:
             if path == "/" and status == 200 and ctx.response_body:
-                _maze.shell = ctx.response_body                 # SPA 폴백 판별용 캐시
+                _maze_for_run().shell = ctx.response_body       # SPA 폴백 판별용 캐시
             # SPA(Angular 등)는 미지 경로에 404 대신 200+index.html 을 준다 → 그것도 가로챈다
             spa_fallback = (status == 200 and path != "/" and ctx.response_body
-                            and _maze.shell is not None and ctx.response_body == _maze.shell)
+                            and _maze_for_run().shell is not None
+                            and ctx.response_body == _maze_for_run().shell)
             # 백엔드가 진짜로 서빙한 경로는 "진짜 경로"로 기억 → 미로 영구 제외.
             # (게이팅과 무관하게 항상 배운다 — 플랜이 나중에 켜져도 진짜 경로가 가로채이지 않게.)
             # ★ 증거가 확실한 경우만 배운다: GET 이고, 200 은 "본문이 있고 SPA 셸과 다름"(셸을 아직 모르면 판별
@@ -1143,7 +1217,8 @@ class DefenseHook(ProxyHook):
             #   예전엔 HEAD 한 번이 SPA 폴백 경로를 "진짜"로 오인시켜 그 경로의 미로를 모든 클라이언트에게
             #   영구히 꺼버렸다(실측: 에이전트가 GET 과 HEAD 를 같이 보내는 Juice Shop 라운드에서 발견).
             if (ctx.method == "GET" and path != "/" and not spa_fallback
-                    and ((status == 200 and bool(ctx.response_body) and _maze.shell is not None)
+                    and ((status == 200 and bool(ctx.response_body)
+                          and _maze_for_run().shell is not None)
                          or 300 <= status < 400 or status == 401)):
                 _learn_real_path(path)
             if _maze_enabled(plan_applied, st):
@@ -1199,7 +1274,14 @@ class DefenseHook(ProxyHook):
         return None
 
 
-app = create_app([DefenseHook()], title="CHeaT 방어 프록시")
+def _register_health_route(sidecar: FastAPI) -> None:
+    @sidecar.get("/healthz", include_in_schema=False)
+    async def healthz():
+        return Response(status_code=204)
+
+
+app = create_app([DefenseHook()], title="CHeaT 방어 프록시",
+                 before_catchall=_register_health_route)
 
 
 @app.on_event("startup")

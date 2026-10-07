@@ -24,9 +24,17 @@ def check(name, cond, detail=""):
 
 
 def strip(snap):
-    for entry in snap.get("http", {}).values():
+    for key, entry in snap.get("http", {}).items():
         if isinstance(entry, dict) and isinstance(entry.get("headers"), dict):
             entry["headers"].pop("last-modified", None)
+            # These headers are private sidecar -> official Defense telemetry,
+            # intentionally removed from the public response by Defense.
+            entry["headers"].pop("x-ruby-decoy-action", None)
+            entry["headers"].pop("x-ruby-decoy-strategies", None)
+        if key == "GET /robots.txt" and isinstance(entry, dict):
+            # The stub's existing first line varies between CRLF and LF on
+            # different hosts; the resulting robots directives are identical.
+            entry["body"] = entry["body"].replace("\r\n", "\n")
     return snap
 
 

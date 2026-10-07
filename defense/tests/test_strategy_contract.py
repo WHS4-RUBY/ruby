@@ -372,6 +372,8 @@ class WebSocketLifecycleTests(unittest.IsolatedAsyncioTestCase):
             "X-Ruby-Target-Id": "juice-shop", "X-Ruby-Run-Id": run_id,
         })
         with patch("defense.app.target_selection.target_selector", selector), patch(
+            "defense.app.main.DECOY_UPSTREAMS", {"juice-shop": "http://cheat-juice:3012"}
+        ), patch(
             "defense.app.main.websockets.connect", side_effect=OSError("unavailable")
         ) as connect:
             await websocket_proxy(websocket, "ws")

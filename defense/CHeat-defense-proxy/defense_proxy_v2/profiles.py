@@ -138,7 +138,11 @@ PRESETS: dict[str, dict] = {
         "description": "nginx + FastAPI(Python, Alpine 컨테이너) — API 업그레이드 때 남은 /_debug 라우터 미끼 "
                        "(RUBY Market 대상, 초안·미검증).",
         "family": ["nginx", "python"],
-        "maze": _maze_defaults(),
+        # RUBY Market uses hash navigation today, but keep the conventional
+        # /admin route free for its real operations UI or future deployments.
+        "maze": {**_maze_defaults(), "paths": [
+            "/internal/", "/backup/", "/.git/", "/config/", "/private/",
+        ]},
         # RUBY Market 은 /api/* 관례라 브리지도 /api/internal 아래에 둔다. 엔드포인트 이름은 앱의 도메인 명사(고객·주문·판매자)로.
         # config_path 는 비워 둔다 — 설정 병합을 걸 "진짜 JSON 엔드포인트"가 확인되지 않았다(확인되면 프로필 설정 도구로 입력).
         "migration": {**_migration_defaults(),

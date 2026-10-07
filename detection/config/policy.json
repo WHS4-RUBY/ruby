@@ -46,6 +46,10 @@
             "params": {
               "delay_ms": 500
             }
+          },
+          {
+            "name": "decoy_maze",
+            "params": {}
           }
         ]
       },

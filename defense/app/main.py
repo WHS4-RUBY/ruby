@@ -17,6 +17,10 @@ from websockets.exceptions import ConnectionClosedOK
 
 from .dashboard import router as dashboard_router
 from .dashboard import DASHBOARD_SESSION_COOKIE, auth_manager
+from .decoy_routing import (
+    ACTION_HEADER, BLOCK_ACTIONS, STRATEGIES_HEADER,
+    applied_decoy_strategies, decoy_action, decoy_plan_header, parse_decoy_upstreams,
+)
 from .monitoring import event_store
 from .strategies.state import StateCapacityError, StrategyStateStore
 from .strategies.registry import STRATEGY_REGISTRY
@@ -25,6 +29,9 @@ from .target_selection import TargetSelectionError, resolve_target_url
 
 
 TARGET_URL = target_selection.target_selector.choices[target_selection.target_selector.default_id]
+DECOY_UPSTREAMS = parse_decoy_upstreams(
+    os.getenv("DECOY_UPSTREAM_CHOICES"), target_selection.target_selector.choices,
+)
 
 
 def _positive_int(name: str, default: int) -> int:
@@ -59,6 +66,8 @@ _RESPONSE_SKIP = {
     "server",
     "x-defense-signal",
     "x-defense-applied",
+    ACTION_HEADER,
+    STRATEGIES_HEADER,
 }
 _DEFENSE_INTERNAL_HEADERS = {
     "x-client-id",
@@ -72,10 +81,15 @@ _DEFENSE_INTERNAL_HEADERS = {
     "x-ruby-target-id",
     "x-ruby-run-id",
     "x-defense-signal",
+    ACTION_HEADER,
+    STRATEGIES_HEADER,
 }
 _FORWARDED_HEADERS = {"forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"}
 _REQUEST_SKIP = _HOP_BY_HOP | {"accept-encoding"} | _DEFENSE_INTERNAL_HEADERS | _FORWARDED_HEADERS
-_STREAM_RESPONSE_SKIP = _HOP_BY_HOP | {"date", "server", "x-defense-signal", "x-defense-applied"}
+_STREAM_RESPONSE_SKIP = _HOP_BY_HOP | {
+    "date", "server", "x-defense-signal", "x-defense-applied",
+    ACTION_HEADER, STRATEGIES_HEADER,
+}
 _WEBSOCKET_SKIP = _HOP_BY_HOP | {
     "sec-websocket-accept",
     "sec-websocket-extensions",
@@ -87,7 +101,9 @@ _WEBSOCKET_SKIP = _HOP_BY_HOP | {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    # The private sidecar may spend up to 30 seconds waiting for its target.
+    # Leave room for the second proxy hop to return a response or a 502.
+    async with httpx.AsyncClient(timeout=35.0) as client:
         app.state.http_client = client
         yield
 
@@ -216,6 +232,20 @@ def build_upstream_headers(request: Request, extra: dict) -> dict[str, str]:
         if key.lower() in _HOP_BY_HOP | _DEFENSE_INTERNAL_HEADERS | {"x-forwarded-for"}:
             continue
         headers[key] = _header_value(value)
+    return headers
+
+
+def build_decoy_headers(request: Request, extra: dict, selected, plan: list[dict]) -> dict[str, str]:
+    """Reissue only trusted identity and decoy instructions to a private sidecar."""
+    headers = build_upstream_headers(request, extra)
+    headers["X-Client-Id"] = _client_id(request)
+    headers["X-Defense-Plan"] = decoy_plan_header(plan)
+    headers["X-Ruby-Target-Id"] = selected.target_id
+    if selected.run_id:
+        headers["X-Ruby-Run-Id"] = selected.run_id
+    request_id = request.headers.get("x-ruby-request-id")
+    if request_id:
+        headers["X-Ruby-Request-Id"] = request_id[:128]
     return headers
 
 
@@ -514,7 +544,10 @@ async def catch_all(request: Request, full_path: str):
     plan = parse_plan(request.headers.get("x-defense-plan"))
     metadata = _event_metadata(request, selected)
 
-    def record(status: int, outcome: str, names: list[str], signal: str | None = None) -> None:
+    def record(
+        status: int, outcome: str, names: list[str], signal: str | None = None,
+        decoy_action_name: str | None = None,
+    ) -> None:
         event_store.record(
             method=request.method,
             path=request.url.path,
@@ -523,6 +556,7 @@ async def catch_all(request: Request, full_path: str):
             outcome=outcome,
             duration_ms=(time.perf_counter() - started_at) * 1000,
             signal=signal,
+            decoy_action=decoy_action_name,
             **metadata,
         )
 
@@ -547,12 +581,16 @@ async def catch_all(request: Request, full_path: str):
         return response
 
     applied.headers["X-Defense-Applied"] = applied_header
-    headers = build_upstream_headers(request, applied.headers)
+    decoy_url = DECOY_UPSTREAMS.get(selected.target_id)
+    headers = (
+        build_decoy_headers(request, applied.headers, selected, plan)
+        if decoy_url else build_upstream_headers(request, applied.headers)
+    )
 
     try:
         upstream_request = request.app.state.http_client.build_request(
             method=request.method,
-            url=f"{selected.url.rstrip('/')}/{full_path}",
+            url=f"{(decoy_url or selected.url).rstrip('/')}/{full_path}",
             headers=headers,
             content=request.stream() if request.method not in {"GET", "HEAD"} else None,
             params=list(request.query_params.multi_items()),
@@ -561,6 +599,12 @@ async def catch_all(request: Request, full_path: str):
     except httpx.RequestError:
         record(502, "error", applied.names)
         return Response(status_code=502)
+
+    sidecar_action = decoy_action(upstream.headers) if decoy_url else None
+    sidecar_strategies = applied_decoy_strategies(upstream.headers) if decoy_url else []
+    recorded_strategies = applied.names + sidecar_strategies
+    applied_header = ",".join(recorded_strategies) or "none"
+    sidecar_outcome = "blocked" if sidecar_action in BLOCK_ACTIONS else "forwarded"
 
     if applied.transforms:
         # Body transforms require a complete response before headers are sent.
@@ -576,7 +620,8 @@ async def catch_all(request: Request, full_path: str):
                 if len(response.body) > TRANSFORM_BODY_LIMIT:
                     raise TransformBodyLimitError
             response.headers["X-Defense-Applied"] = applied_header
-            record(response.status_code, "forwarded", applied.names)
+            record(response.status_code, sidecar_outcome, recorded_strategies,
+                   decoy_action_name=sidecar_action)
             return response
         except (httpx.RequestError, TransformBodyLimitError):
             record(502, "error", applied.names)
@@ -590,7 +635,12 @@ async def catch_all(request: Request, full_path: str):
     response = streaming_proxy_response(
         upstream,
         request,
-        on_complete=lambda outcome: record(upstream.status_code, outcome, applied.names),
+        on_complete=lambda outcome: record(
+            upstream.status_code,
+            sidecar_outcome if outcome == "forwarded" else outcome,
+            recorded_strategies,
+            decoy_action_name=sidecar_action,
+        ),
         target_url=selected.url,
     )
     response.headers["X-Defense-Applied"] = applied_header

@@ -261,7 +261,12 @@
   <script>
     const state = { requests: [], groupOpen: new Map(), authEnabled: false, timer: null, copyStatusTimer: null, selectedBucket: null };
 
-    const STRATEGY_NAMES = Object.freeze({ delay:'지연 적용', rate_limit_strict:'엄격 속도 제한', none:'적용 없음' });
+    const STRATEGY_NAMES = Object.freeze({
+      delay:'지연 적용', rate_limit_strict:'엄격 속도 제한',
+      maze:'미로', decoy_maze:'미로 + 적응형',
+      decoy_t21_shell:'T2.1 + 가짜 셸', decoy_migration:'마이그레이션 미끼',
+      none:'적용 없음'
+    });
     const POLICY_SOURCES = Object.freeze({
       none:'이전 탐지 기록 없음', session:'방문 세션', 'provisional-client-observation':'미확인 클라이언트 관찰',
       'actor-candidate-fallback':'관찰 후보', 'auth-group':'인증 단서 그룹',
@@ -503,6 +508,7 @@
           <div class="request-field"><span class="field-label">실험 실행 ID</span><span class="mono">${escapeHtml(event.runId || '—')}</span></div>
           <div class="request-field"><span class="field-label">적용 전략</span>${strategies}</div>
           <div class="request-field"><span class="field-label">방어 신호</span><span>${escapeHtml(displayName(event.defenseSignal || 'none', DEFENSE_SIGNALS))}</span></div>
+          ${event.decoyAction ? `<div class="request-field"><span class="field-label">미끼 동작</span><span class="mono">${escapeHtml(event.decoyAction)}</span></div>` : ''}
           <div class="request-field"><span class="field-label">처리 시간</span><span class="mono">${durationText}</span></div>
         </div>
       </article>`;
@@ -515,7 +521,7 @@
       for (const key of state.groupOpen.keys()) if (!availableKeys.has(key)) state.groupOpen.delete(key);
       const filtered = indexedRequests.filter(({ event }) => [
         event.requestId, event.id, event.path, hasClientId(event) ? event.clientId : '정책 키 없음 연결 불가', event.policySource, event.method,
-        event.outcome, event.defenseSignal, displayName(event.defenseSignal, DEFENSE_SIGNALS), event.targetId, event.runId,
+        event.outcome, event.defenseSignal, displayName(event.defenseSignal, DEFENSE_SIGNALS), event.decoyAction, event.targetId, event.runId,
         ...(Array.isArray(event.strategies) ? event.strategies.flatMap(name => [name, displayName(name, STRATEGY_NAMES)]) : []),
       ].join(' ').toLowerCase().includes(query));
       const groups = groupRequests(filtered);
