@@ -20,29 +20,11 @@ from .dashboard import DASHBOARD_SESSION_COOKIE, auth_manager
 from .monitoring import event_store
 from .strategies.state import StateCapacityError, StrategyStateStore
 from .strategies.registry import STRATEGY_REGISTRY
+from . import target_selection
+from .target_selection import TargetSelectionError, resolve_target_url
 
 
-def resolve_target_url(env=None) -> str:
-    """Build the upstream URL from TARGET_HOST and TARGET_PORT.
-
-    The target is an application listening on a port of the same host.
-    Misconfiguration fails at startup instead of silently proxying elsewhere.
-    """
-    env = os.environ if env is None else env
-    host = (env.get("TARGET_HOST") or "").strip() or "localhost"
-    raw_port = (env.get("TARGET_PORT") or "").strip() or "9000"
-    try:
-        port = int(raw_port)
-    except ValueError:
-        raise RuntimeError(f"TARGET_PORT must be an integer, got {raw_port!r}") from None
-    if not 1 <= port <= 65535:
-        raise RuntimeError(f"TARGET_PORT must be between 1 and 65535, got {port}")
-    if ":" in host and not host.startswith("["):
-        host = f"[{host}]"  # bare IPv6 literal
-    return f"http://{host}:{port}"
-
-
-TARGET_URL = resolve_target_url()
+TARGET_URL = target_selection.target_selector.choices[target_selection.target_selector.default_id]
 
 
 def _positive_int(name: str, default: int) -> int:
@@ -87,6 +69,8 @@ _DEFENSE_INTERNAL_HEADERS = {
     "x-ruby-attack-score",
     "x-ruby-risk-score",
     "x-ruby-policy-source",
+    "x-ruby-target-id",
+    "x-ruby-run-id",
     "x-defense-signal",
 }
 _FORWARDED_HEADERS = {"forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"}
@@ -148,7 +132,7 @@ def _score_header(headers, name: str) -> float | None:
     return round(value, 6) if 0 <= value <= 1 else None
 
 
-def _event_metadata(request: Request | WebSocket) -> dict:
+def _event_metadata(request: Request | WebSocket, selected=None) -> dict:
     headers = request.headers
     return {
         "client_id": headers.get("x-client-id"),
@@ -157,6 +141,8 @@ def _event_metadata(request: Request | WebSocket) -> dict:
         "attack_score": _score_header(headers, "x-ruby-attack-score"),
         "risk_score": _score_header(headers, "x-ruby-risk-score"),
         "policy_source": headers.get("x-ruby-policy-source"),
+        "target_id": selected.target_id if selected else None,
+        "run_id": selected.run_id if selected else None,
     }
 
 
@@ -174,7 +160,7 @@ class AppliedPlan:
     short_circuit: Response | None = None
 
 
-async def _apply_plan(plan: list[dict], request: Request | WebSocket) -> AppliedPlan:
+async def _apply_plan(plan: list[dict], request: Request | WebSocket, selected=None) -> AppliedPlan:
     applied = AppliedPlan()
     for step in plan:
         name = step["name"]
@@ -183,7 +169,10 @@ async def _apply_plan(plan: list[dict], request: Request | WebSocket) -> Applied
             continue
         if strategy.uses_state:
             try:
-                async with strategy_state.use(name, _client_id(request)) as entry:
+                client_key = _client_id(request)
+                if selected is not None:
+                    client_key = f"{selected.run_id or selected.target_id}:{client_key}"
+                async with strategy_state.use(name, client_key) as entry:
                     result = await strategy.apply(request, step.get("params") or {}, dict(entry.state))
                     if result.state_update is not None:
                         if not isinstance(result.state_update, dict):
@@ -236,11 +225,13 @@ def _public_origin(request: Request) -> str:
     return f"{scheme}://{host}" if host else ""
 
 
-def _rewrite_response_header(key: str, value: str, request: Request | None) -> str:
+def _rewrite_response_header(
+    key: str, value: str, request: Request | None, target_url: str | None = None
+) -> str:
     if request is None:
         return value
     if key.lower() == "location":
-        target = TARGET_URL.rstrip("/")
+        target = (target_url or TARGET_URL).rstrip("/")
         if value == target or value.startswith(f"{target}/"):
             return f"{_public_origin(request)}{value[len(target):]}"
     if key.lower() == "set-cookie":
@@ -249,7 +240,8 @@ def _rewrite_response_header(key: str, value: str, request: Request | None) -> s
 
 
 def proxy_response(
-    upstream: httpx.Response, request: Request | None = None, content: bytes | None = None
+    upstream: httpx.Response, request: Request | None = None, content: bytes | None = None,
+    *, target_url: str | None = None,
 ) -> Response:
     response = Response(
         content=upstream.content if content is None else content,
@@ -261,7 +253,7 @@ def proxy_response(
         response.raw_headers.append(
             (
                 key.encode("latin-1"),
-                _rewrite_response_header(key, _header_value(value), request).encode("latin-1"),
+                _rewrite_response_header(key, _header_value(value), request, target_url).encode("latin-1"),
             )
         )
     return response
@@ -299,7 +291,9 @@ async def _buffer_transform_body(upstream: httpx.Response) -> bytes:
     return bytes(body)
 
 
-def streaming_proxy_response(upstream: httpx.Response, request: Request, on_complete=None) -> StreamingResponse:
+def streaming_proxy_response(
+    upstream: httpx.Response, request: Request, on_complete=None, *, target_url: str | None = None
+) -> StreamingResponse:
     response = StreamingResponse(_stream_body(upstream, on_complete), status_code=upstream.status_code)
     for key, value in upstream.headers.multi_items():
         if key.lower() in _STREAM_RESPONSE_SKIP:
@@ -307,14 +301,14 @@ def streaming_proxy_response(upstream: httpx.Response, request: Request, on_comp
         response.raw_headers.append(
             (
                 key.encode("latin-1"),
-                _rewrite_response_header(key, _header_value(value), request).encode("latin-1"),
+                _rewrite_response_header(key, _header_value(value), request, target_url).encode("latin-1"),
             )
         )
     return response
 
 
-def _websocket_target(full_path: str, query: str) -> str:
-    target = urlsplit(TARGET_URL)
+def _websocket_target(full_path: str, query: str, target_url: str | None = None) -> str:
+    target = urlsplit(target_url or TARGET_URL)
     scheme = "wss" if target.scheme == "https" else "ws"
     base_path = target.path.rstrip("/")
     path = f"{base_path}/{full_path}" if full_path else (base_path or "/")
@@ -346,8 +340,12 @@ async def healthz():
 
 @app.get("/readyz")
 async def readyz():
-    """Report ready only while the configured target accepts TCP connections."""
-    target = urlsplit(TARGET_URL)
+    """Report ready only while the selected target accepts TCP connections."""
+    try:
+        selected = target_selection.target_selector.current()
+    except TargetSelectionError:
+        return Response(status_code=503)
+    target = urlsplit(selected.url)
     if target.scheme not in {"http", "https"} or not target.hostname:
         return Response(status_code=503)
     try:
@@ -376,9 +374,24 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
         return
 
     started_at = time.perf_counter()
+    try:
+        selected = target_selection.target_selector.for_request(websocket.headers)
+    except TargetSelectionError:
+        event_store.record(
+            method="WEBSOCKET",
+            path=websocket.url.path,
+            status=503,
+            strategies=[],
+            outcome="error",
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            **_event_metadata(websocket),
+        )
+        await websocket.close(code=1013, reason="target selection unavailable")
+        return
+    metadata = _event_metadata(websocket, selected)
     plan = parse_plan(websocket.headers.get("x-defense-plan"))
     try:
-        applied = await _apply_plan(plan, websocket)
+        applied = await _apply_plan(plan, websocket, selected)
     except Exception:
         event_store.record(
             method="WEBSOCKET",
@@ -387,7 +400,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
             strategies=[],
             outcome="error",
             duration_ms=(time.perf_counter() - started_at) * 1000,
-            **_event_metadata(websocket),
+            **metadata,
         )
         await websocket.close(code=1011, reason="defense strategy failed")
         return
@@ -402,7 +415,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
             outcome=outcome,
             duration_ms=(time.perf_counter() - started_at) * 1000,
             signal=applied.short_circuit.headers.get("x-defense-signal") if applied.short_circuit else None,
-            **_event_metadata(websocket),
+            **metadata,
         )
         await websocket.close(
             code=1013 if capacity_error else 1008,
@@ -422,7 +435,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
     upgraded = False
     try:
         async with websockets.connect(
-            _websocket_target(full_path, websocket.url.query),
+            _websocket_target(full_path, websocket.url.query, selected.url),
             extra_headers=_websocket_headers(websocket, extra_headers),
             subprotocols=requested_protocols or None,
             max_size=None,
@@ -475,7 +488,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
             strategies=applied.names,
             outcome=outcome,
             duration_ms=(time.perf_counter() - started_at) * 1000,
-            **_event_metadata(websocket),
+            **metadata,
         )
 
 
@@ -485,8 +498,21 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
 )
 async def catch_all(request: Request, full_path: str):
     started_at = time.perf_counter()
+    try:
+        selected = target_selection.target_selector.for_request(request.headers)
+    except TargetSelectionError:
+        event_store.record(
+            method=request.method,
+            path=request.url.path,
+            status=503,
+            strategies=[],
+            outcome="error",
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            **_event_metadata(request),
+        )
+        return Response(status_code=503)
     plan = parse_plan(request.headers.get("x-defense-plan"))
-    metadata = _event_metadata(request)
+    metadata = _event_metadata(request, selected)
 
     def record(status: int, outcome: str, names: list[str], signal: str | None = None) -> None:
         event_store.record(
@@ -501,7 +527,7 @@ async def catch_all(request: Request, full_path: str):
         )
 
     try:
-        applied = await _apply_plan(plan, request)
+        applied = await _apply_plan(plan, request, selected)
     except Exception:
         record(500, "error", [])
         return Response(status_code=500)
@@ -526,7 +552,7 @@ async def catch_all(request: Request, full_path: str):
     try:
         upstream_request = request.app.state.http_client.build_request(
             method=request.method,
-            url=f"{TARGET_URL.rstrip('/')}/{full_path}",
+            url=f"{selected.url.rstrip('/')}/{full_path}",
             headers=headers,
             content=request.stream() if request.method not in {"GET", "HEAD"} else None,
             params=list(request.query_params.multi_items()),
@@ -540,7 +566,7 @@ async def catch_all(request: Request, full_path: str):
         # Body transforms require a complete response before headers are sent.
         try:
             body = await _buffer_transform_body(upstream)
-            response = proxy_response(upstream, request, body)
+            response = proxy_response(upstream, request, body, target_url=selected.url)
             for transform in applied.transforms:
                 response = transform(response)
                 if not isinstance(response, Response):
@@ -565,6 +591,7 @@ async def catch_all(request: Request, full_path: str):
         upstream,
         request,
         on_complete=lambda outcome: record(upstream.status_code, outcome, applied.names),
+        target_url=selected.url,
     )
     response.headers["X-Defense-Applied"] = applied_header
     return response

@@ -37,6 +37,8 @@
     .header-stats span { min-width:104px; padding:5px 20px; border-right:1px solid #30363d; color:#9198a1; font-size:12px; }
     .header-stats b { display:block; color:#fff; font-size:20px; font-variant-numeric:tabular-nums; }
     .header-actions { margin-left:auto; display:flex; align-items:center; gap:10px; }
+    .target-badge { max-width:320px; padding:6px 9px; border:1px solid #3d444d; color:#e6edf3; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .target-badge.error { border-color:var(--red); color:var(--red); }
     .refresh-note { color:#9198a1; font-size:12px; }
     .header-button { display:inline-block; padding:7px 11px; border:1px solid #3d444d; background:transparent; color:#e6edf3; text-decoration:none; white-space:nowrap; }
     .header-button:hover { background:#1c2128; }
@@ -189,6 +191,7 @@
         <span><b id="headerBlocked">0</b> 차단</span>
       </div>
       <div class="header-actions">
+        <span class="target-badge" id="activeTargetBadge" role="status" aria-live="polite">보호 대상 확인 중</span>
         <span class="refresh-note">3초 간격 자동 갱신</span>
         <a class="header-button" href="/__detection/dashboard">탐지 화면</a>
         <button class="header-button" type="button" id="themeToggle">라이트 모드</button>
@@ -234,7 +237,7 @@
         </section>
       </div>
 
-      <div class="section-head"><div><h2>최근 요청·연결</h2><p id="requestMeta">최근 250건 중 0건 표시</p><p>같은 정책 클라이언트 ID의 요청만 묶습니다. 이 ID는 동일 인물의 증거가 아닙니다. 점수는 해당 요청 직전까지 완료된 탐지 기록을 사용합니다. WebSocket은 업그레이드와 연결 종료 결과를 구분합니다.</p></div></div>
+      <div class="section-head"><div><h2>최근 요청·연결</h2><p id="requestMeta">최근 250건 중 0건 표시</p><p>대상 전환 전 기록도 보관 범위에 포함됩니다. 각 요청의 대상과 실험 ID를 확인하세요. 같은 정책 클라이언트 ID의 요청만 묶습니다. 이 ID는 동일 인물의 증거가 아닙니다. 점수는 해당 요청 직전까지 완료된 탐지 기록을 사용합니다. WebSocket은 업그레이드와 연결 종료 결과를 구분합니다.</p></div></div>
       <div class="table-toolbar">
         <input class="search-input" id="requestSearch" type="search" placeholder="요청 ID · 경로 · 정책 클라이언트 ID · 전략 검색" aria-label="최근 요청 검색" />
         <span class="copy-status" id="copyStatus" role="status" aria-live="polite"></span>
@@ -336,7 +339,18 @@
       document.getElementById('loginError').textContent = '';
     }
 
+    function renderActiveTarget(config) {
+      const badge = document.getElementById('activeTargetBadge');
+      const active = config.activeTarget;
+      badge.classList.toggle('error', !active);
+      badge.textContent = active
+        ? `보호 대상 ${active.targetId} · 실행 ${active.runId || '기본'}`
+        : '보호 대상 선택 오류';
+      badge.title = active?.changedAt ? `선택 시각: ${active.changedAt}` : '';
+    }
+
     function renderSummary(summary, config) {
+      renderActiveTarget(config);
       const total = summary.totalRequests || 0;
       const defended = summary.defendedRequests || 0;
       document.getElementById('headerTotal').textContent = total.toLocaleString();
@@ -353,7 +367,7 @@
       document.getElementById('strategyText').textContent = `설치된 전략: ${available.map(name => displayName(name, STRATEGY_NAMES)).join(', ') || '없음'}`;
       document.getElementById('appliedStrategyText').textContent = `보관 기록에서 실제 적용: ${applied.map(name => displayName(name, STRATEGY_NAMES)).join(', ') || '없음'}`;
       const limit = Number(config.eventLimit || summary.maxEvents);
-      document.getElementById('summaryScope').textContent = `위 지표는 보관된 HTTP 요청·WebSocket 연결 기준${Number.isFinite(limit) && limit > 0 ? ` (최대 ${limit.toLocaleString()}건)` : ''} · 방어 프로세스 재시작 시 초기화`;
+      document.getElementById('summaryScope').textContent = `위 지표는 보관된 모든 대상의 HTTP 요청·WebSocket 연결 기준${Number.isFinite(limit) && limit > 0 ? ` (최대 ${limit.toLocaleString()}건)` : ''} · 방어 프로세스 재시작 시 초기화`;
     }
 
     function renderTimeline(data) {
@@ -485,6 +499,8 @@
             <span class="mono">${formatScore(event.automationScore)} / ${formatScore(event.attackScore)} / ${formatScore(event.riskScore)}</span>
           </div>
           <div class="request-field"><span class="field-label">점수 출처</span><span>${escapeHtml(displayName(event.policySource, POLICY_SOURCES))}</span></div>
+          <div class="request-field"><span class="field-label">요청 당시 보호 대상</span><span class="mono">${escapeHtml(event.targetId || '대상 미기록')}</span></div>
+          <div class="request-field"><span class="field-label">실험 실행 ID</span><span class="mono">${escapeHtml(event.runId || '—')}</span></div>
           <div class="request-field"><span class="field-label">적용 전략</span>${strategies}</div>
           <div class="request-field"><span class="field-label">방어 신호</span><span>${escapeHtml(displayName(event.defenseSignal || 'none', DEFENSE_SIGNALS))}</span></div>
           <div class="request-field"><span class="field-label">처리 시간</span><span class="mono">${durationText}</span></div>
@@ -499,7 +515,7 @@
       for (const key of state.groupOpen.keys()) if (!availableKeys.has(key)) state.groupOpen.delete(key);
       const filtered = indexedRequests.filter(({ event }) => [
         event.requestId, event.id, event.path, hasClientId(event) ? event.clientId : '정책 키 없음 연결 불가', event.policySource, event.method,
-        event.outcome, event.defenseSignal, displayName(event.defenseSignal, DEFENSE_SIGNALS),
+        event.outcome, event.defenseSignal, displayName(event.defenseSignal, DEFENSE_SIGNALS), event.targetId, event.runId,
         ...(Array.isArray(event.strategies) ? event.strategies.flatMap(name => [name, displayName(name, STRATEGY_NAMES)]) : []),
       ].join(' ').toLowerCase().includes(query));
       const groups = groupRequests(filtered);
