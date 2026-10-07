@@ -96,7 +96,7 @@ services:
       PATH_ALIAS_MODE: ${PATH_ALIAS_MODE:-off}
       PATH_ALIAS_EPOCH_S: ${PATH_ALIAS_EPOCH_S:-1800}
       PATH_ALIAS_GRACE_EPOCHS: ${PATH_ALIAS_GRACE_EPOCHS:-1}
-      PATH_ALIAS_PREFIXES: ${PATH_ALIAS_PREFIXES:-/rest/,/api/}
+      PATH_ALIAS_PREFIXES: ${PATH_ALIAS_PREFIXES:-/rest/,/api/,/b2b/}
       PATH_ALIAS_ROUTES_FILE: ${PATH_ALIAS_ROUTES_FILE:-/app/config/juice-shop-routes.json}
       PATH_ALIAS_DB_URL: postgresql://ruby:${PATH_ALIAS_DB_PASSWORD:-ruby-local}@path-alias-db:5432/ruby
       PATH_ALIAS_DB_POOL_SIZE: ${PATH_ALIAS_DB_POOL_SIZE:-10}

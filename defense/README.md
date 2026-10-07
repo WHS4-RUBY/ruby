@@ -120,6 +120,8 @@ WebSocket은 업그레이드 요청 시 정책 전략을 한 번 적용하고 �
 
 쿼리로 API 경로를 선택하는 웹은 `PATH_ALIAS_ROUTES_FILE`의 `query_routes`에 진입 경로와 파라미터를 지정한다. 예: `{"path":"/gateway","parameter":"route"}`. 응답의 라우팅 값을 별칭으로 치환하고 요청에서 복원하며, 원본 경로·다른 사용자 별칭·중복 라우팅 키는 enforce에서 차단한다. [설정 예시](config/query-routing-example.json)와 [지원 범위](docs/route-discovery-design.md#쿼리-기반-api-라우팅)를 참고한다.
 
+기본 `juice-shop-routes.json`에는 Juice Shop 서버 코드에서 확인한 `/rest/`, `/api/`, `/b2b/` 경로 67개 패턴이 들어 있다. RUBY Market 설정은 `ruby-shop-routes.json`이며, Ruby Shop 저장소의 FastAPI `/api/` 선언 63개에서 경로 템플릿을 포함해 가져왔다. 대상에 맞는 파일을 `PATH_ALIAS_ROUTES_FILE`로 선택한다. Ruby Shop을 로컬에서 실행할 때는 예를 들어 `PATH_ALIAS_ROUTES_FILE=/app/config/ruby-shop-routes.json`을 지정한다. 두 목록은 각각 `juice-shop/juice-shop`의 `1618a61`과 `WHS4-RUBY/web-defense-benchmark`의 `bba11eb` 소스 기준이며, 새 API나 플러그인이 추가되면 다시 수집하고 실제 브라우저 흐름을 확인해야 한다. Ruby Shop 목록에는 취약점 모듈이 켜졌을 때만 등록되는 API 한 개도 포함한다.
+
 `main`에 직접 push하지 않고 작업 브랜치에서 변경한 뒤 Pull Request를 제출합니다. 자세한 규칙은 [루트 CONTRIBUTING.md](../CONTRIBUTING.md)를 확인하세요.
 
 ## 보안 주의사항
