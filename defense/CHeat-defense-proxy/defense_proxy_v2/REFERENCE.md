@@ -231,7 +231,7 @@ CODEX_LOG_PATH=/tmp/rd-xxxx/codex.jsonl DEFENSE_DB=./defense.db \
 > **이건 "우리가 공격 에이전트도 같이 돌리는 통제된 실험"에서만 의미 있는 지표다.** 실제 대상 앱엔 없으므로 `dashboard.py` 안에
 > `# ══ EXPERIMENT-ONLY ══`로 표시된 블록(코드에 4곳 — `CODEX_LOG_PATH` 상수,
 > `_read_codex_usage()`/`_read_challenges()`/`api_experiment()` 함수, HTML의
-> `#experimentCard` 카드, JS의 `refreshExperiment()`)으로 감싸뒀다. 
+> `#experimentCard` 카드, JS의 `refreshExperiment()`)으로 감싸뒀다.
 ---
 
 ## 서버 무관 미로 (`DECOY_MAZE=1`)
@@ -243,7 +243,7 @@ CODEX_LOG_PATH=/tmp/rd-xxxx/codex.jsonl DEFENSE_DB=./defense.db \
 fuzzing → 백엔드 404 → 프록시가 가로채 "뭔가 찾았다"로 응답한다:
 
 - **크게** — `MAZE_BASE_KB`(30KB) → 물수록 `MAZE_ESC_KB`(250KB) → `MAZE_MAX_KB`(900KB)
-- **느리게** — `MAZE_DELAY_MS`(2.5s) → `MAZE_ESC_DELAY_MS`(6s). 에스컬레이션된 클라이언트의 미로 접촉은 `max(MAZE_ESC_DELAY_MS, ESCALATE_DELAY_MS)`(기본 16s)이고, 같은 요청에 걸린 다른 지연(에스컬레이션 tarpit·FAKE_SHELL 진입 후 지연)과 **합산하지 않는다** 
+- **느리게** — `MAZE_DELAY_MS`(2.5s) → `MAZE_ESC_DELAY_MS`(6s). 에스컬레이션된 클라이언트의 미로 접촉은 `max(MAZE_ESC_DELAY_MS, ESCALATE_DELAY_MS)`(기본 16s)이고, 같은 요청에 걸린 다른 지연(에스컬레이션 tarpit·FAKE_SHELL 진입 후 지연)과 **합산하지 않는다**
 - 한 번 들어온 상위 경로는 **미로 루트로 기억** (그 아래 전부 미로)
 
 > SPA(Angular/React 등)는 미지 경로에 404 대신 `200 + index.html`을 준다. 프록시는 `/` 응답 본문을
@@ -355,7 +355,7 @@ FAKE_SHELL이 코드상 동작해도 실전에서 거의 트리거되지 않는�
 | `POST_RCE_ACTION=drop` | 유예 이후 **모든 요청**에 응답을 `POST_RCE_DROP_S`(기본 99999초)만큼 안 보냄. **아무 신호도 없이 먹통** |
 
 > `tarpit`이 비용(wall/토큰) 최대, `block`이 solved 억제 최고, `drop`은 codex 가 응답을 기다리지
-> 않고 바로 다음 시도로 넘어가 효과 없음으로 확인됨 (`../defense_proxy_v1/results.md`) 
+> 않고 바로 다음 시도로 넘어가 효과 없음으로 확인됨 (`../defense_proxy_v1/results.md`)
 
 ---
 

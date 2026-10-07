@@ -38,7 +38,7 @@ uvicorn Defense_proxy:app --host 127.0.0.1 --port 3002
 | `nginx-fastapi` | nginx 1.27 + FastAPI(Python), `/nginx_status`, API 업그레이드 때 남은 `/_debug/` 라우터 → exec. `X-Powered-By` 는 없음(실제 스택과 같게) | `appuser`(uid 10001), Alpine 컨테이너(`/bin/ash`, `uname` 끝 `Linux`), `/app` | **초안 — 검증 못 함** (RUBY Market 대상) |
 
 nginx 쪽엔 Apache의 CVE-2021-41773처럼 "배너만 보고 바로 RCE로 이어지는" 대표 CVE가
-없어서 `nginx-fastapi` 미끼는 "디버그 라우터가 남아 있다"는 이야기로 만들었다 
+없어서 `nginx-fastapi` 미끼는 "디버그 라우터가 남아 있다"는 이야기로 만들었다
 알려진 약점: Alpine 컨테이너에는 보통 `sudo`·SUID 헬퍼가 없어 `sudo -l` 퀘스트의 신빙성이 `apache-php` 보다 낮다. 이 프리셋은
 RUBY Market 앞에 맞춘 것이고, `X-Powered-By` 를 일부러 비웠기 때문에 preflight 가
 "family `python` 의 단서가 배너에 없다"는 INFO 를 한 줄 낸다(정상).
