@@ -44,9 +44,18 @@ function parseArgs(argv) {
 function cleanRequest(rawUrl, method, resourceType, origin, prefixes = DEFAULT_PREFIXES) {
   let parsed;
   try { parsed = new URL(rawUrl); } catch { return null; }
-  if (parsed.origin !== origin || !protectedPath(parsed.pathname, prefixes)) return null;
-  return { path: parsed.pathname, method: method.toUpperCase(), resource_type: resourceType,
+  if (parsed.origin !== origin) return null;
+  const queryPaths = [];
+  for (const [key, value] of parsed.searchParams) {
+    // Keep only local protected path candidates, never general query values.
+    if (value.startsWith('/') && !value.startsWith('//') && !/[?#]/.test(value) &&
+        protectedPath(value, prefixes)) queryPaths.push({ key, path: value });
+  }
+  if (!protectedPath(parsed.pathname, prefixes) && !queryPaths.length) return null;
+  const item = { path: parsed.pathname, method: method.toUpperCase(), resource_type: resourceType,
     query_keys: [...new Set(parsed.searchParams.keys())].sort() };
+  if (queryPaths.length) item.query_path_candidates = queryPaths;
+  return item;
 }
 
 function validateSteps(raw, origin) {
@@ -104,10 +113,15 @@ async function main(argv = process.argv.slice(2)) {
       { serviceWorkers: 'block' });
     const page = await context.newPage();
     page.setDefaultTimeout(10000);
+    const captured = new WeakMap();
     context.on('request', request => {
       const item = cleanRequest(request.url(), request.method(), request.resourceType(),
         options.origin, options.prefixes);
-      if (item) report.requests.push(item);
+      if (item) { report.requests.push(item); captured.set(request, item); }
+    });
+    context.on('response', response => {
+      const item = captured.get(response.request());
+      if (item) item.response_status = response.status();
     });
     page.on('pageerror', () => { report.page_error_count++; });
     for (const [index, step] of steps.entries()) {

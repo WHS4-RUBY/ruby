@@ -69,6 +69,25 @@ class ConfigTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIsNone(pa.valid_client_id(value))
 
+    def test_query_route_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            file = Path(directory) / "routes.json"
+            document = {"routes": ["/api/items"], "query_routes": [
+                {"path": "/", "parameter": "rest_route"},
+                {"path": "/gateway", "parameter": "route"}]}
+            file.write_text(json.dumps(document), encoding="utf-8")
+            cfg = pa.PathAliasConfig.from_env({"PATH_ALIAS_MODE": "enforce",
+                "PATH_ALIAS_ROUTES_FILE": str(file),
+                "PATH_ALIAS_DB_PATH": str(Path(directory) / "db.sqlite")})
+            self.assertEqual(cfg.query_routes[0], pa.QueryRoute("/", "rest_route"))
+            document["query_routes"].append(document["query_routes"][0])
+            file.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                pa._load_query_routes(str(file))
+        for path, key in (("/gateway/{id}", "route"), ("/gateway", "bad&key")):
+            with self.assertRaises(ValueError):
+                pa.QueryRoute(path, key)
+
 
 class TableTests(unittest.TestCase):
     def make_cfg(self):
@@ -429,6 +448,85 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(self.calls[-1]["url"],
                          "http://localhost:9000/?next=%2Frest%2Fuser%2Flogin")
         self.assertEqual(self.logs(), [])
+
+    def configure_query_routes(self):
+        cfg = replace(self.cfg, query_routes=(pa.QueryRoute("/gateway", "route"),))
+        table = pa.PathAliasTable(cfg)
+        for name, value in (("PATH_ALIAS", cfg), ("PATH_ALIAS_TABLE", table)):
+            p = patch.object(main, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        self.cfg, self.table = cfg, table
+
+    def test_query_route_body_and_location_issue_encoded_alias(self):
+        self.configure_query_routes()
+        url = "/gateway?route=%2Frest%2Fproducts%2Fsearch&empty=&flag"
+        self.upstream = (302, [("content-type", "text/html"), ("location", url)],
+                         ('<a href="' + url.replace("&", "&amp;") + '">search</a>').encode())
+        page = self.client.get("/")
+        client = self.client.cookies.get(pa.COOKIE_NAME)
+        alias = self.table.current_aliases(NOW, client)["/rest/products/search"]
+        self.assertIn("route=%2F" + alias.lstrip("/"), page.headers["location"])
+        self.assertIn("&amp;empty=&amp;flag", page.text)
+        self.assertNotIn("%2Frest%2F", page.text)
+        self.upstream = self.JSON
+        response = self.client.get(page.headers["location"])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.calls[-1]["url"], "http://localhost:9000" + url)
+
+    def test_query_alias_reaches_later_strategy_and_preserves_other_fields(self):
+        self.configure_query_routes()
+        _, _, alias = self.open_page()
+        strategy = AsyncMock()
+        strategy.apply.return_value = DefenseResult()
+        query = "route=" + alias + "&q=a%20b&q=a+b&empty=&flag"
+        with patch.dict(main.STRATEGY_REGISTRY, {"inspect": strategy}):
+            response = self.client.get("/gateway?" + query, headers={
+                "x-defense-plan": '[{"name":"inspect"}]'})
+        self.assertEqual(response.status_code, 200)
+        request = strategy.apply.call_args.args[0]
+        self.assertEqual(request.url.path, "/gateway")
+        self.assertEqual(request.query_params["route"], "/rest/products/search")
+        self.assertTrue(self.calls[-1]["url"].endswith(
+            "/gateway?route=/rest/products/search&q=a%20b&q=a+b&empty=&flag"))
+
+    def test_query_direct_foreign_duplicate_and_old_alias_block_before_forward(self):
+        self.configure_query_routes()
+        _, client, alias = self.open_page()
+        foreign = self.table.current_aliases(NOW, BOB)["/rest/products/search"]
+        for query in ("route=%2Frest%2Fproducts%2Fsearch", "route=" + foreign,
+                      "route=" + alias + "&%72oute=" + alias, "route=" + alias):
+            with self.subTest(query=query):
+                before = len(self.calls)
+                response = self.client.get("/gateway?" + query)
+                self.assertEqual(response.status_code, 404)
+                self.assertEqual(len(self.calls), before)
+        self.assertEqual(self.table.resolve(alias, "GET", NOW, client).kind, "reject")
+
+    def test_query_route_method_and_dynamic_suffix(self):
+        self.configure_query_routes()
+        _, client, _ = self.open_page()
+        aliases = self.table.current_aliases(NOW, client)
+        login = aliases["/rest/user/login"]
+        self.assertEqual(self.client.get("/gateway?route=" + login).status_code, 404)
+        aliases = self.table.current_aliases(NOW, client)
+        checkout = aliases["/rest/basket/{id}/checkout"]
+        response = self.client.get("/gateway?route=" + checkout + "/42")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.calls[-1]["url"].endswith("route=/rest/basket/42/checkout"))
+
+    def test_query_observe_keeps_restored_dispatcher_and_logs_would_block(self):
+        cfg = replace(self.cfg, mode="observe", query_routes=(
+            pa.QueryRoute("/rest/user/whoami", "route"),))
+        table = pa.PathAliasTable(cfg)
+        with patch.object(main, "PATH_ALIAS", cfg), patch.object(main, "PATH_ALIAS_TABLE", table):
+            self.client.cookies.set(pa.COOKIE_NAME, ALICE)
+            dispatcher = table.current_aliases(NOW, ALICE)["/rest/user/whoami"]
+            response = self.client.get(dispatcher + "?route=%2Frest%2Fproducts%2Fsearch")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.calls[-1]["url"].endswith(
+            "/rest/user/whoami?route=%2Frest%2Fproducts%2Fsearch"))
+        self.assertEqual(self.logs()[-1]["decision"], "would_block")
 
     def test_alias_without_its_cookie_is_refused(self):
         _, _, alias = self.open_page()

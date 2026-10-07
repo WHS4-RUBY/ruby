@@ -74,6 +74,13 @@ jobs:
       - name: Test ${{ matrix.service }}
         run: python -m unittest discover -s ${{ matrix.service }}/tests -p 'test_*.py'
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Test browser API request capture
+        run: node --test defense/tests/capture_api_requests.test.cjs
+
   integration-check:
     runs-on: ubuntu-26.04
     needs: [detection-check, python-check]

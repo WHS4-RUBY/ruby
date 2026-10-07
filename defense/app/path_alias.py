@@ -12,9 +12,9 @@ import sys
 import threading
 from collections.abc import Iterator, Mapping
 from contextlib import closing, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from urllib.parse import unquote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, unquote_plus, urlsplit, urlunsplit
 
 LOGGER_NAME = "ruby.defense.path_alias"
 DEFAULT_PREFIXES = ("/rest/", "/api/")
@@ -168,6 +168,33 @@ def _load_routes(file_name: str) -> tuple[Route, ...]:
 
 
 @dataclass(frozen=True)
+class QueryRoute:
+    """An application dispatcher whose named query value selects a protected path."""
+    path: str
+    parameter: str
+
+    def __post_init__(self):
+        if self.path != "/":
+            Route(self.path)
+        if "{" in self.path or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", self.parameter):
+            raise ValueError("Query routes require an exact path and a parameter name")
+
+
+def _load_query_routes(file_name: str) -> tuple[QueryRoute, ...]:
+    items = json.loads(Path(file_name).read_text(encoding="utf-8")).get("query_routes", [])
+    if not isinstance(items, list):
+        raise ValueError("query_routes must be an array")
+    rules = []
+    for item in items:
+        if not isinstance(item, dict) or not all(isinstance(item.get(k), str) for k in ("path", "parameter")):
+            raise ValueError("Query routes require path and parameter strings")
+        rules.append(QueryRoute(item["path"], item["parameter"]))
+    if len(set((r.path, r.parameter) for r in rules)) != len(rules):
+        raise ValueError("Query routes must be unique")
+    return tuple(rules)
+
+
+@dataclass(frozen=True)
 class PathAliasConfig:
     mode: str = "off"
     epoch_s: int = 1800
@@ -181,6 +208,7 @@ class PathAliasConfig:
     cookie_secure: bool = False
     db_url: str = ""  # postgresql://... ; takes precedence over db_path
     db_pool_size: int = 10
+    query_routes: tuple[QueryRoute, ...] = ()
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] = os.environ) -> "PathAliasConfig":
@@ -201,6 +229,7 @@ class PathAliasConfig:
                              "and a positive pool size")
         prefixes = _parse_prefixes(environ.get("PATH_ALIAS_PREFIXES", ",".join(DEFAULT_PREFIXES)))
         routes = _load_routes(environ.get("PATH_ALIAS_ROUTES_FILE", ""))
+        query_routes = _load_query_routes(environ.get("PATH_ALIAS_ROUTES_FILE", ""))
         for route in routes:
             if not any(route.path.lower() == p.rstrip("/") or route.path.lower().startswith(p) for p in prefixes):
                 raise ValueError(f"Route {route.path!r} is outside protected prefixes")
@@ -219,7 +248,7 @@ class PathAliasConfig:
             raise ValueError("PATH_ALIAS_COOKIE_SECURE must be true or false")
         _configure_logger()
         return cls(mode, epoch_s, grace, prefixes, routes, max_bytes, app_id, db_path,
-                   rotate_on, secure == "true", db_url, pool_size)
+                   rotate_on, secure == "true", db_url, pool_size, query_routes)
 
 
 @dataclass(frozen=True)
@@ -231,6 +260,7 @@ class Resolution:
     reason: str | None = None
     route_id: str | None = None
     generation: int | None = None
+    query_string: bytes | None = None
 
 
 def _ambiguous(path: str) -> bool:
@@ -395,6 +425,7 @@ class PathAliasTable:
             "epoch_s": cfg.epoch_s, "grace_epochs": cfg.grace_epochs,
             "prefixes": sorted(cfg.prefixes),
             "routes": sorted((route.path, route.methods) for route in cfg.routes),
+            "query_routes": sorted((rule.path, rule.parameter) for rule in cfg.query_routes),
         }
         self._config_hash = hashlib.sha256(json.dumps(config_data, sort_keys=True).encode()).hexdigest()
         prefixes = b"|".join(re.escape(p.rstrip("/").encode("ascii")) for p in cfg.prefixes)
@@ -614,9 +645,77 @@ class PathAliasTable:
                 return Resolution("direct", path, prefix)
         return Resolution("other", path)
 
+    def resolve_request(self, path: str, query: bytes, method: str, now: float,
+                        client_id: str | None = None) -> Resolution:
+        outer = self.resolve(path, method, now, client_id)
+        if self.cfg.mode == "off" or outer.kind in ("direct", "reject"):
+            return outer
+        rules = [r for r in self.cfg.query_routes if r.path == outer.upstream_path]
+        if not rules:
+            return outer
+        # Only replace configured values. Every other byte (including duplicate keys,
+        # blanks and escape spelling) stays untouched.
+        fields = query.decode("ascii", errors="surrogateescape").split("&")
+        selected = outer
+        for rule in rules:
+            indexes = [i for i, field in enumerate(fields)
+                       if unquote_plus(field.partition("=")[0]) == rule.parameter]
+            if len(indexes) > 1:
+                return replace(outer, kind="reject", reason="duplicate_query_route", query_string=query)
+            if not indexes:
+                continue
+            i = indexes[0]
+            key, separator, raw_value = fields[i].partition("=")
+            value = unquote_plus(raw_value)
+            if not separator or not value.startswith("/") or any(c in value for c in "?#"):
+                return replace(outer, kind="reject", reason="invalid_query_route", query_string=query)
+            inner = self.resolve(value, method, now, client_id)
+            if inner.kind in ("direct", "reject"):
+                return replace(inner, upstream_path=outer.upstream_path, query_string=query)
+            if inner.kind != "alias":
+                return replace(outer, kind="reject", reason="unprotected_query_route", query_string=query)
+            fields[i] = key + "=" + quote(inner.upstream_path, safe="" if "%" in raw_value else "/")
+            selected = replace(inner, upstream_path=outer.upstream_path)
+        return replace(selected, query_string="&".join(fields).encode("ascii", errors="surrogateescape"))
+
+    def _rewrite_query(self, path: str, query: str, now: float, client_id: str) -> str:
+        parameters = {r.parameter for r in self.cfg.query_routes if r.path == path}
+        if not parameters:
+            return query
+        fields = query.split("&")
+        for i, field in enumerate(fields):
+            key, separator, raw = field.partition("=")
+            if separator and unquote_plus(key) in parameters:
+                value = unquote_plus(raw)
+                if not value.startswith("/") or any(c in value for c in "?#"):
+                    continue
+                alias = self.rewrite_location(value, "", now, client_id)
+                if alias != value:
+                    fields[i] = key + "=" + quote(alias, safe="" if "%" in raw else "/")
+        return "&".join(fields)
+
     def rewrite_body(self, body: bytes, now: float, client_id: str) -> tuple[bytes, int]:
         if not body:
             return body, 0
+        query_count = 0
+        for dispatcher in sorted({r.path for r in self.cfg.query_routes}, key=len, reverse=True):
+            pattern = re.compile(rb'(?<![A-Za-z0-9_:/.-])' + re.escape(dispatcher.encode()) +
+                                 rb'\?[^\s\x22\x27`<>\)]+')
+            def rewrite_query_url(match):
+                nonlocal query_count
+                try:
+                    original = match.group().decode("utf-8")
+                except UnicodeDecodeError:
+                    return match.group()
+                value = original.replace("&amp;", "&")
+                rewritten = self.rewrite_location(value, "", now, client_id)
+                if rewritten == value:
+                    return match.group()
+                query_count += 1
+                if "&amp;" in original:
+                    rewritten = rewritten.replace("&", "&amp;")
+                return rewritten.encode("utf-8")
+            body = pattern.sub(rewrite_query_url, body)
         aliases = None  # issued lazily, so bodies without routes never create a client
         count = 0
         output, copied_until = [], 0
@@ -641,14 +740,15 @@ class PathAliasTable:
                 count += 1
                 break
         if not count:
-            return body, 0
+            return body, query_count
         output.append(body[copied_until:])
-        return b"".join(output), count
+        return b"".join(output), count + query_count
 
     def rewrite_location(self, value: str, public_host: str, now: float, client_id: str) -> str:
         parts = urlsplit(value)
         if parts.netloc and parts.netloc.lower() != public_host.lower():
             return value
+        query = self._rewrite_query(parts.path, parts.query, now, client_id)
         for route in self.cfg.routes:
             match = self._real_patterns[route.path].fullmatch(parts.path)
             if not match:
@@ -658,8 +758,8 @@ class PathAliasTable:
             if route.variables and route.variables[-1].group(2) and parts.path.endswith("/") and not suffix:
                 suffix = "/"
             alias_path = self.current_aliases(now, client_id)[route.path] + suffix
-            return urlunsplit((parts.scheme, parts.netloc, alias_path, parts.query, parts.fragment))
-        return value
+            return urlunsplit((parts.scheme, parts.netloc, alias_path, query, parts.fragment))
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment)) if query != parts.query else value
 
 
 def decide(resolution: Resolution, cfg: PathAliasConfig) -> str:

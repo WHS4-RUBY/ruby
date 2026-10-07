@@ -50,9 +50,11 @@ HTML·JS·JSON 응답과 `Location`에서 설정된 경로를 별칭으로 바�
 기본값은 `PATH_ALIAS_MODE=off`입니다. 로컬 Juice Shop의 경로 예시는 [`config/juice-shop-routes.json`](config/juice-shop-routes.json)에 있습니다.
 다른 앱에는 경로 파일·보호 접두사를 바꿔 정상 사용을 먼저 검증해야 합니다. 저장소는 `PATH_ALIAS_DB_URL`(PostgreSQL)이 있으면 그것을, 없으면 `PATH_ALIAS_DB_PATH`(영속 SQLite 파일)를 씁니다. 로컬·배포 Compose는 `path-alias-db`(PostgreSQL 16) 컨테이너와 `path-alias-pg` 볼륨을 쓰며, 배포 Compose는 `PATH_ALIAS_DB_PASSWORD`가 없으면 시작하지 않습니다(GitHub Secret `PATH_ALIAS_DB_PASSWORD` 필요). 같은 DB와 같은 경로 설정을 쓰는 worker·서버는 발급 결과를 공유하고 재시작 후에도 현재 별칭을 유지합니다. 프로세스마다 `PATH_ALIAS_DB_POOL_SIZE`(기본 10)개까지 연결을 재사용합니다. SQLite는 단일 호스트 실험(`benchmark/experiments/path_alias_ab`)과 테스트용으로 남겨 둡니다.
 DB는 `(app_id, client_id)`별 세대와 `(app_id, client_id, route_path, generation)`별 별칭을 분리해 저장합니다. 한 사용자의 별칭 교체가 다른 사용자에게 영향을 주지 않으며, 쓰기는 PostgreSQL에서 클라이언트별 advisory lock으로 직렬화하므로 서로 다른 사용자의 발급·교체는 서로 기다리지 않습니다(SQLite는 DB 전체 쓰기 잠금). 만료 행 청소는 프로세스당 최대 `min(EPOCH_S, 60)`초에 한 번, 한 worker만 수행합니다. DB 호출은 이벤트 루프를 막지 않도록 스레드에서 실행합니다. PostgreSQL 테이블 테스트는 `PATH_ALIAS_TEST_DB_URL=postgresql://...`을 지정하면 실행되며 CI에서는 항상 실행합니다.
-프록시는 쿼리 문자열의 원본 바이트를 업스트림에 전달합니다. 쿼리 값이 경로인 앱에서도 인코딩과 중복 키를 임의로 바꾸지 않습니다. 쿼리 값 자체를 보호 대상 경로로 취급할지는 해당 앱의 라우팅 규칙을 확인한 뒤 별도로 정해야 합니다.
+프록시는 일반 쿼리 필드의 원본 바이트를 보존합니다. `query_routes`로 지정한 API 선택값은 별칭으로 치환·복원하고, 중복 라우팅 키는 거부합니다. 앱의 실제 규칙은 수집 자료 검토와 정상 흐름 검증을 거쳐 확정합니다.
 AI가 경로 목록을 검토할 때는 별칭 적용 전 앱에서 `python -m defense.scripts.discover_path_alias_routes --fetch http://APP_ORIGIN --asset-dir local-assets --output route-report.json`으로 공개 JS·HTML을 자동 수집할 수 있습니다. 저장한 JS·HTML 또는 브라우저 HAR도 입력 파일로 지정할 수 있습니다. 보고서는 이미 설정된 경로와 동적 접두사, 경로를 담은 쿼리 키를 구분하며 설정 파일을 자동 변경하지 않습니다. HAR 원본에는 세션 정보가 있을 수 있으므로 로컬 임시 경로에 보관하세요.
-로그인 후·화면 상호작용 중에만 나타나는 API는 Playwright가 설치된 로컬 테스트 환경에서 `node defense/scripts/capture_api_requests.cjs --origin http://APP_ORIGIN --steps flow.json --output capture.runtime.json`으로 기록합니다. 필요하면 `--storage-state state.json`으로 테스트 계정의 브라우저 세션을 주입합니다. 흐름 파일의 `fill` 단계는 값 대신 환경변수 이름(`valueEnv`)을 받습니다. 생성된 `*.runtime.json`을 위 수집기의 입력으로 추가하면 관찰된 경로와 HTTP 메서드를 보고서에 합칩니다. 수집 결과에는 쿠키·헤더·본문·쿼리 값이 들어가지 않지만, 경로 자체에 민감한 식별자가 있을 수 있으므로 검토 후 공유하세요.
+로그인 후·화면 상호작용 중에만 나타나는 API는 Playwright가 설치된 로컬 테스트 환경에서 `node defense/scripts/capture_api_requests.cjs --origin http://APP_ORIGIN --steps flow.json --output capture.runtime.json`으로 기록합니다. 필요하면 `--storage-state state.json`으로 테스트 계정의 브라우저 세션을 주입합니다. 흐름 파일의 `fill` 단계는 값 대신 환경변수 이름(`valueEnv`)을 받습니다. 생성된 `*.runtime.json`을 수집기의 입력으로 추가하면 관찰된 경로·메서드·응답 상태와 쿼리 라우팅 후보를 합칩니다. 보호 접두사 밖 dispatcher도 쿼리 값에 보호 경로가 있으면 기록합니다. 쿠키·헤더·본문·일반 쿼리 값은 저장하지 않지만 보호 경로를 담은 쿼리 값은 후보로 저장하므로 민감한 식별자가 있는지 검토하세요.
+
+수집 보고서는 운영자가 검토해 경로와 쿼리 라우팅 규칙을 설정합니다. AI 모델 호출과 설정 초안 생성은 제공하지 않으며, 정상 흐름 확인 후 `PATH_ALIAS_ROUTES_FILE`로 적용합니다.
 두 도구의 기본 보호 경로 접두사는 `/rest/,/api/`입니다. 다른 앱에서는 두 명령에 같은 `--prefixes /graphql,/v1/` 값을 지정해 해당 앱의 API 경로 관례에 맞춥니다.
 설계·검증 결과·한계는 [경로 별칭 설계](docs/path-alias-plan.md), 설치형 경로 수집과 DB 키 설계는 [경로 발견 설계](docs/route-discovery-design.md)를 참고하세요.
 
@@ -60,7 +62,7 @@ AI가 경로 목록을 검토할 때는 별칭 적용 전 앱에서 `python -m d
 
 설계상 요청은 탐지 프록시를 거친 뒤 방어 프록시의 4단계를 차례로 통과합니다. 경로 별칭은 방어 프록시에서 **가장 먼저 적용되는 1단계**입니다. 현재 코드는 `catch_all`에서 별칭 해석·차단을 마친 뒤 `X-Defense-Plan`의 전략을 배열 순서대로 실행합니다. 2~4단계를 구분하는 실행기와 각 단계의 구체적인 구성은 아직 구현되어 있지 않습니다.
 
-- **뒤 단계가 진짜 경로를 봅니다.** 별칭을 풀기 전 경로는 `/__ruby_alias_...`라서 경로별 규칙(경로별 요청 제한, 특정 API 보호 등)이 동작하지 않습니다. 1단계에서 원래 경로로 복원한 요청 객체를 뒤 전략에 전달합니다. 이 객체의 URL·ASGI 경로·라우트 매개변수는 복원된 경로를 가리키며, 쿼리 원본 바이트와 요청 본문은 유지합니다. 별칭 로그에는 원래 들어온 요청을 사용합니다.
+- **뒤 단계가 진짜 경로를 봅니다.** 1단계에서 복원한 요청 객체를 뒤 전략에 전달합니다. URL·ASGI 경로·라우트 매개변수와 설정된 쿼리 라우팅 값이 복원됩니다. 일반 쿼리 필드와 요청 본문은 유지합니다. 쿼리 라우팅 앱의 후속 전략은 복원된 파라미터를 확인해야 하며 dispatcher의 pathname 자체는 유지됩니다. 별칭 로그에는 원래 들어온 요청을 사용합니다.
 - **값싸고 확실한 차단을 먼저 합니다.** DB 조회 한 번으로 발급받은 주소를 아는 클라이언트인지 판정합니다. 원래 주소를 직접 호출하는 스캐너·에이전트를 여기서 404로 막으면 뒤 단계의 부담이 줄어듭니다.
 - **교체 신호를 놓치지 않습니다.** 별칭 교체는 `direct`·`reject` 요청을 보고 일어납니다. 앞 단계가 그런 요청을 먼저 막으면 교체가 일어나지 않습니다.
 - **응답 치환은 클라이언트에 가장 가까운 곳에서 마지막으로 하는 것이 설계 목표입니다.** 현재는 업스트림 응답의 경로와 `Location`을 치환합니다. 전략의 응답 처리 훅과 역순 실행은 아직 없으며, 전략이 즉시 반환한 응답(`short_circuit`)도 현재 치환 대상이 아닙니다. 뒤 단계가 응답에 미끼 링크 등을 추가하려면 이 응답 처리 구조를 먼저 구현해야 합니다.
@@ -92,6 +94,8 @@ AI가 경로 목록을 검토할 때는 별칭 적용 전 앱에서 `python -m d
 이후 검증 결과는 [진행 기록](docs/token-gate-docker-progress.md)에 이어 기록합니다.
 
 ## 참여 방법
+
+쿼리로 API 경로를 선택하는 웹은 `PATH_ALIAS_ROUTES_FILE`의 `query_routes`에 진입 경로와 파라미터를 지정한다. 예: `{"path":"/gateway","parameter":"route"}`. 응답의 라우팅 값을 별칭으로 치환하고 요청에서 복원하며, 원본 경로·다른 사용자 별칭·중복 라우팅 키는 enforce에서 차단한다. [설정 예시](config/query-routing-example.json)와 [지원 범위](docs/route-discovery-design.md#쿼리-기반-api-라우팅)를 참고한다.
 
 `main`에 직접 push하지 않고 작업 브랜치에서 변경한 뒤 Pull Request를 제출합니다. 자세한 규칙은 [루트 CONTRIBUTING.md](../CONTRIBUTING.md)를 확인하세요.
 

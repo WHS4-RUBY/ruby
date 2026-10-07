@@ -111,7 +111,27 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
     found: dict[str, set[str]] = defaultdict(set)
     observed_methods: dict[str, set[str]] = defaultdict(set)
     query_paths: dict[tuple[str, str], set[str]] = defaultdict(set)
+    query_evidence: dict[tuple[str, str, str], dict] = {}
     incomplete_runtime_captures: list[str] = []
+
+    def add_query(dispatcher: str | None, key: str, value: str, source: str,
+                  method: str = "", status: int | None = None, runtime: bool = False):
+        path = protected_path(value, prefixes)
+        if not path or not value.startswith("/") or value.startswith("//") or any(c in value for c in "?#"):
+            return
+        query_paths[(key, path)].add(source)
+        if not dispatcher:
+            return
+        evidence = query_evidence.setdefault((dispatcher, key, path), {
+            "dispatcher_path": dispatcher, "parameter": key, "target_path": path,
+            "sources": set(), "observed_methods": set(), "response_statuses": set(),
+            "runtime_observed": False})
+        evidence["sources"].add(source)
+        if re.fullmatch(r"[A-Z]+", method):
+            evidence["observed_methods"].add(method)
+        if isinstance(status, int) and not isinstance(status, bool):
+            evidence["response_statuses"].add(status)
+        evidence["runtime_observed"] |= runtime
 
     def add_text(source: str, value: str) -> None:
         value = value.replace("\\/", "/")
@@ -122,6 +142,10 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
             path = protected_path(match.group(2), prefixes)
             if path:
                 query_paths[(match.group(1), path)].add(source)
+        for match in re.finditer(r'(?<![A-Za-z0-9_:/.-])(/[A-Za-z0-9_./-]*\?[^\s\x22\x27`<>]+)', value):
+            parsed = urlsplit(match.group(1).replace("&amp;", "&"))
+            for key, item in parse_qsl(parsed.query, keep_blank_values=True):
+                add_query(parsed.path, key, item, source)
 
     for file in inputs:
         if file.name.endswith(".runtime.json"):
@@ -135,6 +159,9 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
                     capture.get("page_error_count", 0)):
                 incomplete_runtime_captures.append(file.name)
             for entry in capture.get("requests", []):
+                for item in entry.get("query_path_candidates", []):
+                    add_query(entry.get("path"), item.get("key", ""), item.get("path", ""),
+                              file.name, entry.get("method", "").upper(), entry.get("response_status"), True)
                 path = protected_path(entry.get("path", ""), prefixes)
                 if not path:
                     continue
@@ -160,6 +187,9 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
                     path = protected_path(value, prefixes)
                     if path:
                         query_paths[(key, path)].add(file.name)
+                    add_query(parsed.path, key, value, file.name,
+                              entry.get("request", {}).get("method", "").upper(),
+                              entry.get("response", {}).get("status"), True)
         else:
             add_text(file.name, file.read_text(encoding="utf-8", errors="replace"))
 
@@ -184,6 +214,12 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
         "query_path_candidates": [
             {"key": key, "path": path, "sources": sorted(sources)}
             for (key, path), sources in sorted(query_paths.items())
+        ],
+        "query_routing_evidence": [
+            {"id": hashlib.sha256("\0".join(key).encode()).hexdigest()[:16],
+             **{name: sorted(value) if isinstance(value, set) else value
+                for name, value in item.items()}}
+            for key, item in sorted(query_evidence.items())
         ],
     }
 

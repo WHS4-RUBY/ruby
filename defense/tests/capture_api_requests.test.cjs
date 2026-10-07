@@ -30,3 +30,15 @@ test('requires an explicit bounded flow and same-origin navigation', () => {
   assert.throws(() => validateSteps([{ action: 'fill', selector: '#password', value: 'secret' }],
     options.origin), /valueEnv/);
 });
+
+test('captures query path candidates on dispatchers outside API prefixes', () => {
+  const item = cleanRequest('https://shop.example/gateway?route=%2Fapi%2Fitems&token=secret',
+    'GET', 'fetch', 'https://shop.example');
+  assert.equal(item.path, '/gateway');
+  assert.deepEqual(item.query_path_candidates, [{ key: 'route', path: '/api/items' }]);
+  assert.equal(JSON.stringify(item).includes('secret'), false);
+  assert.equal(cleanRequest('https://shop.example/gateway?route=https://other.example/api/items',
+    'GET', 'fetch', 'https://shop.example'), null);
+  assert.equal(cleanRequest('https://shop.example/gateway?route=%2Fapi%2Fitems%3Ftoken%3Dsecret',
+    'GET', 'fetch', 'https://shop.example'), null);
+});

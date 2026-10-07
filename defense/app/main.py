@@ -415,11 +415,13 @@ async def catch_all(request: Request, full_path: str):
     # Defense stage 1: path aliases run before every other strategy, so later stages see the
     # real path and the alias rewrite is the last change to the outgoing response (README).
     alias_client = path_alias.valid_client_id(request.cookies.get(path_alias.COOKIE_NAME))
-    alias = await _alias_db(PATH_ALIAS_TABLE.resolve, request.url.path, request.method,
+    alias = await _alias_db(PATH_ALIAS_TABLE.resolve_request, request.url.path,
+                            request.scope.get("query_string", b""), request.method,
                             time.time(), alias_client)
     alias_decision = path_alias.decide(alias, PATH_ALIAS)
     rotation = await _rotate_on_event(alias, alias_client)
-    translated = alias.kind == "alias"
+    translated = (alias.kind == "alias" or
+                  (alias.query_string is not None and alias.upstream_path != request.url.path))
     record_path = alias.upstream_path if translated else request.url.path
 
     gate = None
@@ -456,6 +458,8 @@ async def catch_all(request: Request, full_path: str):
         scope["raw_path"] = quote(alias.upstream_path, safe="/%:@!$&'()*+,;=-._~").encode("ascii")
         scope["path_params"] = {**scope.get("path_params", {}),
                                 "full_path": scope["path"].lstrip("/")}
+        if alias.query_string is not None:
+            scope["query_string"] = alias.query_string
         strategy_request = Request(scope, request.receive)
 
     for step in plan:
@@ -495,7 +499,7 @@ async def catch_all(request: Request, full_path: str):
         # Query values can themselves be paths (or signed URLs). Rebuilding them through
         # QueryParams changes escaping, empty values, and sometimes the app's routing.
         upstream_url = httpx.URL(f"{BENCHMARK_TARGET_URL.rstrip('/')}/{upstream_path}")
-        raw_query = request.scope.get("query_string", b"")
+        raw_query = strategy_request.scope.get("query_string", b"")
         if raw_query:
             upstream_url = upstream_url.copy_with(query=raw_query)
         upstream_request = request.app.state.http_client.build_request(
