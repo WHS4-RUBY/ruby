@@ -17,7 +17,8 @@ from urllib.request import Request, urlopen
 from defense.app.path_alias import Route
 
 
-PATH = re.compile(r"/(?:(?:rest|api)/)[A-Za-z0-9_.$/{}/%:-]*", re.I)
+ANY_PATH = re.compile(r"/[A-Za-z0-9_.$/{}/%:-]+")
+DEFAULT_PREFIXES = ("/rest/", "/api/")
 QUERY_PATH = re.compile(r"[?&]([A-Za-z][A-Za-z0-9_-]*)=([^&#\s\"'`]+)")
 INPUT_SUFFIXES = {".js", ".mjs", ".html", ".har"}
 JS_REF = re.compile(r"[\"']([^\"'\s]+\.(?:m?js))[\"']", re.I)
@@ -86,16 +87,23 @@ def fetch_assets(origin: str, directory: Path) -> list[Path]:
     return files
 
 
-def protected_path(value: str) -> str | None:
+def matches_prefix(path: str, prefixes: tuple[str, ...]) -> bool:
+    return any(path.startswith(prefix) if prefix.endswith("/") else
+               path == prefix or path.startswith(prefix + "/") for prefix in prefixes)
+
+
+def protected_path(value: str, prefixes: tuple[str, ...] = DEFAULT_PREFIXES) -> str | None:
     value = unquote(value)
     if value.startswith(("http://", "https://")):
         value = urlsplit(value).path
-    match = PATH.match(value)
-    return match.group(0) if match else None
+    match = ANY_PATH.match(value)
+    path = match.group(0) if match else None
+    return path if path and matches_prefix(path, prefixes) else None
 
 
 def inventory(inputs: list[Path], routes_file: Path | None = None,
-              origin: str | None = None) -> dict:
+              origin: str | None = None,
+              prefixes: tuple[str, ...] = DEFAULT_PREFIXES) -> dict:
     configured = json.loads(routes_file.read_text(encoding="utf-8"))["routes"] if routes_file else []
     routes = [Route(item if isinstance(item, str) else item["path"],
                     ("*",) if isinstance(item, str) else tuple(item.get("methods", ["*"])))
@@ -103,18 +111,38 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
     found: dict[str, set[str]] = defaultdict(set)
     observed_methods: dict[str, set[str]] = defaultdict(set)
     query_paths: dict[tuple[str, str], set[str]] = defaultdict(set)
+    incomplete_runtime_captures: list[str] = []
 
     def add_text(source: str, value: str) -> None:
         value = value.replace("\\/", "/")
-        for match in PATH.finditer(value):
-            found[match.group(0)].add(source)
+        for match in ANY_PATH.finditer(value):
+            if matches_prefix(match.group(0), prefixes):
+                found[match.group(0)].add(source)
         for match in QUERY_PATH.finditer(value):
-            path = protected_path(match.group(2))
+            path = protected_path(match.group(2), prefixes)
             if path:
                 query_paths[(match.group(1), path)].add(source)
 
     for file in inputs:
-        if file.suffix.lower() == ".har":
+        if file.name.endswith(".runtime.json"):
+            capture = json.loads(file.read_text(encoding="utf-8"))
+            if capture.get("format") != "ruby-runtime-requests-v1":
+                raise ValueError(f"Unsupported runtime capture: {file}")
+            if origin and capture.get("origin") != urlsplit(origin).scheme + "://" + urlsplit(origin).netloc:
+                continue
+            if (not capture.get("steps") or
+                    any(not step.get("passed") for step in capture["steps"]) or
+                    capture.get("page_error_count", 0)):
+                incomplete_runtime_captures.append(file.name)
+            for entry in capture.get("requests", []):
+                path = protected_path(entry.get("path", ""), prefixes)
+                if not path:
+                    continue
+                found[path].add(file.name)
+                method = entry.get("method", "").upper()
+                if re.fullmatch(r"[A-Z]+", method):
+                    observed_methods[path].add(method)
+        elif file.suffix.lower() == ".har":
             har = json.loads(file.read_text(encoding="utf-8"))
             for entry in har.get("log", {}).get("entries", []):
                 url = entry.get("request", {}).get("url", "")
@@ -122,14 +150,14 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
                 if origin and (parsed.scheme, parsed.netloc) != (urlsplit(origin).scheme,
                                                                  urlsplit(origin).netloc):
                     continue
-                path = protected_path(parsed.path)
+                path = protected_path(parsed.path, prefixes)
                 if path:
                     found[path].add(file.name)
                     method = entry.get("request", {}).get("method", "").upper()
                     if re.fullmatch(r"[A-Z]+", method):
                         observed_methods[path].add(method)
                 for key, value in parse_qsl(parsed.query, keep_blank_values=True):
-                    path = protected_path(value)
+                    path = protected_path(value, prefixes)
                     if path:
                         query_paths[(key, path)].add(file.name)
         else:
@@ -150,6 +178,8 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
     return {
         "note": "Candidates require human review before enabling enforcement.",
         "har_origin_filter": origin,
+        "protected_prefixes": list(prefixes),
+        "incomplete_runtime_captures": sorted(incomplete_runtime_captures),
         "candidates": candidates,
         "query_path_candidates": [
             {"key": key, "path": path, "sources": sorted(sources)}
@@ -164,6 +194,8 @@ def main() -> None:
                         help="saved JS, HTML, browser HAR, or a directory containing them")
     parser.add_argument("--routes", type=Path, help="optional existing route file for coverage comparison")
     parser.add_argument("--origin", help="include only this origin's HAR requests")
+    parser.add_argument("--prefixes", default=",".join(DEFAULT_PREFIXES),
+                        help="comma-separated API path prefixes (default: /rest/,/api/)")
     parser.add_argument("--fetch", help="fetch public HTML and JS from this app origin")
     parser.add_argument("--asset-dir", type=Path, help="directory for fetched assets")
     parser.add_argument("--output", type=Path, help="write the JSON report here")
@@ -175,14 +207,21 @@ def main() -> None:
     fetched = fetch_assets(args.fetch, args.asset_dir) if args.fetch else []
     files = sorted({child for path in [*args.inputs, *fetched]
                     for child in (path.rglob("*") if path.is_dir() else [path])
-                    if child.is_file() and child.suffix.lower() in INPUT_SUFFIXES})
+                    if child.is_file() and (child.suffix.lower() in INPUT_SUFFIXES or
+                                            child.name.endswith(".runtime.json"))})
     if not files:
-        parser.error("No JS, HTML, or HAR input files found")
+        parser.error("No JS, HTML, HAR, or runtime capture input files found")
     if args.origin:
         parsed = urlsplit(args.origin)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
             parser.error("--origin must be an HTTP(S) origin without a path or query")
-    report = json.dumps(inventory(files, args.routes, args.origin), ensure_ascii=False, indent=2) + "\n"
+    prefixes = tuple(item.strip() for item in args.prefixes.split(","))
+    if (not prefixes or len(prefixes) > 16 or any(
+            not re.fullmatch(r"/[A-Za-z0-9_./-]+", item) or ".." in item
+            for item in prefixes)):
+        parser.error("--prefixes must be comma-separated URL path prefixes")
+    report = json.dumps(inventory(files, args.routes, args.origin, prefixes),
+                        ensure_ascii=False, indent=2) + "\n"
     if args.output:
         args.output.write_text(report, encoding="utf-8")
     else:

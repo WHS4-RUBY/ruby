@@ -52,6 +52,8 @@ HTML·JS·JSON 응답과 `Location`에서 설정된 경로를 별칭으로 바�
 DB는 `(app_id, client_id)`별 세대와 `(app_id, client_id, route_path, generation)`별 별칭을 분리해 저장합니다. 한 사용자의 별칭 교체가 다른 사용자에게 영향을 주지 않으며, 쓰기는 PostgreSQL에서 클라이언트별 advisory lock으로 직렬화하므로 서로 다른 사용자의 발급·교체는 서로 기다리지 않습니다(SQLite는 DB 전체 쓰기 잠금). 만료 행 청소는 프로세스당 최대 `min(EPOCH_S, 60)`초에 한 번, 한 worker만 수행합니다. DB 호출은 이벤트 루프를 막지 않도록 스레드에서 실행합니다. PostgreSQL 테이블 테스트는 `PATH_ALIAS_TEST_DB_URL=postgresql://...`을 지정하면 실행되며 CI에서는 항상 실행합니다.
 프록시는 쿼리 문자열의 원본 바이트를 업스트림에 전달합니다. 쿼리 값이 경로인 앱에서도 인코딩과 중복 키를 임의로 바꾸지 않습니다. 쿼리 값 자체를 보호 대상 경로로 취급할지는 해당 앱의 라우팅 규칙을 확인한 뒤 별도로 정해야 합니다.
 AI가 경로 목록을 검토할 때는 별칭 적용 전 앱에서 `python -m defense.scripts.discover_path_alias_routes --fetch http://APP_ORIGIN --asset-dir local-assets --output route-report.json`으로 공개 JS·HTML을 자동 수집할 수 있습니다. 저장한 JS·HTML 또는 브라우저 HAR도 입력 파일로 지정할 수 있습니다. 보고서는 이미 설정된 경로와 동적 접두사, 경로를 담은 쿼리 키를 구분하며 설정 파일을 자동 변경하지 않습니다. HAR 원본에는 세션 정보가 있을 수 있으므로 로컬 임시 경로에 보관하세요.
+로그인 후·화면 상호작용 중에만 나타나는 API는 Playwright가 설치된 로컬 테스트 환경에서 `node defense/scripts/capture_api_requests.cjs --origin http://APP_ORIGIN --steps flow.json --output capture.runtime.json`으로 기록합니다. 필요하면 `--storage-state state.json`으로 테스트 계정의 브라우저 세션을 주입합니다. 흐름 파일의 `fill` 단계는 값 대신 환경변수 이름(`valueEnv`)을 받습니다. 생성된 `*.runtime.json`을 위 수집기의 입력으로 추가하면 관찰된 경로와 HTTP 메서드를 보고서에 합칩니다. 수집 결과에는 쿠키·헤더·본문·쿼리 값이 들어가지 않지만, 경로 자체에 민감한 식별자가 있을 수 있으므로 검토 후 공유하세요.
+두 도구의 기본 보호 경로 접두사는 `/rest/,/api/`입니다. 다른 앱에서는 두 명령에 같은 `--prefixes /graphql,/v1/` 값을 지정해 해당 앱의 API 경로 관례에 맞춥니다.
 설계·검증 결과·한계는 [경로 별칭 설계](docs/path-alias-plan.md), 설치형 경로 수집과 DB 키 설계는 [경로 발견 설계](docs/route-discovery-design.md)를 참고하세요.
 
 ### 방어 단계에서의 위치: 1단계 (2026-10-07)

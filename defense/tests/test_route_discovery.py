@@ -10,6 +10,36 @@ from defense.scripts.discover_path_alias_routes import fetch_assets, inventory
 
 
 class RouteDiscoveryTests(unittest.TestCase):
+    def test_custom_prefixes_find_other_web_api_conventions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = Path(directory) / "main.js"
+            bundle.write_text('fetch("/graphql"); fetch("/v1/items/42"); fetch("/api/ignored")')
+            report = inventory([bundle], prefixes=("/graphql", "/v1/"))
+        self.assertEqual([item["path"] for item in report["candidates"]],
+                         ["/graphql", "/v1/items/42"])
+
+    def test_runtime_capture_adds_observed_methods_without_query_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            capture = Path(directory) / "shop.runtime.json"
+            capture.write_text(json.dumps({
+                "format": "ruby-runtime-requests-v1", "origin": "http://shop.example",
+                "requests": [
+                    {"path": "/rest/basket/7", "method": "POST", "query_keys": ["token"]},
+                    {"path": "/api/Products", "method": "GET", "query_keys": []},
+                ], "steps": [{"passed": True}], "page_errors": [],
+            }), encoding="utf-8")
+            report = inventory([capture], origin="http://shop.example")
+            partial = json.loads(capture.read_text(encoding="utf-8"))
+            partial["steps"][0]["passed"] = False
+            capture.write_text(json.dumps(partial), encoding="utf-8")
+            partial_report = inventory([capture], origin="http://shop.example")
+        by_path = {item["path"]: item for item in report["candidates"]}
+        self.assertEqual(by_path["/rest/basket/7"]["observed_methods"], ["POST"])
+        self.assertEqual(by_path["/api/Products"]["observed_methods"], ["GET"])
+        self.assertNotIn("token", json.dumps(report))
+        self.assertEqual(report["incomplete_runtime_captures"], [])
+        self.assertEqual(partial_report["incomplete_runtime_captures"], [capture.name])
+
     def test_fetches_same_origin_scripts_and_lazy_chunks(self):
         payloads = {
             "http://shop.example/": ("text/html", b'<script src="/main.js"></script>'

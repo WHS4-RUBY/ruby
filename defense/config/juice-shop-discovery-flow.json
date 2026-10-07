@@ -1,0 +1,8 @@
+[
+  {"action": "goto", "path": "/"},
+  {"action": "waitFor", "selector": "text=All Products"},
+  {"action": "goto", "path": "/#/search?q=apple"},
+  {"action": "waitFor", "selector": "text=Apple Juice (1000ml)"},
+  {"action": "goto", "path": "/#/login"},
+  {"action": "waitFor", "selector": "#email"}
+]

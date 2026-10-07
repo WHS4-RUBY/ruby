@@ -16,4 +16,21 @@ SQLite의 [WAL 모드](https://www.sqlite.org/wal.html)는 같은 호스트의 �
 
 ## URL 파싱 경계
 
+### 실행 중 API 수집
+
+정적 자산에 없는 API를 확인하려면 Playwright가 설치된 로컬 테스트 환경에서 다음처럼 실제 사용자 흐름을 실행한다. 별칭 적용 전 앱의 origin을 사용한다.
+
+```sh
+node defense/scripts/capture_api_requests.cjs --origin http://localhost:3000 --steps defense/config/juice-shop-discovery-flow.json --output capture.runtime.json
+python -m defense.scripts.discover_path_alias_routes capture.runtime.json --routes defense/config/juice-shop-routes.json --origin http://localhost:3000 --output route-report.json
+```
+
+흐름 JSON은 `goto`, `click`, `fill`, `press`, `waitFor`, `wait`, `reload`, `back`, `forward` 단계 배열이다. `click`·`fill`·`press`·`waitFor`에는 Playwright 선택자 `selector`를 쓴다. `goto`는 같은 출처의 `path`만 허용한다. `fill`은 비밀번호 등을 파일에 적지 않도록 `valueEnv`로 환경변수 이름을 받는다. 로그인 세션이 이미 준비돼 있으면 `--storage-state state.json`을 추가한다. 수집기는 같은 출처의 `/rest/`, `/api/` 요청 경로와 메서드만 기록하며 쿠키, 헤더, 요청 본문, 쿼리 값은 저장하지 않는다. 경로에 개인 식별자가 포함될 수 있으므로 결과 파일은 검토 후 공유한다.
+다른 웹의 API 접두사가 `/graphql`, `/v1/`이라면 두 명령에 모두 `--prefixes /graphql,/v1/`을 지정한다. 브라우저 흐름이 실패하거나 페이지 오류가 발생하면 보고서의 `incomplete_runtime_captures`에 파일명이 들어가므로 해당 수집을 완전한 경로 목록으로 취급하지 않는다.
+
+이 방식은 **흐름에서 실제 방문한 화면과 수행한 동작**의 API를 추가로 찾는다. 로그인하지 않은 화면, 역할별 화면, 실행하지 않은 기능, 서버 간 요청은 자동으로 완전 탐색하지 않는다. 경로 템플릿과 메서드 제안은 후보 보고서를 검토한 뒤 확정하고, 보고서만으로 `PATH_ALIAS_ROUTES_FILE`을 자동 변경하지 않는다.
+2026-10-07 로컬 Juice Shop의 샘플 흐름 6단계를 실행해 API 요청 16건, 고유 경로 6개를 수집했다. 6개 모두 기존 경로 설정에 포함됐고, 흐름 실패와 페이지 오류는 없었다. 이 수치는 샘플 흐름의 관찰 범위이며 앱 전체 API 수를 뜻하지 않는다.
+
+## URL 파싱 경계
+
 요청의 pathname과 query는 분리해 다룬다. 프록시는 쿼리를 파싱 후 재조립하지 않고 원본 바이트를 업스트림에 전달한다. 따라서 `?next=%2Fapi%2F...`, 중복 키, 빈 값의 표기가 바뀌지 않는다. `?next=/rest/...`가 단순 이동 대상인지, 실제 API 라우팅 선택자인지는 앱마다 다르다. **쿼리에 경로 문자열이 나타났다는 이유만으로 직접 경로 공격으로 분류하거나 별칭을 발급하지 않는다.** 해당 앱의 실제 요청 예시와 정상 사용자 검증이 확보되면 그 키와 엔드포인트를 명시적으로 설정하는 방식으로 확장한다. `/#/login` 같은 fragment는 HTTP 요청에 전송되지 않는 브라우저 내부 경로다.
