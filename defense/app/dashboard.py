@@ -16,6 +16,8 @@ from .dashboard_auth import (
 )
 from .monitoring import event_store
 from .strategies.registry import STRATEGY_REGISTRY
+from . import target_selection
+from .target_selection import TargetSelectionError
 
 DASHBOARD_SESSION_COOKIE = "defense_dashboard_session"
 DASHBOARD_SESSION_TTL_SECONDS = 12 * 60 * 60
@@ -49,6 +51,20 @@ auth_manager = DashboardAuthManager(
 )
 
 router = APIRouter()
+
+
+def _dashboard_config() -> dict:
+    config = {
+        "availableStrategies": sorted(STRATEGY_REGISTRY),
+        "authenticationEnabled": auth_manager.enabled,
+        "eventLimit": event_store.max_events,
+    }
+    try:
+        config["activeTarget"] = target_selection.target_selector.current().public_metadata()
+    except TargetSelectionError:
+        config["activeTarget"] = None
+        config["targetSelectionError"] = "target selection unavailable"
+    return config
 
 
 class DashboardLogin(BaseModel):
@@ -135,11 +151,7 @@ async def dashboard_logout(request: Request):
 @router.get("/__defense/api/snapshot", dependencies=[Depends(require_dashboard_auth)])
 async def defense_snapshot(limit: int = 250, buckets: int = 48):
     snapshot = event_store.dashboard_snapshot(limit=limit, buckets=buckets)
-    snapshot["config"] = {
-        "availableStrategies": sorted(STRATEGY_REGISTRY),
-        "authenticationEnabled": auth_manager.enabled,
-        "eventLimit": event_store.max_events,
-    }
+    snapshot["config"] = _dashboard_config()
     return snapshot
 
 
@@ -165,11 +177,7 @@ async def defense_timeline(buckets: int = 48):
 
 @router.get("/__defense/api/config", dependencies=[Depends(require_dashboard_auth)])
 async def defense_config():
-    return {
-        "availableStrategies": sorted(STRATEGY_REGISTRY),
-        "authenticationEnabled": auth_manager.enabled,
-        "eventLimit": event_store.max_events,
-    }
+    return _dashboard_config()
 
 
 @router.api_route(

@@ -107,6 +107,13 @@
 
   /* ── 페이지 ───────────────────────────────────────────────────── */
   .page { padding:20px 0 48px; }
+  .target-control { display:flex; align-items:center; justify-content:space-between; gap:12px 20px; flex-wrap:wrap; margin:0 0 16px; padding:14px 16px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
+  .target-control h3 { margin:0 0 4px; }
+  .target-control p { margin:0; color:var(--muted); font-size:12.5px; }
+  .target-control form { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .target-control .select-input { width:auto; min-width:180px; }
+  .target-control .target-feedback { width:100%; font-size:12px; }
+  .target-control .target-feedback.error { color:var(--red); }
   .summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:0; margin-bottom:16px; border-bottom:1px solid var(--border); }
   .stat-card { min-width:0; padding:8px 16px 16px; }
   .stat-label { color:var(--muted); font-size:12.5px; font-weight:600; }
@@ -562,7 +569,7 @@
       </div>
       <div class="target-status" aria-label="선택된 공개 경로와 연결 상태">
         <span class="status-dot" aria-hidden="true"></span>
-        <strong>공개 경로</strong>
+        <strong>포트 80 보호 대상</strong>
         <a id="publicTargetLink" href="/" hidden></a><span id="publicTargetFallback">확인 중…</span>
         <span class="start-status" id="detectionDataStatus" role="status" aria-live="polite">탐지 기록 연결 확인 중</span>
       </div>
@@ -592,6 +599,18 @@
     <div class="workspace-heading">
       <div><h2>어떤 요청이 들어왔나요?</h2><p>흐름을 선택하고, 요청을 눌러 탐지 근거를 확인하세요.</p></div>
     </div>
+    <section class="target-control" aria-label="보호 대상 선택">
+      <div>
+        <h3>실험 대상</h3>
+        <p id="activeTargetRun">현재 대상을 확인하는 중입니다.</p>
+      </div>
+      <form id="targetSelectionForm">
+        <label for="targetSelectionChoice">대상</label>
+        <select class="select-input" id="targetSelectionChoice" required disabled></select>
+        <button class="header-button" id="targetSelectionSubmit" type="submit" disabled>선택하고 새 실험 시작</button>
+      </form>
+      <p class="target-feedback" id="targetSelectionFeedback" role="status" aria-live="polite">전환 뒤 포트 80으로 보낸 요청부터 새 실행 ID가 붙습니다.</p>
+    </section>
     <section class="summary" aria-label="현재 보관된 탐지 기록 요약">
       <div class="stat-card"><div class="stat-label">요청 흐름</div><div class="stat-value" id="summaryResolvedActors">—</div><span class="stat-sub" id="summaryResolvedActorsSub"></span></div>
       <div class="stat-card"><div class="stat-label">확인할 공격 신호</div><div class="stat-value" id="summaryAttackFlows">—</div><span class="stat-sub" id="summaryAttackFlowsSub">화면 표시 기준으로 계산</span></div>
@@ -606,7 +625,7 @@
         <li><strong>흐름 선택하기</strong>점수와 연결 근거, 요청 ID를 확인합니다.</li>
         <li><strong>방어 결과 대조하기</strong>로그 행을 펼쳐 "방어 기록에서 보기"로 같은 요청 ID를 엽니다.</li>
       </ol>
-      <p>점수는 0–100 범위의 관찰 지표이며 공격 성공 확률이 아닙니다. 상단의 표시 기준은 배지만 바꾸고 실제 방어 정책은 바꾸지 않습니다. 수치는 현재 보관된 기록으로, 기간 전체 집계가 아닙니다. 화면은 2초마다 자동 갱신됩니다.</p>
+      <p>점수는 0–100 범위의 관찰 지표이며 공격 성공 확률이 아닙니다. 상단의 표시 기준은 배지만 바꾸고 실제 방어 정책은 바꾸지 않습니다. 요약 수치는 보관된 모든 대상·실험의 기록이며, 개별 요청의 대상과 실행 ID는 요청 상세에서 확인합니다. 화면은 2초마다 자동 갱신됩니다.</p>
     </details>
 
     <nav class="workspace-nav" aria-label="탐지 화면">
@@ -1743,6 +1762,7 @@ function renderLogDetail(request) {
     ? `자동화 ${scoreNumber(policy.automationScore)} · 공격 ${scoreNumber(policy.attackScore)} · 위험 ${scoreNumber(policy.riskScore)} · 확정 공격 근거 ${scoreNumber(policy.confirmedAttackScore)}<br>출처 ${escapeHtml(policy.source || '—')} · 전략 ${escapeHtml((policy.strategies || []).join(', ') || '없음')}`
     : '<span class="kv-note">기록 없음</span>');
   if (post) add('응답 후 클라이언트 점수', `자동화 ${scoreNumber(post.automationScore)} · 공격 ${scoreNumber(post.effectiveAttackScore)} · 출처 ${escapeHtml(post.source || '—')}`);
+  if (request.targetId) add('요청 당시 대상', `${escapeHtml(request.targetId)} · 실행 ${escapeHtml(request.targetRunId || '—')}`);
   if (request.defenseSignal) add('방어 신호', escapeHtml(request.defenseSignal));
   add('OWASP CRS', detection?.available
     ? `${escapeHtml(detection.crsVersion || '')} · 이상 점수 ${Number(detection.anomalyScore || 0)} · 규칙 ${escapeHtml((detection.hits || []).map(hit => hit.ruleId).join(', ') || '—')}`
@@ -2497,8 +2517,67 @@ async function refresh() {
   });
 }
 
+async function refreshTargetSelection() {
+  const response = await fetch('/__detection/api/target-selection');
+  if (!response.ok) throw new Error('target status unavailable');
+  const selection = await response.json();
+  const active = selection.active;
+  const target = (selection.targets || []).find(item => item.id === active?.targetId);
+  const link = document.getElementById('publicTargetLink');
+  link.href = selection.protectedUrl || '/';
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.textContent = `${target?.label || active?.targetId || '알 수 없음'} · 보호 경로 열기 ↗`;
+  link.title = `실행 ID: ${active?.runId || '—'}`;
+  link.hidden = false;
+  document.getElementById('publicTargetFallback').hidden = true;
+  document.getElementById('activeTargetRun').textContent =
+    `현재 ${target?.label || active?.targetId || '알 수 없음'} · 실행 ID ${active?.runId || '—'} · ${active?.changedAt ? new Date(active.changedAt).toLocaleString() : '시작 시각 미확인'}`;
+  const choice = document.getElementById('targetSelectionChoice');
+  const ids = (selection.targets || []).map(item => item.id).join(',');
+  if (choice.dataset.targetIds !== ids) {
+    choice.replaceChildren(...(selection.targets || []).map(item => new Option(item.label, item.id)));
+    choice.dataset.targetIds = ids;
+    choice.value = active?.targetId || '';
+  }
+  choice.disabled = !selection.targets?.length;
+  document.getElementById('targetSelectionSubmit').disabled = choice.disabled;
+}
+
+document.getElementById('targetSelectionForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = document.getElementById('targetSelectionSubmit');
+  const feedback = document.getElementById('targetSelectionFeedback');
+  const targetId = document.getElementById('targetSelectionChoice').value;
+  button.disabled = true;
+  feedback.classList.remove('error');
+  feedback.textContent = '대상 연결을 확인하고 전환하는 중입니다…';
+  try {
+    const response = await nativeFetch('/__detection/api/target-selection', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', 'X-Ruby-Target-Selection':'1'},
+      body: JSON.stringify({targetId}),
+    });
+    if (!response.ok) throw new Error(response.status === 503 ? '대상에 연결할 수 없거나 선택 상태를 저장할 수 없습니다.' : `전환 실패 (HTTP ${response.status})`);
+    const result = await response.json();
+    feedback.textContent = `${targetId} 선택 완료 · 실행 ID ${result.active.runId}. 이제 보호 경로로 요청을 보내세요.`;
+    await refreshTargetSelection();
+  } catch (error) {
+    feedback.classList.add('error');
+    feedback.textContent = error.message || '대상을 변경하지 못했습니다.';
+  } finally {
+    button.disabled = false;
+  }
+});
+
 async function monitoredRefresh() {
   const status = document.getElementById('detectionDataStatus');
+  refreshTargetSelection().catch(() => {
+    document.getElementById('publicTargetLink').hidden = true;
+    const fallback = document.getElementById('publicTargetFallback');
+    fallback.hidden = false;
+    fallback.textContent = '대상 상태 확인 실패';
+  });
   try {
     await refresh();
     status.textContent = '탐지 기록 연결됨';
