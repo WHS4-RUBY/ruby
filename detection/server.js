@@ -1,7 +1,6 @@
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const crypto = require("crypto");
-const { fixRequestBody } = require("http-proxy-middleware");
 
 const store = require("./lib/sessionStore");
 const { deriveAuthGroupId } = require("./lib/authGroup");
@@ -64,7 +63,7 @@ const {
 const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
 const { applyDefensePlan, loadPolicyRules } = require("./lib/policyEngine");
-const { createProxyCore } = require("./lib/proxyCore");
+const { createProxyCore, fixRequestBody } = require("./lib/proxyCore");
 const { loadInspectionConfig, createRequestInspection, replayInspectedBody } = require("./lib/requestInspection");
 const {
   DashboardAuthManager,

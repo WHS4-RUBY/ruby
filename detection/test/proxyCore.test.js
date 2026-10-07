@@ -30,6 +30,7 @@ test("response hook의 반환 body를 다음 hook으로 전달한다", async () 
 
 const http = require("node:http");
 const express = require("express");
+const zlib = require("node:zlib");
 
 async function listen(server) {
   await new Promise((resolve, reject) => {
@@ -133,6 +134,34 @@ test("concurrent proxy responses keep cookie snapshots isolated and preserve bod
     ]);
     assert.equal(results[index].body, `${client}-hook`);
   }
+});
+
+test("compressed upstream responses are decoded before hooks and sent with corrected headers", async (t) => {
+  const original = Buffer.from("compressed response");
+  const compressed = zlib.gzipSync(original);
+  const backend = http.createServer((_req, res) => {
+    res.setHeader("Content-Encoding", "gzip");
+    res.setHeader("Content-Length", compressed.length);
+    res.setHeader("Set-Cookie", "app=1; Domain=backend.invalid; Path=/");
+    res.end(compressed);
+  });
+  const target = await listen(backend);
+  t.after(() => close(backend));
+  const app = express();
+  app.use(createProxyCore({ target, hooks: [{
+    onResponse({ responseBuffer }) {
+      assert.equal(responseBuffer.toString(), original.toString());
+      return Buffer.concat([responseBuffer, Buffer.from("-hook")]);
+    },
+  }] }));
+  const proxy = http.createServer(app);
+  const baseUrl = await listen(proxy);
+  t.after(() => close(proxy));
+  const result = await request(baseUrl + "/api");
+  assert.equal(result.body, "compressed response-hook");
+  assert.equal(result.headers["content-encoding"], undefined);
+  assert.equal(Number(result.headers["content-length"]), Buffer.byteLength(result.body));
+  assert.deepEqual(result.headers["set-cookie"], ["app=1; Path=/"]);
 });
 
 test("외부 Forwarded 헤더를 제거하고 Express가 검증한 연결 정보로 교체한다", () => {
