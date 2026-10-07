@@ -26,7 +26,7 @@ defense_proxy_v2/
 | [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) | 새 서버에 배포 — 프로필·프리셋·프로필 설정 도구 |
 | [`results.md`](results.md) | 실험 결과 — 4실험 통합 비교, 발견한 허점과 수정 이력 |
 | [`tests/README.md`](tests/README.md) | 테스트 (`python tests/run_all.py`) |
-
+```
 ## 1. 방어 기법
 
 | 기법 | 한 줄 설명 | 켜는 법 |
@@ -155,7 +155,7 @@ REAL_BACKEND=http://127.0.0.1:3010 DEFENSE_MODE=off DECOY_MAZE=1 ADAPTIVE_TRAP=1
 | `fake-shell` / `post-rce-*` | 가짜 셸 진입 / 진입 후 지연·차단·드롭 | — |
 | `ambig-block` / `ambig-released` | AMBIG 확정 차단 / 해제 | — |
 | 메타 행 `escalate:…` · `ambig-blocked:…` | 상태 전환 기록(method `-`) — 요청 수 셀 땐 제외 | — |
-```
+
 
 ## 알려진 한계
 
