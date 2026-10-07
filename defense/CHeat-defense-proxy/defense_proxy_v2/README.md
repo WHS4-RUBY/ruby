@@ -18,7 +18,7 @@ defense_proxy_v2/
 ├── tests/                회귀·동작 테스트
 ├── README.md · REFERENCE.md · DETECTION_INTEGRATION.md · DEPLOYMENT_GUIDE.md · results.md
 └── experiments/          실험 로그·하니스 (로컬 전용, 커밋 안 됨)
-
+```
 | 문서 | 내용 |
 |---|---|
 | [`REFERENCE.md`](REFERENCE.md) | 상세 설명서 — 기법별 세부 동작, 환경변수 전체 표, v1 대비 제거 이력 |
@@ -26,7 +26,7 @@ defense_proxy_v2/
 | [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) | 새 서버에 배포 — 프로필·프리셋·프로필 설정 도구 |
 | [`results.md`](results.md) | 실험 결과 — 4실험 통합 비교, 발견한 허점과 수정 이력 |
 | [`tests/README.md`](tests/README.md) | 테스트 (`python tests/run_all.py`) |
-```
+
 ## 1. 방어 기법
 
 | 기법 | 한 줄 설명 | 켜는 법 |
@@ -157,7 +157,7 @@ REAL_BACKEND=http://127.0.0.1:3010 DEFENSE_MODE=off DECOY_MAZE=1 ADAPTIVE_TRAP=1
 | 메타 행 `escalate:…` · `ambig-blocked:…` | 상태 전환 기록(method `-`) — 요청 수 셀 땐 제외 | — |
 
 
-## 알려진 한계
+## 한계
 
 - 실험은 구성별 N=1~2이고, **에이전트 타임아웃**(지연 16초보다 짧으면 사실상 블랙홀)이 결과를 크게 좌우해 구성 효과를 아직 못 가렸습니다.
 - MIGRATION 고유 요소는 에이전트가 응답을 받은 적이 없어 효과가 측정되지 않았습니다.
