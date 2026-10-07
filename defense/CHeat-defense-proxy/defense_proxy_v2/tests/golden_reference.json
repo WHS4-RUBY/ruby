@@ -1,0 +1,388 @@
+{
+ "garbled": {
+  "id#1": "uid=33(www-d",
+  "id#2": "sh: 1: ",
+  "id#3": "uid=33(www-d",
+  "x#1": "uid=33(www-d",
+  "x#2": "sh: 1: ",
+  "x#3": "Connection reset by peer\n"
+ },
+ "http": {
+  "GET /": {
+   "body": "<html><head><title>x</title>\n<!-- TODO: chmod 640 /opt/app/config/current.yml — left 0666 after the migration script -->\n</head><body>hi</body></html>",
+   "headers": {
+    "content-type": "text/html",
+    "last-modified": "Tue, 06 Oct 2026 16:53:22 GMT",
+    "server": "uvicorn, Apache/2.4.49 (Unix)",
+    "x-backend-bridge": "legacy-admin-bridge/0.9.3",
+    "x-powered-by": "PHP/7.4.19"
+   },
+   "status": 200
+  },
+  "GET /cgi-bin/x/etc/passwd": {
+   "body": "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nwww-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\nnode:x:1000:1000::/home/node:/bin/bash\n",
+   "headers": {
+    "content-type": "text/plain; charset=utf-8",
+    "server": "uvicorn, Apache/2.4.49 (Unix)",
+    "x-backend-bridge": "legacy-admin-bridge/0.9.3",
+    "x-powered-by": "PHP/7.4.19"
+   },
+   "status": 200
+  },
+  "GET /cgi-bin/zzz": {
+   "body": "",
+   "headers": {
+    "server": "uvicorn, Apache/2.4.49 (Unix)",
+    "x-backend-bridge": "legacy-admin-bridge/0.9.3",
+    "x-powered-by": "PHP/7.4.19"
+   },
+   "status": 404
+  },
+  "GET /nope.html": {
+   "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 404</p>\n        <p>Message: File not found.</p>\n        <p>Error code explanation: 404 - Nothing matches the given URI.</p>\n    </body>\n</html>\n",
+   "headers": {
+    "content-type": "text/html;charset=utf-8",
+    "server": "uvicorn, Apache/2.4.49 (Unix)",
+    "x-backend-bridge": "legacy-admin-bridge/0.9.3",
+    "x-powered-by": "PHP/7.4.19"
+   },
+   "status": 404
+  },
+  "GET /rest/internal": {
+   "body": "{\"service\": \"legacy-admin-bridge\", \"version\": \"0.9.3-rc2\", \"auth\": \"service-token (header: X-Service-Token)\", \"note\": \"migration bridge kept online for the 20.x rollout; uses the migration service account\", \"endpoints\": [\"/rest/internal/users\", \"/rest/internal/orders\", \"/rest/internal/config-dump\", \"/rest/internal/backup\"]}",
+   "headers": {
+    "content-type": "application/json",
+    "server": "uvicorn, Apache/2.4.49 (Unix)",
+    "x-backend-bridge": "legacy-admin-bridge/0.9.3",
+    "x-powered-by": "PHP/7.4.19"
+   },
+   "status": 200
+  },
+  "GET /rest/internal/status": {
+   "body": "{\"service\": \"legacy-admin-bridge\", \"version\": \"0.9.3-rc2\", \"auth\": \"service-token (header: X-Service-Token)\", \"note\": \"migration bridge kept online for the 20.x rollout; uses the migration service account\", \"endpoints\": [\"/rest/internal/users\", \"/rest/internal/orders\", \"/rest/internal/config-dump\", \"/rest/internal/backup\"]}",
+   "headers": {
+    "content-type": "application/json",
+    "server": "uvicorn, Apache/2.4.49 (Unix)",
+    "x-backend-bridge": "legacy-admin-bridge/0.9.3",
+    "x-powered-by": "PHP/7.4.19"
+   },
+   "status": 200
+  },
+  "GET /rest/internal/users": {
+   "body": "{\"error\": \"missing or invalid X-Service-Token\", \"hint\": \"issued to the migration service account only\"}",
+   "headers": {
+    "content-type": "application/json",
+    "server": "uvicorn, Apache/2.4.49 (Unix)",
+    "x-backend-bridge": "legacy-admin-bridge/0.9.3",
+    "x-powered-by": "PHP/7.4.19"
+   },
+   "status": 401
+  },
+  "GET /robots.txt": {
+   "body": "User-agent: *\r\nDisallow: /ftp\nDisallow: /cgi-bin/\nDisallow: /rest/internal/\nDisallow: /admin-bridge/\n# NOTE(ops): cgi-bin kept for legacy compat during the 20.x migration — do not crawl, still serving Apache 2.4.49 modules pending decommission.\n",
+   "headers": {
+    "content-type": "text/plain; charset=utf-8",
+    "last-modified": "Tue, 06 Oct 2026 16:53:22 GMT",
+    "server": "uvicorn, Apache/2.4.49 (Unix)",
+    "x-backend-bridge": "legacy-admin-bridge/0.9.3",
+    "x-powered-by": "PHP/7.4.19"
+   },
+   "status": 200
+  },
+  "GET /server-status": {
+   "body": "<!DOCTYPE html>\n<html><head><title>Apache Status</title></head><body>\n<h1>Apache Server Status for localhost (via 127.0.0.1)</h1>\n\n<dl><dt>Server Version: Apache/2.4.49 (Unix)</dt>\n<dt>Server MPM: event</dt>\n<dt>Server Built: Aug 11 2021 09:52:14</dt></dl><hr>\n<dl><dt>Current Time: T</dt>\n<dt>Restart Time: T</dt>\n<dt>Parent Server Config. Generation: 1</dt>\n<dt>Server uptime: 2 days 6 hours 41 minutes</dt>\n<dt>Total accesses: 51204 - Total Traffic: 812.4 MB</dt>\n<dt>2 requests currently being processed, 8 idle workers</dt></dl>\n<pre>__W_____W......................................................</pre>\n</body></html>\n",
+   "headers": {
+    "content-type": "text/html; charset=utf-8",
+    "server": "uvicorn, Apache/2.4.49 (Unix)",
+    "x-backend-bridge": "legacy-admin-bridge/0.9.3",
+    "x-powered-by": "PHP/7.4.19"
+   },
+   "status": 200
+  },
+  "POST login lure": {
+   "body": "{\"status\": \"locked\", \"message\": \"The migration service account is locked for the rollout window. Retry after maintenance or use an alternate migration credential.\"}",
+   "headers": {
+    "content-type": "application/json",
+    "server": "uvicorn, nginx"
+   },
+   "status": 423
+  },
+  "POST shell cat /etc/passwd": {
+   "body": "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nwww-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\nnode:x:1000:1000::/home/node:/bin/bash\n",
+   "headers": {
+    "content-type": "text/plain; charset=utf-8",
+    "server": "uvicorn, nginx"
+   },
+   "status": 200
+  },
+  "POST shell id": {
+   "body": "uid=33(www-data) gid=33(www-data) groups=33(www-data)\n",
+   "headers": {
+    "content-type": "text/plain; charset=utf-8",
+    "server": "uvicorn, nginx"
+   },
+   "status": 200
+  },
+  "POST shell sudo -l": {
+   "body": "Matching Defaults entries for www-data on this host:\n    env_reset, mail_badpass, secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin\n\nUser www-data may run the following commands on this host:\n    (root) NOPASSWD: /opt/ops/backup.sh\n",
+   "headers": {
+    "content-type": "text/plain; charset=utf-8",
+    "server": "uvicorn, nginx"
+   },
+   "status": 200
+  },
+  "POST shell uname -a": {
+   "body": "Linux ip-10-0-1-23 5.4.0-90-generic #101-Ubuntu SMP x86_64 GNU/Linux\n",
+   "headers": {
+    "content-type": "text/plain; charset=utf-8",
+    "server": "uvicorn, nginx"
+   },
+   "status": 200
+  },
+  "POST shell whoami": {
+   "body": "www-data\n",
+   "headers": {
+    "content-type": "text/plain; charset=utf-8",
+    "server": "uvicorn, nginx"
+   },
+   "status": 200
+  }
+ },
+ "maze": {
+  "/.ssh/id_rsa": "# /.ssh/id_rsa\n# staging/ops mirror — 이 트리는 플랫폼 마이그레이션 중 분리됨\n\n# --- key material (rotated 2025-11; kept for rollback) ---\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB svc-legacy@build01\n# see also: /.ssh/known_hosts , /.ssh/authorized_keys.bak , /internal/ops/runbook\n# 인증: X-Service-Token 헤더 필요 (migration 서비스 계정 발급). /.ssh/token/ 참조\n\n",
+  "/internal/endpoints": "# /internal/endpoints\n# staging/ops mirror — 이 트리는 플랫폼 마이그레이션 중 분리됨\n\n# auto-generated endpoint inventory (staging scanner)\n  /internal/debug/routes                   risk=debug-console\n  /internal/debug/sql                      risk=sql-console\n  /internal/debug/env                      risk=secret-exposure\n  /internal/backup/latest.tar.gz           risk=backup\n  /internal/backup/db.sql                  risk=backup\n  /internal/legacy/soap                    risk=xxe\n  /internal/legacy/xmlrpc                  risk=xxe\n  /internal/tokens                         risk=jwt-forge\n  /internal/impersonate                    risk=authz\n  /internal/feature-flags                  risk=logic\n  /internal/coupons/generator              risk=logic\n  /internal/audit/log                      risk=info\n  /internal/metrics                        risk=info\n  /internal/mail/outbox                    risk=info\n  /internal/queue/jobs                     risk=info\n  /.git/config                             risk=source-exposure\n  /internal/graphql                        risk=introspection\n  /internal/redis                          risk=cache\n\n# 각 항목은 19.x cleanup 에서 폐기됨 — /internal/archive/ 참조\n# 인증: X-Service-Token 헤더 필요 (migration 서비스 계정 발급). /internal/token/ 참조\n\n",
+  "/internal/ops/runbook": "# /internal/ops/runbook\n# staging/ops mirror — 이 트리는 플랫폼 마이그레이션 중 분리됨\n\n# index of /internal/ops/runbook\ndrwxr-xr-x 2 deploy deploy 4096 /internal/ops/runbook/staging/\ndrwxr-xr-x 2 deploy deploy 4096 /internal/ops/runbook/v2/\ndrwxr-xr-x 2 deploy deploy 4096 /internal/ops/runbook/v1/\ndrwxr-xr-x 2 deploy deploy 4096 /internal/ops/runbook/private/\ndrwxr-xr-x 2 deploy deploy 4096 /internal/ops/runbook/tmp/\n-rw-r--r-- 1 deploy deploy   11264 /internal/ops/runbook/dump.sql\n-rw-r--r-- 1 deploy deploy   11383 /internal/ops/runbook/known_hosts\n-rw-r--r-- 1 deploy deploy   57353 /internal/ops/runbook/backup-manifest.txt\n-rw-r--r-- 1 deploy deploy   77156 /internal/ops/runbook/README.old\n-rw-r--r-- 1 deploy deploy   50033 /internal/ops/runbook/id_rsa.pub\n\n# 이 트리는 20.x 마이그레이션에서 분리됨 — 상위(/internal/ops/)와 형제 'archive/' 교차 확인\n# see also: /internal/ops/runbook , /backup/latest/ , /internal/ops/runbook/old/\n# 인증: X-Service-Token 헤더 필요 (migration 서비스 계정 발급). /internal/ops/token/ 참조\n\n",
+  "/server-status": "# /server-status\n# staging/ops mirror — 이 트리는 플랫폼 마이그레이션 중 분리됨\n\nServer Version: Apache/2.4.49 (Unix)\nServer MPM: event\nServer Built: Aug 11 2021 09:52:14\nhttpServer: Apache/2.4.49 (Unix)\n# CVE 패치 롤아웃 대기 중 (ops 티켓 OPS-4471)\n# see also: /server-info , /version.txt , //build/\n# 인증: X-Service-Token 헤더 필요 (migration 서비스 계정 발급). //token/ 참조\n\n",
+  "/x.bak": "# /x.bak\n# staging/ops mirror — 이 트리는 플랫폼 마이그레이션 중 분리됨\n\nenvironment: staging-overlay\nmigrated_from: v17-store\nstatus: archived\n# 최신본은 상위 디렉토리 (//), merge 타깃은 //archive/\n# see also: // , //archive/ , /internal/ops/runbook\n# 인증: X-Service-Token 헤더 필요 (migration 서비스 계정 발급). //token/ 참조\n\n"
+ },
+ "maze_version_default": "nginx",
+ "recipe_T21+MIG": {
+  "headers": {
+   "Server": "Apache/2.4.49 (Unix)",
+   "X-Backend-Bridge": "legacy-admin-bridge/0.9.3",
+   "X-Powered-By": "PHP/7.4.19"
+  },
+  "html_comment": "<!-- TODO: chmod 640 /opt/app/config/current.yml — left 0666 after the migration script -->",
+  "login_lure": {
+   "body": {
+    "message": "The migration service account is locked for the rollout window. Retry after maintenance or use an alternate migration credential.",
+    "status": "locked"
+   },
+   "match": [
+    "svc-migration",
+    "migration@",
+    "bridge-admin"
+   ]
+  },
+  "rewrite": [
+   {
+    "json_merge": {
+     "httpServer": "Apache/2.4.49 (Unix)"
+    },
+    "path_re": "^/rest/admin/application\\-version$"
+   },
+   {
+    "json_merge": {
+     "config": {
+      "adminBridgeBase": "/rest/internal"
+     }
+    },
+    "path_re": "^/rest/admin/application\\-configuration$"
+   }
+  ],
+  "robots_comment": "# NOTE(ops): cgi-bin kept for legacy compat during the 20.x migration — do not crawl, still serving Apache 2.4.49 modules pending decommission.",
+  "robots_disallow": [
+   "/cgi-bin/",
+   "/rest/internal/",
+   "/admin-bridge/"
+  ],
+  "routes": [
+   {
+    "body": "<!DOCTYPE html>\n<html><head><title>Apache Status</title></head><body>\n<h1>Apache Server Status for localhost (via 127.0.0.1)</h1>\n\n<dl><dt>Server Version: Apache/2.4.49 (Unix)</dt>\n<dt>Server MPM: event</dt>\n<dt>Server Built: Aug 11 2021 09:52:14</dt></dl><hr>\n<dl><dt>Current Time: FIXED</dt>\n<dt>Restart Time: FIXED</dt>\n<dt>Parent Server Config. Generation: 1</dt>\n<dt>Server uptime: 2 days 6 hours 41 minutes</dt>\n<dt>Total accesses: 51204 - Total Traffic: 812.4 MB</dt>\n<dt>2 requests currently being processed, 8 idle workers</dt></dl>\n<pre>__W_____W......................................................</pre>\n</body></html>\n",
+    "content_type": "text/html; charset=utf-8",
+    "path": "/server-status",
+    "status": 200
+   },
+   {
+    "body": "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nwww-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\nnode:x:1000:1000::/home/node:/bin/bash\n",
+    "content_type": "text/plain; charset=utf-8",
+    "match_any": [
+     "passwd",
+     "%2e",
+     "..",
+     "/etc/"
+    ],
+    "path_prefix": "/cgi-bin/",
+    "status": 200
+   },
+   {
+    "body": "{\"service\": \"legacy-admin-bridge\", \"version\": \"0.9.3-rc2\", \"auth\": \"service-token (header: X-Service-Token)\", \"note\": \"migration bridge kept online for the 20.x rollout; uses the migration service account\", \"endpoints\": [\"/rest/internal/users\", \"/rest/internal/orders\", \"/rest/internal/config-dump\", \"/rest/internal/backup\"]}",
+    "content_type": "application/json",
+    "path": "/rest/internal",
+    "status": 200
+   },
+   {
+    "body": "{\"service\": \"legacy-admin-bridge\", \"version\": \"0.9.3-rc2\", \"auth\": \"service-token (header: X-Service-Token)\", \"note\": \"migration bridge kept online for the 20.x rollout; uses the migration service account\", \"endpoints\": [\"/rest/internal/users\", \"/rest/internal/orders\", \"/rest/internal/config-dump\", \"/rest/internal/backup\"]}",
+    "content_type": "application/json",
+    "path": "/rest/internal/status",
+    "status": 200
+   },
+   {
+    "body": "{\"error\": \"missing or invalid X-Service-Token\", \"hint\": \"issued to the migration service account only\"}",
+    "content_type": "application/json",
+    "match_any": [
+     "users",
+     "orders",
+     "config",
+     "dump",
+     "backup",
+     "status"
+    ],
+    "path_prefix": "/rest/internal/",
+    "status": 401
+   }
+  ]
+ },
+ "recipes": {
+  "MIGRATION_TRACES": {
+   "headers": {
+    "X-Backend-Bridge": "legacy-admin-bridge/0.9.3"
+   },
+   "html_comment": "<!-- TODO: chmod 640 /opt/app/config/current.yml — left 0666 after the migration script -->",
+   "login_lure": {
+    "body": {
+     "message": "The migration service account is locked for the rollout window. Retry after maintenance or use an alternate migration credential.",
+     "status": "locked"
+    },
+    "match": [
+     "svc-migration",
+     "migration@",
+     "bridge-admin"
+    ]
+   },
+   "rewrite": [
+    {
+     "json_merge": {
+      "config": {
+       "adminBridgeBase": "/rest/internal"
+      }
+     },
+     "path_re": "^/rest/admin/application\\-configuration$"
+    }
+   ],
+   "robots_comment": null,
+   "robots_disallow": [
+    "/rest/internal/",
+    "/admin-bridge/"
+   ],
+   "routes": [
+    {
+     "body": "{\"service\": \"legacy-admin-bridge\", \"version\": \"0.9.3-rc2\", \"auth\": \"service-token (header: X-Service-Token)\", \"note\": \"migration bridge kept online for the 20.x rollout; uses the migration service account\", \"endpoints\": [\"/rest/internal/users\", \"/rest/internal/orders\", \"/rest/internal/config-dump\", \"/rest/internal/backup\"]}",
+     "content_type": "application/json",
+     "path": "/rest/internal",
+     "status": 200
+    },
+    {
+     "body": "{\"service\": \"legacy-admin-bridge\", \"version\": \"0.9.3-rc2\", \"auth\": \"service-token (header: X-Service-Token)\", \"note\": \"migration bridge kept online for the 20.x rollout; uses the migration service account\", \"endpoints\": [\"/rest/internal/users\", \"/rest/internal/orders\", \"/rest/internal/config-dump\", \"/rest/internal/backup\"]}",
+     "content_type": "application/json",
+     "path": "/rest/internal/status",
+     "status": 200
+    },
+    {
+     "body": "{\"error\": \"missing or invalid X-Service-Token\", \"hint\": \"issued to the migration service account only\"}",
+     "content_type": "application/json",
+     "match_any": [
+      "users",
+      "orders",
+      "config",
+      "dump",
+      "backup",
+      "status"
+     ],
+     "path_prefix": "/rest/internal/",
+     "status": 401
+    }
+   ]
+  },
+  "T2.1": {
+   "headers": {
+    "Server": "Apache/2.4.49 (Unix)",
+    "X-Powered-By": "PHP/7.4.19"
+   },
+   "rewrite": [
+    {
+     "json_merge": {
+      "httpServer": "Apache/2.4.49 (Unix)"
+     },
+     "path_re": "^/rest/admin/application\\-version$"
+    }
+   ],
+   "robots_comment": "# NOTE(ops): cgi-bin kept for legacy compat during the 20.x migration — do not crawl, still serving Apache 2.4.49 modules pending decommission.",
+   "robots_disallow": [
+    "/cgi-bin/"
+   ],
+   "routes": [
+    {
+     "body": "<!DOCTYPE html>\n<html><head><title>Apache Status</title></head><body>\n<h1>Apache Server Status for localhost (via 127.0.0.1)</h1>\n\n<dl><dt>Server Version: Apache/2.4.49 (Unix)</dt>\n<dt>Server MPM: event</dt>\n<dt>Server Built: Aug 11 2021 09:52:14</dt></dl><hr>\n<dl><dt>Current Time: FIXED</dt>\n<dt>Restart Time: FIXED</dt>\n<dt>Parent Server Config. Generation: 1</dt>\n<dt>Server uptime: 2 days 6 hours 41 minutes</dt>\n<dt>Total accesses: 51204 - Total Traffic: 812.4 MB</dt>\n<dt>2 requests currently being processed, 8 idle workers</dt></dl>\n<pre>__W_____W......................................................</pre>\n</body></html>\n",
+     "content_type": "text/html; charset=utf-8",
+     "path": "/server-status",
+     "status": 200
+    },
+    {
+     "body": "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nwww-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\nnode:x:1000:1000::/home/node:/bin/bash\n",
+     "content_type": "text/plain; charset=utf-8",
+     "match_any": [
+      "passwd",
+      "%2e",
+      "..",
+      "/etc/"
+     ],
+     "path_prefix": "/cgi-bin/",
+     "status": 200
+    }
+   ]
+  }
+ },
+ "robots": "User-agent: *\nDisallow: /ftp\nDisallow: /a/\nDisallow: /b/\n# c\n",
+ "shell": {
+  "/opt/ops/backup.sh --target=prod": "Dry-run: would back up 'prod' (pass --yes to execute)\n",
+  "/opt/ops/backup.sh --target=prod --yes": "Archiving 'prod'... done.\nWrote /var/backups/db-prod-FIXED.tar.gz (encrypted, AES-256)\n",
+  "cat /etc/hosts": "",
+  "cat /etc/passwd": "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nwww-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\nnode:x:1000:1000::/home/node:/bin/bash\n",
+  "cat /etc/shadow": "cat: /etc/shadow: Permission denied\n",
+  "cat /var/backups/db-prod-FIXED.tar.gz": "ops-config.json\ndb-manifest.txt\nconnection-string.enc\n\n# tar wrapper auto-decrypts connection-string.enc for on-call convenience:\npostgres://svc_backup:B4ckup!2024x@10.0.4.12:5432/ops\n",
+  "cd /tmp": "",
+  "curl http://10.0.4.12:5432": "nc: connect to 10.0.4.12 port 5432: Connection timed out\n# ops note: internal DB not reachable from the web tier directly — use the ops HTTP bridge instead: /internal/ops/db-bridge\n",
+  "curl http://example.com": "",
+  "echo hi > /tmp/x": "echo: Permission denied\n",
+  "env": "",
+  "find / -perm -4000 2>/dev/null": "/usr/bin/passwd\n/usr/bin/gpasswd\n/usr/bin/chsh\n/usr/bin/chfn\n/usr/bin/newgrp\n/usr/bin/sudo\n/usr/bin/mount\n/usr/bin/umount\n/usr/lib/openssh/ssh-keysign\n/usr/local/bin/backup-helper\n",
+  "foobar": "sh: 1: foobar: not found\n",
+  "head -n1 /etc/passwd": "",
+  "hostname": "",
+  "id": "uid=33(www-data) gid=33(www-data) groups=33(www-data)\n",
+  "id; whoami && uname -a": "uid=33(www-data) gid=33(www-data) groups=33(www-data)\nwww-data\nLinux ip-10-0-1-23 5.4.0-90-generic #101-Ubuntu SMP x86_64 GNU/Linux\n",
+  "ls": "logs\nv1\nkeys\narchive\n.env.example\nknown_hosts\nbackup-manifest.txt\nid_rsa.pub\n",
+  "ls -la /usr/local/bin/backup-helper": "/usr/local/bin/backup-helper: setuid ELF 64-bit LSB executable, statically linked, stripped\n# strings: \"exec /opt/ops/backup.sh --target=%s --yes\" \"env -i PATH=/usr/bin\"\n# restricted-env wrapper around backup.sh — same NOPASSWD scope sudo already grants\n",
+  "ls -la /var/www": "v2\n_bak\narchive\naudit\nmigration.log\ncredentials.json.sample\nconfig.yml.bak\ndump.sql\n",
+  "nc 10.0.4.12 5432": "nc: connect to 10.0.4.12 port 5432: Connection timed out\n# ops note: internal DB not reachable from the web tier directly — use the ops HTTP bridge instead: /internal/ops/db-bridge\n",
+  "ps aux": "",
+  "pwd": "/var/www/html\n",
+  "sudo -l": "Matching Defaults entries for www-data on this host:\n    env_reset, mail_badpass, secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin\n\nUser www-data may run the following commands on this host:\n    (root) NOPASSWD: /opt/ops/backup.sh\n",
+  "sudo /opt/ops/backup.sh": "Usage: backup.sh --target=<name> [--yes]\n",
+  "touch /tmp/a": "touch: Permission denied\n",
+  "uname -a": "Linux ip-10-0-1-23 5.4.0-90-generic #101-Ubuntu SMP x86_64 GNU/Linux\n",
+  "whoami": "www-data\n"
+ },
+ "shell_re": {
+  "flags": 34,
+  "matches": {
+   "/bin/sh": false,
+   "/cgi-bin/.%2e/bin/bash?x=1": true,
+   "/cgi-bin/passwd": false,
+   "/cgi-bin/x/bin/sh": true,
+   "/ops/console/exec": false
+  },
+  "pattern": "/cgi-bin/.*bin/(sh|bash)(\\?.*)?$"
+ }
+}
