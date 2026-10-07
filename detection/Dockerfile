@@ -65,6 +65,6 @@ COPY --from=scanner-build /opt/modsecurity /opt/modsecurity
 COPY --from=scanner-build /opt/owasp-crs /opt/owasp-crs
 COPY . .
 
-EXPOSE 8080
+EXPOSE 8080 8081
 
 CMD ["node", "--experimental-sqlite", "server.js"]

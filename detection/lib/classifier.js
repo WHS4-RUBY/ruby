@@ -216,11 +216,11 @@ function scoreReflectedXss(features) {
 
 function scoreRepeatedAttackEvidence(features) {
   const count = Number(features.attack?.repeatedEvidence?.count) || 0;
-  if (count >= 32) return 0.5;
-  if (count >= 16) return 0.4;
-  if (count >= 8) return 0.3;
-  if (count >= 4) return 0.2;
-  if (count >= 2) return 0.1;
+  if (count >= 64) return 0.3;
+  if (count >= 32) return 0.2;
+  if (count >= 16) return 0.15;
+  if (count >= 8) return 0.1;
+  if (count >= 4) return 0.05;
   return 0;
 }
 

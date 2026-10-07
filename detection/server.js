@@ -48,6 +48,7 @@ const { checkCsrf, buildAllowedOrigins } = require("./lib/csrfDetection");
 const { analyzeExchange: analyzeXssExchange, extractCandidates: extractXssCandidates } = require("./lib/xssReflection");
 const { XssCandidateStore } = require("./lib/xssCandidateStore");
 const { attributeStoredFindings } = require("./lib/xssAttribution");
+const { XssEvidenceStore } = require("./lib/xssEvidenceStore");
 const { extractLoginAttemptEmail } = require("./lib/loginBruteForce");
 const {
   extractResetPasswordEmail,
@@ -73,8 +74,18 @@ const {
   applyDefenseManagementHeaders,
   isDefenseManagementPath,
 } = require("./lib/managementPaths");
+const {
+  TargetSelectionStore,
+  parseTargetChoices,
+} = require("./lib/targetSelection");
+const { installTargetSelectionRoutes } = require("./lib/targetSelectionRoutes");
+const { listenerBoundary } = require("./lib/listenerBoundary");
 
-const PORT = process.env.PORT || 8080;
+const PORT = Number(process.env.PORT || 8080);
+const ADMIN_PORT = process.env.ADMIN_PORT ? Number(process.env.ADMIN_PORT) : null;
+if (process.env.NODE_ENV === "production" && ADMIN_PORT === null) {
+  throw new Error("production requires an isolated ADMIN_PORT listener");
+}
 const TARGET = process.env.TARGET_URL || "http://localhost:3000";
 // 2026-09-01 추가: HTML(index.html) 하나만 보는 정찰 대신, 자주 조회되는
 // 정적 텍스트 응답에도 기만 신호를 심는다 — deceptionEngine.injectSignalsPlaintext 참고.
@@ -142,12 +153,23 @@ const dashboardAuth = new DashboardAuthManager({
   maxAttempts: positiveInt("DETECTION_DASHBOARD_LOGIN_ATTEMPTS", 5),
   attemptWindowMs: positiveInt("DETECTION_DASHBOARD_LOGIN_WINDOW_SECONDS", 300) * 1000,
 });
+const targetSelection = new TargetSelectionStore({
+  choices: parseTargetChoices(
+    process.env.TARGET_CHOICES,
+    process.env.LEGACY_TARGET_URL || "http://host.docker.internal:3000"
+  ),
+  defaultId: process.env.TARGET_DEFAULT_ID || "legacy",
+  filePath: process.env.TARGET_SELECTION_FILE,
+  publicOrigin: process.env.PUBLIC_TARGET_ORIGIN,
+});
 
 const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", parseTrustProxy());
+app.use(listenerBoundary({ publicPort: PORT, adminPort: ADMIN_PORT }));
 app.use(cookieParser());
 app.use((req, res, next) => {
+  delete req.headers["x-forwarded-for"];
   if (req.path === "/__detection" || req.path.startsWith("/__detection/")) {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -413,6 +435,7 @@ function observeSchemaLearning(req, statusCode, normalizedPath) {
 function prepareRequestObservation(req) {
   if (req._detectionPrepared) return;
   req._detectionPrepared = true;
+  req.activeTarget = targetSelection.read();
   req._detectionStart = Date.now();
   req.experimentRunId = ENABLE_EXPERIMENT_RUN_ID
     ? sanitizeExperimentRunId(req.headers[EXPERIMENT_RUN_HEADER])
@@ -482,6 +505,37 @@ if (String(process.env.XSS_STORE || "sqlite").toLowerCase() === "memory") {
     console.warn("[detection] SQLite 사용 불가 → 인메모리 폴백:", e && e.message);
   }
 }
+
+// XSS 증거(확정 stored / reflected) 영속 저장소 — 각각 별도 DB 파일.
+// 후보(candidate)는 detect-once로 제거되므로, 실제 탐지된 증거는 여기 별도 보존(재시작에도 유지).
+let xssEvidenceStore;
+{
+  const evOpts = {
+    maxConfirmed: Number(process.env.XSS_MAX_CONFIRMED) || 1000,
+    maxReflected: Number(process.env.XSS_MAX_REFLECTED) || 1000,
+  };
+  if (String(process.env.XSS_STORE || "sqlite").toLowerCase() === "memory") {
+    xssEvidenceStore = new XssEvidenceStore(evOpts);
+    console.log("[detection] XSS evidence store: in-memory (XSS_STORE=memory)");
+  } else {
+    try {
+      const fsMod = require("fs");
+      const pathMod = require("path");
+      const confirmedDbPath = process.env.XSS_CONFIRMED_DB_PATH || pathMod.join(__dirname, "data", "xss-confirmed.db");
+      const reflectedDbPath = process.env.XSS_REFLECTED_DB_PATH || pathMod.join(__dirname, "data", "xss-reflected.db");
+      fsMod.mkdirSync(pathMod.dirname(confirmedDbPath), { recursive: true });
+      fsMod.mkdirSync(pathMod.dirname(reflectedDbPath), { recursive: true });
+      xssEvidenceStore = new XssEvidenceStore({ ...evOpts, confirmedDbPath, reflectedDbPath });
+      console.log("[detection] XSS evidence store: SQLite -> 확정:" + confirmedDbPath + " · reflected:" + reflectedDbPath
+        + (xssEvidenceStore.persistent ? "" : " (인메모리 폴백)"));
+    } catch (e) {
+      xssEvidenceStore = new XssEvidenceStore(evOpts);
+      console.warn("[detection] XSS 증거 저장소 SQLite 불가 → 인메모리 폴백:", e && e.message);
+    }
+  }
+}
+// payload 원문은 그대로 노출하지 않고 짧게 잘라 미리보기만.
+const xssPreview = (v) => { const s = String(v || ""); return s.length > 120 ? s.slice(0, 120) + "…" : s; };
 // XSS 반영 검사에 넘길 응답 본문 최대 크기(과대 응답은 body 검사 생략, 헤더 검사만).
 const configuredXssBodyBytes = Number(process.env.XSS_MAX_BODY_BYTES);
 const XSS_MAX_BODY_BYTES = Number.isSafeInteger(configuredXssBodyBytes) && configuredXssBodyBytes > 0
@@ -508,6 +562,13 @@ function computeXssDetection(req, responseBuffer, responseHeaders) {
       attachFinding: store.attachStoredXssFinding,
       refreshOrigin: refreshXssOriginScores,
     });
+    // 탐지된 증거를 영속 저장소에 기록(확정 stored = 심은 자, reflected = 보낸 요청).
+    for (const f of result.findings || []) {
+      if (f.vulnerabilityType === "stored") xssEvidenceStore.recordConfirmed(f);
+      else if (f.vulnerabilityType === "reflected") {
+        xssEvidenceStore.recordReflected(f, { endpoint: normalizePath(req.originalUrl) });
+      }
+    }
     return result.reflected;
   } catch {
     return { tags: [], maxRisk: 0 };
@@ -595,6 +656,8 @@ function recordCompletedRequest(req, {
     payloadFingerprint: req.payloadFingerprint,
     hasAuthorization: req.hasAuthorization,
     experimentRunId: req.experimentRunId,
+    targetId: req.activeTarget?.targetId || null,
+    targetRunId: req.activeTarget?.runId || null,
     requestContentType: sanitizeMetadataHeaderValue(req.headers["content-type"]),
     requestContentLength: parseContentLength(req.headers["content-length"]),
     requestBodyBytes: Number.isSafeInteger(req.detectionRequestBodyBytes)
@@ -745,6 +808,8 @@ installDashboardRoutes({
   requireHttps: DETECTION_DASHBOARD_REQUIRE_HTTPS,
 });
 
+installTargetSelectionRoutes({ app, targetSelection });
+
 // 팀원 Python 프록시의 미끼 라우트를 현재 Express 프록시 안에서 직접 처리한다.
 // 이 요청도 일반 요청과 동일하게 CRS, Session, Actor, Auth Group과 타임라인에 기록한다.
 app.use((req, res, next) => {
@@ -776,6 +841,59 @@ app.post("/__detection/telemetry", (req, res) => {
   const ip = getClientIp(req);
   store.recordTelemetry(req.detectionSessionId, ip, req.body || {});
   res.status(204).end();
+});
+
+// 탐지 담당자용: XSS 후보/확정/reflected 조회 + 관리자 삭제·상태.
+app.get("/__detection/api/xss/candidates", (_req, res) => {
+  let items = [];
+  try {
+    items = (xssCandidateStore.all() || []).map((c) => ({
+      value: c.value, payloadPreview: xssPreview(c.value), parameter: c.parameter,
+      endpoint: c.endpoint, originSession: c.origin && c.origin.sessionId,
+      firstSeenAt: c.firstSeen ? new Date(c.firstSeen).toISOString() : null,
+      lastSeenAt: c.lastSeen ? new Date(c.lastSeen).toISOString() : null, timesSeen: c.timesSeen,
+    }));
+  } catch (_) {}
+  res.json({ count: items.length, items });
+});
+app.get("/__detection/api/xss/confirmed", (_req, res) => {
+  const items = xssEvidenceStore.confirmedList().map((c) => ({
+    value: c.value, payloadPreview: xssPreview(c.value), parameter: c.parameter,
+    severity: c.severity, riskScore: c.riskScore, originSession: c.originSession,
+    endpoint: c.endpoint, status: c.status || "open", note: c.note || "",
+    firstAt: c.firstAt ? new Date(c.firstAt).toISOString() : null,
+    lastAt: c.lastAt ? new Date(c.lastAt).toISOString() : null, times: c.times,
+  }));
+  res.json({ count: items.length, persistent: xssEvidenceStore.persistent, items });
+});
+app.get("/__detection/api/xss/reflected", (_req, res) => {
+  const items = xssEvidenceStore.reflectedList().map((c) => ({
+    value: c.value, payloadPreview: xssPreview(c.value), parameter: c.parameter,
+    severity: c.severity, riskScore: c.riskScore, originSession: c.originSession,
+    endpoint: c.endpoint,
+    firstAt: c.firstAt ? new Date(c.firstAt).toISOString() : null,
+    lastAt: c.lastAt ? new Date(c.lastAt).toISOString() : null, times: c.times,
+  }));
+  res.json({ count: items.length, items });
+});
+app.post("/__detection/api/xss/confirmed/update", express.json({ limit: "256kb" }), (req, res) => {
+  const { value, status, note } = req.body || {};
+  if (!value) return res.status(400).json({ ok: false, error: "value required" });
+  const allowed = new Set(["open", "investigating", "resolved", "false_positive"]);
+  const patch = {};
+  if (status !== undefined) patch.status = allowed.has(status) ? status : "open";
+  if (note !== undefined) patch.note = String(note).slice(0, 2000);
+  res.json({ ok: xssEvidenceStore.updateConfirmed(value, patch) });
+});
+app.post("/__detection/api/xss/confirmed/delete", express.json({ limit: "256kb" }), (req, res) => {
+  const { value } = req.body || {};
+  if (!value) return res.status(400).json({ ok: false, error: "value required" });
+  res.json({ ok: xssEvidenceStore.removeConfirmed(value) });
+});
+app.post("/__detection/api/xss/reflected/delete", express.json({ limit: "256kb" }), (req, res) => {
+  const { value } = req.body || {};
+  if (!value) return res.status(400).json({ ok: false, error: "value required" });
+  res.json({ ok: xssEvidenceStore.removeReflected(value) });
 });
 
 app.get("/__detection/api/sessions", (req, res) => {
@@ -1225,6 +1343,7 @@ app.use("/__detection", (req, res) => {
 
 function forwardPolicyDecision(proxyReq, req) {
   req.rubyRequestId ||= `request:${crypto.randomUUID()}`;
+  req.activeTarget ||= targetSelection.read();
   req.rubyPolicyDecision = buildPriorPolicyDecision(req);
   stripDetectionHeaders(proxyReq);
   const plan = applyDefensePlan(proxyReq, {
@@ -1239,6 +1358,8 @@ function forwardPolicyDecision(proxyReq, req) {
   proxyReq.setHeader("X-Ruby-Attack-Score", String(req.rubyPolicyDecision.attackScore));
   proxyReq.setHeader("X-Ruby-Risk-Score", String(req.rubyPolicyDecision.riskScore));
   proxyReq.setHeader("X-Ruby-Policy-Source", req.rubyPolicyDecision.source);
+  proxyReq.setHeader("X-Ruby-Target-Id", req.activeTarget.targetId);
+  proxyReq.setHeader("X-Ruby-Run-Id", req.activeTarget.runId);
 }
 
 function upgradeCookie(req, name) {
@@ -1402,7 +1523,7 @@ app.use("/", mainProxy);
 
 const server = app.listen(PORT, () => {
   console.log(`[detection-proxy] listening on :${PORT} -> proxying ${TARGET}`);
-  console.log(`[detection-proxy] dashboard: http://localhost:${PORT}/__detection/dashboard`);
+  console.log(`[detection-proxy] dashboard: http://localhost:${ADMIN_PORT || PORT}/__detection/dashboard`);
   console.log(
     `[detection-proxy] BLOCK_MODE=${BLOCK_MODE} (log-only) ` +
     `level=${DETECTION_LEVEL} threshold=${DETECTION_THRESHOLDS[DETECTION_LEVEL]}`
@@ -1420,9 +1541,15 @@ const server = app.listen(PORT, () => {
     );
   }
 });
+if (ADMIN_PORT) {
+  app.listen(ADMIN_PORT, () => {
+    console.log(`[detection-proxy] management listening on :${ADMIN_PORT}`);
+  });
+}
 server.on("upgrade", (req, socket, head) => {
   const path = String(req.url || "").split("?", 1)[0];
-  if (path === "/__detection" || path.startsWith("/__detection/")) {
+  if (path === "/__detection" || path.startsWith("/__detection/") ||
+      path === "/__defense" || path.startsWith("/__defense/")) {
     socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
     return;
   }

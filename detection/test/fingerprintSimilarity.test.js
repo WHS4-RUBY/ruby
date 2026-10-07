@@ -137,3 +137,70 @@ test("같은 Candidate에서 서로 다른 verified DCID가 확인돼도 Client 
   assert.equal(conflicted.verifiedClientIds.size, 2);
   assert.deepEqual(conflicted.conflicts, []);
 });
+
+test("UA가 달라도 같은 세션의 Candidate는 하나의 Client Flow로 연결한다", () => {
+  const store = new ClientFlowStore({ ttlMs: 60_000, maxCandidates: 1 });
+  const first = store.observe({
+    candidateId: "actor:curl", observation: observation(), sessionId: "session:shared",
+    clientIdentity: { continuityVerified: true, clientId: "dcid:curl" }, ts: 1_700_000_000_000,
+  });
+  const second = store.observe({
+    candidateId: "actor:python",
+    observation: observation({
+      headers: { ...baseHeaders, "user-agent": "python-requests/2.31.0" },
+      ts: 1_700_000_001_000,
+    }),
+    sessionId: "session:shared",
+    clientIdentity: { continuityVerified: true, clientId: "dcid:python" }, ts: 1_700_000_001_000,
+  });
+  assert.equal(second.id, first.id);
+  assert.deepEqual([...second.candidateIds], ["actor:curl", "actor:python"]);
+  assert.equal(second.aggregationEnabled, true);
+  assert.equal(second.links[0].reason, "shared_session_continuity");
+  assert.equal(second.verifiedClientIds.size, 2);
+});
+
+test("이미 분리된 Flow도 나중에 세션이 겹치면 연결하고 이전 ID를 조회할 수 있다", () => {
+  const store = new ClientFlowStore({ ttlMs: 60_000 });
+  const first = store.observe({
+    candidateId: "actor:curl", observation: observation(), sessionId: "session:a",
+    ts: 1_700_000_000_000,
+  });
+  const second = store.observe({
+    candidateId: "actor:python",
+    observation: observation({
+      ip: "198.51.100.20",
+      headers: { ...baseHeaders, "user-agent": "python-requests/2.31.0" },
+      ts: 1_700_000_001_000,
+    }),
+    sessionId: "session:b", ts: 1_700_000_001_000,
+  });
+  assert.notEqual(first.id, second.id);
+  const merged = store.observe({
+    candidateId: "actor:python", observation: observation(), sessionId: "session:a",
+    ts: 1_700_000_002_000,
+  });
+  assert.equal(store.getAll().length, 1);
+  assert.equal(store.get(first.id), merged);
+  assert.equal(store.get(second.id), merged);
+  assert.equal(store.getByCandidate("actor:python"), merged);
+  assert.deepEqual([...merged.sessionIds].sort(), ["session:a", "session:b"]);
+  assert.ok(merged.links.some((link) => link.reason === "shared_session_continuity"));
+});
+
+test("IP와 시간만 같고 세션이 다르면 UA가 다른 Flow를 합치지 않는다", () => {
+  const store = new ClientFlowStore({ ttlMs: 60_000 });
+  const first = store.observe({
+    candidateId: "actor:curl", observation: observation(), sessionId: "session:a",
+    ts: 1_700_000_000_000,
+  });
+  const second = store.observe({
+    candidateId: "actor:python",
+    observation: observation({
+      headers: { ...baseHeaders, "user-agent": "python-requests/2.31.0" },
+      ts: 1_700_000_001_000,
+    }),
+    sessionId: "session:b", ts: 1_700_000_001_000,
+  });
+  assert.notEqual(first.id, second.id);
+});

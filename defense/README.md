@@ -11,7 +11,18 @@ RUBY의 방어 계층을 개발하는 영역입니다. Detection Proxy의 Policy
 - 방어 로그와 계층 간 인터페이스 정의
 - 방어 기법의 단위·통합 테스트
 
-공격 탐지와 위험도·정책에 따른 전략 선택은 모두 [`detection/`](../detection/)에서 관리합니다 (구간별 전략은 `detection/config/policy.json`). 실험 및 벤치마크 기록은 [`benchmark/`](../benchmark/)에서 관리합니다.
+공격 탐지와 위험도·정책에 따른 전략 선택은 모두 [`detection/`](../detection/)에서 관리합니다 (구간별 전략은 `detection/config/policy.json`).
+
+## Target 연결
+
+Defense는 같은 호스트에서 실행 중인 애플리케이션의 포트 번호로 요청을 전달합니다. 별도 컨테이너나 이미지를 가정하지 않습니다.
+
+| 환경변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `TARGET_PORT` | `9000` | Target이 수신하는 포트 번호(1–65535). 정수가 아니거나 범위를 벗어나면 시작 시 오류로 종료합니다. |
+| `TARGET_HOST` | `localhost` | Target 호스트. Compose는 컨테이너에서 호스트로 접근하도록 `host.docker.internal`로 지정합니다. |
+
+Compose에서는 루트 `.env`의 `TARGET_PORT`만 바꾸면 됩니다(기본 `3000`). Target은 `127.0.0.1` 전용이 아니라 `0.0.0.0`(또는 Docker 브리지 주소)에 바인딩되어야 컨테이너에서 접근할 수 있습니다. `/readyz`는 Target 포트에 TCP 연결이 되는 동안에만 200을 반환합니다.
 
 ## 대시보드
 

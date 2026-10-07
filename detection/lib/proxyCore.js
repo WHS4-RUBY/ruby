@@ -29,7 +29,6 @@ function applyForwardedHeaders(proxyReq, req) {
   proxyReq.removeHeader("x-forwarded-for");
   proxyReq.removeHeader("x-forwarded-host");
   proxyReq.removeHeader("x-forwarded-proto");
-  proxyReq.setHeader("X-Forwarded-For", req.ip || req.socket?.remoteAddress || "unknown");
   proxyReq.setHeader("X-Forwarded-Host", req.get?.("host") || req.headers?.host || "");
   proxyReq.setHeader("X-Forwarded-Proto", req.protocol || "http");
 }

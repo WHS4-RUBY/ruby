@@ -15,7 +15,7 @@ ModSecurity 및 OWASP CRS의 버전과 라이선스는
 Client
   -> Detection :8080        # 탐지 + 정책 결정 (X-Defense-Plan 생성)
        -> Defense :8080     # 계획 실행 (지연·차단 등)
-            -> benchmark-target :3000
+            -> Target (같은 호스트의 TARGET_PORT)
 ```
 
 별도의 Policy 프록시는 두지 않습니다. 구간별 방어 전략은
@@ -77,9 +77,12 @@ Socket.IO polling은 HTTP 요청으로 기록되지만 배경 트래픽은 행�
 자동 429 근거가 아닙니다. 한 요청의 공격 신호가 응답 후 확정되면 제한은 후속 요청부터
 가능합니다. 429는 `X-Defense-Signal: rate_limited`로 탐지 기록에 남습니다.
 
-공격 근거 반복 가점은 최근 60분의 근거 요청이 2/4/8/16/32건에 도달하면
-10/20/30/40/50점을 기존 Attack Score에 더하며 최종 점수는 100점으로 제한합니다.
-정상 반복 요청, 단순 Origin 누락, 숫자 리소스 경로만으로는 가점하지 않습니다.
+공격 근거 반복 가점은 최근 60분의 근거 요청이 4/8/16/32/64건에 도달하면
+5/10/15/20/30점을 기존 Attack Score에 더하며 가산점 상한은 30점,
+최종 점수 상한은 100점입니다.
+정상 반복 요청, 단순 Origin 누락, 숫자 리소스 경로, `role-gated:*` 권한 추정
+신호만 있는 요청은 반복 가점 집계에서 제외합니다. 권한 추정 신호의 기본 비즈니스
+로직 점수는 유지하며, 같은 요청에 독립된 다른 공격 근거가 있으면 반복 집계에 포함합니다.
 
 ### 다음 계층으로 나가는 헤더
 
@@ -149,12 +152,18 @@ npm test
 | `SCHEMA_LEARNING_FILE` | 없음 | 승인된 스키마 학습 결과 저장 경로 |
 | `CRS_ENABLED` | `true` | ModSecurity/OWASP CRS 활성화 |
 | `DECEPTION_ENABLED` | `true` | Honey/Deception 신호 활성화 |
-| `TRUST_PROXY` | `false` | 신뢰할 리버스 프록시가 있을 때만 설정 |
+| `TRUST_PROXY` | `false` | 신뢰할 리버스 프록시의 Host/Proto 해석용. X-Forwarded-For는 항상 무시 |
 | `FINGERPRINT_SIMILARITY_TTL_MS` | `1800000` | Fingerprint Client Flow 비교 시간, 기본 30분 |
 | `FINGERPRINT_CLEANUP_INTERVAL_MS` | `60000` | 만료된 Client Flow 정리 주기 |
 | `FINGERPRINT_MAX_FLOW_CANDIDATES` | `3` | 한 Client Flow에 자동 연결할 Candidate 상한 |
 | `MAX_CLIENT_FLOWS` | `5000` | 메모리에 유지할 Client Flow 상한 |
 | `FINGERPRINT_IP_ROTATION_ENABLED` | `true` | IP가 다른 관찰의 자동 연결 허용 여부 |
+
+클라이언트 IP는 직접 연결된 소켓 주소만 사용합니다. `X-Forwarded-For`는 게이트웨이와
+Detection 입력에서 제거하며, Detection과 Defense 모두 HTTP·WebSocket의 하위 전달에서
+재생성하지 않습니다. 게이트웨이 뒤의 Detection에는 게이트웨이 IP가 기록됩니다.
+서명된 Client ID 기반 식별은 유지되며, 과거 X-Forwarded-For를 이용한 IP 변경 실험은
+현재 설정에서 재현되지 않습니다.
 
 ## Fingerprint Client Flow 집계
 

@@ -66,12 +66,13 @@ class ProxyResponseTests(unittest.TestCase):
 
         headers = build_upstream_headers(request, {
             "X-Defense-Applied": "delay", "X-Client-Id": "strategy-override",
+            "X-Forwarded-For": "198.51.100.9",
         })
 
         self.assertNotIn("host", headers)
         self.assertNotIn("x-defense-plan", headers)
         self.assertNotIn("x-client-id", {key.lower() for key in headers})
-        self.assertEqual(headers["x-forwarded-for"], "203.0.113.7")
+        self.assertNotIn("x-forwarded-for", {key.lower() for key in headers})
         self.assertEqual(headers["x-forwarded-host"], "ruby.example.com")
         self.assertEqual(headers["x-forwarded-proto"], "https")
         self.assertEqual(headers["X-Defense-Applied"], "delay")
@@ -87,6 +88,7 @@ class ProxyResponseTests(unittest.TestCase):
                     (b"host", b"ruby.example.com"),
                     (b"x-client-id", b"policy-client"),
                     (b"x-defense-plan", b"[]"),
+                    (b"x-forwarded-for", b"203.0.113.7"),
                 ],
                 "client": ("172.18.0.2", 12345),
                 "server": ("defense", 8080),
@@ -97,11 +99,12 @@ class ProxyResponseTests(unittest.TestCase):
 
         headers = _websocket_headers(websocket, {
             "X-Defense-Applied": "delay", "X-Client-Id": "strategy-override",
+            "X-Forwarded-For": "198.51.100.9",
         })
 
         self.assertNotIn("x-client-id", {key.lower() for key in headers})
         self.assertNotIn("x-defense-plan", headers)
-        self.assertEqual(headers["x-forwarded-for"], "172.18.0.2")
+        self.assertNotIn("x-forwarded-for", {key.lower() for key in headers})
         self.assertEqual(headers["x-forwarded-host"], "ruby.example.com")
         self.assertEqual(headers["X-Defense-Applied"], "delay")
 
