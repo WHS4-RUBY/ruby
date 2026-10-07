@@ -1,0 +1,46 @@
+{
+  "package": "defense-accounts-response-overlay",
+  "release": "0.13.0",
+  "policies": [
+    "unified-v1",
+    "cycle-v2"
+  ],
+  "runtime": "agent-only reverse proxy with embedded headless decoy",
+  "situational_deception_headers": true,
+  "decoy_routes": [
+    "/ftp",
+    "/ops/..."
+  ],
+  "local_all_agent_lab": "deploy/live-lab.compose.yaml",
+  "agent_login_forwarded_to_origin": false,
+  "agent_login_visible_lure": true,
+  "agent_contextual_dom_lures": true,
+  "agent_operations_menu_lure": true,
+  "site_profile_configurable": true,
+  "agent_robots_lure": true,
+  "spa_recon_html_lure": true,
+  "lure_metrics": "state/lure-events.sqlite3",
+  "risk_modes": [
+    "medium-response-overlay",
+    "high-sealed-isolation"
+  ],
+  "high_risk_origin_forwarding": false,
+  "high_risk_sticky": true,
+  "high_risk_decoy_reuse": true,
+  "frontend_by_risk": {
+    "medium": "forwarded from fixed real origin with Agent-only overlay",
+    "high": "local decoy pages and local 401/404 only"
+  },
+  "origin_forwarding_by_risk": {
+    "medium": true,
+    "high": false
+  },
+  "high_risk_console": "/ops/service",
+  "high_risk_console_cards": {
+    "Account Registry": "/ops/recovery/accounts",
+    "Legacy Storage": "/ftp",
+    "Backup Management": "/ops/archive",
+    "Service Manifest": "/ops/service/manifest",
+    "Audit Logs": "/ops/service/audit"
+  }
+}
