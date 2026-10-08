@@ -1,0 +1,23 @@
+[project]
+name = "account-response-overlay"
+version = "0.13.0"
+description = "Agent-only medium response overlay and high-risk isolation with V1/V2 decoys"
+requires-python = ">=3.11"
+dependencies = ["fastapi==0.141.1", "uvicorn==0.52.4", "httpx==0.28.1", "cryptography==50.0.1"]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1", "pytest-asyncio==1.4.0", "pyyaml==6.0.3"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["defense*"]
+
+[tool.setuptools.package-data]
+defense = ["*.js"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

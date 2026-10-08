@@ -24,7 +24,8 @@ const rawRules = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")).defense.rules;
 // 규칙 구간은 [min_score, max_score) 반개구간, 겹치면 먼저 나온 규칙이 우선
 function expectedStrategies(score, confirmedAttackScore = 0) {
   const rule = rawRules.find((r) => r.min_score <= score && score < r.max_score &&
-    confirmedAttackScore >= (r.min_confirmed_attack_score || 0));
+    confirmedAttackScore >= (r.min_confirmed_attack_score || 0) &&
+    confirmedAttackScore < (r.max_confirmed_attack_score || 1.01));
   return rule ? rule.strategies : [];
 }
 
@@ -66,6 +67,7 @@ test("loadPolicyRules는 policy.json의 모든 규칙을 순서대로 로드한�
     assert.equal(rule.minScore, rawRules[i].min_score, `rule ${i} minScore`);
     assert.equal(rule.maxScore, rawRules[i].max_score, `rule ${i} maxScore`);
     assert.equal(rule.minConfirmedAttackScore, rawRules[i].min_confirmed_attack_score || 0);
+    assert.equal(rule.maxConfirmedAttackScore, rawRules[i].max_confirmed_attack_score || 1.01);
     assert.deepEqual(rule.strategies, rawRules[i].strategies, `rule ${i} strategies`);
   });
 });
@@ -78,19 +80,23 @@ const rules = loadPolicyRules(CONFIG_PATH);
 rawRules.forEach((rule, i) => {
   const { min_score: min, max_score: max } = rule;
   const label = `rule ${i} [${min}, ${max})`;
+  const confirmed = Math.min(1, ((rule.min_confirmed_attack_score || 0) +
+    (rule.max_confirmed_attack_score || 1.01)) / 2);
 
   test(`${label}: 하한은 포함하고 상한은 제외한다`, () => {
     if (min >= 0 && min <= 1) {
-      assert.deepEqual(selectStrategies(min, rules), expectedStrategies(min), `score=${min}`);
+      assert.deepEqual(selectStrategies(min, rules, { confirmedAttackScore: confirmed }),
+        expectedStrategies(min, confirmed), `score=${min}`);
     }
     if (max >= 0 && max <= 1) {
-      assert.deepEqual(selectStrategies(max, rules), expectedStrategies(max), `score=${max}`);
+      assert.deepEqual(selectStrategies(max, rules, { confirmedAttackScore: confirmed }),
+        expectedStrategies(max, confirmed), `score=${max}`);
     }
     const belowMax = max - EPS;
     if (belowMax >= 0 && belowMax <= 1) {
       assert.deepEqual(
-        selectStrategies(belowMax, rules),
-        expectedStrategies(belowMax),
+        selectStrategies(belowMax, rules, { confirmedAttackScore: confirmed }),
+        expectedStrategies(belowMax, confirmed),
         `score=${belowMax}`
       );
     }
@@ -99,7 +105,8 @@ rawRules.forEach((rule, i) => {
   test(`${label}: 구간 중간값은 해당 규칙의 전략을 반환한다`, () => {
     const mid = min + (max - min) / 2;
     if (mid < 0 || mid > 1) return;
-    assert.deepEqual(selectStrategies(mid, rules), expectedStrategies(mid), `score=${mid}`);
+    assert.deepEqual(selectStrategies(mid, rules, { confirmedAttackScore: confirmed }),
+      expectedStrategies(mid, confirmed), `score=${mid}`);
   });
 });
 
@@ -147,13 +154,52 @@ test("클라이언트의 Defense plan을 제거하고 policy.json 결과로 교�
   }
 });
 
-test("고위험 Attack 확정 이력에만 엄격한 요청 제한을 추가한다", () => {
-  assert.deepEqual(selectStrategies(0.9, rules).map((step) => step.name), ["delay"]);
-  assert.deepEqual(selectStrategies(0.9, rules, { confirmedAttackScore: 0.79 }).map((step) => step.name), ["delay"]);
-  assert.deepEqual(selectStrategies(0.9, rules, { confirmedAttackScore: 0.8 }).map((step) => step.name),
-    ["rate_limit_strict", "delay"]);
-  assert.deepEqual(selectStrategies(0.4, rules, { confirmedAttackScore: 0.9 }).map((step) => step.name), ["delay"]);
-  assert.deepEqual(selectStrategies(0.1, rules, { confirmedAttackScore: 0.9 }), []);
+test("확정 공격 점수 구간과 각 위험 점수 하한이 함께 전략을 결정한다", () => {
+  const names = (riskScore, confirmedAttackScore = 0) => selectStrategies(
+    riskScore, rules, { confirmedAttackScore }
+  ).map((step) => step.name);
+
+  assert.deepEqual(names(1, 0.499999), []);
+  assert.deepEqual(names(0.499999, 0.5), []);
+  assert.deepEqual(names(0.5, 0.5), ["account_overlay_medium"]);
+  assert.deepEqual(names(1, 0.799999), ["account_overlay_medium"]);
+  assert.deepEqual(names(0.799999, 0.8), []);
+  assert.deepEqual(names(0.8, 0.8), ["rate_limit_strict", "decoy_maze"]);
+  assert.deepEqual(names(1, 0.949999), ["rate_limit_strict", "decoy_maze"]);
+  assert.deepEqual(names(0.949999, 0.95), []);
+  assert.deepEqual(names(0.95, 0.95), ["rate_limit_strict", "account_overlay_high"]);
+  assert.deepEqual(names(1, 1), ["rate_limit_strict", "account_overlay_high"]);
+  assert.deepEqual(names(1, 0), []);
+});
+
+test("확정된 0.8 이상 0.95 미만 플랜은 요청 제한과 미끼만 전달한다", () => {
+  const proxyReq = createProxyReq({ "x-defense-plan": '[{"name":"bypass"}]' });
+  const plan = applyDefensePlan(proxyReq, {
+    riskScore: 0.8,
+    confirmedAttackScore: 0.8,
+    rules,
+  });
+
+  assert.deepEqual(plan, [
+    { name: "rate_limit_strict", params: { max_rps: 1 } },
+    { name: "decoy_maze", params: {} },
+  ]);
+  assert.equal(proxyReq.headers.get("x-defense-plan"), JSON.stringify(plan));
+});
+
+test("확정된 0.95 이상 플랜은 요청 제한과 높은 계정 오버레이를 전달한다", () => {
+  const proxyReq = createProxyReq({ "x-defense-plan": '[{"name":"bypass"}]' });
+  const plan = applyDefensePlan(proxyReq, {
+    riskScore: 0.95,
+    confirmedAttackScore: 0.95,
+    rules,
+  });
+
+  assert.deepEqual(plan, [
+    { name: "rate_limit_strict", params: { max_rps: 1 } },
+    { name: "account_overlay_high", params: {} },
+  ]);
+  assert.equal(proxyReq.headers.get("x-defense-plan"), JSON.stringify(plan));
 });
 
 // ---------------------------------------------------------------------------
@@ -192,4 +238,15 @@ test("strategies가 배열이 아니면 로드에 실패한다", () => {
       assert.throws(() => loadPolicyRules(file), /strategies array/);
     }
   );
+});
+
+test("확정 공격 점수 구간 상한이 하한 이하이거나 1.01을 넘으면 로드에 실패한다", () => {
+  for (const max_confirmed_attack_score of [0.8, 1.02, "bad"]) {
+    withTempConfig({ defense: { rules: [{
+      min_score: 0.5, max_score: 1.01, min_confirmed_attack_score: 0.8,
+      max_confirmed_attack_score, strategies: [],
+    }] } }, (file) => {
+      assert.throws(() => loadPolicyRules(file), /invalid confirmed attack ceiling/);
+    });
+  }
 });

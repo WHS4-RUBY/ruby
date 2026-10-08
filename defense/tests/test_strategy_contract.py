@@ -1,6 +1,7 @@
 import asyncio
 import json
 import unittest
+import uuid
 from unittest.mock import patch
 
 import httpx
@@ -14,6 +15,7 @@ from websockets.frames import Close
 from defense.app.main import _apply_plan, app, websocket_proxy
 from defense.app.dashboard_auth import DashboardAuthManager
 from defense.app.monitoring import event_store
+from defense.app.target_selection import SelectedTarget, TargetSelectionError, TargetSelector
 from defense.app.strategies.base import DefenseResult, DefenseStrategy
 from defense.app.strategies.state import StrategyStateStore
 
@@ -92,6 +94,16 @@ class StrategyStateTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone((await _apply_plan(plan, request("a"))).short_circuit)
             self.assertEqual((await _apply_plan(plan, request("a"))).short_circuit.status_code, 429)
 
+    async def test_new_experiment_run_has_separate_strategy_state(self):
+        store = StrategyStateStore(max_entries=3, ttl_seconds=60)
+        plan = [{"name": "rate_limit_strict", "params": {"max_rps": 1}}]
+        first = SelectedTarget("ruby-shop", "http://web:8080", str(uuid.uuid4()), "now")
+        second = SelectedTarget("ruby-shop", "http://web:8080", str(uuid.uuid4()), "later")
+        with patch("defense.app.main.strategy_state", store):
+            self.assertIsNone((await _apply_plan(plan, request("a"), first)).short_circuit)
+            self.assertEqual((await _apply_plan(plan, request("a"), first)).short_circuit.status_code, 429)
+            self.assertIsNone((await _apply_plan(plan, request("a"), second)).short_circuit)
+
     async def test_concurrent_requests_share_one_client_state(self):
         store = StrategyStateStore(max_entries=2, ttl_seconds=60)
         with patch("defense.app.main.strategy_state", store), patch.dict(
@@ -106,6 +118,62 @@ class StrategyStateTests(unittest.IsolatedAsyncioTestCase):
 class ProxyContractTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         event_store._events.clear()
+
+    async def test_invalid_selection_returns_503_without_contacting_an_upstream(self):
+        contacted = []
+        upstream = httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda req: contacted.append(req) or httpx.Response(200)
+        ))
+        app.state.http_client = upstream
+        async with upstream, httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://defense") as client:
+            with patch("defense.app.target_selection.target_selector.for_request", side_effect=TargetSelectionError("invalid")):
+                response = await client.get("/item")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(contacted, [])
+        self.assertEqual(event_store.recent(1)[0]["outcome"], "error")
+
+    async def test_request_snapshot_selects_allowlisted_upstream_and_records_target(self):
+        captured = []
+
+        class RedirectStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b"redirect"
+
+            async def aclose(self):
+                pass
+
+        def backend(req):
+            captured.append(req)
+            return httpx.Response(
+                302,
+                headers={"Location": f"{req.url.scheme}://{req.url.host}:{req.url.port}/login"},
+                stream=RedirectStream(),
+            )
+
+        selector = TargetSelector.from_environment({
+            "TARGET_CHOICES": "legacy=http://localhost:3000,ruby-shop=http://ruby-web-target:8080,juice-shop=http://juice-shop-target:3000"
+        })
+        upstream = httpx.AsyncClient(transport=httpx.MockTransport(backend))
+        app.state.http_client = upstream
+        run_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+        async with upstream, httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://defense") as client:
+            with patch("defense.app.target_selection.target_selector", selector):
+                responses = [
+                    await client.get("/item", headers={
+                        "X-Ruby-Target-Id": target_id,
+                        "X-Ruby-Run-Id": run_id,
+                    })
+                    for target_id, run_id in zip(("ruby-shop", "juice-shop"), run_ids)
+                ]
+
+        self.assertEqual([str(req.url.host) for req in captured], ["ruby-web-target", "juice-shop-target"])
+        self.assertTrue(all("x-ruby-target-id" not in req.headers for req in captured))
+        self.assertTrue(all("x-ruby-run-id" not in req.headers for req in captured))
+        self.assertEqual([response.headers["location"] for response in responses], ["http://defense/login"] * 2)
+        self.assertEqual(
+            [(event["targetId"], event["runId"]) for event in reversed(event_store.recent(2))],
+            [("ruby-shop", run_ids[0]), ("juice-shop", run_ids[1])],
+        )
 
     async def test_response_transform_runs_after_backend_and_records_correlation(self):
         captured = []
@@ -268,7 +336,7 @@ class WebSocketLifecycleTests(unittest.IsolatedAsyncioTestCase):
         event_store._events.clear()
 
     @staticmethod
-    def websocket():
+    def websocket(extra_headers=None):
         sent = []
         connected = False
 
@@ -287,11 +355,35 @@ class WebSocketLifecycleTests(unittest.IsolatedAsyncioTestCase):
             "scheme": "ws",
             "path": "/ws",
             "query_string": b"",
-            "headers": [(b"host", b"defense"), (b"x-client-id", b"resolved:ws-client")],
+            "headers": [(b"host", b"defense"), (b"x-client-id", b"resolved:ws-client"), *[
+                (name.lower().encode(), value.encode()) for name, value in (extra_headers or {}).items()
+            ]],
             "client": ("127.0.0.1", 1234),
             "server": ("defense", 8080),
         }, receive=receive, send=send)
         return websocket, sent
+
+    async def test_websocket_snapshot_selects_upstream_and_does_not_forward_internal_headers(self):
+        selector = TargetSelector.from_environment({
+            "TARGET_CHOICES": "legacy=http://localhost:3000,ruby-shop=http://ruby-web-target:8080,juice-shop=http://juice-shop-target:3000"
+        })
+        run_id = str(uuid.uuid4())
+        websocket, sent = self.websocket({
+            "X-Ruby-Target-Id": "juice-shop", "X-Ruby-Run-Id": run_id,
+        })
+        with patch("defense.app.target_selection.target_selector", selector), patch(
+            "defense.app.main.DECOY_UPSTREAMS", {"juice-shop": "http://cheat-juice:3012"}
+        ), patch(
+            "defense.app.main.websockets.connect", side_effect=OSError("unavailable")
+        ) as connect:
+            await websocket_proxy(websocket, "ws")
+
+        self.assertEqual(connect.call_args.args[0], "ws://juice-shop-target:3000/ws")
+        self.assertNotIn("x-ruby-target-id", connect.call_args.kwargs["extra_headers"])
+        self.assertNotIn("x-ruby-run-id", connect.call_args.kwargs["extra_headers"])
+        self.assertEqual(sent[-1]["code"], 1011)
+        event = event_store.recent(1)[0]
+        self.assertEqual((event["targetId"], event["runId"]), ("juice-shop", run_id))
 
     async def test_frame_error_keeps_successful_upgrade_status(self):
         class BrokenUpstream:

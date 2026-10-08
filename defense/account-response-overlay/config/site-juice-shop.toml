@@ -1,0 +1,17 @@
+# Change this profile and origin_url to adapt the overlay to another web site.
+login_paths = ["/rest/user/login"]
+login_form_selector = "#login-form"
+recovery_anchor_selector = "a[href='#/forgot-password']"
+menu_selector = "mat-sidenav mat-nav-list"
+account_terms = ["login", "account", "user", "auth", "password"]
+recon_segments = ["admin", "internal", "debug", "backup", "config", "private", "secret", "wp-admin", "phpmyadmin", "server-status", "actuator", ".git", ".env"]
+recon_html_paths = ["/admin", "/internal", "/debug", "/backup", "/config", "/.git", "/.env"]
+api_prefixes = ["/api", "/rest", "/swagger", "/openapi"]
+ordinary_api_prefixes = ["/api/products", "/rest/products", "/api/quantitys"]
+ordinary_api_exact = ["/api/challenges", "/rest/languages", "/rest/admin/application-configuration", "/rest/admin/application-version"]
+origin_auth_cookies = ["token"]
+robots_disallow = ["/ftp", "/ops/recovery/accounts", "/ops/service/manifest"]
+decoy_brand = "Internal Administration"
+decoy_admin_email = "administrator@internal.invalid"
+decoy_service = "Internal Account Registry"
+decoy_profile_image = "/assets/public/images/uploads/default.svg"

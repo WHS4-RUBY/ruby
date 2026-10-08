@@ -6,11 +6,18 @@ services:
     image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/detection:${IMAGE_TAG:-latest}
     container_name: detection
     ports:
-      - "80:8080"
+      - "80:8081"
+      - "127.0.0.1:8088:8080"
     environment:
       - NODE_ENV=production
       - TARGET_URL=http://defense:8080
-      - PORT=8080
+      - TARGET_CHOICES=${TARGET_CHOICES:-}
+      - TARGET_DEFAULT_ID=${TARGET_DEFAULT_ID:-legacy}
+      - TARGET_SELECTION_FILE=/app/data/target-selection.json
+      - PUBLIC_TARGET_ORIGIN=${PUBLIC_TARGET_ORIGIN:?Set PUBLIC_TARGET_ORIGIN in .env}
+      - LEGACY_TARGET_URL=http://host.docker.internal:${TARGET_PORT:-3000}
+      - PORT=8081
+      - ADMIN_PORT=8080
       - BLOCK_MODE=false
       - DETECTION_LEVEL=${DETECTION_LEVEL:-medium}
       - CSRF_ALLOWED_ORIGINS=${CSRF_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1}
@@ -60,13 +67,15 @@ services:
     volumes:
       - detection-data:/app/data
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8081/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 3s
       retries: 5
     depends_on:
       defense:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - ai-defense-net
@@ -80,6 +89,13 @@ services:
       - RUBY_ENV=production
       - TARGET_HOST=host.docker.internal
       - TARGET_PORT=${TARGET_PORT:-3000}
+      - TARGET_CHOICES=${TARGET_CHOICES:-}
+      - TARGET_DEFAULT_ID=${TARGET_DEFAULT_ID:-legacy}
+      - TARGET_SELECTION_FILE=/app/target-data/target-selection.json
+      - DECOY_UPSTREAM_CHOICES=juice-shop=http://cheat-juice:3012,ruby-shop=http://cheat-ruby:3012
+      - OVERLAY_UPSTREAM_CHOICES=juice-shop=http://overlay-juice:8080,ruby-shop=http://overlay-ruby:8080
+      - OVERLAY_DETECTOR_KEY=${OVERLAY_DETECTOR_KEY:?Set OVERLAY_DETECTOR_KEY}
+      - DEFENSE_OVERLAY_STATE_DB=/app/overlay-state/routes.sqlite3
       - DEFENSE_DASHBOARD_PASSWORD=${DEFENSE_DASHBOARD_PASSWORD:?Set DEFENSE_DASHBOARD_PASSWORD}
       - ALLOW_INSECURE_DASHBOARD_HTTP=${ALLOW_INSECURE_DASHBOARD_HTTP:-false}
       - DEFENSE_DASHBOARD_COOKIE_SECURE=${DEFENSE_DASHBOARD_COOKIE_SECURE:?Set DEFENSE_DASHBOARD_COOKIE_SECURE}
@@ -93,11 +109,123 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    volumes:
+      - detection-data:/app/target-data:ro
+      - defense-overlay-data:/app/overlay-state
+    depends_on:
+      cheat-juice:
+        condition: service_healthy
+      cheat-ruby:
+        condition: service_healthy
+      overlay-juice:
+        condition: service_healthy
+      overlay-ruby:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - ai-defense-net
 
+  cheat-juice:
+    image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/decoy-sidecar:${IMAGE_TAG:-latest}
+    environment:
+      - REAL_BACKEND=http://juice-shop-target:3000
+      - TARGET_PRESET=apache-php
+      - DEFENSE_MODE=off
+      - DECOY_REQUIRE_PLAN=1
+      - CLIENT_ID_FALLBACK=ip
+      - DEFENSE_DB=/data/defense.db
+      - UVICORN_PROXY_HEADERS=0
+    volumes:
+      - cheat-juice-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 3012), 2); s.close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ai-defense-net
+
+  cheat-ruby:
+    image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/decoy-sidecar:${IMAGE_TAG:-latest}
+    environment:
+      - REAL_BACKEND=http://ruby-web-target:8080
+      - TARGET_PRESET=nginx-fastapi
+      - DEFENSE_MODE=off
+      - DECOY_REQUIRE_PLAN=1
+      - CLIENT_ID_FALLBACK=ip
+      - DEFENSE_DB=/data/defense.db
+      - UVICORN_PROXY_HEADERS=0
+      - MAZE_EXCLUDE=^/admin(/|$)
+    volumes:
+      - cheat-ruby-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 3012), 2); s.close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ai-defense-net
+
+  overlay-juice:
+    image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/account-response-overlay:${IMAGE_TAG:-latest}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    environment:
+      - OVERLAY_CONFIG=/app/config/overlay-production-juice-v2.toml
+      - OVERLAY_ORIGIN_URL=http://juice-shop-target:3000
+      - OVERLAY_DETECTOR_KEY=${OVERLAY_DETECTOR_KEY:?Set OVERLAY_DETECTOR_KEY}
+      - DEFENSE_SECRET_FILE=/app/state/session.key
+      - DEFENSE_DETECTOR_SECRET_FILE=/app/state/detector.key
+      - DEFENSE_SECURITY_DB=/app/state/security.sqlite3
+    volumes:
+      - overlay-juice-data:/app/state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 8080), 2); s.close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ai-defense-net
+
+  overlay-ruby:
+    image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/account-response-overlay:${IMAGE_TAG:-latest}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    environment:
+      - OVERLAY_CONFIG=/app/config/overlay-production-ruby-v2.toml
+      - OVERLAY_ORIGIN_URL=http://ruby-web-target:8080
+      - OVERLAY_DETECTOR_KEY=${OVERLAY_DETECTOR_KEY:?Set OVERLAY_DETECTOR_KEY}
+      - DEFENSE_SECRET_FILE=/app/state/session.key
+      - DEFENSE_DETECTOR_SECRET_FILE=/app/state/detector.key
+      - DEFENSE_SECURITY_DB=/app/state/security.sqlite3
+    volumes:
+      - overlay-ruby-data:/app/state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 8080), 2); s.close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ai-defense-net
+
 volumes:
   detection-data:
+  cheat-juice-data:
+  cheat-ruby-data:
+  defense-overlay-data:
+  overlay-juice-data:
+  overlay-ruby-data:

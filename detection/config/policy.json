@@ -2,38 +2,10 @@
   "defense": {
     "rules": [
       {
-        "min_score": 0.0,
-        "max_score": 0.2,
-        "strategies": []
-      },
-      {
-        "min_score": 0.2,
-        "max_score": 0.5,
-        "strategies": [
-          {
-            "name": "delay",
-            "params": {
-              "delay_ms": 200
-            }
-          }
-        ]
-      },
-      {
-        "min_score": 0.5,
-        "max_score": 0.8,
-        "strategies": [
-          {
-            "name": "delay",
-            "params": {
-              "delay_ms": 300
-            }
-          }
-        ]
-      },
-      {
-        "min_score": 0.8,
+        "min_score": 0.95,
         "max_score": 1.01,
-        "min_confirmed_attack_score": 0.8,
+        "min_confirmed_attack_score": 0.95,
+        "max_confirmed_attack_score": 1.01,
         "strategies": [
           {
             "name": "rate_limit_strict",
@@ -42,22 +14,38 @@
             }
           },
           {
-            "name": "delay",
-            "params": {
-              "delay_ms": 500
-            }
+            "name": "account_overlay_high",
+            "params": {}
           }
         ]
       },
       {
         "min_score": 0.8,
         "max_score": 1.01,
+        "min_confirmed_attack_score": 0.8,
+        "max_confirmed_attack_score": 0.95,
         "strategies": [
           {
-            "name": "delay",
+            "name": "rate_limit_strict",
             "params": {
-              "delay_ms": 500
+              "max_rps": 1
             }
+          },
+          {
+            "name": "decoy_maze",
+            "params": {}
+          }
+        ]
+      },
+      {
+        "min_score": 0.5,
+        "max_score": 1.01,
+        "min_confirmed_attack_score": 0.5,
+        "max_confirmed_attack_score": 0.8,
+        "strategies": [
+          {
+            "name": "account_overlay_medium",
+            "params": {}
           }
         ]
       }

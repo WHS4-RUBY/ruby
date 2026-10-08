@@ -63,16 +63,62 @@ jobs:
       - name: Test ${{ matrix.service }}
         run: python -m unittest discover -s ${{ matrix.service }}/tests -p 'test_*.py'
 
+  decoy-check:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install decoy sidecar dependencies
+        run: pip install -r defense/CHeat-defense-proxy/defense_proxy_v2/requirements.txt
+
+      - name: Test decoy sidecar
+        working-directory: defense/CHeat-defense-proxy/defense_proxy_v2/tests
+        run: python run_all.py
+
+      - name: Build decoy sidecar image
+        run: docker build -t decoy-sidecar:ci defense/CHeat-defense-proxy/defense_proxy_v2
+
+  overlay-check:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install account overlay dependencies
+        working-directory: defense/account-response-overlay
+        run: pip install -r requirements.lock pytest==9.1.1 pytest-asyncio==1.4.0 pyyaml==6.0.3
+
+      - name: Test account overlay
+        working-directory: defense/account-response-overlay
+        run: python -m pytest -q
+
+      - name: Test overlay lure UI
+        working-directory: defense/account-response-overlay
+        run: node --test tests/test_lure_ui.cjs
+
+      - name: Build account overlay image
+        run: docker build -t account-response-overlay:ci defense/account-response-overlay
+
   integration-check:
     runs-on: ubuntu-26.04
-    needs: [detection-check, python-check]
+    needs: [detection-check, python-check, decoy-check, overlay-check]
     env:
       DETECTION_DASHBOARD_PASSWORD: integration-password
       DEFENSE_DASHBOARD_PASSWORD: integration-password
       PAYLOAD_FINGERPRINT_KEY: integration-payload-key
       DCID_HMAC_SECRET: integration-dcid-secret
       ACCOUNT_ID_HASH_KEY: integration-account-key
+      OVERLAY_DETECTOR_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       TARGET_PORT: "3000"
+      TARGET_CHOICES: legacy=http://host.docker.internal:3000,alternate=http://host.docker.internal:3000
+      TARGET_DEFAULT_ID: legacy
     steps:
       - uses: actions/checkout@v4
 
@@ -80,7 +126,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir -p "$RUNNER_TEMP/target"
-          echo '<!doctype html><title>target</title><h1>ok</h1>' > "$RUNNER_TEMP/target/index.html"
+          echo '<!doctype html><html><head><title>target</title></head><body><h1>ok</h1></body></html>' > "$RUNNER_TEMP/target/index.html"
           nohup python3 -m http.server "$TARGET_PORT" --bind 0.0.0.0 \
             --directory "$RUNNER_TEMP/target" > "$RUNNER_TEMP/target.log" 2>&1 &
           for _ in $(seq 1 20); do
@@ -97,21 +143,102 @@ jobs:
       - name: Verify public traffic and protected management paths
         run: |
           set -Eeuo pipefail
-          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8081/__detection/api/sessions)" = "401"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8081/__detection/api/sessions)" = "404"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8081/__defense/dashboard)" = "404"
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{}' http://127.0.0.1:8081/__detection/telemetry)" = "204"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18088/)" = "404"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18088/__detection/api/sessions)" = "401"
 
           curl --fail --silent --show-error -c detection.cookies \
             -H 'Content-Type: application/json' --data '{"password":"integration-password"}' \
-            http://127.0.0.1:8081/__detection/api/login >/dev/null
+            http://127.0.0.1:18088/__detection/api/login >/dev/null
           curl --fail --silent --show-error -b detection.cookies \
-            http://127.0.0.1:8081/__detection/api/sessions >/dev/null
+            http://127.0.0.1:18088/__detection/api/sessions >/dev/null
+          curl --fail --silent --show-error -b detection.cookies \
+            http://127.0.0.1:18088/__detection/api/target-selection >/dev/null
+          curl --fail --silent --show-error -b detection.cookies \
+            -H 'Origin: http://127.0.0.1:18088' \
+            -H 'X-Ruby-Target-Selection: 1' \
+            -H 'Content-Type: application/json' \
+            --data '{"targetId":"alternate"}' \
+            http://127.0.0.1:18088/__detection/api/target-selection \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["active"]["targetId"] == "alternate"'
 
           curl --fail --silent --show-error -c defense.cookies \
             -H 'Content-Type: application/json' --data '{"password":"integration-password"}' \
-            http://127.0.0.1:8081/__defense/api/login >/dev/null
+            http://127.0.0.1:18088/__defense/api/login >/dev/null
           curl --fail --silent --show-error -b defense.cookies \
-            http://127.0.0.1:8081/__defense/api/snapshot >/dev/null
+            http://127.0.0.1:18088/__defense/api/snapshot >/dev/null
           curl --fail --silent --show-error http://127.0.0.1:8081/ >/dev/null
+          curl --fail --silent --show-error -b defense.cookies \
+            http://127.0.0.1:18088/__defense/api/requests \
+            | python3 -c 'import json,sys; assert any(item["targetId"] == "alternate" and item["runId"] for item in json.load(sys.stdin)["requests"])'
+
+      - name: Verify a planned decoy reaches the selected sidecar
+        run: |
+          set -Eeuo pipefail
+          docker compose -f docker-compose.local.yml exec -T detection node - <<'JS'
+          (async () => {
+            const response = await fetch('http://defense:8080/internal/ops/runbook', {
+              headers: {
+                'X-Client-Id': 'integration-decoy-client',
+                'X-Defense-Plan': JSON.stringify([
+                  { name: 'rate_limit_strict', params: { max_rps: 1 } },
+                  { name: 'decoy_maze', params: {} },
+                ]),
+                'X-Ruby-Risk-Score': '0.85',
+                'X-Ruby-Confirmed-Attack-Score': '0.85',
+                'X-Ruby-Request-Id': 'integration-decoy-request',
+              },
+            });
+            const body = await response.text();
+            if (response.status !== 200 || !body ||
+                !response.headers.get('x-defense-applied')?.includes('decoy_maze') ||
+                response.headers.has('x-ruby-decoy-action')) {
+              throw new Error(`decoy response ${response.status}: ${body.slice(0, 160)}`);
+            }
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          JS
+          curl --fail --silent --show-error -b defense.cookies \
+            http://127.0.0.1:18088/__defense/api/requests \
+            | python3 -c 'import json,sys; assert any(item["path"] == "/internal/ops/runbook" and item["targetId"] == "alternate" and item["runId"] and item["decoyAction"].startswith("maze") and "decoy_maze" in item["strategies"] for item in json.load(sys.stdin)["requests"])'
+
+      - name: Verify account overlay signatures, tiers, and dashboard events
+        run: |
+          set -Eeuo pipefail
+          docker compose -f docker-compose.local.yml exec -T detection node - <<'JS'
+          (async () => {
+            const unsigned = await fetch('http://overlay-alternate:8080/');
+            if (unsigned.status !== 403) throw new Error(`unsigned overlay: ${unsigned.status}`);
+
+            async function check(tier, score, clientId) {
+              const marker = `account_overlay_${tier}`;
+              const plan = tier === 'high'
+                ? [{ name: 'rate_limit_strict', params: { max_rps: 1 } }, { name: marker, params: {} }]
+                : [{ name: marker, params: {} }];
+              const response = await fetch('http://defense:8080/', {
+                headers: {
+                  'X-Client-Id': clientId,
+                  'X-Defense-Plan': JSON.stringify(plan),
+                  'X-Ruby-Risk-Score': String(score),
+                  'X-Ruby-Confirmed-Attack-Score': String(score),
+                  'X-Ruby-Request-Id': `integration-overlay-${tier}`,
+                },
+              });
+              const body = await response.text();
+              const expected = tier === 'high' ? 'Internal Operations Console' : '/assets/account-recovery.js';
+              if (response.status !== 200 || !body.includes(expected)) {
+                throw new Error(`${tier} overlay returned ${response.status}: ${body.slice(0, 160)}`);
+              }
+            }
+
+            await check('medium', 0.6, 'integration-medium-actor');
+            await check('high', 0.97, 'integration-high-actor');
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          JS
+          curl --fail --silent --show-error -b defense.cookies \
+            http://127.0.0.1:18088/__defense/api/requests \
+            | python3 -c 'import json,sys; events=json.load(sys.stdin)["requests"]; assert any(e["requestId"] == "integration-overlay-medium" and "account_overlay_medium" in e["strategies"] and e["targetId"] == "alternate" for e in events); assert any(e["requestId"] == "integration-overlay-high" and "account_overlay_high" in e["strategies"] and e["outcome"] == "blocked" and e["targetId"] == "alternate" for e in events)'
 
       - name: Show service logs on failure
         if: failure()

@@ -1,0 +1,17 @@
+# Example profile for a different site. Set overlay site_profile to this file.
+login_paths = ["/api/auth/login"]
+login_form_selector = "form[data-login]"
+recovery_anchor_selector = "a[href='/forgot-password']"
+menu_selector = "nav[aria-label='Main']"
+account_terms = ["login", "account", "user", "auth", "password"]
+recon_segments = ["admin", "internal", "debug", "backup", "config", "private", "secret", ".git", ".env"]
+recon_html_paths = ["/admin", "/internal", "/debug", "/backup", "/.git", "/.env"]
+api_prefixes = ["/api", "/swagger", "/openapi"]
+ordinary_api_prefixes = ["/api/catalog", "/api/search"]
+ordinary_api_exact = ["/api/configuration"]
+origin_auth_cookies = ["session_token"]
+robots_disallow = ["/ftp", "/ops/recovery/accounts", "/ops/service/manifest"]
+decoy_brand = "Internal Administration"
+decoy_admin_email = "administrator@internal.invalid"
+decoy_service = "Internal Account Registry"
+decoy_profile_image = ""

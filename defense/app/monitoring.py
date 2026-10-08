@@ -41,9 +41,13 @@ class DefenseEventStore:
         request_id: str | None = None,
         automation_score: float | None = None,
         attack_score: float | None = None,
+        confirmed_attack_score: float | None = None,
         risk_score: float | None = None,
         policy_source: str | None = None,
         signal: str | None = None,
+        decoy_action: str | None = None,
+        target_id: str | None = None,
+        run_id: str | None = None,
     ) -> dict:
         event = {
             "id": str(uuid.uuid4()),
@@ -58,9 +62,13 @@ class DefenseEventStore:
             "requestId": _bounded(request_id, 128),
             "automationScore": automation_score,
             "attackScore": attack_score,
+            "confirmedAttackScore": confirmed_attack_score,
             "riskScore": risk_score,
             "policySource": _bounded(policy_source, 64),
             "defenseSignal": _bounded(signal, 64),
+            "decoyAction": _bounded(decoy_action, 64),
+            "targetId": _bounded(target_id, 64),
+            "runId": _bounded(run_id, 128),
         }
         with self._lock:
             self._events.append(event)

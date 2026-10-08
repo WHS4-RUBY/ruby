@@ -2,8 +2,8 @@
 
 RUBY의 진입점에서 모든 HTTP 요청과 응답을 관찰하는 Node.js 리버스 프록시입니다.
 기존 요청 횟수 기반 Python 스텁을 `juice-shop-detector`의 탐지 구현으로 교체했으며,
-위험도에 따른 방어 전략 선택(Policy)도 이 프록시 안에서 수행하며, `TARGET_URL`로
-Defense나 보호할 애플리케이션을 직접 가리킵니다.
+위험도에 따른 방어 전략 선택(Policy)도 이 프록시 안에서 수행합니다. 운영 Compose의
+`TARGET_URL`은 공식 Defense를 가리키며, 보호할 대상은 관리 화면에서 선택합니다.
 
 원본 통합 기준은 `kimwm5377/juice-shop-detector`의 `08fbf98` 커밋입니다. 포함된
 ModSecurity 및 OWASP CRS의 버전과 라이선스는
@@ -12,11 +12,20 @@ ModSecurity 및 OWASP CRS의 버전과 라이선스는
 ## RUBY 요청 흐름
 
 ```text
-Client
-  -> Detection :8080        # 탐지 + 정책 결정 (X-Defense-Plan 생성)
-       -> Defense :8080     # 계획 실행 (지연·차단 등)
-            -> Target (같은 호스트의 TARGET_PORT)
+Client -> 서버 공개 :80 -> Detection :8081   # 탐지 + 정책 결정
+                             -> Defense :8080   # 속도 제한 등 공식 전략
+                                  -> 대상별 CHeaT sidecar :3012 -> Target
+관리자 -> SSH 터널 -> 서버 127.0.0.1:8088 -> Detection 관리 리스너 :8080
 ```
+
+운영 대상은 `juice-shop`과 `ruby-shop`이며, 관리 화면의 **실험 대상**에서 전환합니다.
+Detection과 Defense는 같은 `TARGET_CHOICES`와 선택 파일을 사용합니다. 대상 ID와 실행
+ID가 이후 요청에 기록되며, WebSocket은 sidecar를 거치지 않고 선택된 Target에 직접
+연결됩니다. 벤치마크 선택 화면의 포트 3020은 애플리케이션 직통 경로입니다. 여기에
+보낸 요청은 Detection·Defense를 지나지 않아 두 대시보드에 표시되지 않습니다.
+
+로컬 Compose는 공개 테스트 포트 `8081`과 루프백 관리 포트 `18088`을 사용합니다.
+sidecar 설정이 없는 독립 실행/legacy 대상은 Defense가 Target에 직접 연결합니다.
 
 별도의 Policy 프록시는 두지 않습니다. 구간별 방어 전략은
 [`config/policy.json`](config/policy.json)에 두고 `lib/policyEngine.js`가 읽습니다.
@@ -27,8 +36,9 @@ Client
 
 ```text
 Express app
-  ├─ /healthz, /__detection/*        # Detection 전용 라우트
-  └─ proxyCore([detectionHook])       # 나머지 요청
+  ├─ 공개 리스너: /healthz, 공개 telemetry, 보호 대상 프록시
+  ├─ 관리 리스너: /__detection/*, /__defense/*, /healthz
+  └─ proxyCore([detectionHook])       # 보호 대상 요청
        ├─ onRequest                   # 식별·사전 점수·CRS 시작
        └─ onResponse                  # 결과 기록·점수 갱신·Telemetry/Deception 주입
 ```
@@ -70,12 +80,22 @@ upstream 응답이 돌아온 뒤에 확정됩니다. 따라서 각 요청에 적
 업그레이드 요청의 이전 HTTP 이력에만 정책을 적용하며 프레임 내용은 분석하거나 점수화하지 않습니다.
 Socket.IO polling은 HTTP 요청으로 기록되지만 배경 트래픽은 행동 점수에서 제외합니다.
 
-기본 정책은 위험도 0.2/0.5/0.8부터 각각 200/300/500ms 지연합니다. 위험도 0.8
-이상이고 **검증된 동일 DCID의 Resolved Actor**에서 Attack Score 0.8 이상이 확인된
-경우에만 `rate_limit_strict`(초당 최대 1요청)를 지연 앞에 추가합니다. 공유 IP·curl
-지문으로 연결된 Candidate/Client Flow와 서명 검증하지 않은 Bearer 값의 그룹 점수는
-자동 429 근거가 아닙니다. 한 요청의 공격 신호가 응답 후 확정되면 제한은 후속 요청부터
-가능합니다. 429는 `X-Defense-Signal: rate_limited`로 탐지 기록에 남습니다.
+기본 정책은 **검증된 동일 DCID의 Resolved Actor**에서 계산한 확정 공격 점수와
+위험 점수를 함께 확인합니다. 위험 점수도 해당 구간의 하한 이상이어야 합니다.
+
+| 확정 공격 점수 | 위험 점수 하한 | 선택 전략 |
+|---|---:|---|
+| 0.5 이상 0.8 미만 | 0.5 | `account_overlay_medium` |
+| 0.8 이상 0.95 미만 | 0.8 | `rate_limit_strict`(초당 최대 1요청), `decoy_maze` |
+| 0.95 이상 | 0.95 | `rate_limit_strict`(초당 최대 1요청), `account_overlay_high` |
+
+그 외에는 방어 계획이 비어 있습니다. 공식 Defense가 속도 제한과 계정 응답 오버레이를
+실행하고, 비공개 CHeaT sidecar가 선택된 기만 계획을 실행합니다. 미끼에 접촉한
+클라이언트에는 CHeaT의 미로·적응형 지연이 적용될 수 있습니다.
+공유 IP·curl 지문으로 연결된 Candidate/Client Flow와 서명 검증하지 않은
+Bearer 값의 그룹 점수는 자동 429 근거가 아닙니다. 한 요청의 공격 신호가 응답 후
+확정되면 대응은 후속 요청부터 가능합니다. 429는 `X-Defense-Signal: rate_limited`로
+탐지 기록에 남으며, 해당 요청은 sidecar까지 전달되지 않습니다.
 
 공격 근거 반복 가점은 최근 60분의 근거 요청이 4/8/16/32/64건에 도달하면
 5/10/15/20/30점을 기존 Attack Score에 더하며 가산점 상한은 30점,
@@ -88,15 +108,16 @@ Socket.IO polling은 HTTP 요청으로 기록되지만 배경 트래픽은 행�
 
 | 헤더 | 값 |
 |---|---|
-| `X-Defense-Plan` | 위험도 구간에 해당하는 전략 배열 JSON. Defense가 소비하고 백엔드로 넘기지 않습니다 |
+| `X-Defense-Plan` | 위험도 구간에 해당하는 전략 배열 JSON. Defense가 실행하고 기만 전략만 비공개 sidecar에 다시 전달합니다 |
 | `X-Client-Id` | 방어 상태의 키가 되는 가명 식별자 |
 | `X-Ruby-Request-Id` | 탐지·방어 기록을 결합할 무작위 요청 ID |
-| `X-Ruby-Automation-Score`, `X-Ruby-Attack-Score`, `X-Ruby-Risk-Score` | 전달 전 완료 이력의 0~1 점수 |
+| `X-Ruby-Automation-Score`, `X-Ruby-Attack-Score`, `X-Ruby-Confirmed-Attack-Score`, `X-Ruby-Risk-Score` | 전달 전 완료 이력의 0~1 점수 |
 | `X-Ruby-Policy-Source` | 정책 점수의 탐지 출처 |
+| `X-Ruby-Target-Id`, `X-Ruby-Run-Id` | 선택된 대상과 실험 실행의 식별자 |
 
 점수·출처 헤더는 Defense의 관측용 내부 계약입니다. 외부 요청에 같은 이름의 헤더가
-있으면 Detection이 제거하고 자체 값을 넣습니다. Defense는 이를 Target에 전달하지
-않습니다. Detection 대시보드의 요청 타임라인과 JSON에는 요청 ID, 전달 전 정책 점수,
+있으면 Detection이 제거하고 자체 값을 넣습니다. Defense와 sidecar는 내부 식별·계획
+헤더를 Target에 전달하지 않습니다. Detection 대시보드의 요청 타임라인과 JSON에는 요청 ID, 전달 전 정책 점수,
 선택 전략, 응답 후 해당 DCID 관측 점수 및 방어 신호가 표시됩니다. 첫 발급 요청은
 잠정 클라이언트 관측으로 표시하고, 공유 Candidate/Flow 점수는 별도 집계로 남깁니다.
 
@@ -107,12 +128,12 @@ Socket.IO polling은 HTTP 요청으로 기록되지만 배경 트래픽은 행�
 `websocket:*` ID를 사용합니다. 후보 흐름의 공유 지문 점수가 다른 클라이언트의
 방어 카운터나 무서명 WebSocket의 정책 점수로 넘어가지 않도록 하기 위한 경계입니다.
 DCID가 있는 HTTP 요청의 정책 점수는 그 DCID에 속한 완료 요청만 사용합니다. 다른
-사용자와 겹친 Candidate/Flow 점수는 탐지 화면의 관찰값으로 남지만 그 사용자의 지연
-또는 429에는 쓰지 않습니다. 쿠키를 계속 버리는 클라이언트는 이 방식의 정책 연속성을
-회피할 수 있으므로 장기적으로 인증된 계정·세션 연계가 필요합니다.
+사용자와 겹친 Candidate/Flow 점수는 탐지 화면의 관찰값으로 남지만 그 사용자의
+속도 제한 또는 기만 계획에는 쓰지 않습니다. 쿠키를 계속 버리는 클라이언트는
+이 방식의 정책 연속성을 회피할 수 있으므로 장기적으로 인증된 계정·세션 연계가 필요합니다.
 
-`X-Risk-Score`, `X-Client-Id`, `X-Classification`, `X-Defense-Plan`,
-`X-Ruby-*`, `X-Defense-Signal`은 클라이언트가 보내더라도 Detection에서 제거합니다.
+클라이언트가 보낸 `X-Ruby-*`, `X-Defense-*`, `X-Client-Id`, `X-Classification`은
+Detection에서 제거합니다. 실제 발행하는 위험도 헤더는 `X-Ruby-Risk-Score`입니다.
 
 ## 실행 및 확인
 
@@ -122,16 +143,14 @@ DCID가 있는 HTTP 요청의 정책 점수는 그 DCID에 속한 완료 요청�
 docker compose -f docker-compose.local.yml up --build
 ```
 
-- 애플리케이션: http://localhost:8081
-- Detection 상태: http://localhost:8081/healthz
-- Detection 대시보드: http://localhost:8081/__detection/dashboard
+- 로컬 보호 대상: `http://127.0.0.1:8081/`
+- 로컬 Detection 상태: `http://127.0.0.1:8081/healthz`
+- 로컬 관리 화면: `http://127.0.0.1:18088/__detection/dashboard`
+- 로컬 관리 API 예시: `http://127.0.0.1:18088/__detection/api/sessions`
 
-`DETECTION_DASHBOARD_PASSWORD`를 설정하면 대시보드 데이터, export와 스키마 학습 관리 API가 별도 로그인 세션으로 보호됩니다. 운영에서는 기본적으로 HTTPS와 Secure 쿠키가 필요합니다. 현재 포트 80만 공개된 서버의 HTTP 로그인은 `ALLOW_INSECURE_DASHBOARD_HTTP=true`와 `DETECTION_DASHBOARD_REQUIRE_HTTPS=false`, `DETECTION_DASHBOARD_COOKIE_SECURE=false`를 함께 지정해야 가능합니다. 이 모드에서는 비밀번호와 세션 쿠키가 암호화되지 않으므로 접근 IP를 제한하고 HTTPS를 구성하면 세 설정을 되돌리세요. 대상 페이지의 브라우저 계측에 필요한 `/__detection/static/telemetry.js`와 `/__detection/telemetry`는 인증 없이 접근할 수 있습니다.
-- 세션 API: http://localhost:8081/__detection/api/sessions
-- Client Actor API: http://localhost:8081/__detection/api/actors
-- Client Flow API: http://localhost:8081/__detection/api/client-flows
-- Auth Group API: http://localhost:8081/__detection/api/auth-groups
-- CRS 상태 API: http://localhost:8081/__detection/api/crs-status
+운영 서버에서는 관리자 컴퓨터에서 `ssh -N -L 127.0.0.1:8088:127.0.0.1:8088 USER@SERVER`로 터널을 연 뒤 `http://127.0.0.1:8088/__detection/dashboard`에 접속합니다. 공개 포트 80(로컬 8081)의 대시보드와 관리 API는 404를 반환합니다. 대상 페이지의 브라우저 계측에 필요한 `GET /__detection/static/telemetry.js`와 `POST /__detection/telemetry`만 공개 경로에 남습니다.
+
+`DETECTION_DASHBOARD_PASSWORD`를 설정하면 대시보드 데이터, export와 스키마 학습 관리 API가 로그인 세션으로 보호됩니다. 운영의 기본 설정은 HTTPS와 Secure 쿠키를 요구합니다. 현재 서버처럼 SSH 터널로 HTTP 관리 화면을 열 때는 `ALLOW_INSECURE_DASHBOARD_HTTP=true`, `DETECTION_DASHBOARD_REQUIRE_HTTPS=false`, `DETECTION_DASHBOARD_COOKIE_SECURE=false`를 함께 지정합니다. 관리 리스너는 서버 루프백에만 바인딩됩니다.
 
 Node 단위 테스트는 다음처럼 실행합니다.
 
@@ -145,8 +164,13 @@ npm test
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `TARGET_URL` | `http://localhost:3000` | upstream 주소. RUBY에서는 Defense 주소 |
-| `PORT` | `8080` | Detection 내부 포트 |
+| `TARGET_URL` | `http://localhost:3000` | upstream 주소. 운영 Compose에서는 `http://defense:8080` |
+| `TARGET_CHOICES` | 없음 | 관리 화면에서 고를 `id=내부 URL` 목록. Defense에도 같은 값 전달 |
+| `TARGET_DEFAULT_ID` | `legacy` | 유효한 이전 선택이 없을 때의 대상 ID. `TARGET_CHOICES`에 포함되어야 함 |
+| `TARGET_SELECTION_FILE` | 없음 | 대상·실행 ID를 기록하고 Defense와 공유할 파일 |
+| `PUBLIC_TARGET_ORIGIN` | 없음 | 관리 화면의 보호 대상 링크에 사용할 공개 포트 80 주소 |
+| `PORT` | `8080` | 독립 실행 기본 포트. Compose에서는 공개 리스너 `8081` |
+| `ADMIN_PORT` | 없음 | 분리된 관리 리스너 포트. 운영 Compose에서는 컨테이너 `8080`을 서버 루프백 `8088`에 연결 |
 | `POLICY_CONFIG_PATH` | `config/policy.json` | 위험도 구간별 방어 전략 정의 |
 | `DETECTION_LEVEL` | `medium` | `low` 0.3, `medium` 0.5, `high` 0.7 |
 | `SCHEMA_LEARNING_FILE` | 없음 | 승인된 스키마 학습 결과 저장 경로 |
@@ -226,6 +250,7 @@ DOM XSS 탐지를 대체하지 않습니다. 본문 검사 상한을 넘으면 �
 컨테이너를 재생성해야 하며 동적으로 설정을 다시 읽지는 않습니다.
 
 XSS 서브스코어 가중치는 0.15이며 Payload Signature는 0.20, Attack Honey는 0.17입니다.
-XSS 단독 최고 기여도 0.15는 현재 지연 정책 시작점 0.20보다 낮습니다. 다른 공격·자동화
-신호와 결합해 정책을 결정하므로, 태그가 기록됐다는 사실과 방어가 발동했다는 사실은
-구분해야 합니다. 이 가중치는 확률이나 검증된 탐지율이 아니며 실험으로 보정해야 합니다.
+XSS 단독 최고 기여도 0.15는 현재 방어 정책의 가장 낮은 위험도·확정 공격 점수 기준 0.50보다
+낮습니다. 다른 공격·자동화 신호와 결합해 정책을 결정하므로, 태그가 기록됐다는
+사실과 방어가 발동했다는 사실은 구분해야 합니다. 이 가중치는 확률이나 검증된
+탐지율이 아니며 실험으로 보정해야 합니다.

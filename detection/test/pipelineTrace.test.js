@@ -44,6 +44,12 @@ function upgrade(port, route, headers = {}) {
   });
 }
 
+function expectedStrictStrategies(confirmedAttackScore) {
+  return confirmedAttackScore >= 0.95
+    ? ["rate_limit_strict", "account_overlay_high"]
+    : ["rate_limit_strict", "decoy_maze"];
+}
+
 test("HTTP request trace and signed versus unsigned WebSocket upgrade policies", { timeout: 20000 }, async (t) => {
   const seen = [];
   const seenUpgrades = [];
@@ -65,7 +71,10 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
         forwardedFor: req.headers["x-forwarded-for"],
         forwardedProto: req.headers["x-forwarded-proto"],
         attackScore: Number(req.headers["x-ruby-attack-score"]),
+        confirmedAttackScore: Number(req.headers["x-ruby-confirmed-attack-score"]),
         riskScore: Number(req.headers["x-ruby-risk-score"]),
+        forgedDefenseControl: req.headers["x-defense-overlay-level"],
+        forgedRubyControl: req.headers["x-ruby-unknown-control"],
         source: req.headers["x-ruby-policy-source"], plan, clientId, blocked });
       if (blocked) {
         res.writeHead(429, { "Content-Type": "application/json",
@@ -91,7 +100,10 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
       requestId: req.headers["x-ruby-request-id"],
       forwardedFor: req.headers["x-forwarded-for"],
       attackScore: Number(req.headers["x-ruby-attack-score"]),
+      confirmedAttackScore: Number(req.headers["x-ruby-confirmed-attack-score"]),
       riskScore: Number(req.headers["x-ruby-risk-score"]),
+      forgedDefenseControl: req.headers["x-defense-overlay-level"],
+      forgedRubyControl: req.headers["x-ruby-unknown-control"],
       source: req.headers["x-ruby-policy-source"],
       plan: JSON.parse(req.headers["x-defense-plan"] || "[]"),
       clientId: req.headers["x-client-id"],
@@ -170,20 +182,27 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.equal(last.blocked, true);
   assert.equal(last.requestId, blockedResponse.headers["x-ruby-request-id"]);
   assert.ok(last.attackScore >= 0.8);
+  assert.ok(last.confirmedAttackScore >= 0.8);
   assert.ok(last.riskScore >= 0.8);
-  assert.ok(last.plan.some((step) => step.name === "rate_limit_strict"));
+  assert.deepEqual(last.plan.map((step) => step.name),
+    expectedStrictStrategies(last.confirmedAttackScore));
   assert.ok(seen.every((item) => item.forwardedFor === undefined));
   assert.ok(seen.every((item) => item.forwardedProto === "https"));
 
   assert.ok(cookies.has("dlsid") && cookies.has("dcid"), "high-risk client has both session and signed client cookies");
   const anonymousUpgrade = await upgrade(detectionPort, "/socket", {
     "User-Agent": "curl/8.0", "X-Forwarded-For": "203.0.113.9",
+    "X-Ruby-Confirmed-Attack-Score": "1", "X-Defense-Overlay-Level": "high",
+    "X-Ruby-Unknown-Control": "forged",
   });
   assert.equal(anonymousUpgrade.status, 101);
   const anonymousPolicy = seenUpgrades.at(-1);
-  assert.deepEqual(anonymousPolicy.plan, [], "cookie-less upgrade must not inherit attack delay or rate limit");
+  assert.deepEqual(anonymousPolicy.plan, [], "cookie-less upgrade must not inherit attack rate limit or decoy");
   assert.equal(anonymousPolicy.attackScore, 0);
+  assert.equal(anonymousPolicy.confirmedAttackScore, 0);
   assert.equal(anonymousPolicy.riskScore, 0);
+  assert.equal(anonymousPolicy.forgedDefenseControl, undefined);
+  assert.equal(anonymousPolicy.forgedRubyControl, undefined);
   assert.match(anonymousPolicy.clientId, /^websocket:/);
   assert.notEqual(anonymousPolicy.clientId, last.clientId);
   assert.ok(anonymousPolicy.requestId);
@@ -201,9 +220,11 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   const signedPolicy = seenUpgrades.at(-1);
   assert.equal(signedPolicy.clientId, last.clientId);
   assert.ok(signedPolicy.attackScore >= 0.8);
+  assert.ok(signedPolicy.confirmedAttackScore >= 0.8);
   assert.ok(signedPolicy.riskScore >= 0.8);
-  assert.ok(signedPolicy.plan.some((step) => step.name === "rate_limit_strict"));
-  assert.ok(signedPolicy.plan.some((step) => step.name === "delay"));
+  assert.deepEqual(signedPolicy.plan.map((step) => step.name),
+    expectedStrictStrategies(signedPolicy.confirmedAttackScore));
+  assert.ok(!signedPolicy.plan.some((step) => step.name === "delay"));
   assert.notEqual(signedPolicy.requestId, last.requestId);
   assert.ok(seenUpgrades.every((item) => item.forwardedFor === undefined));
 
@@ -234,11 +255,15 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.ok(record.detectionResult.effectiveAttackScore >= 0.8);
 
   const normal = await request(detectionPort, "GET", "/", {
-    headers: { "User-Agent": "curl/8.0" },
+    headers: { "User-Agent": "curl/8.0", "X-Ruby-Confirmed-Attack-Score": "1",
+      "X-Defense-Overlay-Level": "high", "X-Ruby-Unknown-Control": "forged" },
   });
   assert.equal(normal.status, 200);
   assert.equal(normal.body, "ok");
   assert.deepEqual(seen.at(-1).plan, []);
+  assert.equal(seen.at(-1).confirmedAttackScore, 0);
+  assert.equal(seen.at(-1).forgedDefenseControl, undefined);
+  assert.equal(seen.at(-1).forgedRubyControl, undefined);
   assert.notEqual(seen.at(-1).clientId, last.clientId);
 
   const firstOtherAttack = await request(detectionPort, "POST", "/api/orders/99", {

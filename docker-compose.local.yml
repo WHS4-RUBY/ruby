@@ -3,12 +3,18 @@ name: ruby-local
 services:
   detection:
     build: ./detection
-    container_name: detection
     ports:
-      - "8081:8080"
+      - "8081:8081"
+      - "127.0.0.1:18088:8080"
     environment:
       TARGET_URL: http://defense:8080
-      PORT: "8080"
+      TARGET_CHOICES: ${TARGET_CHOICES:-}
+      TARGET_DEFAULT_ID: ${TARGET_DEFAULT_ID:-legacy}
+      TARGET_SELECTION_FILE: /app/data/target-selection.json
+      PUBLIC_TARGET_ORIGIN: http://127.0.0.1:8081
+      LEGACY_TARGET_URL: http://host.docker.internal:${TARGET_PORT:-3000}
+      PORT: "8081"
+      ADMIN_PORT: "8080"
       BLOCK_MODE: "false"
       DETECTION_LEVEL: ${DETECTION_LEVEL:-medium}
       CSRF_ALLOWED_ORIGINS: ${CSRF_ALLOWED_ORIGINS:-http://localhost:8081,http://127.0.0.1:8081}
@@ -57,22 +63,30 @@ services:
     volumes:
       - detection-data:/app/data
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8081/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 2s
       timeout: 3s
       retries: 15
     depends_on:
       defense:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - ai-defense-net
 
   defense:
     build: ./defense
-    container_name: defense
     environment:
       TARGET_HOST: host.docker.internal
       TARGET_PORT: ${TARGET_PORT:-3000}
+      TARGET_CHOICES: ${TARGET_CHOICES:-}
+      TARGET_DEFAULT_ID: ${TARGET_DEFAULT_ID:-legacy}
+      TARGET_SELECTION_FILE: /app/target-data/target-selection.json
+      DECOY_UPSTREAM_CHOICES: legacy=http://cheat-legacy:3012,alternate=http://cheat-alternate:3012
+      OVERLAY_UPSTREAM_CHOICES: legacy=http://overlay-legacy:8080,alternate=http://overlay-alternate:8080
+      OVERLAY_DETECTOR_KEY: ${OVERLAY_DETECTOR_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      DEFENSE_OVERLAY_STATE_DB: /app/overlay-state/routes.sqlite3
       DEFENSE_DASHBOARD_PASSWORD: ${DEFENSE_DASHBOARD_PASSWORD:-}
       DEFENSE_DASHBOARD_COOKIE_SECURE: ${DEFENSE_DASHBOARD_COOKIE_SECURE:-false}
       DEFENSE_DASHBOARD_REQUIRE_HTTPS: "false"
@@ -82,9 +96,114 @@ services:
       DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS: ${DEFENSE_DASHBOARD_LOGIN_WINDOW_SECONDS:-300}
     volumes:
       - ./defense/app:/app/app
+      - detection-data:/app/target-data:ro
+      - defense-overlay-data:/app/overlay-state
+    depends_on:
+      cheat-legacy:
+        condition: service_healthy
+      cheat-alternate:
+        condition: service_healthy
+      overlay-legacy:
+        condition: service_healthy
+      overlay-alternate:
+        condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload --no-proxy-headers
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ai-defense-net
+
+  cheat-legacy:
+    build: ./defense/CHeat-defense-proxy/defense_proxy_v2
+    environment:
+      REAL_BACKEND: http://host.docker.internal:${TARGET_PORT:-3000}
+      TARGET_PRESET: apache-php
+      DEFENSE_MODE: "off"
+      DECOY_REQUIRE_PLAN: "1"
+      CLIENT_ID_FALLBACK: ip
+      DEFENSE_DB: /tmp/defense.db
+      UVICORN_PROXY_HEADERS: "0"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 3012), 2); s.close()"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ai-defense-net
+
+  cheat-alternate:
+    build: ./defense/CHeat-defense-proxy/defense_proxy_v2
+    environment:
+      REAL_BACKEND: http://host.docker.internal:${TARGET_PORT:-3000}
+      TARGET_PRESET: apache-php
+      DEFENSE_MODE: "off"
+      DECOY_REQUIRE_PLAN: "1"
+      CLIENT_ID_FALLBACK: ip
+      DEFENSE_DB: /tmp/defense.db
+      UVICORN_PROXY_HEADERS: "0"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 3012), 2); s.close()"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ai-defense-net
+
+  overlay-legacy:
+    build: ./defense/account-response-overlay
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    environment:
+      OVERLAY_CONFIG: /app/config/overlay-production-juice-v2.toml
+      OVERLAY_ORIGIN_URL: http://host.docker.internal:${TARGET_PORT:-3000}
+      OVERLAY_DETECTOR_KEY: ${OVERLAY_DETECTOR_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      DEFENSE_SECRET_FILE: /app/state/session.key
+      DEFENSE_DETECTOR_SECRET_FILE: /app/state/detector.key
+      DEFENSE_SECURITY_DB: /app/state/security.sqlite3
+    volumes:
+      - overlay-legacy-data:/app/state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 8080), 2); s.close()"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ai-defense-net
+
+  overlay-alternate:
+    build: ./defense/account-response-overlay
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    environment:
+      OVERLAY_CONFIG: /app/config/overlay-production-ruby-v2.toml
+      OVERLAY_ORIGIN_URL: http://host.docker.internal:${TARGET_PORT:-3000}
+      OVERLAY_DETECTOR_KEY: ${OVERLAY_DETECTOR_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef}
+      DEFENSE_SECRET_FILE: /app/state/session.key
+      DEFENSE_DETECTOR_SECRET_FILE: /app/state/detector.key
+      DEFENSE_SECURITY_DB: /app/state/security.sqlite3
+    volumes:
+      - overlay-alternate-data:/app/state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 8080), 2); s.close()"]
       interval: 2s
       timeout: 3s
       retries: 15
@@ -98,3 +217,6 @@ networks:
 
 volumes:
   detection-data:
+  defense-overlay-data:
+  overlay-legacy-data:
+  overlay-alternate-data:

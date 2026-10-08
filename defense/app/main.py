@@ -17,32 +17,31 @@ from websockets.exceptions import ConnectionClosedOK
 
 from .dashboard import router as dashboard_router
 from .dashboard import DASHBOARD_SESSION_COOKIE, auth_manager
+from .decoy_routing import (
+    ACTION_HEADER, BLOCK_ACTIONS, STRATEGIES_HEADER,
+    applied_decoy_strategies, decoy_action, decoy_plan_header, parse_decoy_upstreams,
+)
 from .monitoring import event_store
+from .overlay_routing import (
+    MAX_OVERLAY_BODY, OVERLAY_HIGH, OVERLAY_MEDIUM, OverlayRouteError,
+    OverlayRouteStore, actor_id, parse_overlay_upstreams, raw_target,
+    requested_tier, signed_headers,
+)
 from .strategies.state import StateCapacityError, StrategyStateStore
 from .strategies.registry import STRATEGY_REGISTRY
+from . import target_selection
+from .target_selection import TargetSelectionError, resolve_target_url
 
 
-def resolve_target_url(env=None) -> str:
-    """Build the upstream URL from TARGET_HOST and TARGET_PORT.
-
-    The target is an application listening on a port of the same host.
-    Misconfiguration fails at startup instead of silently proxying elsewhere.
-    """
-    env = os.environ if env is None else env
-    host = (env.get("TARGET_HOST") or "").strip() or "localhost"
-    raw_port = (env.get("TARGET_PORT") or "").strip() or "9000"
-    try:
-        port = int(raw_port)
-    except ValueError:
-        raise RuntimeError(f"TARGET_PORT must be an integer, got {raw_port!r}") from None
-    if not 1 <= port <= 65535:
-        raise RuntimeError(f"TARGET_PORT must be between 1 and 65535, got {port}")
-    if ":" in host and not host.startswith("["):
-        host = f"[{host}]"  # bare IPv6 literal
-    return f"http://{host}:{port}"
-
-
-TARGET_URL = resolve_target_url()
+TARGET_URL = target_selection.target_selector.choices[target_selection.target_selector.default_id]
+DECOY_UPSTREAMS = parse_decoy_upstreams(
+    os.getenv("DECOY_UPSTREAM_CHOICES"), target_selection.target_selector.choices,
+)
+OVERLAY_UPSTREAMS = parse_overlay_upstreams(
+    os.getenv("OVERLAY_UPSTREAM_CHOICES"), target_selection.target_selector.choices,
+)
+OVERLAY_DETECTOR_KEY = os.getenv("OVERLAY_DETECTOR_KEY", "").encode("utf-8")
+OVERLAY_STATE_DB = os.getenv("DEFENSE_OVERLAY_STATE_DB", "/app/overlay-state/routes.sqlite3")
 
 
 def _positive_int(name: str, default: int) -> int:
@@ -77,6 +76,8 @@ _RESPONSE_SKIP = {
     "server",
     "x-defense-signal",
     "x-defense-applied",
+    ACTION_HEADER,
+    STRATEGIES_HEADER,
 }
 _DEFENSE_INTERNAL_HEADERS = {
     "x-client-id",
@@ -86,12 +87,20 @@ _DEFENSE_INTERNAL_HEADERS = {
     "x-ruby-automation-score",
     "x-ruby-attack-score",
     "x-ruby-risk-score",
+    "x-ruby-confirmed-attack-score",
     "x-ruby-policy-source",
+    "x-ruby-target-id",
+    "x-ruby-run-id",
     "x-defense-signal",
+    ACTION_HEADER,
+    STRATEGIES_HEADER,
 }
 _FORWARDED_HEADERS = {"forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"}
 _REQUEST_SKIP = _HOP_BY_HOP | {"accept-encoding"} | _DEFENSE_INTERNAL_HEADERS | _FORWARDED_HEADERS
-_STREAM_RESPONSE_SKIP = _HOP_BY_HOP | {"date", "server", "x-defense-signal", "x-defense-applied"}
+_STREAM_RESPONSE_SKIP = _HOP_BY_HOP | {
+    "date", "server", "x-defense-signal", "x-defense-applied",
+    ACTION_HEADER, STRATEGIES_HEADER,
+}
 _WEBSOCKET_SKIP = _HOP_BY_HOP | {
     "sec-websocket-accept",
     "sec-websocket-extensions",
@@ -103,7 +112,13 @@ _WEBSOCKET_SKIP = _HOP_BY_HOP | {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    if OVERLAY_UPSTREAMS or OverlayRouteStore.exists(OVERLAY_STATE_DB):
+        app.state.overlay_routes = OverlayRouteStore.bootstrap(
+            OVERLAY_STATE_DB, OVERLAY_DETECTOR_KEY, OVERLAY_UPSTREAMS
+        )
+    # The private sidecar may spend up to 30 seconds waiting for its target.
+    # Leave room for the second proxy hop to return a response or a 502.
+    async with httpx.AsyncClient(timeout=35.0) as client:
         app.state.http_client = client
         yield
 
@@ -145,18 +160,21 @@ def _score_header(headers, name: str) -> float | None:
         value = float(headers.get(name, ""))
     except ValueError:
         return None
-    return round(value, 6) if 0 <= value <= 1 else None
+    return value if 0 <= value <= 1 else None
 
 
-def _event_metadata(request: Request | WebSocket) -> dict:
+def _event_metadata(request: Request | WebSocket, selected=None) -> dict:
     headers = request.headers
     return {
         "client_id": headers.get("x-client-id"),
         "request_id": headers.get("x-ruby-request-id"),
         "automation_score": _score_header(headers, "x-ruby-automation-score"),
         "attack_score": _score_header(headers, "x-ruby-attack-score"),
+        "confirmed_attack_score": _score_header(headers, "x-ruby-confirmed-attack-score"),
         "risk_score": _score_header(headers, "x-ruby-risk-score"),
         "policy_source": headers.get("x-ruby-policy-source"),
+        "target_id": selected.target_id if selected else None,
+        "run_id": selected.run_id if selected else None,
     }
 
 
@@ -174,7 +192,7 @@ class AppliedPlan:
     short_circuit: Response | None = None
 
 
-async def _apply_plan(plan: list[dict], request: Request | WebSocket) -> AppliedPlan:
+async def _apply_plan(plan: list[dict], request: Request | WebSocket, selected=None) -> AppliedPlan:
     applied = AppliedPlan()
     for step in plan:
         name = step["name"]
@@ -183,7 +201,10 @@ async def _apply_plan(plan: list[dict], request: Request | WebSocket) -> Applied
             continue
         if strategy.uses_state:
             try:
-                async with strategy_state.use(name, _client_id(request)) as entry:
+                client_key = _client_id(request)
+                if selected is not None:
+                    client_key = f"{selected.run_id or selected.target_id}:{client_key}"
+                async with strategy_state.use(name, client_key) as entry:
                     result = await strategy.apply(request, step.get("params") or {}, dict(entry.state))
                     if result.state_update is not None:
                         if not isinstance(result.state_update, dict):
@@ -215,7 +236,7 @@ def _header_value(value) -> str:
 def build_upstream_headers(request: Request, extra: dict) -> dict[str, str]:
     headers: dict[str, str] = {}
     for key, value in request.headers.items():
-        if key.lower() in _REQUEST_SKIP:
+        if key.lower() in _REQUEST_SKIP or key.lower().startswith("x-defense-"):
             continue
         headers[key] = _header_value(value)
     headers["accept-encoding"] = "identity"
@@ -224,10 +245,66 @@ def build_upstream_headers(request: Request, extra: dict) -> dict[str, str]:
     )
     headers["x-forwarded-proto"] = request.headers.get("x-forwarded-proto") or request.url.scheme
     for key, value in extra.items():
-        if key.lower() in _HOP_BY_HOP | _DEFENSE_INTERNAL_HEADERS | {"x-forwarded-for"}:
+        if (key.lower() in _HOP_BY_HOP | _DEFENSE_INTERNAL_HEADERS | {"x-forwarded-for"}
+                or key.lower().startswith("x-defense-") and key.lower() != "x-defense-applied"):
             continue
         headers[key] = _header_value(value)
     return headers
+
+
+def build_decoy_headers(request: Request, extra: dict, selected, plan: list[dict]) -> dict[str, str]:
+    """Reissue only trusted identity and decoy instructions to a private sidecar."""
+    headers = build_upstream_headers(request, extra)
+    headers["X-Client-Id"] = _client_id(request)
+    headers["X-Defense-Plan"] = decoy_plan_header(plan)
+    headers["X-Ruby-Target-Id"] = selected.target_id
+    if selected.run_id:
+        headers["X-Ruby-Run-Id"] = selected.run_id
+    request_id = request.headers.get("x-ruby-request-id")
+    if request_id:
+        headers["X-Ruby-Request-Id"] = request_id[:128]
+    return headers
+
+
+async def _overlay_route(request: Request | WebSocket, selected, plan: list[dict]) -> tuple[str, str, str] | None:
+    """Select a durable route using only Detection's private plan and actor ID."""
+    origin = OVERLAY_UPSTREAMS.get(selected.target_id)
+    if origin is None:
+        if any(step.get("name") in {OVERLAY_MEDIUM, OVERLAY_HIGH} for step in plan):
+            raise OverlayRouteError("selected target has no overlay")
+        return None
+    raw_plan = request.headers.get("x-defense-plan")
+    try:
+        original_plan = json.loads(raw_plan) if raw_plan and len(raw_plan) <= 8192 else None
+    except (TypeError, ValueError):
+        original_plan = None
+    if (not isinstance(original_plan, list) or len(original_plan) > 16
+            or len(original_plan) != len(plan)
+            or any(not isinstance(step, dict)
+                   or not isinstance(step.get("name"), str)
+                   or not isinstance(step.get("params", {}), dict)
+                   for step in original_plan)):
+        raise OverlayRouteError("trusted defense plan missing or malformed")
+    requested = requested_tier(
+        plan,
+        risk_score=_score_header(request.headers, "x-ruby-risk-score"),
+        confirmed_attack_score=_score_header(request.headers, "x-ruby-confirmed-attack-score"),
+    )
+    if len(OVERLAY_DETECTOR_KEY) < 32:
+        raise OverlayRouteError("overlay detector key unavailable")
+    client_id = request.headers.get("x-client-id")
+    if client_id is None:
+        raise OverlayRouteError("trusted client identity unavailable")
+    actor = actor_id(OVERLAY_DETECTOR_KEY, selected.target_id, selected.run_id, client_id)
+    store = getattr(app.state, "overlay_routes", None)
+    if store is None:
+        # Unit tests may use ASGITransport without lifespan. In production the
+        # lifespan has already bootstrapped this store before serving traffic.
+        store = OverlayRouteStore.bootstrap(OVERLAY_STATE_DB, OVERLAY_DETECTOR_KEY,
+                                            OVERLAY_UPSTREAMS)
+        app.state.overlay_routes = store
+    tier = await asyncio.to_thread(store.observe, actor, requested)
+    return (origin, tier, actor) if tier else None
 
 
 def _public_origin(request: Request) -> str:
@@ -236,11 +313,13 @@ def _public_origin(request: Request) -> str:
     return f"{scheme}://{host}" if host else ""
 
 
-def _rewrite_response_header(key: str, value: str, request: Request | None) -> str:
+def _rewrite_response_header(
+    key: str, value: str, request: Request | None, target_url: str | None = None
+) -> str:
     if request is None:
         return value
     if key.lower() == "location":
-        target = TARGET_URL.rstrip("/")
+        target = (target_url or TARGET_URL).rstrip("/")
         if value == target or value.startswith(f"{target}/"):
             return f"{_public_origin(request)}{value[len(target):]}"
     if key.lower() == "set-cookie":
@@ -249,19 +328,20 @@ def _rewrite_response_header(key: str, value: str, request: Request | None) -> s
 
 
 def proxy_response(
-    upstream: httpx.Response, request: Request | None = None, content: bytes | None = None
+    upstream: httpx.Response, request: Request | None = None, content: bytes | None = None,
+    *, target_url: str | None = None,
 ) -> Response:
     response = Response(
         content=upstream.content if content is None else content,
         status_code=upstream.status_code,
     )
     for key, value in upstream.headers.multi_items():
-        if key.lower() in _RESPONSE_SKIP:
+        if key.lower() in _RESPONSE_SKIP or key.lower().startswith("x-defense-"):
             continue
         response.raw_headers.append(
             (
                 key.encode("latin-1"),
-                _rewrite_response_header(key, _header_value(value), request).encode("latin-1"),
+                _rewrite_response_header(key, _header_value(value), request, target_url).encode("latin-1"),
             )
         )
     return response
@@ -299,22 +379,24 @@ async def _buffer_transform_body(upstream: httpx.Response) -> bytes:
     return bytes(body)
 
 
-def streaming_proxy_response(upstream: httpx.Response, request: Request, on_complete=None) -> StreamingResponse:
+def streaming_proxy_response(
+    upstream: httpx.Response, request: Request, on_complete=None, *, target_url: str | None = None
+) -> StreamingResponse:
     response = StreamingResponse(_stream_body(upstream, on_complete), status_code=upstream.status_code)
     for key, value in upstream.headers.multi_items():
-        if key.lower() in _STREAM_RESPONSE_SKIP:
+        if key.lower() in _STREAM_RESPONSE_SKIP or key.lower().startswith("x-defense-"):
             continue
         response.raw_headers.append(
             (
                 key.encode("latin-1"),
-                _rewrite_response_header(key, _header_value(value), request).encode("latin-1"),
+                _rewrite_response_header(key, _header_value(value), request, target_url).encode("latin-1"),
             )
         )
     return response
 
 
-def _websocket_target(full_path: str, query: str) -> str:
-    target = urlsplit(TARGET_URL)
+def _websocket_target(full_path: str, query: str, target_url: str | None = None) -> str:
+    target = urlsplit(target_url or TARGET_URL)
     scheme = "wss" if target.scheme == "https" else "ws"
     base_path = target.path.rstrip("/")
     path = f"{base_path}/{full_path}" if full_path else (base_path or "/")
@@ -325,7 +407,7 @@ def _websocket_headers(websocket: WebSocket, extra: dict[str, str]) -> dict[str,
     headers = {
         key: value
         for key, value in websocket.headers.items()
-        if key.lower() not in _WEBSOCKET_SKIP
+        if key.lower() not in _WEBSOCKET_SKIP and not key.lower().startswith("x-defense-")
     }
     headers["x-forwarded-host"] = websocket.headers.get("x-forwarded-host") or websocket.headers.get(
         "host", ""
@@ -334,7 +416,9 @@ def _websocket_headers(websocket: WebSocket, extra: dict[str, str]) -> dict[str,
         "https" if websocket.url.scheme == "wss" else "http"
     )
     for key, value in extra.items():
-        if key.lower() not in _WEBSOCKET_SKIP:
+        if key.lower() not in _WEBSOCKET_SKIP and (
+            not key.lower().startswith("x-defense-") or key.lower() == "x-defense-applied"
+        ):
             headers[key] = _header_value(value)
     return headers
 
@@ -346,19 +430,33 @@ async def healthz():
 
 @app.get("/readyz")
 async def readyz():
-    """Report ready only while the configured target accepts TCP connections."""
-    target = urlsplit(TARGET_URL)
-    if target.scheme not in {"http", "https"} or not target.hostname:
-        return Response(status_code=503)
+    """Report ready only while the selected target and its sidecar are reachable."""
     try:
-        port = target.port or (443 if target.scheme == "https" else 80)
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(target.hostname, port), timeout=1.0
-        )
-        writer.close()
-        await writer.wait_closed()
-    except (OSError, ValueError, asyncio.TimeoutError):
+        selected = target_selection.target_selector.current()
+    except TargetSelectionError:
         return Response(status_code=503)
+    urls = [selected.url]
+    if decoy_url := DECOY_UPSTREAMS.get(selected.target_id):
+        urls.append(decoy_url)
+    if overlay_url := OVERLAY_UPSTREAMS.get(selected.target_id):
+        urls.append(overlay_url)
+        try:
+            app.state.overlay_routes.health()
+        except (AttributeError, OverlayRouteError):
+            return Response(status_code=503)
+    for url in urls:
+        target = urlsplit(url)
+        if target.scheme not in {"http", "https"} or not target.hostname:
+            return Response(status_code=503)
+        try:
+            port = target.port or (443 if target.scheme == "https" else 80)
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(target.hostname, port), timeout=1.0
+            )
+            writer.close()
+            await writer.wait_closed()
+        except (OSError, ValueError, asyncio.TimeoutError):
+            return Response(status_code=503)
     return {"status": "ready", "service": "defense"}
 
 
@@ -376,18 +474,51 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
         return
 
     started_at = time.perf_counter()
+    try:
+        selected = target_selection.target_selector.for_request(websocket.headers)
+    except TargetSelectionError:
+        event_store.record(
+            method="WEBSOCKET",
+            path=websocket.url.path,
+            status=503,
+            strategies=[],
+            outcome="error",
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            **_event_metadata(websocket),
+        )
+        await websocket.close(code=1013, reason="target selection unavailable")
+        return
+    metadata = _event_metadata(websocket, selected)
     plan = parse_plan(websocket.headers.get("x-defense-plan"))
     try:
-        applied = await _apply_plan(plan, websocket)
+        overlay_route = await _overlay_route(websocket, selected, plan)
+    except OverlayRouteError:
+        event_store.record(
+            method="WEBSOCKET",
+            path=websocket.url.path,
+            status=503,
+            strategies=[],
+            outcome="error",
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            **metadata,
+        )
+        await websocket.close(code=1013, reason="overlay route unavailable")
+        return
+    overlay_strategy = ([OVERLAY_HIGH if overlay_route[1] == "high" else OVERLAY_MEDIUM]
+                        if overlay_route else [])
+    action_name = f"account-overlay-{overlay_route[1]}" if overlay_route else None
+    try:
+        applied = await _apply_plan(plan, websocket, selected)
     except Exception:
         event_store.record(
             method="WEBSOCKET",
             path=websocket.url.path,
             status=500,
-            strategies=[],
+            strategies=overlay_strategy,
             outcome="error",
             duration_ms=(time.perf_counter() - started_at) * 1000,
-            **_event_metadata(websocket),
+            decoy_action=action_name,
+            **metadata,
         )
         await websocket.close(code=1011, reason="defense strategy failed")
         return
@@ -397,17 +528,33 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
         event_store.record(
             method="WEBSOCKET",
             path=websocket.url.path,
-            status=503 if capacity_error else 403,
+            status=(applied.short_circuit.status_code if applied.short_circuit else 503),
             strategies=applied.names,
             outcome=outcome,
             duration_ms=(time.perf_counter() - started_at) * 1000,
             signal=applied.short_circuit.headers.get("x-defense-signal") if applied.short_circuit else None,
-            **_event_metadata(websocket),
+            **metadata,
         )
         await websocket.close(
             code=1013 if capacity_error else 1008,
             reason="strategy unavailable" if capacity_error or applied.transforms else "request blocked by defense policy",
         )
+        return
+
+    if overlay_route is not None:
+        # PR34 accepts HTTP only. An isolated actor's upgrade must not reach
+        # the real target through the ordinary WebSocket forwarding path.
+        event_store.record(
+            method="WEBSOCKET",
+            path=websocket.url.path,
+            status=403,
+            strategies=applied.names + overlay_strategy,
+            outcome="blocked",
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            decoy_action=action_name,
+            **metadata,
+        )
+        await websocket.close(code=1008, reason="isolated websocket unsupported")
         return
 
     extra_headers = applied.headers
@@ -422,7 +569,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
     upgraded = False
     try:
         async with websockets.connect(
-            _websocket_target(full_path, websocket.url.query),
+            _websocket_target(full_path, websocket.url.query, selected.url),
             extra_headers=_websocket_headers(websocket, extra_headers),
             subprotocols=requested_protocols or None,
             max_size=None,
@@ -475,7 +622,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
             strategies=applied.names,
             outcome=outcome,
             duration_ms=(time.perf_counter() - started_at) * 1000,
-            **_event_metadata(websocket),
+            **metadata,
         )
 
 
@@ -485,10 +632,26 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
 )
 async def catch_all(request: Request, full_path: str):
     started_at = time.perf_counter()
+    try:
+        selected = target_selection.target_selector.for_request(request.headers)
+    except TargetSelectionError:
+        event_store.record(
+            method=request.method,
+            path=request.url.path,
+            status=503,
+            strategies=[],
+            outcome="error",
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            **_event_metadata(request),
+        )
+        return Response(status_code=503)
     plan = parse_plan(request.headers.get("x-defense-plan"))
-    metadata = _event_metadata(request)
+    metadata = _event_metadata(request, selected)
 
-    def record(status: int, outcome: str, names: list[str], signal: str | None = None) -> None:
+    def record(
+        status: int, outcome: str, names: list[str], signal: str | None = None,
+        decoy_action_name: str | None = None,
+    ) -> None:
         event_store.record(
             method=request.method,
             path=request.url.path,
@@ -497,13 +660,24 @@ async def catch_all(request: Request, full_path: str):
             outcome=outcome,
             duration_ms=(time.perf_counter() - started_at) * 1000,
             signal=signal,
+            decoy_action=decoy_action_name,
             **metadata,
         )
 
     try:
-        applied = await _apply_plan(plan, request)
+        overlay_route = await _overlay_route(request, selected, plan)
+    except OverlayRouteError:
+        record(503, "error", [])
+        return Response(status_code=503)
+
+    overlay_strategy = ([OVERLAY_HIGH if overlay_route[1] == "high" else OVERLAY_MEDIUM]
+                        if overlay_route else [])
+    action_name = f"account-overlay-{overlay_route[1]}" if overlay_route else None
+
+    try:
+        applied = await _apply_plan(plan, request, selected)
     except Exception:
-        record(500, "error", [])
+        record(500, "error", overlay_strategy, decoy_action_name=action_name)
         return Response(status_code=500)
 
     applied_header = ",".join(applied.names) or "none"
@@ -520,27 +694,83 @@ async def catch_all(request: Request, full_path: str):
         )
         return response
 
+    attempted_strategies = applied.names + overlay_strategy
     applied.headers["X-Defense-Applied"] = applied_header
-    headers = build_upstream_headers(request, applied.headers)
+    decoy_url = None if overlay_route else DECOY_UPSTREAMS.get(selected.target_id)
+    if overlay_route:
+        overlay_url, tier, actor = overlay_route
+        try:
+            target = raw_target(request.scope)
+        except OverlayRouteError:
+            record(400, "error", attempted_strategies, decoy_action_name=action_name)
+            return Response(status_code=400)
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > MAX_OVERLAY_BODY:
+                record(413, "error", attempted_strategies, decoy_action_name=action_name)
+                return Response(status_code=413)
+            body.extend(chunk)
+        headers = build_upstream_headers(request, applied.headers)
+        headers.update(signed_headers(
+            OVERLAY_DETECTOR_KEY, actor, request.method, target, bytes(body), tier=tier,
+        ))
+        try:
+            upstream_url = httpx.URL(overlay_url).copy_with(raw_path=target.encode("ascii"))
+        except (httpx.InvalidURL, ValueError):
+            record(400, "error", attempted_strategies, decoy_action_name=action_name)
+            return Response(status_code=400)
+        if upstream_url.raw_path != target.encode("ascii"):
+            record(400, "error", attempted_strategies, decoy_action_name=action_name)
+            return Response(status_code=400)
+    else:
+        headers = (
+            build_decoy_headers(request, applied.headers, selected, plan)
+            if decoy_url else build_upstream_headers(request, applied.headers)
+        )
+        upstream_url = f"{(decoy_url or selected.url).rstrip('/')}/{full_path}"
 
     try:
         upstream_request = request.app.state.http_client.build_request(
             method=request.method,
-            url=f"{TARGET_URL.rstrip('/')}/{full_path}",
+            url=upstream_url,
             headers=headers,
-            content=request.stream() if request.method not in {"GET", "HEAD"} else None,
-            params=list(request.query_params.multi_items()),
+            content=bytes(body) if overlay_route else (
+                request.stream() if request.method not in {"GET", "HEAD"} else None
+            ),
+            params=None if overlay_route else list(request.query_params.multi_items()),
         )
+        if overlay_route and upstream_request.url.raw_path != target.encode("ascii"):
+            record(400, "error", attempted_strategies, decoy_action_name=action_name)
+            return Response(status_code=400)
         upstream = await request.app.state.http_client.send(upstream_request, stream=True)
+    except (httpx.InvalidURL, ValueError):
+        status = 400 if overlay_route else 502
+        record(status, "error", attempted_strategies, decoy_action_name=action_name)
+        return Response(status_code=status)
     except httpx.RequestError:
-        record(502, "error", applied.names)
+        record(502, "error", attempted_strategies, decoy_action_name=action_name)
         return Response(status_code=502)
+
+    sidecar_action = decoy_action(upstream.headers) if decoy_url else None
+    sidecar_strategies = applied_decoy_strategies(upstream.headers) if decoy_url else []
+    recorded_strategies = applied.names + sidecar_strategies + overlay_strategy
+    applied_header = ",".join(recorded_strategies) or "none"
+    public_applied_header = (",".join(applied.names) or "none") if overlay_route else applied_header
+    if overlay_route:
+        sidecar_outcome = (
+            "error" if upstream.status_code < 200 or upstream.status_code >= 500
+            or upstream.status_code in {400, 403, 413}
+            else "blocked" if tier == "high" else "forwarded"
+        )
+    else:
+        sidecar_outcome = "blocked" if sidecar_action in BLOCK_ACTIONS else "forwarded"
+        action_name = sidecar_action
 
     if applied.transforms:
         # Body transforms require a complete response before headers are sent.
         try:
             body = await _buffer_transform_body(upstream)
-            response = proxy_response(upstream, request, body)
+            response = proxy_response(upstream, request, body, target_url=selected.url)
             for transform in applied.transforms:
                 response = transform(response)
                 if not isinstance(response, Response):
@@ -549,14 +779,15 @@ async def catch_all(request: Request, full_path: str):
                     raise TypeError("response_transform must return a buffered Response")
                 if len(response.body) > TRANSFORM_BODY_LIMIT:
                     raise TransformBodyLimitError
-            response.headers["X-Defense-Applied"] = applied_header
-            record(response.status_code, "forwarded", applied.names)
+            response.headers["X-Defense-Applied"] = public_applied_header
+            record(response.status_code, sidecar_outcome, recorded_strategies,
+                   decoy_action_name=action_name)
             return response
         except (httpx.RequestError, TransformBodyLimitError):
-            record(502, "error", applied.names)
+            record(502, "error", attempted_strategies, decoy_action_name=action_name)
             return Response(status_code=502)
         except Exception:
-            record(500, "error", applied.names)
+            record(500, "error", attempted_strategies, decoy_action_name=action_name)
             return Response(status_code=500)
         finally:
             await upstream.aclose()
@@ -564,7 +795,13 @@ async def catch_all(request: Request, full_path: str):
     response = streaming_proxy_response(
         upstream,
         request,
-        on_complete=lambda outcome: record(upstream.status_code, outcome, applied.names),
+        on_complete=lambda outcome: record(
+            upstream.status_code,
+            sidecar_outcome if outcome == "forwarded" else outcome,
+            recorded_strategies,
+            decoy_action_name=action_name,
+        ),
+        target_url=selected.url,
     )
-    response.headers["X-Defense-Applied"] = applied_header
+    response.headers["X-Defense-Applied"] = public_applied_header
     return response

@@ -74,8 +74,18 @@ const {
   applyDefenseManagementHeaders,
   isDefenseManagementPath,
 } = require("./lib/managementPaths");
+const {
+  TargetSelectionStore,
+  parseTargetChoices,
+} = require("./lib/targetSelection");
+const { installTargetSelectionRoutes } = require("./lib/targetSelectionRoutes");
+const { listenerBoundary } = require("./lib/listenerBoundary");
 
-const PORT = process.env.PORT || 8080;
+const PORT = Number(process.env.PORT || 8080);
+const ADMIN_PORT = process.env.ADMIN_PORT ? Number(process.env.ADMIN_PORT) : null;
+if (process.env.NODE_ENV === "production" && ADMIN_PORT === null) {
+  throw new Error("production requires an isolated ADMIN_PORT listener");
+}
 const TARGET = process.env.TARGET_URL || "http://localhost:3000";
 // 2026-09-01 추가: HTML(index.html) 하나만 보는 정찰 대신, 자주 조회되는
 // 정적 텍스트 응답에도 기만 신호를 심는다 — deceptionEngine.injectSignalsPlaintext 참고.
@@ -143,10 +153,20 @@ const dashboardAuth = new DashboardAuthManager({
   maxAttempts: positiveInt("DETECTION_DASHBOARD_LOGIN_ATTEMPTS", 5),
   attemptWindowMs: positiveInt("DETECTION_DASHBOARD_LOGIN_WINDOW_SECONDS", 300) * 1000,
 });
+const targetSelection = new TargetSelectionStore({
+  choices: parseTargetChoices(
+    process.env.TARGET_CHOICES,
+    process.env.LEGACY_TARGET_URL || "http://host.docker.internal:3000"
+  ),
+  defaultId: process.env.TARGET_DEFAULT_ID || "legacy",
+  filePath: process.env.TARGET_SELECTION_FILE,
+  publicOrigin: process.env.PUBLIC_TARGET_ORIGIN,
+});
 
 const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", parseTrustProxy());
+app.use(listenerBoundary({ publicPort: PORT, adminPort: ADMIN_PORT }));
 app.use(cookieParser());
 app.use((req, res, next) => {
   delete req.headers["x-forwarded-for"];
@@ -300,7 +320,7 @@ function buildPriorPolicyDecision(req) {
   };
   // Every HTTP request receives a fresh signed DCID when one is absent. A
   // different client's shared curl/NAT fingerprint must not become this
-  // client's policy score, including a 500ms delay on a normal request.
+  // client's policy score or trigger its defense plan.
   const policyAnalyses = req.clientIdentity?.valid
     ? { session: analyses.session, resolved: analyses.resolved }
     : analyses;
@@ -415,6 +435,7 @@ function observeSchemaLearning(req, statusCode, normalizedPath) {
 function prepareRequestObservation(req) {
   if (req._detectionPrepared) return;
   req._detectionPrepared = true;
+  req.activeTarget = targetSelection.read();
   req._detectionStart = Date.now();
   req.experimentRunId = ENABLE_EXPERIMENT_RUN_ID
     ? sanitizeExperimentRunId(req.headers[EXPERIMENT_RUN_HEADER])
@@ -635,6 +656,8 @@ function recordCompletedRequest(req, {
     payloadFingerprint: req.payloadFingerprint,
     hasAuthorization: req.hasAuthorization,
     experimentRunId: req.experimentRunId,
+    targetId: req.activeTarget?.targetId || null,
+    targetRunId: req.activeTarget?.runId || null,
     requestContentType: sanitizeMetadataHeaderValue(req.headers["content-type"]),
     requestContentLength: parseContentLength(req.headers["content-length"]),
     requestBodyBytes: Number.isSafeInteger(req.detectionRequestBodyBytes)
@@ -784,6 +807,8 @@ installDashboardRoutes({
   secureCookie: DETECTION_DASHBOARD_COOKIE_SECURE,
   requireHttps: DETECTION_DASHBOARD_REQUIRE_HTTPS,
 });
+
+installTargetSelectionRoutes({ app, targetSelection });
 
 // 팀원 Python 프록시의 미끼 라우트를 현재 Express 프록시 안에서 직접 처리한다.
 // 이 요청도 일반 요청과 동일하게 CRS, Session, Actor, Auth Group과 타임라인에 기록한다.
@@ -1332,6 +1357,7 @@ app.use("/__detection", (req, res) => {
 
 function forwardPolicyDecision(proxyReq, req) {
   req.rubyRequestId ||= `request:${crypto.randomUUID()}`;
+  req.activeTarget ||= targetSelection.read();
   req.rubyPolicyDecision = buildPriorPolicyDecision(req);
   stripDetectionHeaders(proxyReq);
   const plan = applyDefensePlan(proxyReq, {
@@ -1344,8 +1370,11 @@ function forwardPolicyDecision(proxyReq, req) {
   proxyReq.setHeader("X-Ruby-Request-Id", req.rubyRequestId);
   proxyReq.setHeader("X-Ruby-Automation-Score", String(req.rubyPolicyDecision.automationScore));
   proxyReq.setHeader("X-Ruby-Attack-Score", String(req.rubyPolicyDecision.attackScore));
+  proxyReq.setHeader("X-Ruby-Confirmed-Attack-Score", String(req.rubyPolicyDecision.confirmedAttackScore));
   proxyReq.setHeader("X-Ruby-Risk-Score", String(req.rubyPolicyDecision.riskScore));
   proxyReq.setHeader("X-Ruby-Policy-Source", req.rubyPolicyDecision.source);
+  proxyReq.setHeader("X-Ruby-Target-Id", req.activeTarget.targetId);
+  proxyReq.setHeader("X-Ruby-Run-Id", req.activeTarget.runId);
 }
 
 function upgradeCookie(req, name) {
@@ -1373,7 +1402,7 @@ const detectionHook = {
   onRequest({ proxyReq, req }) {
     prepareRequestObservation(req);
     // RUBY Policy 계약: 외부 입력을 제거하고, 완료된 탐지 이력에서 계산한
-    // 0~1 risk score와 가명 client id만 내부 헤더로 전달한다.
+    // 0~1 정책 점수와 확정 공격 점수, 가명 client id를 내부 헤더로 전달한다.
     forwardPolicyDecision(proxyReq, req);
     // Ground truth용 헤더는 탐지 프록시에서 소비하고 RUBY Policy에는 전달하지 않는다.
     proxyReq.removeHeader(EXPERIMENT_RUN_HEADER);
@@ -1509,7 +1538,7 @@ app.use("/", mainProxy);
 
 const server = app.listen(PORT, () => {
   console.log(`[detection-proxy] listening on :${PORT} -> proxying ${TARGET}`);
-  console.log(`[detection-proxy] dashboard: http://localhost:${PORT}/__detection/dashboard`);
+  console.log(`[detection-proxy] dashboard: http://localhost:${ADMIN_PORT || PORT}/__detection/dashboard`);
   console.log(
     `[detection-proxy] BLOCK_MODE=${BLOCK_MODE} (log-only) ` +
     `level=${DETECTION_LEVEL} threshold=${DETECTION_THRESHOLDS[DETECTION_LEVEL]}`
@@ -1527,9 +1556,15 @@ const server = app.listen(PORT, () => {
     );
   }
 });
+if (ADMIN_PORT) {
+  app.listen(ADMIN_PORT, () => {
+    console.log(`[detection-proxy] management listening on :${ADMIN_PORT}`);
+  });
+}
 server.on("upgrade", (req, socket, head) => {
   const path = String(req.url || "").split("?", 1)[0];
-  if (path === "/__detection" || path.startsWith("/__detection/")) {
+  if (path === "/__detection" || path.startsWith("/__detection/") ||
+      path === "/__defense" || path.startsWith("/__defense/")) {
     socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
     return;
   }
