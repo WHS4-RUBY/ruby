@@ -261,7 +261,7 @@ test("확장 요청 레코드는 식별자와 operation을 저장하고 민감 �
     requestId: "request:trace-example",
     policyDecision: { basis: "prior-completed-requests", source: "confirmed-resolved-actor",
       automationScore: 0.2, attackScore: 0.85, confirmedAttackScore: 0.85,
-      riskScore: 0.85, strategies: ["rate_limit_strict", "delay"] },
+      riskScore: 0.85, strategies: ["rate_limit_strict", "decoy_maze"] },
     defenseSignal: "rate_limited",
   });
 
@@ -278,7 +278,7 @@ test("확장 요청 레코드는 식별자와 operation을 저장하고 민감 �
   assert.equal(request.requestContentLength, 17);
   assert.equal(request.requestBodyBytes, 17);
   assert.equal(request.requestId, "request:trace-example");
-  assert.deepEqual(request.policyDecision.strategies, ["rate_limit_strict", "delay"]);
+  assert.deepEqual(request.policyDecision.strategies, ["rate_limit_strict", "decoy_maze"]);
   assert.equal(request.defenseSignal, "rate_limited");
   store.attachDetectionResult(request, { source: "confirmed-resolved-actor", attackScore: 0.87 });
   assert.equal(store.getActor(session.actorId).requests.at(-1).detectionResult.attackScore, 0.87);

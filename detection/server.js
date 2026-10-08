@@ -320,7 +320,7 @@ function buildPriorPolicyDecision(req) {
   };
   // Every HTTP request receives a fresh signed DCID when one is absent. A
   // different client's shared curl/NAT fingerprint must not become this
-  // client's policy score, including a 500ms delay on a normal request.
+  // client's policy score or trigger its defense plan.
   const policyAnalyses = req.clientIdentity?.valid
     ? { session: analyses.session, resolved: analyses.resolved }
     : analyses;

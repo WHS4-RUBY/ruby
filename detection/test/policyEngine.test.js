@@ -147,21 +147,24 @@ test("클라이언트의 Defense plan을 제거하고 policy.json 결과로 교�
   }
 });
 
-test("위험 점수와 확정 공격 점수가 모두 0.8 이상일 때만 제한과 범용 미끼를 적용한다", () => {
+test("확정 공격 점수와 위험 점수가 모두 0.8 이상일 때만 제한과 범용 미끼를 적용하며 기본 지연은 없다", () => {
   const names = (riskScore, confirmedAttackScore = 0) => selectStrategies(
     riskScore, rules, { confirmedAttackScore }
   ).map((step) => step.name);
 
-  assert.deepEqual(names(0.9), ["delay"]);
-  assert.deepEqual(names(0.9, 0.799), ["delay"]);
-  assert.deepEqual(names(0.799, 0.9), ["delay"]);
-  assert.deepEqual(names(0.8, 0.8), ["rate_limit_strict", "delay", "decoy_maze"]);
-  assert.deepEqual(names(1, 1), ["rate_limit_strict", "delay", "decoy_maze"]);
-  assert.deepEqual(names(0.4, 0.9), ["delay"]);
+  assert.deepEqual(names(0.9), []);
+  assert.deepEqual(names(0.9, 0.799), []);
+  assert.deepEqual(names(0.799, 0.9), []);
+  for (const riskScore of [0, 0.2, 0.5, 0.8, 1]) {
+    assert.deepEqual(names(riskScore, 0.799), [], `riskScore=${riskScore}`);
+  }
+  assert.deepEqual(names(0.8, 0.8), ["rate_limit_strict", "decoy_maze"]);
+  assert.deepEqual(names(1, 1), ["rate_limit_strict", "decoy_maze"]);
+  assert.deepEqual(names(0.4, 0.9), []);
   assert.deepEqual(names(0.1, 0.9), []);
 });
 
-test("확정된 고위험 플랜은 기존 요청 제한과 지연을 유지한 채 미끼를 전달한다", () => {
+test("확정된 고위험 플랜은 요청 제한과 미끼만 전달한다", () => {
   const proxyReq = createProxyReq({ "x-defense-plan": '[{"name":"bypass"}]' });
   const plan = applyDefensePlan(proxyReq, {
     riskScore: 0.8,
@@ -171,7 +174,6 @@ test("확정된 고위험 플랜은 기존 요청 제한과 지연을 유지한 
 
   assert.deepEqual(plan, [
     { name: "rate_limit_strict", params: { max_rps: 1 } },
-    { name: "delay", params: { delay_ms: 500 } },
     { name: "decoy_maze", params: {} },
   ]);
   assert.equal(proxyReq.headers.get("x-defense-plan"), JSON.stringify(plan));

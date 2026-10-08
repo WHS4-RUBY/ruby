@@ -55,14 +55,15 @@ X-Client-Id: <탐지팀이 계산한 가명 식별자>
 ### `X-Defense-Plan`
 
 ```
-X-Defense-Plan: [{"name": "delay", "params": {"delay_ms": 300}}, ...]
+X-Defense-Plan: [{"name": "rate_limit_strict", "params": {"max_rps": 1}}, {"name": "decoy_maze", "params": {}}]
 ```
 
 - `detection/lib/policyEngine.js`의 `applyDefensePlan`이 `detection/config/policy.json`의
-  `defense.rules`(리스크 점수 구간별 전략 배열)를 그대로 JSON 직렬화해서 보냅니다.
+  `defense.rules`에서 선택한 전략 배열을 JSON 직렬화해서 보냅니다.
 - 공식 Defense가 전체 플랜에서 CHeaT 전략만 사이드카로 전달합니다. 현재
   `policy.json`의 고위험 확정 공격 구간에는 공식 Defense의 `rate_limit_strict`와
-  `delay`, CHeaT의 `decoy_maze`가 함께 있습니다. 사이드카는 전달받은
+  CHeaT의 `decoy_maze`가 함께 있습니다. 현재 공통 정책은 점수별 `delay`를
+  선택하지 않습니다. 사이드카는 전달받은
   `decoy_maze`와 아래의 확장 전략을 적용합니다.
 - **`maze` 전략(선택)**: `{"name": "maze", "params": {}}` 가 플랜에 있는 클라이언트에게만 가짜 미로
   (robots 미끼·HTML 주석·`Link` 헤더·가짜 경로 응답)를 켜고 싶으면 저희 쪽을 `MAZE_REQUIRE_PLAN=1` 로

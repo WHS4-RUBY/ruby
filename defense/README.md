@@ -59,7 +59,7 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 
 ## 전략 계약과 요청 추적
 
-Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사용합니다. Defense 이벤트는 이전 완료 요청 기반 Automation·Attack·Risk 점수, 정책 출처, 대상 ID·실행 ID, 실제 실행 전략과 sidecar 동작, 백엔드 HTTP 상태 및 `forwarded`·`blocked`·`error` 결과를 기록합니다. Defense는 sidecar에 `X-Defense-Plan`의 기만 전략만 전달하고, 지연과 속도 제한은 자체 실행해 중복 적용하지 않습니다. Sidecar는 내부 식별·계획 헤더를 Target으로 전달하지 않습니다. 응답의 `X-Ruby-Decoy-Action`·`X-Ruby-Decoy-Strategies`는 Defense가 기록한 뒤 클라이언트 응답에서 제거합니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
+Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사용합니다. Defense 이벤트는 이전 완료 요청 기반 Automation·Attack·Risk 점수, 정책 출처, 대상 ID·실행 ID, 실제 실행 전략과 sidecar 동작, 백엔드 HTTP 상태 및 `forwarded`·`blocked`·`error` 결과를 기록합니다. Defense는 sidecar에 `X-Defense-Plan`의 기만 전략만 전달하고 속도 제한을 자체 실행합니다. 별도 정책이 지연을 선택하면 Defense에서 실행하므로 sidecar와 중복 적용하지 않습니다. 현재 공통 정책은 점수에 따른 일괄 지연을 선택하지 않습니다. Sidecar는 내부 식별·계획 헤더를 Target으로 전달하지 않습니다. 응답의 `X-Ruby-Decoy-Action`·`X-Ruby-Decoy-Strategies`는 Defense가 기록한 뒤 클라이언트 응답에서 제거합니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
 
 전략의 `apply(request, params, state)`는 요청 단계에서 실행합니다. `DefenseResult`는 즉시 반환할 응답, Target에 보낼 헤더, 백엔드 응답 변형 함수, 다음 클라이언트 상태를 담을 수 있습니다. 공식 Defense의 상태는 전략 이름, 선택된 실행 ID(없으면 대상 ID), `X-Client-Id`별로 분리하고, 기본 10분 미사용 시 만료되며 최대 10,000개를 유지합니다. `DEFENSE_STATE_TTL_SECONDS`와 `DEFENSE_STATE_LIMIT`로 조절합니다. 동일 클라이언트의 동시 상태 변경은 순서대로 처리합니다. Sidecar의 기만 상태도 실행 ID와 클라이언트별로 분리됩니다. 해제 뒤에도 새 요청은 Detection에서 다시 점수화되고, 위험 정책이 재선택되면 전략에 재진입합니다. 공식 Defense에는 영구적인 `blocked/released` 판정이나 다중 프로세스 공유 상태가 없습니다.
 

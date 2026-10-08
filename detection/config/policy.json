@@ -2,35 +2,6 @@
   "defense": {
     "rules": [
       {
-        "min_score": 0.0,
-        "max_score": 0.2,
-        "strategies": []
-      },
-      {
-        "min_score": 0.2,
-        "max_score": 0.5,
-        "strategies": [
-          {
-            "name": "delay",
-            "params": {
-              "delay_ms": 200
-            }
-          }
-        ]
-      },
-      {
-        "min_score": 0.5,
-        "max_score": 0.8,
-        "strategies": [
-          {
-            "name": "delay",
-            "params": {
-              "delay_ms": 300
-            }
-          }
-        ]
-      },
-      {
         "min_score": 0.8,
         "max_score": 1.01,
         "min_confirmed_attack_score": 0.8,
@@ -42,26 +13,8 @@
             }
           },
           {
-            "name": "delay",
-            "params": {
-              "delay_ms": 500
-            }
-          },
-          {
             "name": "decoy_maze",
             "params": {}
-          }
-        ]
-      },
-      {
-        "min_score": 0.8,
-        "max_score": 1.01,
-        "strategies": [
-          {
-            "name": "delay",
-            "params": {
-              "delay_ms": 500
-            }
           }
         ]
       }
