@@ -187,16 +187,17 @@ def _script_for(profile: SiteProfile) -> bytes:
     return LURE_SCRIPT_TEMPLATE.replace(b'__LURE_CONFIG_JSON__', config.encode('ascii'))
 
 
-def _inject_agent_script(body: bytes, selected: dict[str, str]) -> bytes | None:
+def _inject_agent_script(body: bytes, selected: dict[str, str]) -> bytes:
     marker = re.search(rb'</head\s*>', body, re.IGNORECASE)
     if marker is None:
-        return None
+        marker = re.search(rb'</body\s*>', body, re.IGNORECASE)
     scenario = ('recovery' if 'X-Recovery-API' in selected else
                 'legacy' if 'X-Legacy-Storage' in selected else
                 'service' if 'X-Internal-API' in selected else '')
     attribute = f' data-deception="{scenario}"' if scenario else ''
     tag = (f'<script src="{LURE_SCRIPT_PATH}"{attribute}></script>').encode('ascii')
-    return body[:marker.start()] + tag + body[marker.start():]
+    insertion = marker.start() if marker is not None else len(body)
+    return body[:insertion] + tag + body[insertion:]
 
 
 def create_overlay_app(settings: OverlaySettings, session_secret: bytes, detector_secret: bytes,

@@ -1,0 +1,7 @@
+# Private, signed-Agent overlay for RUBY Shop behind the HTTP port-80 gateway.
+origin_url = "http://ruby-web-target:8080"
+site_profile = "site-ruby-shop.toml"
+decoy_config = "decoy-production-ruby-v2.toml"
+max_request_bytes = 1048576
+max_response_bytes = 16777216
+timeout_seconds = 10.0

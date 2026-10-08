@@ -1,0 +1,7 @@
+# Private, signed-Agent overlay for Juice Shop behind the HTTP port-80 gateway.
+origin_url = "http://juice-shop-target:3000"
+site_profile = "site-juice-shop.toml"
+decoy_config = "decoy-production-juice-v2.toml"
+max_request_bytes = 1048576
+max_response_bytes = 16777216
+timeout_seconds = 10.0

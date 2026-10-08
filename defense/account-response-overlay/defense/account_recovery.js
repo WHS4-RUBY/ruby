@@ -116,14 +116,14 @@
     const form = document.querySelector(config.loginFormSelector)
     if (!form || document.getElementById(helpId)) return
     const forgot = form.querySelector(config.recoveryAnchorSelector)
-    if (!forgot) return
     const help = document.createElement('a')
     help.id = helpId
     help.href = lures.recovery.path
     help.textContent = 'Legacy account recovery'
     help.style.cssText = 'display:block;margin:8px 0;color:#b9ef79;' +
       'font-weight:600;text-decoration:underline'
-    forgot.insertAdjacentElement('afterend', help)
+    if (forgot) forgot.insertAdjacentElement('afterend', help)
+    else form.appendChild(help)
   }
 
   function syncOperationsMenu() {

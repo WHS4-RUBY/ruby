@@ -17,7 +17,7 @@ RUBY의 방어 계층을 개발하는 영역입니다. Detection Proxy의 Policy
 
 운영 Compose에서는 Detection과 Defense가 같은 `TARGET_CHOICES`를 읽습니다. 관리 화면에서 선택한 대상 ID와 실행 ID가 공유 선택 파일에 저장되고, Defense가 그 ID의 내부 주소로 요청을 전달합니다. 현재 운영 대상은 `juice-shop=http://juice-shop-target:3000`과 `ruby-shop=http://ruby-web-target:8080`입니다. `TARGET_DEFAULT_ID`는 이 목록에 있는 ID로 지정해야 합니다. 실험 공격은 공개 포트 80으로 보내야 Detection과 Defense를 통과합니다. 벤치마크 선택 화면의 포트 3020으로 직접 보낸 요청은 이 파이프라인과 두 대시보드에 기록되지 않습니다.
 
-운영 Compose는 두 대상에 각각 비공개 CHeaT sidecar(`cheat-juice:3012`, `cheat-ruby:3012`)를 연결합니다. 해당 ID의 HTTP 요청은 `Detection → Defense → 대상별 sidecar → Target`으로 흐릅니다. 다른 ID에 sidecar 설정이 없으면 Defense가 Target에 직접 전달합니다. WebSocket은 sidecar를 거치지 않고 선택된 Target으로 직접 연결됩니다.
+운영 Compose는 두 대상에 각각 비공개 CHeaT sidecar(`cheat-juice:3012`, `cheat-ruby:3012`)와 계정 Response Overlay(`overlay-juice:8080`, `overlay-ruby:8080`)를 연결합니다. 정상 HTTP 요청은 `Detection → Defense → 대상별 CHeaT → Target`으로 흐릅니다. 계정 오버레이로 분류된 요청은 Defense가 서명해 대상별 오버레이로 보내며, 고위험 격리에서는 Target에 전달하지 않습니다. 다른 대상 ID에 기만 경로가 없으면 Defense가 Target에 직접 전달합니다. 격리된 클라이언트의 WebSocket은 거부하고 정상 클라이언트의 WebSocket은 Target으로 연결합니다.
 
 | 환경변수 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -25,10 +25,13 @@ RUBY의 방어 계층을 개발하는 영역입니다. Detection Proxy의 Policy
 | `TARGET_DEFAULT_ID` | `legacy` | 선택 파일에 유효한 이전 선택이 없을 때 사용할 대상 ID. |
 | `TARGET_SELECTION_FILE` | 없음 | Detection이 기록한 선택 ID·실행 ID를 Defense가 읽을 공유 파일. Compose가 이 파일을 공유합니다. |
 | `DECOY_UPSTREAM_CHOICES` | 없음 | 대상 ID별 비공개 CHeaT sidecar URL. 해당 ID의 HTTP 요청만 sidecar로 보냅니다. |
+| `OVERLAY_UPSTREAM_CHOICES` | 없음 | 대상 ID별 비공개 계정 Response Overlay URL. |
+| `OVERLAY_DETECTOR_KEY` | 없음 | Defense와 두 오버레이가 공유하는 64자 hex 서명 키. 운영 배포에서는 기존 비밀값에서 용도를 분리해 파생합니다. |
+| `DEFENSE_OVERLAY_STATE_DB` | `/app/overlay-state/routes.sqlite3` | 대상·실행 ID별 영속 오버레이 경로 상태. 볼륨을 보존해야 합니다. |
 | `TARGET_PORT` | `9000` | 이름 붙은 대상이 없는 독립 실행/legacy 구성의 Target 포트. Compose 기본값은 `3000`입니다. |
 | `TARGET_HOST` | `localhost` | 독립 실행/legacy 구성의 Target 호스트. Compose는 `host.docker.internal`을 지정합니다. |
 
-Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사용합니다. 이때 Target은 Defense 컨테이너에서 접근 가능한 주소(`0.0.0.0` 또는 Docker 브리지 주소)에 바인딩해야 합니다. `/readyz`는 현재 선택된 Target과 그 대상에 설정된 sidecar의 TCP 연결을 확인합니다.
+Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사용합니다. 이때 Target은 Defense 컨테이너에서 접근 가능한 주소(`0.0.0.0` 또는 Docker 브리지 주소)에 바인딩해야 합니다. `/readyz`는 현재 선택된 Target·sidecar·오버레이의 TCP 연결과 오버레이 경로 상태를 확인합니다.
 
 ## 대시보드
 
@@ -49,25 +52,26 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 
 - `app/main.py`: `X-Defense-Plan` 실행과 Target 전달
 - `app/decoy_routing.py`: 대상별 sidecar 주소와 기만 전략 헤더 분리
+- `app/overlay_routing.py`: 대상별 오버레이 주소, 서명, 영속 중·고위험 경로
 - `app/dashboard.py`: 관리 API와 대시보드 라우터
 - `app/dashboard_auth.py`: 로그인 제한과 세션 수명 관리
 - `app/strategies/`: 방어 전략 구현과 Registry
 - `app/monitoring.py`: 상한이 있는 요청 이벤트와 집계
 - `app/public/dashboard.html`: Detection 대시보드와 같은 형태의 운영 화면
 
-공식 Defense 전략은 `DefenseStrategy`를 구현해 Registry에 등록합니다. CHeaT 기만 전략은 비공개 sidecar에서 실행하고, Defense가 sidecar의 실제 적용 전략과 동작을 대시보드에 집계합니다.
+공식 Defense 전략은 `DefenseStrategy`를 구현해 Registry에 등록합니다. CHeaT 기만 전략은 비공개 sidecar에서 실행하고, Defense가 sidecar의 실제 적용 전략과 동작을 대시보드에 집계합니다. 계정 오버레이 계획은 Defense가 확정 공격 점수와 함께 검증해 서명·라우팅하며, 실제 오버레이 경로를 사용한 경우만 대시보드에 기록합니다.
 
 ## 전략 계약과 요청 추적
 
-Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사용합니다. Defense 이벤트는 이전 완료 요청 기반 Automation·Attack·Risk 점수, 정책 출처, 대상 ID·실행 ID, 실제 실행 전략과 sidecar 동작, 백엔드 HTTP 상태 및 `forwarded`·`blocked`·`error` 결과를 기록합니다. Defense는 sidecar에 `X-Defense-Plan`의 기만 전략만 전달하고 속도 제한을 자체 실행합니다. 별도 정책이 지연을 선택하면 Defense에서 실행하므로 sidecar와 중복 적용하지 않습니다. 현재 공통 정책은 점수에 따른 일괄 지연을 선택하지 않습니다. Sidecar는 내부 식별·계획 헤더를 Target으로 전달하지 않습니다. 응답의 `X-Ruby-Decoy-Action`·`X-Ruby-Decoy-Strategies`는 Defense가 기록한 뒤 클라이언트 응답에서 제거합니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
+Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사용합니다. Defense 이벤트는 이전 완료 요청 기반 Automation·Attack·확정 Attack·Risk 점수, 정책 출처, 대상 ID·실행 ID, 실제 실행 전략과 기만 동작, 백엔드 HTTP 상태 및 `forwarded`·`blocked`·`error` 결과를 기록합니다. Defense는 CHeaT에 `X-Defense-Plan`의 기만 전략만 전달하고 속도 제한을 자체 실행합니다. 오버레이 계획은 위험 점수와 확정 공격 점수의 구간이 일치할 때만 처리하고, 대상·실행 ID·클라이언트에서 만든 가명 actor에 원본 경로·쿼리·본문을 HMAC으로 서명합니다. 속도 제한이 429를 반환하면 오버레이나 sidecar로 전달하지 않습니다. 현재 공통 정책은 점수에 따른 일괄 지연을 선택하지 않습니다. Sidecar와 오버레이는 내부 제어 헤더를 Target으로 전달하지 않습니다. 응답의 `X-Ruby-Decoy-Action`·`X-Ruby-Decoy-Strategies`는 Defense가 기록한 뒤 클라이언트 응답에서 제거합니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
 
-전략의 `apply(request, params, state)`는 요청 단계에서 실행합니다. `DefenseResult`는 즉시 반환할 응답, Target에 보낼 헤더, 백엔드 응답 변형 함수, 다음 클라이언트 상태를 담을 수 있습니다. 공식 Defense의 상태는 전략 이름, 선택된 실행 ID(없으면 대상 ID), `X-Client-Id`별로 분리하고, 기본 10분 미사용 시 만료되며 최대 10,000개를 유지합니다. `DEFENSE_STATE_TTL_SECONDS`와 `DEFENSE_STATE_LIMIT`로 조절합니다. 동일 클라이언트의 동시 상태 변경은 순서대로 처리합니다. Sidecar의 기만 상태도 실행 ID와 클라이언트별로 분리됩니다. 해제 뒤에도 새 요청은 Detection에서 다시 점수화되고, 위험 정책이 재선택되면 전략에 재진입합니다. 공식 Defense에는 영구적인 `blocked/released` 판정이나 다중 프로세스 공유 상태가 없습니다.
+전략의 `apply(request, params, state)`는 요청 단계에서 실행합니다. `DefenseResult`는 즉시 반환할 응답, Target에 보낼 헤더, 백엔드 응답 변형 함수, 다음 클라이언트 상태를 담을 수 있습니다. 일반 공식 Defense 전략의 상태는 전략 이름, 선택된 실행 ID(없으면 대상 ID), `X-Client-Id`별로 분리하고, 기본 10분 미사용 시 만료되며 최대 10,000개를 유지합니다. `DEFENSE_STATE_TTL_SECONDS`와 `DEFENSE_STATE_LIMIT`로 조절합니다. 계정 오버레이의 중·고위험 경로는 별도 SQLite 볼륨에 영속 저장하며 키가 바뀌거나 DB가 사라지면 원본으로 우회하지 않고 실패합니다. 경로 상태의 식별 범위는 같은 대상·실행 ID·검증된 `dcid`입니다. 쿠키를 지우면 새 식별자가 되어 기존 격리가 자동 승계되지 않습니다. 동일 클라이언트의 동시 상태 변경은 순서대로 처리합니다. Sidecar의 기만 상태도 실행 ID와 클라이언트별로 분리됩니다.
 
 응답 변형 전략이 있으면 백엔드 본문을 받아 변형한 뒤 전송합니다. 본문은 기본 4 MiB까지 허용하며 `DEFENSE_TRANSFORM_BODY_LIMIT`로 조절합니다. 한도를 넘으면 502와 오류 이벤트를 반환합니다. 변형 전략이 없는 공식 Defense 응답은 스트리밍하지만, 현재 CHeaT sidecar는 HTTP 요청·응답 본문을 버퍼링하므로 sidecar를 거치는 경로는 종단 간 스트리밍이 아닙니다. 스트림이 중간에 끊기면 이미 보낸 HTTP 상태를 502로 바꿀 수 없으므로 연결이 중단되고 Defense 이벤트는 `outcome=error`로 남습니다. 이벤트의 `status`는 이미 전송한 백엔드 상태일 수 있으므로 결과와 함께 읽어야 합니다.
 
-WebSocket은 업그레이드 요청 시 공식 Defense 전략을 한 번 적용하고 선택된 Target에 직접 연결한 뒤 텍스트·바이너리 프레임을 그대로 중계합니다. Sidecar 기만과 프레임별 탐지·응답 변형은 적용하지 않습니다. `/__defense` 관리 경로는 WebSocket 엔드포인트가 없으므로 업그레이드를 거부합니다.
+WebSocket은 업그레이드 요청 시 공식 Defense 전략을 한 번 적용합니다. 오버레이에 분류되지 않은 클라이언트만 선택된 Target에 직접 연결하고 텍스트·바이너리 프레임을 중계합니다. 오버레이로 분류된 클라이언트의 업그레이드는 원본 우회를 막기 위해 거부합니다. Sidecar 기만과 프레임별 탐지·응답 변형은 적용하지 않습니다. `/__defense` 관리 경로는 WebSocket 엔드포인트가 없으므로 업그레이드를 거부합니다.
 
-`X-Client-Id`와 `X-Ruby-*`는 내부 Detection 프록시가 재생성하는 헤더입니다. Defense에 직접 접속할 수 있으면 헤더를 위조할 수 있으므로 배포에서는 Defense 포트를 외부에 공개하지 말고 Detection과 같은 비공개 네트워크에서만 접근시키세요. 이벤트와 전략 상태는 단일 프로세스 메모리에만 보관되고 재시작 시 사라집니다.
+`X-Client-Id`와 `X-Ruby-*`는 내부 Detection 프록시가 재생성하는 헤더입니다. Defense에 직접 접속할 수 있으면 헤더를 위조할 수 있으므로 배포에서는 Defense 포트를 외부에 공개하지 말고 Detection과 같은 비공개 네트워크에서만 접근시키세요. 최근 대시보드 이벤트와 일반 전략 상태는 단일 프로세스 메모리에 보관되고 재시작 시 사라지지만, 계정 오버레이 경로와 격리 상태는 영속 볼륨에 남습니다.
 
 ## 참여 방법
 

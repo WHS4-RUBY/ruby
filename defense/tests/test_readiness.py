@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import httpx
 
 from defense.app.main import app
+from defense.app.overlay_routing import OverlayRouteError
 from defense.app.target_selection import SelectedTarget, TargetSelectionError
 
 
@@ -63,6 +64,22 @@ class ReadinessTests(unittest.IsolatedAsyncioTestCase):
                 transport=httpx.ASGITransport(app=app), base_url="http://defense"
             ) as client:
                 self.assertEqual((await client.get("/readyz")).status_code, 503)
+
+    async def test_selected_overlay_store_failure_is_unready_before_tcp_probe(self):
+        selected = SelectedTarget("juice-shop", "http://target.example:3000", "run-4", "now")
+        store = Mock()
+        store.health.side_effect = OverlayRouteError("state missing")
+        with patch("defense.app.target_selection.target_selector.current", return_value=selected), patch(
+            "defense.app.main.OVERLAY_UPSTREAMS", {"juice-shop": "http://overlay:8080"}
+        ), patch.object(app.state, "overlay_routes", store, create=True), patch(
+            "defense.app.main.asyncio.open_connection", new_callable=AsyncMock
+        ) as connect:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://defense"
+            ) as client:
+                response = await client.get("/readyz")
+        self.assertEqual(response.status_code, 503)
+        connect.assert_not_awaited()
 
 
 if __name__ == "__main__":

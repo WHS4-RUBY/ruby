@@ -31,15 +31,24 @@ function loadPolicyRules(configPath = process.env.POLICY_CONFIG_PATH || DEFAULT_
     if (!Number.isFinite(minConfirmedAttackScore) || minConfirmedAttackScore < 0 || minConfirmedAttackScore > 1) {
       throw new Error(`policy rule ${index} has an invalid confirmed attack threshold`);
     }
-    return { minScore, maxScore, minConfirmedAttackScore, strategies: rule.strategies };
+    const maxConfirmedAttackScore = rule.max_confirmed_attack_score === undefined
+      ? 1.01 : Number(rule.max_confirmed_attack_score);
+    if (!Number.isFinite(maxConfirmedAttackScore) || maxConfirmedAttackScore <= minConfirmedAttackScore ||
+        maxConfirmedAttackScore > 1.01) {
+      throw new Error(`policy rule ${index} has an invalid confirmed attack ceiling`);
+    }
+    return { minScore, maxScore, minConfirmedAttackScore, maxConfirmedAttackScore,
+      strategies: rule.strategies };
   });
 }
 
 function selectStrategies(riskScore, rules, { confirmedAttackScore = 0 } = {}) {
   const score = clampScore(riskScore);
   const confirmed = clampScore(confirmedAttackScore);
-  const rule = rules.find(({ minScore, maxScore, minConfirmedAttackScore = 0 }) =>
-    minScore <= score && score < maxScore && confirmed >= minConfirmedAttackScore);
+  const rule = rules.find(({ minScore, maxScore, minConfirmedAttackScore = 0,
+    maxConfirmedAttackScore = 1.01 }) =>
+    minScore <= score && score < maxScore &&
+    minConfirmedAttackScore <= confirmed && confirmed < maxConfirmedAttackScore);
   return rule ? rule.strategies : [];
 }
 

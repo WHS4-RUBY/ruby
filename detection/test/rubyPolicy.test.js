@@ -39,10 +39,16 @@ test("외부에서 주입한 탐지 헤더를 제거한다", () => {
     ["x-defense-plan", '[{"name":"delay"}]'],
     ["x-ruby-request-id", "forged"],
     ["x-ruby-attack-score", "1"],
+    ["x-ruby-confirmed-attack-score", "1"],
+    ["x-ruby-unknown-control", "forged"],
     ["x-defense-signal", "forged"],
+    ["x-defense-overlay-level", "high"],
     ["content-type", "application/json"],
   ]);
   const proxyReq = {
+    getHeaderNames() {
+      return [...headers.keys()];
+    },
     removeHeader(name) {
       headers.delete(name.toLowerCase());
     },
@@ -56,7 +62,10 @@ test("외부에서 주입한 탐지 헤더를 제거한다", () => {
   assert.equal(headers.has("x-defense-plan"), false);
   assert.equal(headers.has("x-ruby-request-id"), false);
   assert.equal(headers.has("x-ruby-attack-score"), false);
+  assert.equal(headers.has("x-ruby-confirmed-attack-score"), false);
+  assert.equal(headers.has("x-ruby-unknown-control"), false);
   assert.equal(headers.has("x-defense-signal"), false);
+  assert.equal(headers.has("x-defense-overlay-level"), false);
 
   // 관련 없는 헤더는 유지되어야 한다.
   assert.equal(headers.get("content-type"), "application/json")
