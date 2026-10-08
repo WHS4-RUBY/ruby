@@ -73,6 +73,10 @@ class OverlayStoreTests(unittest.TestCase):
                 {"name": OVERLAY_HIGH, "params": {}}]
         self.assertEqual(requested_tier(medium, risk_score=0.6, confirmed_attack_score=0.6), "medium")
         self.assertEqual(requested_tier(high, risk_score=0.95, confirmed_attack_score=0.95), "high")
+        self.assertIsNone(requested_tier(
+            [{"name": "decoy_maze", "params": {}}],
+            risk_score=0.9, confirmed_attack_score=0.0,
+        ))
         for invalid, risk, confirmed in (
             (medium, 0.6, None), (medium, 0.6, 0.8), (high, 0.95, 0.9),
             (medium + high, 0.99, 0.99),
@@ -231,6 +235,32 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[4]["status"], 429)
         self.assertEqual(events[4]["defenseSignal"], "rate_limited")
         self.assertEqual(events[5]["strategies"], [OVERLAY_HIGH])
+
+    async def test_suspected_candidate_uses_decoy_without_overlay_or_rate_limit(self):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://defense") as client:
+            with patch("defense.app.target_selection.target_selector", self.selector), patch(
+                "defense.app.main.OVERLAY_UPSTREAMS", {"juice-shop": "http://overlay-juice:8080"}
+            ), patch("defense.app.main.DECOY_UPSTREAMS", {"juice-shop": "http://cheat-juice:3012"}), patch(
+                "defense.app.main.OVERLAY_DETECTOR_KEY", KEY
+            ), patch.object(app.state, "overlay_routes", self.store, create=True):
+                headers = self.headers("actor:cookie-less", 0.9, 0.0, plan("decoy_maze"))
+                headers.update({
+                    "X-Ruby-Defense-Tier": "suspected",
+                    "X-Ruby-Candidate-Id": "actor:cookie-less",
+                    "X-Ruby-Client-Flow-Id": "client-flow:observed",
+                })
+                first = await client.get("/api/products", headers=headers)
+                second = await client.get("/api/products", headers=headers)
+
+        self.assertEqual([first.status_code, second.status_code], [200, 200])
+        self.assertEqual([request.url.host for request in self.calls],
+                         ["cheat-juice", "cheat-juice"])
+        events = list(reversed(event_store.recent(2)))
+        self.assertEqual([event["strategies"] for event in events],
+                         [["decoy_maze"], ["decoy_maze"]])
+        self.assertTrue(all(event["defenseTier"] == "suspected" for event in events))
+        self.assertTrue(all(event["candidateId"] == "actor:cookie-less" for event in events))
+        self.assertTrue(all(event["clientFlowId"] == "client-flow:observed" for event in events))
 
     async def test_first_high_request_is_sticky_even_when_rate_limited(self):
         now = [100.0]

@@ -2,6 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
 const crypto = require("node:crypto");
+const fs = require("node:fs");
+const os = require("node:os");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 
@@ -51,6 +53,8 @@ function expectedStrictStrategies(confirmedAttackScore) {
 }
 
 test("HTTP request trace and signed versus unsigned WebSocket upgrade policies", { timeout: 20000 }, async (t) => {
+  const selectionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "ruby-pipeline-run-"));
+  t.after(() => fs.rmSync(selectionDirectory, { recursive: true, force: true }));
   const seen = [];
   const seenUpgrades = [];
   const upgradeSockets = new Set();
@@ -75,7 +79,10 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
         riskScore: Number(req.headers["x-ruby-risk-score"]),
         forgedDefenseControl: req.headers["x-defense-overlay-level"],
         forgedRubyControl: req.headers["x-ruby-unknown-control"],
-        source: req.headers["x-ruby-policy-source"], plan, clientId, blocked });
+        source: req.headers["x-ruby-policy-source"], plan, clientId, blocked,
+        tier: req.headers["x-ruby-defense-tier"],
+        candidateId: req.headers["x-ruby-candidate-id"],
+        clientFlowId: req.headers["x-ruby-client-flow-id"] });
       if (blocked) {
         res.writeHead(429, { "Content-Type": "application/json",
           "X-Defense-Signal": "rate_limited" });
@@ -129,6 +136,9 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
     cwd: path.join(__dirname, ".."),
     env: { ...process.env, NODE_ENV: "test", PORT: String(detectionPort),
       TARGET_URL: `http://127.0.0.1:${defenseStub.address().port}`,
+      TARGET_CHOICES: `legacy=http://127.0.0.1:${defenseStub.address().port},alternate=http://127.0.0.1:${defenseStub.address().port}`,
+      TARGET_DEFAULT_ID: "legacy",
+      TARGET_SELECTION_FILE: path.join(selectionDirectory, "selection.json"),
       CRS_ENABLED: "false", DECEPTION_ENABLED: "false",
       TRUST_PROXY: "true",
       DETECTION_DASHBOARD_PASSWORD: dashboardPassword,
@@ -188,6 +198,9 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
     expectedStrictStrategies(last.confirmedAttackScore));
   assert.ok(seen.every((item) => item.forwardedFor === undefined));
   assert.ok(seen.every((item) => item.forwardedProto === "https"));
+  assert.match(last.candidateId, /^actor:/);
+  assert.ok(seen.every((item) => item.candidateId === last.candidateId),
+    "same IP and fingerprint keep one observation candidate for the defense dashboard");
 
   assert.ok(cookies.has("dlsid") && cookies.has("dcid"), "high-risk client has both session and signed client cookies");
   const anonymousUpgrade = await upgrade(detectionPort, "/socket", {
@@ -260,7 +273,14 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   });
   assert.equal(normal.status, 200);
   assert.equal(normal.body, "ok");
-  assert.deepEqual(seen.at(-1).plan, []);
+  // 쿠키를 돌려주지 않는 요청은 같은 IP·지문 Candidate 이력으로 판단한다. 같은 NAT의
+  // 다른 사용자일 수도 있으므로 확정 단계(429)가 아닌 미끼만 붙고, 서명 클라이언트의
+  // 방어 카운터도 공유하지 않는다.
+  assert.equal(seen.at(-1).candidateId, last.candidateId);
+  assert.deepEqual(seen.at(-1).plan.map((step) => step.name), ["decoy_maze"]);
+  assert.equal(seen.at(-1).tier, "suspected");
+  assert.equal(seen.at(-1).source, "actor-candidate-fallback");
+  assert.equal(seen.at(-1).clientId, last.candidateId);
   assert.equal(seen.at(-1).confirmedAttackScore, 0);
   assert.equal(seen.at(-1).forgedDefenseControl, undefined);
   assert.equal(seen.at(-1).forgedRubyControl, undefined);
@@ -272,8 +292,23 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
     body: attackBody,
   });
   assert.equal(firstOtherAttack.status, 404);
-  assert.deepEqual(seen.at(-1).plan, []);
+  assert.ok(!seen.at(-1).plan.some((step) => step.name === "rate_limit_strict"),
+    "cookie-less requests never reach the confirmed tier");
   assert.notEqual(seen.at(-1).clientId, last.clientId);
+  const anonymousSeen = [];
+  for (let index = 0; index < 3; index++) {
+    await request(detectionPort, "GET", "/", {
+      headers: { "User-Agent": "curl/8.0", "X-Ruby-Client-Flow-Id": "client-flow:spoofed",
+        "X-Ruby-Candidate-Id": "actor:spoofed" },
+    });
+    anonymousSeen.push(seen.at(-1));
+  }
+  assert.ok(anonymousSeen.every((item) => item.candidateId === anonymousSeen[0].candidateId &&
+    item.candidateId !== "actor:spoofed"));
+  assert.equal(new Set(anonymousSeen.map((item) => item.clientId)).size, 1,
+    "cookie-less requests share one policy key instead of a fresh DCID each time");
+  assert.match(anonymousSeen.at(-1).clientFlowId, /^client-flow:[0-9a-f]{24}$/,
+    "cookie-less requests from one candidate are reported as one linked flow");
   const finalExport = await request(detectionPort, "GET", "/__detection/api/export", {
     headers: { Cookie: sessionCookie },
   });
@@ -286,4 +321,21 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.equal(normalRecord.detectionResult.effectiveAttackScore, 0);
   assert.equal(otherAttackRecord.detectionResult.source, "provisional-client-observation");
   assert.ok(otherAttackRecord.detectionResult.effectiveAttackScore < last.attackScore);
+
+  // 동일 signed dcid도 새 대상 실행에서는 이전 실행의 확정 공격 점수를 승계하지 않는다.
+  const selectionBody = JSON.stringify({ targetId: "alternate" });
+  const selected = await request(detectionPort, "POST", "/__detection/api/target-selection", {
+    headers: { Cookie: sessionCookie, Origin: `http://127.0.0.1:${detectionPort}`,
+      "X-Ruby-Target-Selection": "1", "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(selectionBody) },
+    body: selectionBody,
+  });
+  assert.equal(selected.status, 200);
+  const newRunSigned = await request(detectionPort, "GET", "/", {
+    headers: { "User-Agent": "curl/8.0", Cookie: [...cookies.values()].join("; ") },
+  });
+  assert.equal(newRunSigned.status, 200);
+  assert.deepEqual(seen.at(-1).plan, []);
+  assert.equal(seen.at(-1).confirmedAttackScore, 0);
+  assert.equal(seen.at(-1).riskScore, 0);
 });

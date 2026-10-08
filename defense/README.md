@@ -42,7 +42,8 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 - 전체·방어 적용·차단·오류 요청 수
 - 방어 지연을 포함한 평균 처리 시간
 - 최근 1시간 요청 흐름과 전략별 적용 횟수
-- 최근 요청의 클라이언트 ID, 경로, 적용 전략과 처리 결과
+- 최근 요청을 관찰 후보의 **단독 관찰** 또는 여러 후보의 **연결된 흐름**으로 묶은 목록과 흐름 필터. 연결은 표시용 단서이며 동일 클라이언트의 확정 신원을 뜻하지 않습니다.
+- 선택한 흐름의 요청 ID, 정책 키, 경로, 방어 단계·전략과 처리 결과. 한 흐름에 정책 키가 여럿이면 방어 상태가 나뉜 사실을 표시합니다.
 
 `DEFENSE_DASHBOARD_PASSWORD`를 지정하면 관리 API가 로그인 세션으로 보호됩니다. 배포용 Compose는 이 값이 없으면 시작하지 않으며 GitHub Actions에서는 같은 이름의 Repository Secret을 전달합니다. 기본 설정은 HTTPS와 Secure 쿠키를 요구합니다. 현재 서버의 SSH 터널을 통한 HTTP 관리 접속에는 `ALLOW_INSECURE_DASHBOARD_HTTP=true`, `DEFENSE_DASHBOARD_REQUIRE_HTTPS=false`, `DEFENSE_DASHBOARD_COOKIE_SECURE=false`를 함께 지정합니다. 이 경우에도 대시보드는 공개 포트 80에 노출되지 않습니다.
 
@@ -63,7 +64,7 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 
 ## 전략 계약과 요청 추적
 
-Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사용합니다. Defense 이벤트는 이전 완료 요청 기반 Automation·Attack·확정 Attack·Risk 점수, 정책 출처, 대상 ID·실행 ID, 실제 실행 전략과 기만 동작, 백엔드 HTTP 상태 및 `forwarded`·`blocked`·`error` 결과를 기록합니다. Defense는 CHeaT에 `X-Defense-Plan`의 기만 전략만 전달하고 속도 제한을 자체 실행합니다. 오버레이 계획은 위험 점수와 확정 공격 점수의 구간이 일치할 때만 처리하고, 대상·실행 ID·클라이언트에서 만든 가명 actor에 원본 경로·쿼리·본문을 HMAC으로 서명합니다. 속도 제한이 429를 반환하면 오버레이나 sidecar로 전달하지 않습니다. 현재 공통 정책은 점수에 따른 일괄 지연을 선택하지 않습니다. Sidecar와 오버레이는 내부 제어 헤더를 Target으로 전달하지 않습니다. 응답의 `X-Ruby-Decoy-Action`·`X-Ruby-Decoy-Strategies`는 Defense가 기록한 뒤 클라이언트 응답에서 제거합니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
+Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사용합니다. Defense 이벤트는 이전 완료 요청 기반 Automation·Attack·확정 Attack·Risk 점수, 정책 출처, `X-Ruby-Defense-Tier`의 `confirmed`/`suspected` 단계, 대상 ID·실행 ID, 실제 실행 전략과 기만 동작, 백엔드 HTTP 상태 및 `forwarded`·`blocked`·`error` 결과를 기록합니다. `X-Ruby-Candidate-Id`와 `X-Ruby-Client-Flow-Id`는 방어 대시보드의 관찰 흐름 표시용으로만 기록하고 전략 선택에는 쓰지 않습니다. Detection은 쿠키를 돌려주지 않는 요청의 후보·한 IP 흐름 이력으로 위험 점수 0.8 이상을 확인하면 `suspected` 단계의 `decoy_maze`만 선택할 수 있습니다. 확정 공격 점수 0.5/0.8/0.95 구간의 계정 오버레이·속도 제한은 반환·검증된 signed DCID 이력이 필요합니다. Defense는 CHeaT에 `X-Defense-Plan`의 기만 전략만 전달하고 속도 제한을 자체 실행합니다. 오버레이 계획은 위험 점수와 확정 공격 점수의 구간이 일치할 때만 처리하고, 대상·실행 ID·클라이언트에서 만든 가명 actor에 원본 경로·쿼리·본문을 HMAC으로 서명합니다. 속도 제한이 429를 반환하면 오버레이나 sidecar로 전달하지 않습니다. 현재 공통 정책은 점수에 따른 일괄 지연을 선택하지 않습니다. Sidecar와 오버레이는 내부 제어 헤더를 Target으로 전달하지 않습니다. 응답의 `X-Ruby-Decoy-Action`·`X-Ruby-Decoy-Strategies`는 Defense가 기록한 뒤 클라이언트 응답에서 제거합니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
 
 전략의 `apply(request, params, state)`는 요청 단계에서 실행합니다. `DefenseResult`는 즉시 반환할 응답, Target에 보낼 헤더, 백엔드 응답 변형 함수, 다음 클라이언트 상태를 담을 수 있습니다. 일반 공식 Defense 전략의 상태는 전략 이름, 선택된 실행 ID(없으면 대상 ID), `X-Client-Id`별로 분리하고, 기본 10분 미사용 시 만료되며 최대 10,000개를 유지합니다. `DEFENSE_STATE_TTL_SECONDS`와 `DEFENSE_STATE_LIMIT`로 조절합니다. 계정 오버레이의 중·고위험 경로는 별도 SQLite 볼륨에 영속 저장하며 키가 바뀌거나 DB가 사라지면 원본으로 우회하지 않고 실패합니다. 경로 상태의 식별 범위는 같은 대상·실행 ID·검증된 `dcid`입니다. 쿠키를 지우면 새 식별자가 되어 기존 격리가 자동 승계되지 않습니다. 동일 클라이언트의 동시 상태 변경은 순서대로 처리합니다. Sidecar의 기만 상태도 실행 ID와 클라이언트별로 분리됩니다.
 
@@ -71,7 +72,7 @@ Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사�
 
 WebSocket은 업그레이드 요청 시 공식 Defense 전략을 한 번 적용합니다. 오버레이에 분류되지 않은 클라이언트만 선택된 Target에 직접 연결하고 텍스트·바이너리 프레임을 중계합니다. 오버레이로 분류된 클라이언트의 업그레이드는 원본 우회를 막기 위해 거부합니다. Sidecar 기만과 프레임별 탐지·응답 변형은 적용하지 않습니다. `/__defense` 관리 경로는 WebSocket 엔드포인트가 없으므로 업그레이드를 거부합니다.
 
-`X-Client-Id`와 `X-Ruby-*`는 내부 Detection 프록시가 재생성하는 헤더입니다. Defense에 직접 접속할 수 있으면 헤더를 위조할 수 있으므로 배포에서는 Defense 포트를 외부에 공개하지 말고 Detection과 같은 비공개 네트워크에서만 접근시키세요. 최근 대시보드 이벤트와 일반 전략 상태는 단일 프로세스 메모리에 보관되고 재시작 시 사라지지만, 계정 오버레이 경로와 격리 상태는 영속 볼륨에 남습니다.
+`X-Client-Id`와 `X-Ruby-*`는 내부 Detection 프록시가 재생성하는 헤더입니다. 반환·검증된 DCID가 있으면 정책 키는 해당 가명 ID이고, 쿠키를 돌려주지 않는 요청은 관찰 후보 또는 한 IP의 Client Flow ID를 정책 키로 사용합니다. 후자의 공유 지문은 차단·계정 격리 근거가 아니며 `suspected` 미끼 단계에만 사용됩니다. Defense에 직접 접속할 수 있으면 헤더를 위조할 수 있으므로 배포에서는 Defense 포트를 외부에 공개하지 말고 Detection과 같은 비공개 네트워크에서만 접근시키세요. 최근 대시보드 이벤트와 일반 전략 상태는 단일 프로세스 메모리에 보관되고 재시작 시 사라지지만, 계정 오버레이 경로와 격리 상태는 영속 볼륨에 남습니다.
 
 ## 참여 방법
 

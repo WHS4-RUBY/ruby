@@ -7,8 +7,10 @@ const path = require("node:path");
 const {
   DEFAULT_CONFIG_PATH,
   applyDefensePlan,
+  applyDefenseRule,
   clampScore,
   loadPolicyRules,
+  selectRule,
   selectStrategies,
 } = require("../lib/policyEngine");
 
@@ -66,6 +68,7 @@ test("loadPolicyRules는 policy.json의 모든 규칙을 순서대로 로드한�
   rules.forEach((rule, i) => {
     assert.equal(rule.minScore, rawRules[i].min_score, `rule ${i} minScore`);
     assert.equal(rule.maxScore, rawRules[i].max_score, `rule ${i} maxScore`);
+    assert.equal(rule.tier, rawRules[i].tier || null, `rule ${i} tier`);
     assert.equal(rule.minConfirmedAttackScore, rawRules[i].min_confirmed_attack_score || 0);
     assert.equal(rule.maxConfirmedAttackScore, rawRules[i].max_confirmed_attack_score || 1.01);
     assert.deepEqual(rule.strategies, rawRules[i].strategies, `rule ${i} strategies`);
@@ -158,18 +161,42 @@ test("확정 공격 점수 구간과 각 위험 점수 하한이 함께 전략�
   const names = (riskScore, confirmedAttackScore = 0) => selectStrategies(
     riskScore, rules, { confirmedAttackScore }
   ).map((step) => step.name);
+  const tier = (riskScore, confirmedAttackScore = 0) =>
+    selectRule(riskScore, rules, { confirmedAttackScore })?.tier ?? null;
 
-  assert.deepEqual(names(1, 0.499999), []);
+  assert.deepEqual(names(0.799999, 0), []);
+  assert.deepEqual(names(0.8, 0), ["decoy_maze"]);
+  assert.equal(tier(0.8, 0), "suspected");
+  assert.deepEqual(names(1, 0.499999), ["decoy_maze"]);
   assert.deepEqual(names(0.499999, 0.5), []);
   assert.deepEqual(names(0.5, 0.5), ["account_overlay_medium"]);
+  assert.equal(tier(0.5, 0.5), "confirmed");
   assert.deepEqual(names(1, 0.799999), ["account_overlay_medium"]);
   assert.deepEqual(names(0.799999, 0.8), []);
   assert.deepEqual(names(0.8, 0.8), ["rate_limit_strict", "decoy_maze"]);
+  assert.equal(tier(0.8, 0.8), "confirmed");
   assert.deepEqual(names(1, 0.949999), ["rate_limit_strict", "decoy_maze"]);
   assert.deepEqual(names(0.949999, 0.95), []);
   assert.deepEqual(names(0.95, 0.95), ["rate_limit_strict", "account_overlay_high"]);
   assert.deepEqual(names(1, 1), ["rate_limit_strict", "account_overlay_high"]);
-  assert.deepEqual(names(1, 0), []);
+  assert.equal(tier(1, 1), "confirmed");
+  assert.equal(tier(0.5), null);
+});
+
+test("단계 이름을 내부 헤더로 전달하고 외부에서 넣은 값은 지운다", () => {
+  const suspected = createProxyReq({ "x-ruby-defense-tier": "confirmed" });
+  assert.equal(applyDefenseRule(suspected, { riskScore: 0.9, rules }).tier, "suspected");
+  assert.equal(suspected.headers.get("x-ruby-defense-tier"), "suspected");
+
+  const confirmed = createProxyReq({ "x-ruby-defense-tier": "suspected" });
+  assert.equal(applyDefenseRule(confirmed, {
+    riskScore: 0.95, confirmedAttackScore: 0.95, rules,
+  }).tier, "confirmed");
+  assert.equal(confirmed.headers.get("x-ruby-defense-tier"), "confirmed");
+
+  const none = createProxyReq({ "x-ruby-defense-tier": "confirmed" });
+  assert.deepEqual(applyDefenseRule(none, { riskScore: 0.1, rules }), { plan: [], tier: null });
+  assert.equal(none.headers.has("x-ruby-defense-tier"), false);
 });
 
 test("확정된 0.8 이상 0.95 미만 플랜은 요청 제한과 미끼만 전달한다", () => {
@@ -227,6 +254,15 @@ test("min_score가 max_score보다 크면 로드에 실패한다", () => {
     { defense: { rules: [{ min_score: 0.8, max_score: 0.2, strategies: [] }] } },
     (file) => {
       assert.throws(() => loadPolicyRules(file), /invalid score range/);
+    }
+  );
+});
+
+test("단계 이름이 짧은 식별자가 아니면 로드에 실패한다", () => {
+  withTempConfig(
+    { defense: { rules: [{ tier: "bad tier\r\n", min_score: 0, max_score: 1, strategies: [] }] } },
+    (file) => {
+      assert.throws(() => loadPolicyRules(file), /invalid tier name/);
     }
   );
 });
