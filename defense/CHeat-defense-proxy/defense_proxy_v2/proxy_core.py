@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 import uuid
@@ -27,11 +28,38 @@ _HOP_BY_HOP = {
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
     "te", "trailers", "transfer-encoding", "upgrade",
 }
+# These headers belong to the trusted Detection/Defense chain.  The sidecar
+# consumes them, but the vulnerable benchmark target must never receive them.
+_INTERNAL_REQUEST_HEADERS = {
+    "x-client-id",
+    os.environ.get("CLIENT_ID_HEADER", "X-Client-Id").strip().lower(),
+    os.environ.get("DEFENSE_PLAN_HEADER", "X-Defense-Plan").strip().lower(),
+    "forwarded", "x-forwarded-for",
+}
+_SIDECAR_RESPONSE_HEADERS = {"x-ruby-decoy-action", "x-ruby-decoy-strategies"}
+
+
+def _is_internal_request_header(name: str) -> bool:
+    name = name.lower()
+    return (name in _INTERNAL_REQUEST_HEADERS or name.startswith("x-ruby-")
+            or name.startswith("x-defense-"))
+
+
+def _trusted_public_origin_header(name: str, value: str) -> bool:
+    """Keep official Defense's public origin, but reject malformed values."""
+    if name == "x-forwarded-proto":
+        return value in {"http", "https"}
+    if name == "x-forwarded-host":
+        return bool(re.fullmatch(
+            r"(?:[A-Za-z0-9._~-]+|\[[0-9A-Fa-f:.]+\])(?::[0-9]{1,5})?", value
+        )) and len(value) <= 255
+    return True
+
 # 클라이언트로 되돌려줄 때 제외할 응답 헤더.
 #  - content-length   : 본문 길이는 Starlette가 재계산(훅이 본문을 늘릴 수 있음)
 #  - content-encoding : accept-encoding: identity로 요청하므로 항상 비압축본
 # server/Set-Cookie/Location/보안 헤더 등은 전부 보존한다.
-_RESPONSE_SKIP = _HOP_BY_HOP | {"content-length", "content-encoding"}
+_RESPONSE_SKIP = _HOP_BY_HOP | {"content-length", "content-encoding"} | _SIDECAR_RESPONSE_HEADERS
 # 백엔드로 넘길 때 제외할 요청 헤더. host/content-length는 httpx가 다시 채운다.
 _REQUEST_SKIP = _HOP_BY_HOP | {"host", "content-length", "accept-encoding"}
 
@@ -118,7 +146,7 @@ def create_app(
     *,
     backend: Optional[str] = None,
     title: str = "proxy-core",
-    timeout: float = 15.0,
+    timeout: Optional[float] = None,
     before_catchall: Optional[Callable[[FastAPI], None]] = None,
 ) -> FastAPI:
     """훅 리스트를 받아 프록시 FastAPI 앱을 만든다.
@@ -130,8 +158,14 @@ def create_app(
     """
     hook_list = list(hooks or [])
     backend_url = (backend or os.environ.get("REAL_BACKEND", "http://127.0.0.1:3000")).rstrip("/")
+    if timeout is None:
+        timeout = float(os.environ.get("BACKEND_TIMEOUT_S", "30"))
+    if timeout <= 0:
+        raise ValueError("BACKEND_TIMEOUT_S must be positive")
 
-    app = FastAPI(title=title)
+    # The sidecar is not an operator UI.  Let /docs and /openapi.json reach the
+    # selected benchmark target instead of exposing a proxy-generated schema.
+    app = FastAPI(title=title, docs_url=None, redoc_url=None, openapi_url=None)
 
     # 전용 라우트를 캐치올보다 먼저 등록 — Starlette 는 등록 순서대로 매칭한다.
     if before_catchall is not None:
@@ -141,10 +175,10 @@ def create_app(
     async def _proxy(request: Request, full_path: str) -> Response:
         forward_headers: dict[str, str] = {}
         for key, value in request.headers.items():
-            if key.lower() in _REQUEST_SKIP:
+            if key.lower() in _REQUEST_SKIP or _is_internal_request_header(key):
                 continue
             value = value.strip()
-            if value:
+            if value and _trusted_public_origin_header(key.lower(), value):
                 forward_headers[key] = value
         forward_headers["accept-encoding"] = "identity"
 
@@ -169,6 +203,13 @@ def create_app(
         # 2. 백엔드로 전달 (단축되지 않았을 때만)
         if not ctx.short_circuited:
             try:
+                # Hooks may add headers after the initial copy.  Enforce the
+                # trust boundary again at the actual upstream call.
+                ctx.forward_headers = {
+                    key: value for key, value in ctx.forward_headers.items()
+                    if not _is_internal_request_header(key)
+                    and _trusted_public_origin_header(key.lower(), value)
+                }
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     upstream = await client.request(
                         method=ctx.method,

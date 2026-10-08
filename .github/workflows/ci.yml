@@ -63,9 +63,28 @@ jobs:
       - name: Test ${{ matrix.service }}
         run: python -m unittest discover -s ${{ matrix.service }}/tests -p 'test_*.py'
 
+  decoy-check:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install decoy sidecar dependencies
+        run: pip install -r defense/CHeat-defense-proxy/defense_proxy_v2/requirements.txt
+
+      - name: Test decoy sidecar
+        working-directory: defense/CHeat-defense-proxy/defense_proxy_v2/tests
+        run: python run_all.py
+
+      - name: Build decoy sidecar image
+        run: docker build -t decoy-sidecar:ci defense/CHeat-defense-proxy/defense_proxy_v2
+
   integration-check:
     runs-on: ubuntu-26.04
-    needs: [detection-check, python-check]
+    needs: [detection-check, python-check, decoy-check]
     env:
       DETECTION_DASHBOARD_PASSWORD: integration-password
       DEFENSE_DASHBOARD_PASSWORD: integration-password
@@ -129,6 +148,30 @@ jobs:
           curl --fail --silent --show-error -b defense.cookies \
             http://127.0.0.1:18088/__defense/api/requests \
             | python3 -c 'import json,sys; assert any(item["targetId"] == "alternate" and item["runId"] for item in json.load(sys.stdin)["requests"])'
+
+      - name: Verify a planned decoy reaches the selected sidecar
+        run: |
+          set -Eeuo pipefail
+          docker compose -f docker-compose.local.yml exec -T detection node - <<'JS'
+          (async () => {
+            const response = await fetch('http://defense:8080/internal/ops/runbook', {
+              headers: {
+                'X-Client-Id': 'integration-decoy-client',
+                'X-Defense-Plan': JSON.stringify([{ name: 'decoy_maze', params: {} }]),
+                'X-Ruby-Request-Id': 'integration-decoy-request',
+              },
+            });
+            const body = await response.text();
+            if (response.status !== 200 || !body ||
+                !response.headers.get('x-defense-applied')?.includes('decoy_maze') ||
+                response.headers.has('x-ruby-decoy-action')) {
+              throw new Error(`decoy response ${response.status}: ${body.slice(0, 160)}`);
+            }
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          JS
+          curl --fail --silent --show-error -b defense.cookies \
+            http://127.0.0.1:18088/__defense/api/requests \
+            | python3 -c 'import json,sys; assert any(item["path"] == "/internal/ops/runbook" and item["targetId"] == "alternate" and item["runId"] and item["decoyAction"].startswith("maze") and "decoy_maze" in item["strategies"] for item in json.load(sys.stdin)["requests"])'
 
       - name: Show service logs on failure
         if: failure()

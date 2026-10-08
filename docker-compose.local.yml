@@ -85,6 +85,7 @@ services:
       TARGET_CHOICES: ${TARGET_CHOICES:-}
       TARGET_DEFAULT_ID: ${TARGET_DEFAULT_ID:-legacy}
       TARGET_SELECTION_FILE: /app/target-data/target-selection.json
+      DECOY_UPSTREAM_CHOICES: legacy=http://cheat-legacy:3012,alternate=http://cheat-alternate:3012
       DEFENSE_DASHBOARD_PASSWORD: ${DEFENSE_DASHBOARD_PASSWORD:-}
       DEFENSE_DASHBOARD_COOKIE_SECURE: ${DEFENSE_DASHBOARD_COOKIE_SECURE:-false}
       DEFENSE_DASHBOARD_REQUIRE_HTTPS: "false"
@@ -95,9 +96,54 @@ services:
     volumes:
       - ./defense/app:/app/app
       - detection-data:/app/target-data:ro
+    depends_on:
+      cheat-legacy:
+        condition: service_healthy
+      cheat-alternate:
+        condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload --no-proxy-headers
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ai-defense-net
+
+  cheat-legacy:
+    build: ./defense/CHeat-defense-proxy/defense_proxy_v2
+    environment:
+      REAL_BACKEND: http://host.docker.internal:${TARGET_PORT:-3000}
+      TARGET_PRESET: apache-php
+      DEFENSE_MODE: "off"
+      DECOY_REQUIRE_PLAN: "1"
+      CLIENT_ID_FALLBACK: ip
+      DEFENSE_DB: /tmp/defense.db
+      UVICORN_PROXY_HEADERS: "0"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 3012), 2); s.close()"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ai-defense-net
+
+  cheat-alternate:
+    build: ./defense/CHeat-defense-proxy/defense_proxy_v2
+    environment:
+      REAL_BACKEND: http://host.docker.internal:${TARGET_PORT:-3000}
+      TARGET_PRESET: apache-php
+      DEFENSE_MODE: "off"
+      DECOY_REQUIRE_PLAN: "1"
+      CLIENT_ID_FALLBACK: ip
+      DEFENSE_DB: /tmp/defense.db
+      UVICORN_PROXY_HEADERS: "0"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 3012), 2); s.close()"]
       interval: 2s
       timeout: 3s
       retries: 15

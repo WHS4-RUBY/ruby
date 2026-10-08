@@ -172,6 +172,7 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.ok(last.attackScore >= 0.8);
   assert.ok(last.riskScore >= 0.8);
   assert.ok(last.plan.some((step) => step.name === "rate_limit_strict"));
+  assert.ok(last.plan.some((step) => step.name === "decoy_maze"));
   assert.ok(seen.every((item) => item.forwardedFor === undefined));
   assert.ok(seen.every((item) => item.forwardedProto === "https"));
 
@@ -181,7 +182,7 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   });
   assert.equal(anonymousUpgrade.status, 101);
   const anonymousPolicy = seenUpgrades.at(-1);
-  assert.deepEqual(anonymousPolicy.plan, [], "cookie-less upgrade must not inherit attack delay or rate limit");
+  assert.deepEqual(anonymousPolicy.plan, [], "cookie-less upgrade must not inherit attack rate limit or decoy");
   assert.equal(anonymousPolicy.attackScore, 0);
   assert.equal(anonymousPolicy.riskScore, 0);
   assert.match(anonymousPolicy.clientId, /^websocket:/);
@@ -203,7 +204,8 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.ok(signedPolicy.attackScore >= 0.8);
   assert.ok(signedPolicy.riskScore >= 0.8);
   assert.ok(signedPolicy.plan.some((step) => step.name === "rate_limit_strict"));
-  assert.ok(signedPolicy.plan.some((step) => step.name === "delay"));
+  assert.ok(!signedPolicy.plan.some((step) => step.name === "delay"));
+  assert.ok(signedPolicy.plan.some((step) => step.name === "decoy_maze"));
   assert.notEqual(signedPolicy.requestId, last.requestId);
   assert.ok(seenUpgrades.every((item) => item.forwardedFor === undefined));
 

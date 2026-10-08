@@ -92,6 +92,7 @@ services:
       - TARGET_CHOICES=${TARGET_CHOICES:-}
       - TARGET_DEFAULT_ID=${TARGET_DEFAULT_ID:-legacy}
       - TARGET_SELECTION_FILE=/app/target-data/target-selection.json
+      - DECOY_UPSTREAM_CHOICES=juice-shop=http://cheat-juice:3012,ruby-shop=http://cheat-ruby:3012
       - DEFENSE_DASHBOARD_PASSWORD=${DEFENSE_DASHBOARD_PASSWORD:?Set DEFENSE_DASHBOARD_PASSWORD}
       - ALLOW_INSECURE_DASHBOARD_HTTP=${ALLOW_INSECURE_DASHBOARD_HTTP:-false}
       - DEFENSE_DASHBOARD_COOKIE_SECURE=${DEFENSE_DASHBOARD_COOKIE_SECURE:?Set DEFENSE_DASHBOARD_COOKIE_SECURE}
@@ -107,11 +108,61 @@ services:
       retries: 5
     volumes:
       - detection-data:/app/target-data:ro
+    depends_on:
+      cheat-juice:
+        condition: service_healthy
+      cheat-ruby:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - ai-defense-net
 
+  cheat-juice:
+    image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/decoy-sidecar:${IMAGE_TAG:-latest}
+    environment:
+      - REAL_BACKEND=http://juice-shop-target:3000
+      - TARGET_PRESET=apache-php
+      - DEFENSE_MODE=off
+      - DECOY_REQUIRE_PLAN=1
+      - CLIENT_ID_FALLBACK=ip
+      - DEFENSE_DB=/data/defense.db
+      - UVICORN_PROXY_HEADERS=0
+    volumes:
+      - cheat-juice-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 3012), 2); s.close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ai-defense-net
+
+  cheat-ruby:
+    image: ${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/decoy-sidecar:${IMAGE_TAG:-latest}
+    environment:
+      - REAL_BACKEND=http://ruby-web-target:8080
+      - TARGET_PRESET=nginx-fastapi
+      - DEFENSE_MODE=off
+      - DECOY_REQUIRE_PLAN=1
+      - CLIENT_ID_FALLBACK=ip
+      - DEFENSE_DB=/data/defense.db
+      - UVICORN_PROXY_HEADERS=0
+      - MAZE_EXCLUDE=^/admin(/|$)
+    volumes:
+      - cheat-ruby-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 3012), 2); s.close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ai-defense-net
+
 volumes:
   detection-data:
+  cheat-juice-data:
+  cheat-ruby-data:

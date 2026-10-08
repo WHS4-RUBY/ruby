@@ -25,7 +25,7 @@ RUBY/
 
 ### `detection/`
 
-요청의 특징을 추출해 Automation/Attack 점수를 계산하고 `X-Risk-Score`로 변환합니다.
+요청의 특징을 추출해 Automation/Attack 점수를 계산하고 `X-Ruby-Risk-Score`로 전달합니다.
 ModSecurity/OWASP CRS, 행동 기반 휴리스틱, Honey/Deception 신호와 실시간 대시보드를 포함합니다.
 위험도 점수를 정책에 따라 해석하고 Defense에서 적용할 대응 전략을 선택합니다.
 
@@ -58,6 +58,10 @@ docker compose up -d
 
 보호할 대상을 바꾸려면 사용자 컴퓨터에서 `ssh -L 8088:127.0.0.1:8088 USER@SERVER`를 열고 `http://127.0.0.1:8088/__detection/dashboard`의 **실험 대상**에서 선택합니다. 전환할 때 실행 ID가 새로 발급되며, 이후 `PUBLIC_TARGET_ORIGIN`의 포트 80으로 보낸 요청에 대상 ID와 실행 ID가 기록됩니다. 방어 화면은 같은 관리 주소의 `/__defense/dashboard`입니다. 대시보드의 전체 요약은 보관된 여러 실행을 함께 집계하므로 개별 요청 상세의 ID로 구분합니다.
 
+기만 방어 경로는 `Detection → 공식 Defense → 대상별 CHeaT sidecar → 벤치마크 대상`입니다. 운영 Compose는 Juice Shop과 RUBY Shop용 sidecar를 각각 내부 Docker 네트워크에만 띄우며, 공개 포트는 추가하지 않습니다. Defense는 관리 화면에서 선택한 대상 ID로 sidecar를 고르고, WebSocket은 기존 대상에 직접 연결합니다. 탐지가 이전 요청들에서 위험도와 확정 공격 점수를 모두 0.8 이상으로 계산한 경우에만 `rate_limit_strict`와 공통 `decoy_maze` 계획을 전달합니다. 고위험 이력이 없는 클라이언트에는 방어 계획이 없고, 프로필에 종속된 `decoy_t21_shell`·`decoy_migration`은 현재 공통 운영 정책에서 자동 선택하지 않습니다. 위험 점수에 따른 일괄 지연은 선택하지 않지만, 미끼에 접촉한 클라이언트에는 CHeaT의 미로·적응형 지연이 적용될 수 있습니다. 방어 대시보드의 요청 상세에 실제 sidecar 동작과 전략이 기록됩니다. 실행 ID가 바뀌면 sidecar의 클라이언트별 기만 상태도 분리됩니다.
+
+이 경로를 사용하려면 `TARGET_CHOICES`에 `juice-shop`과 `ruby-shop` ID가 각각 `juice-shop-target:3000`, `ruby-web-target:8080`으로 등록되어 있어야 합니다. 다른 대상 ID에는 sidecar를 적용하지 않고 기존 Defense 경로를 사용합니다. `main` 병합 뒤 CI가 성공하면 배포 workflow가 세 이미지를 SHA 태그로 배포합니다. 새 Compose와 이미지로 띄운 뒤 smoke test가 실패하면 이전 Compose와 이미지 태그로 되돌립니다.
+
 ## 로컬 테스트
 
 Docker Desktop을 실행한 뒤, 아래 명령으로 로컬 소스를 빌드해 전체 요청 경로를 띄웁니다. 배포용 `docker-compose.yml`과 달리 레지스트리 설정이나 `.env` 파일이 필요 없습니다.
@@ -66,7 +70,7 @@ Docker Desktop을 실행한 뒤, 아래 명령으로 로컬 소스를 빌드해 
 docker compose -f docker-compose.local.yml up --build
 ```
 
-먼저 보호할 애플리케이션을 이 호스트의 포트에서 실행합니다. 기본 포트는 `3000`이며 `.env`나 셸의 `TARGET_PORT`로 바꿀 수 있습니다. 예를 들어 Juice Shop은 `docker run -d -p 3000:3000 bkimminich/juice-shop`으로 띄울 수 있습니다. 브라우저에서 `http://localhost:8081`로 접속하거나, 다음처럼 Detection → Defense → Target의 전체 경로를 확인합니다.
+먼저 보호할 애플리케이션을 이 호스트의 포트에서 실행합니다. 기본 포트는 `3000`이며 `.env`나 셸의 `TARGET_PORT`로 바꿀 수 있습니다. 예를 들어 Juice Shop은 `docker run -d -p 3000:3000 bkimminich/juice-shop`으로 띄울 수 있습니다. 로컬 Compose는 이 대상 앞에 두 개의 비공개 테스트 sidecar를 띄웁니다. 브라우저에서 `http://localhost:8081`로 접속하거나, 다음처럼 Detection → Defense → sidecar → Target의 전체 경로를 확인합니다.
 
 ```bash
 curl http://localhost:8081/healthz

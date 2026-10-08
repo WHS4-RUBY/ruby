@@ -1,0 +1,8 @@
+*
+!Dockerfile
+!requirements.txt
+!Defense_proxy.py
+!proxy_core.py
+!transforms.py
+!profiles.py
+!preflight.py
