@@ -265,7 +265,12 @@
       delay:'지연 적용', rate_limit_strict:'엄격 속도 제한',
       maze:'미로', decoy_maze:'미로 + 적응형',
       decoy_t21_shell:'T2.1 + 가짜 셸', decoy_migration:'마이그레이션 미끼',
+      account_overlay_medium:'계정 응답 오버레이', account_overlay_high:'고위험 계정 격리',
       none:'적용 없음'
+    });
+    const DEFENSE_ACTIONS = Object.freeze({
+      'account-overlay-medium':'계정 응답 오버레이',
+      'account-overlay-high':'원본 접근 격리',
     });
     const POLICY_SOURCES = Object.freeze({
       none:'이전 탐지 기록 없음', session:'방문 세션', 'provisional-client-observation':'미확인 클라이언트 관찰',
@@ -500,15 +505,15 @@
             <span class="request-id-line"><code class="mono">${escapeHtml(requestId || '—')}</code>
               ${requestId ? `<button type="button" class="copy-button" data-request-id="${escapeHtml(requestId)}" aria-label="요청 ID 복사">복사</button>` : ''}</span>
           </div>
-          <div class="request-field"><span class="field-label">정책 점수(0~100) · 자동화 / 공격 / 위험</span>
-            <span class="mono">${formatScore(event.automationScore)} / ${formatScore(event.attackScore)} / ${formatScore(event.riskScore)}</span>
+          <div class="request-field"><span class="field-label">정책 점수(0~100) · 자동화 / 공격 / 확정 공격 / 위험</span>
+            <span class="mono">${formatScore(event.automationScore)} / ${formatScore(event.attackScore)} / ${formatScore(event.confirmedAttackScore)} / ${formatScore(event.riskScore)}</span>
           </div>
           <div class="request-field"><span class="field-label">점수 출처</span><span>${escapeHtml(displayName(event.policySource, POLICY_SOURCES))}</span></div>
           <div class="request-field"><span class="field-label">요청 당시 보호 대상</span><span class="mono">${escapeHtml(event.targetId || '대상 미기록')}</span></div>
           <div class="request-field"><span class="field-label">실험 실행 ID</span><span class="mono">${escapeHtml(event.runId || '—')}</span></div>
           <div class="request-field"><span class="field-label">적용 전략</span>${strategies}</div>
           <div class="request-field"><span class="field-label">방어 신호</span><span>${escapeHtml(displayName(event.defenseSignal || 'none', DEFENSE_SIGNALS))}</span></div>
-          ${event.decoyAction ? `<div class="request-field"><span class="field-label">미끼 동작</span><span class="mono">${escapeHtml(event.decoyAction)}</span></div>` : ''}
+          ${event.decoyAction ? `<div class="request-field"><span class="field-label">방어 동작</span><span class="mono">${escapeHtml(displayName(event.decoyAction, DEFENSE_ACTIONS))}</span></div>` : ''}
           <div class="request-field"><span class="field-label">처리 시간</span><span class="mono">${durationText}</span></div>
         </div>
       </article>`;

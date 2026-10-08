@@ -2,9 +2,28 @@
   "defense": {
     "rules": [
       {
+        "min_score": 0.95,
+        "max_score": 1.01,
+        "min_confirmed_attack_score": 0.95,
+        "max_confirmed_attack_score": 1.01,
+        "strategies": [
+          {
+            "name": "rate_limit_strict",
+            "params": {
+              "max_rps": 1
+            }
+          },
+          {
+            "name": "account_overlay_high",
+            "params": {}
+          }
+        ]
+      },
+      {
         "min_score": 0.8,
         "max_score": 1.01,
         "min_confirmed_attack_score": 0.8,
+        "max_confirmed_attack_score": 0.95,
         "strategies": [
           {
             "name": "rate_limit_strict",
@@ -14,6 +33,18 @@
           },
           {
             "name": "decoy_maze",
+            "params": {}
+          }
+        ]
+      },
+      {
+        "min_score": 0.5,
+        "max_score": 1.01,
+        "min_confirmed_attack_score": 0.5,
+        "max_confirmed_attack_score": 0.8,
+        "strategies": [
+          {
+            "name": "account_overlay_medium",
             "params": {}
           }
         ]

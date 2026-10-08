@@ -48,3 +48,11 @@ OVERLAY_CONFIG=config/overlay-v2.toml OVERLAY_ORIGIN_URL=http://127.0.0.1:3000 \
 ```
 
 V1은 `OVERLAY_CONFIG=config/overlay-v1.toml`을 사용한다. 상태와 키는 `state/`에 두며 배포 ZIP에는 포함하지 않는다. 테스트는 `.venv/bin/python -m pytest -q`와 `node --test tests/test_lure_ui.cjs`다. 실제 Juice Shop 로컬 실험은 [LIVE_LAB.md](LIVE_LAB.md), 탐지팀 연결 계약은 [INTEGRATION.md](INTEGRATION.md), 이번 검증 결과는 [VALIDATION.md](VALIDATION.md)에 있다.
+
+## 현재 포트 80 운영 경로용 설정
+
+탐지·방어 프록시가 공개 `:80`에서 요청을 처리하고 오버레이는 Docker 사설 네트워크에서만 듣는다. 대상별 V2 설정은 `config/overlay-production-juice-v2.toml`과 `config/overlay-production-ruby-v2.toml`이다. 각각 고정 원본 `juice-shop-target:3000`, `ruby-web-target:8080`을 사용하며, 현재 HTTP 진입점에서 가짜 세션 쿠키가 동작하도록 `secure_cookie=false`인 전용 decoy 설정을 참조한다. 기존 `overlay-server-v2.toml`은 TLS 진입점용 `Secure` 쿠키 예시로 남겨둔다. 운영 설정의 감사 DB는 쓰기 가능한 `/app/state/events.sqlite3`에 둔다.
+
+각 오버레이 컨테이너에는 별도의 영속 `/app/state` 볼륨과 동일한 `OVERLAY_DETECTOR_KEY`(64자리 hex 문자열)를 제공한다. 부트스트랩은 이 문자열의 UTF-8 바이트를 `detector.key`에 처음 저장하고 보안 DB와 세션 키를 만든다. 재시작 때 공급한 키가 저장된 키와 다르거나 detector key·보안 DB 중 하나가 사라졌으면 시작을 거부한다. 가짜 세션 키만 없으면 기존 가짜 세션을 무효화하고 새 키를 만든다. 이전 독립 배포처럼 detector key·DB를 이미 준비한 경우에는 환경변수 없이도 해당 상태를 검증해 사용할 수 있다. Defense의 서명 키도 정확히 같은 바이트여야 한다. 공개 관리 경로나 무서명 `/healthz` 예외를 만들지 않았으므로 컨테이너 준비 검사는 사설 포트의 TCP 연결로 한다.
+
+RUBY Shop은 `POST /api/auth/login`으로 토큰을 발급하고 이후 `Authorization: Bearer` 또는 `ruby_session` 쿠키로 인증한다. 중위험 오버레이는 실제 로그인 POST를 가짜 401 복구 안내로 바꾸며, 원본으로 보내는 다른 요청에서는 Bearer와 `ruby_session`·`ruby_remember` 쿠키를 제거한다. 따라서 분류된 Agent의 `/api/me` 같은 인증 API는 원본에서 401이 될 수 있다. V2 미끼 세션은 원본 RUBY 인증 토큰이 아니며, V1의 Juice Shop 형식 가짜 로그인 성공 응답은 RUBY 운영 설정에 사용하지 않는다. 일반 사용자는 분류되지 않으면 이 오버레이를 거치지 않는다.

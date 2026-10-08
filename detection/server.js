@@ -1356,6 +1356,7 @@ function forwardPolicyDecision(proxyReq, req) {
   proxyReq.setHeader("X-Ruby-Request-Id", req.rubyRequestId);
   proxyReq.setHeader("X-Ruby-Automation-Score", String(req.rubyPolicyDecision.automationScore));
   proxyReq.setHeader("X-Ruby-Attack-Score", String(req.rubyPolicyDecision.attackScore));
+  proxyReq.setHeader("X-Ruby-Confirmed-Attack-Score", String(req.rubyPolicyDecision.confirmedAttackScore));
   proxyReq.setHeader("X-Ruby-Risk-Score", String(req.rubyPolicyDecision.riskScore));
   proxyReq.setHeader("X-Ruby-Policy-Source", req.rubyPolicyDecision.source);
   proxyReq.setHeader("X-Ruby-Target-Id", req.activeTarget.targetId);
@@ -1387,7 +1388,7 @@ const detectionHook = {
   onRequest({ proxyReq, req }) {
     prepareRequestObservation(req);
     // RUBY Policy 계약: 외부 입력을 제거하고, 완료된 탐지 이력에서 계산한
-    // 0~1 risk score와 가명 client id만 내부 헤더로 전달한다.
+    // 0~1 정책 점수와 확정 공격 점수, 가명 client id를 내부 헤더로 전달한다.
     forwardPolicyDecision(proxyReq, req);
     // Ground truth용 헤더는 탐지 프록시에서 소비하고 RUBY Policy에는 전달하지 않는다.
     proxyReq.removeHeader(EXPERIMENT_RUN_HEADER);
