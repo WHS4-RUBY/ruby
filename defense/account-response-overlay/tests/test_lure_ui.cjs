@@ -72,7 +72,7 @@ class Element {
   }
 }
 
-function createContext({ login = false, initialContext = '', config = defaultConfig } = {}) {
+function createContext({ login = false, recoveryAnchor = true, initialContext = '', config = defaultConfig } = {}) {
   const body = new Element('body')
   const nav = new Element('mat-nav-list')
   body.append(nav)
@@ -80,9 +80,11 @@ function createContext({ login = false, initialContext = '', config = defaultCon
   if (login) {
     form = new Element('form')
     form.id = 'login-form'
-    const forgot = new Element('a')
-    forgot.href = config.recoveryAnchorSelector.slice(8, -2)
-    form.append(forgot)
+    if (recoveryAnchor) {
+      const forgot = new Element('a')
+      forgot.href = config.recoveryAnchorSelector.slice(8, -2)
+      form.append(forgot)
+    }
     body.append(form)
   }
   const document = {
@@ -193,6 +195,21 @@ test('a different site profile changes login path and DOM selectors without chan
     recoveryAnchorSelector: 'a[href="/forgot-password"]', menuSelector: 'nav.main' }
   const state = createContext({ login: true, config })
   assert.equal(state.document.getElementById('defense-login-help').href, '/ops/recovery/accounts')
+  state.responses.push({ status: 401, headers: {} })
+  const request = new state.context.XMLHttpRequest()
+  request.open('POST', '/api/auth/login')
+  request.send()
+  assert.equal(state.document.getElementById('defense-context-lure').parentElement, state.form)
+})
+
+test('RUBY login form without a recovery anchor still offers the signed-Agent lure', () => {
+  const config = { loginPaths: ['/api/auth/login'],
+    loginFormSelector: '.masthead .session form.inline',
+    recoveryAnchorSelector: "a[href='#/account']", menuSelector: 'nav.primary' }
+  const state = createContext({ login: true, recoveryAnchor: false, config })
+  const help = state.document.getElementById('defense-login-help')
+  assert.equal(help.href, '/ops/recovery/accounts')
+  assert.equal(help.parentElement, state.form)
   state.responses.push({ status: 401, headers: {} })
   const request = new state.context.XMLHttpRequest()
   request.open('POST', '/api/auth/login')

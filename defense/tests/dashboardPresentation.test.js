@@ -229,6 +229,21 @@ test("WebSocket 업그레이드와 연결 결과를 HTTP 응답으로 표시하�
   assert.match(ui.renderRequestRow({ method: "GET", status: 502, outcome: "error" }, { expanded: true }), /HTTP 502/);
 });
 
+test("확정 공격 점수와 오버레이 라우팅 결과를 요청 상세에 표시한다", () => {
+  const ui = loadDashboard();
+  const card = ui.renderRequestRow({
+    method: "GET", path: "/api/orders", status: 404, outcome: "blocked",
+    automationScore: 0.31, attackScore: 0.96, confirmedAttackScore: 0.95,
+    riskScore: 0.96, defenseTier: "confirmed", strategies: ["account_overlay_high"],
+    decoyAction: "account-overlay-high",
+  }, { expanded: true });
+  assert.match(card, /확정 공격/);
+  assert.match(card, /자동화 31 · 공격 96 · 확정 공격 95 · 위험 96/);
+  assert.match(card, /확정 공격 근거 \(confirmed\)/);
+  assert.match(card, /고위험 계정 격리/);
+  assert.match(card, /원본 접근 격리/);
+});
+
 test("정책 점수를 올림 표시해 방어 경계값을 잘못 암시하지 않는다", () => {
   const ui = loadDashboard();
   assert.equal(ui.formatScore(0.796), "79.6");

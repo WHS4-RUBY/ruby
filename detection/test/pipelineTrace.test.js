@@ -2,6 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
 const crypto = require("node:crypto");
+const fs = require("node:fs");
+const os = require("node:os");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 
@@ -44,7 +46,15 @@ function upgrade(port, route, headers = {}) {
   });
 }
 
+function expectedStrictStrategies(confirmedAttackScore) {
+  return confirmedAttackScore >= 0.95
+    ? ["rate_limit_strict", "account_overlay_high"]
+    : ["rate_limit_strict", "decoy_maze"];
+}
+
 test("HTTP request trace and signed versus unsigned WebSocket upgrade policies", { timeout: 20000 }, async (t) => {
+  const selectionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "ruby-pipeline-run-"));
+  t.after(() => fs.rmSync(selectionDirectory, { recursive: true, force: true }));
   const seen = [];
   const seenUpgrades = [];
   const upgradeSockets = new Set();
@@ -65,7 +75,10 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
         forwardedFor: req.headers["x-forwarded-for"],
         forwardedProto: req.headers["x-forwarded-proto"],
         attackScore: Number(req.headers["x-ruby-attack-score"]),
+        confirmedAttackScore: Number(req.headers["x-ruby-confirmed-attack-score"]),
         riskScore: Number(req.headers["x-ruby-risk-score"]),
+        forgedDefenseControl: req.headers["x-defense-overlay-level"],
+        forgedRubyControl: req.headers["x-ruby-unknown-control"],
         source: req.headers["x-ruby-policy-source"], plan, clientId, blocked,
         tier: req.headers["x-ruby-defense-tier"],
         candidateId: req.headers["x-ruby-candidate-id"],
@@ -94,7 +107,10 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
       requestId: req.headers["x-ruby-request-id"],
       forwardedFor: req.headers["x-forwarded-for"],
       attackScore: Number(req.headers["x-ruby-attack-score"]),
+      confirmedAttackScore: Number(req.headers["x-ruby-confirmed-attack-score"]),
       riskScore: Number(req.headers["x-ruby-risk-score"]),
+      forgedDefenseControl: req.headers["x-defense-overlay-level"],
+      forgedRubyControl: req.headers["x-ruby-unknown-control"],
       source: req.headers["x-ruby-policy-source"],
       plan: JSON.parse(req.headers["x-defense-plan"] || "[]"),
       clientId: req.headers["x-client-id"],
@@ -120,6 +136,9 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
     cwd: path.join(__dirname, ".."),
     env: { ...process.env, NODE_ENV: "test", PORT: String(detectionPort),
       TARGET_URL: `http://127.0.0.1:${defenseStub.address().port}`,
+      TARGET_CHOICES: `legacy=http://127.0.0.1:${defenseStub.address().port},alternate=http://127.0.0.1:${defenseStub.address().port}`,
+      TARGET_DEFAULT_ID: "legacy",
+      TARGET_SELECTION_FILE: path.join(selectionDirectory, "selection.json"),
       CRS_ENABLED: "false", DECEPTION_ENABLED: "false",
       TRUST_PROXY: "true",
       DETECTION_DASHBOARD_PASSWORD: dashboardPassword,
@@ -173,9 +192,10 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.equal(last.blocked, true);
   assert.equal(last.requestId, blockedResponse.headers["x-ruby-request-id"]);
   assert.ok(last.attackScore >= 0.8);
+  assert.ok(last.confirmedAttackScore >= 0.8);
   assert.ok(last.riskScore >= 0.8);
-  assert.ok(last.plan.some((step) => step.name === "rate_limit_strict"));
-  assert.ok(last.plan.some((step) => step.name === "decoy_maze"));
+  assert.deepEqual(last.plan.map((step) => step.name),
+    expectedStrictStrategies(last.confirmedAttackScore));
   assert.ok(seen.every((item) => item.forwardedFor === undefined));
   assert.ok(seen.every((item) => item.forwardedProto === "https"));
   assert.match(last.candidateId, /^actor:/);
@@ -185,12 +205,17 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.ok(cookies.has("dlsid") && cookies.has("dcid"), "high-risk client has both session and signed client cookies");
   const anonymousUpgrade = await upgrade(detectionPort, "/socket", {
     "User-Agent": "curl/8.0", "X-Forwarded-For": "203.0.113.9",
+    "X-Ruby-Confirmed-Attack-Score": "1", "X-Defense-Overlay-Level": "high",
+    "X-Ruby-Unknown-Control": "forged",
   });
   assert.equal(anonymousUpgrade.status, 101);
   const anonymousPolicy = seenUpgrades.at(-1);
   assert.deepEqual(anonymousPolicy.plan, [], "cookie-less upgrade must not inherit attack rate limit or decoy");
   assert.equal(anonymousPolicy.attackScore, 0);
+  assert.equal(anonymousPolicy.confirmedAttackScore, 0);
   assert.equal(anonymousPolicy.riskScore, 0);
+  assert.equal(anonymousPolicy.forgedDefenseControl, undefined);
+  assert.equal(anonymousPolicy.forgedRubyControl, undefined);
   assert.match(anonymousPolicy.clientId, /^websocket:/);
   assert.notEqual(anonymousPolicy.clientId, last.clientId);
   assert.ok(anonymousPolicy.requestId);
@@ -208,10 +233,11 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   const signedPolicy = seenUpgrades.at(-1);
   assert.equal(signedPolicy.clientId, last.clientId);
   assert.ok(signedPolicy.attackScore >= 0.8);
+  assert.ok(signedPolicy.confirmedAttackScore >= 0.8);
   assert.ok(signedPolicy.riskScore >= 0.8);
-  assert.ok(signedPolicy.plan.some((step) => step.name === "rate_limit_strict"));
+  assert.deepEqual(signedPolicy.plan.map((step) => step.name),
+    expectedStrictStrategies(signedPolicy.confirmedAttackScore));
   assert.ok(!signedPolicy.plan.some((step) => step.name === "delay"));
-  assert.ok(signedPolicy.plan.some((step) => step.name === "decoy_maze"));
   assert.notEqual(signedPolicy.requestId, last.requestId);
   assert.ok(seenUpgrades.every((item) => item.forwardedFor === undefined));
 
@@ -242,7 +268,8 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.ok(record.detectionResult.effectiveAttackScore >= 0.8);
 
   const normal = await request(detectionPort, "GET", "/", {
-    headers: { "User-Agent": "curl/8.0" },
+    headers: { "User-Agent": "curl/8.0", "X-Ruby-Confirmed-Attack-Score": "1",
+      "X-Defense-Overlay-Level": "high", "X-Ruby-Unknown-Control": "forged" },
   });
   assert.equal(normal.status, 200);
   assert.equal(normal.body, "ok");
@@ -254,6 +281,9 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.equal(seen.at(-1).tier, "suspected");
   assert.equal(seen.at(-1).source, "actor-candidate-fallback");
   assert.equal(seen.at(-1).clientId, last.candidateId);
+  assert.equal(seen.at(-1).confirmedAttackScore, 0);
+  assert.equal(seen.at(-1).forgedDefenseControl, undefined);
+  assert.equal(seen.at(-1).forgedRubyControl, undefined);
   assert.notEqual(seen.at(-1).clientId, last.clientId);
 
   const firstOtherAttack = await request(detectionPort, "POST", "/api/orders/99", {
@@ -291,4 +321,21 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.equal(normalRecord.detectionResult.effectiveAttackScore, 0);
   assert.equal(otherAttackRecord.detectionResult.source, "provisional-client-observation");
   assert.ok(otherAttackRecord.detectionResult.effectiveAttackScore < last.attackScore);
+
+  // 동일 signed dcid도 새 대상 실행에서는 이전 실행의 확정 공격 점수를 승계하지 않는다.
+  const selectionBody = JSON.stringify({ targetId: "alternate" });
+  const selected = await request(detectionPort, "POST", "/__detection/api/target-selection", {
+    headers: { Cookie: sessionCookie, Origin: `http://127.0.0.1:${detectionPort}`,
+      "X-Ruby-Target-Selection": "1", "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(selectionBody) },
+    body: selectionBody,
+  });
+  assert.equal(selected.status, 200);
+  const newRunSigned = await request(detectionPort, "GET", "/", {
+    headers: { "User-Agent": "curl/8.0", Cookie: [...cookies.values()].join("; ") },
+  });
+  assert.equal(newRunSigned.status, 200);
+  assert.deepEqual(seen.at(-1).plan, []);
+  assert.equal(seen.at(-1).confirmedAttackScore, 0);
+  assert.equal(seen.at(-1).riskScore, 0);
 });

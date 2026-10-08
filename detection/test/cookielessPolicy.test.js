@@ -2,6 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
 const crypto = require("node:crypto");
+const fs = require("node:fs");
+const os = require("node:os");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 
@@ -24,6 +26,9 @@ function request(port, method, route, { headers = {}, body = null } = {}) {
 }
 
 async function startDetection(t, targetPort) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "ruby-cookieless-run-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const dashboardPassword = crypto.randomBytes(24).toString("hex");
   const reservation = http.createServer();
   await listen(reservation);
   const port = reservation.address().port;
@@ -32,8 +37,11 @@ async function startDetection(t, targetPort) {
     cwd: path.join(__dirname, ".."),
     env: { ...process.env, NODE_ENV: "test", PORT: String(port),
       TARGET_URL: `http://127.0.0.1:${targetPort}`,
+      TARGET_CHOICES: `legacy=http://127.0.0.1:${targetPort},alternate=http://127.0.0.1:${targetPort}`,
+      TARGET_DEFAULT_ID: "legacy",
+      TARGET_SELECTION_FILE: path.join(directory, "selection.json"),
       CRS_ENABLED: "false", DECEPTION_ENABLED: "false",
-      DETECTION_DASHBOARD_PASSWORD: crypto.randomBytes(24).toString("hex"),
+      DETECTION_DASHBOARD_PASSWORD: dashboardPassword,
       DCID_HMAC_SECRET: crypto.randomBytes(32).toString("hex"),
       ACCOUNT_ID_HASH_KEY: crypto.randomBytes(32).toString("hex"),
       PAYLOAD_FINGERPRINT_KEY: crypto.randomBytes(32).toString("hex") },
@@ -55,7 +63,7 @@ async function startDetection(t, targetPort) {
     detection.stdout.on("data", onData);
     detection.once("exit", onExit);
   });
-  return port;
+  return { port, dashboardPassword };
 }
 
 function cookiesFrom(response) {
@@ -73,6 +81,8 @@ test("세션만 바꿔 보내는 공격은 같은 후보 이력으로 미끼 단
         candidateId: req.headers["x-ruby-candidate-id"],
         source: req.headers["x-ruby-policy-source"],
         tier: req.headers["x-ruby-defense-tier"],
+        targetId: req.headers["x-ruby-target-id"],
+        runId: req.headers["x-ruby-run-id"],
         riskScore: Number(req.headers["x-ruby-risk-score"]),
         plan: JSON.parse(req.headers["x-defense-plan"] || "[]").map((step) => step.name),
       });
@@ -85,7 +95,7 @@ test("세션만 바꿔 보내는 공격은 같은 후보 이력으로 미끼 단
   });
   await listen(defenseStub);
   t.after(() => defenseStub.close());
-  const port = await startDetection(t, defenseStub.address().port);
+  const { port, dashboardPassword } = await startDetection(t, defenseStub.address().port);
 
   // 쿠키 없이 깨끗한 요청만 반복하는 클라이언트: 쿠키가 없다는 이유만으로 방어하지 않는다.
   const quiet = [];
@@ -136,4 +146,41 @@ test("세션만 바꿔 보내는 공격은 같은 후보 이력으로 미끼 단
     assert.deepEqual(seen.at(-1).plan, [], "a returning signed client does not inherit the candidate score");
     assert.match(seen.at(-1).clientId, /^dcid:/);
   }
+
+  // 관리자가 대상을 바꾸면 새 실행은 이전 Candidate 점수를 물려받지 않는다.
+  const loginBody = JSON.stringify({ password: dashboardPassword });
+  const login = await request(port, "POST", "/__detection/api/login", {
+    headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(loginBody) },
+    body: loginBody,
+  });
+  assert.equal(login.status, 204);
+  const adminCookie = cookiesFrom(login);
+  const selectionBody = JSON.stringify({ targetId: "alternate" });
+  const selected = await request(port, "POST", "/__detection/api/target-selection", {
+    headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(selectionBody),
+      Cookie: adminCookie, Origin: `http://127.0.0.1:${port}`,
+      "X-Ruby-Target-Selection": "1" },
+    body: selectionBody,
+  });
+  assert.equal(selected.status, 200);
+  const previousRunId = attacker.at(-1).runId;
+  await request(port, "GET", "/", { headers: { "User-Agent": "session-rotating-agent/1.0" } });
+  assert.equal(seen.at(-1).targetId, "alternate");
+  assert.notEqual(seen.at(-1).runId, previousRunId);
+  assert.deepEqual(seen.at(-1).plan, [], "new target run starts without the prior candidate's decoy");
+  assert.ok(!seen.at(-1).tier);
+
+  const secondRun = [];
+  for (let index = 0; index < 80; index++) {
+    await request(port, "POST", `/api/orders/${index}`, {
+      headers: { "User-Agent": "session-rotating-agent/1.0", "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(attackBody) },
+      body: attackBody,
+    });
+    secondRun.push(seen.at(-1));
+  }
+  assert.deepEqual(secondRun[0].plan, []);
+  assert.ok(secondRun.some((item) => item.tier === "suspected" &&
+    item.plan.length === 1 && item.plan[0] === "decoy_maze"),
+  "new run eventually responds to its own repeated attack evidence");
 });

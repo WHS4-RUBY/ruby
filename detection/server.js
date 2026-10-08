@@ -65,6 +65,7 @@ const {
 const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
 const { applyDefenseRule, loadPolicyRules } = require("./lib/policyEngine");
+const { createRunScopedPolicyAnalyzer } = require("./lib/runScopedPolicy");
 const { createProxyCore } = require("./lib/proxyCore");
 const {
   DashboardAuthManager,
@@ -140,6 +141,7 @@ const deceptionEngine = new DeceptionEngine({ enabled: process.env.DECEPTION_ENA
 const dcidManager = new DcidManager();
 const accountIdentityResolver = new AccountIdentityResolver();
 const policyRules = loadPolicyRules();
+const runPolicy = createRunScopedPolicyAnalyzer({ level: DETECTION_LEVEL });
 
 function positiveInt(name, fallback) {
   const value = Number.parseInt(process.env[name] || "", 10);
@@ -295,7 +297,6 @@ function buildPriorPolicyDecision(req) {
 
   const session = store.getSession(req.detectionSessionId);
   const actor = store.getActor(actorId);
-  const authGroup = req.authGroupId ? store.getAuthGroup(req.authGroupId) : null;
   const verifiedClientId = req.clientIdentity?.valid && req.clientIdentity?.continuityVerified
     ? req.clientIdentity.clientId : null;
   const resolvedActor = verifiedClientId
@@ -310,7 +311,7 @@ function buildPriorPolicyDecision(req) {
     clientFlowId: clientFlowState?.flowLinked || clientFlowState?.status === "CONFLICT"
       ? clientFlowState.id : null,
   };
-  const clientFlow = clientFlowState?.aggregationEnabled
+  const clientFlow = !verifiedClientId && clientFlowState?.aggregationEnabled
     ? store.getClientFlowAggregate(actorId)
     : null;
 
@@ -318,12 +319,19 @@ function buildPriorPolicyDecision(req) {
   // 현재 클라이언트의 확정 근거로 사용하지 않는다.
   const sessionOwned = verifiedClientId && session &&
     session.requests.at(-1)?.clientId === verifiedClientId;
+  const runScope = {
+    targetId: req.activeTarget.targetId,
+    runId: req.activeTarget.runId,
+  };
+  const scoped = (source, entity) => entity
+    ? runPolicy.analyze({ ...runScope, source, entity }) : null;
   const analyses = {
-    session: sessionOwned ? analyzeSession(session) : null,
-    candidate: actor && clientFlowState?.status !== "CONFLICT" ? analyzeActor(actor) : null,
-    authGroup: authGroup ? analyzeAuthGroup(authGroup) : null,
-    clientFlow: clientFlow ? analyzeClientFlow(clientFlow) : null,
-    resolved: resolvedActor ? analyzeResolvedActor(resolvedActor) : null,
+    session: sessionOwned ? scoped("session", session) : null,
+    candidate: !verifiedClientId && actor && clientFlowState?.status !== "CONFLICT"
+      ? scoped("candidate", actor) : null,
+    authGroup: null,
+    clientFlow: scoped("clientFlow", clientFlow),
+    resolved: scoped("resolved", resolvedActor),
   };
   // 서명 dcid를 돌려준 클라이언트는 자기 세션·Resolved Actor 이력만 쓴다. 같은
   // curl/NAT 지문을 쓰는 다른 클라이언트의 점수가 이 클라이언트의 방어를 일으키면 안 된다.
@@ -333,7 +341,7 @@ function buildPriorPolicyDecision(req) {
   // Flow 이력으로 판단한다. 세션만 바꿔 가며 보내는 공격이 매번 이력 없음으로 통과하지
   // 않게 하기 위해서다. 쿠키가 없다는 사실 자체는 점수에 더하거나 빼지 않으며,
   // 확정 공격 점수(Resolved Actor 전용)가 없으므로 policy.json의 약한 단계까지만 닿는다.
-  const singleIpFlow = analyses.clientFlow && (clientFlow.observedIps || []).length <= 1;
+  const singleIpFlow = analyses.clientFlow && analyses.clientFlow.observedIps.length <= 1;
   const policyAnalyses = verifiedClientId
     ? { session: analyses.session, resolved: analyses.resolved }
     : { candidate: analyses.candidate, clientFlow: singleIpFlow ? analyses.clientFlow : null };
@@ -758,6 +766,20 @@ function recordCompletedRequest(req, {
     automationDetected: Boolean(effectiveDetectionAnalysis.detection?.automationDetected),
     attackDetected: Boolean(effectiveDetectionAnalysis.detection?.attackDetected),
   });
+  // 정책 점수는 대시보드의 전체 이력과 별개로 현재 대상 실행의 완료된 요청만
+  // 집계한다. 대상 전환 직후 이전 실행의 고점이 방어를 즉시 켜지 않도록 한다.
+  const runScope = {
+    targetId: req.activeTarget.targetId,
+    runId: req.activeTarget.runId,
+  };
+  for (const [source, entity] of [
+    ["session", session], ["candidate", actor],
+    ["clientFlow", clientFlowState?.aggregationEnabled
+      ? store.getClientFlowAggregate(clientFlowId) : null],
+    ["resolved", resolvedActor],
+  ]) {
+    if (entity) runPolicy.analyze({ ...runScope, source, entity });
+  }
   return {
     session,
     sessionAnalysis,
@@ -910,6 +932,20 @@ app.post("/__detection/api/xss/reflected/delete", express.json({ limit: "256kb" 
   const { value } = req.body || {};
   if (!value) return res.status(400).json({ ok: false, error: "value required" });
   res.json({ ok: xssEvidenceStore.removeReflected(value) });
+});
+// 후보(candidate)는 value 하나에 작성요청별로 여러 key가 있을 수 있어 모두 제거한다.
+app.post("/__detection/api/xss/candidates/delete", express.json({ limit: "256kb" }), (req, res) => {
+  const { value } = req.body || {};
+  if (!value) return res.status(400).json({ ok: false, error: "value required" });
+  let removed = 0;
+  try {
+    for (const c of xssCandidateStore.all() || []) {
+      if (c.value === value && typeof c.candidateKey === "string" && xssCandidateStore.delete(c.candidateKey)) {
+        removed += 1;
+      }
+    }
+  } catch (_) {}
+  res.json({ ok: removed > 0, removed });
 });
 
 app.get("/__detection/api/sessions", (req, res) => {
@@ -1373,6 +1409,7 @@ function forwardPolicyDecision(proxyReq, req) {
   proxyReq.setHeader("X-Ruby-Request-Id", req.rubyRequestId);
   proxyReq.setHeader("X-Ruby-Automation-Score", String(req.rubyPolicyDecision.automationScore));
   proxyReq.setHeader("X-Ruby-Attack-Score", String(req.rubyPolicyDecision.attackScore));
+  proxyReq.setHeader("X-Ruby-Confirmed-Attack-Score", String(req.rubyPolicyDecision.confirmedAttackScore));
   proxyReq.setHeader("X-Ruby-Risk-Score", String(req.rubyPolicyDecision.riskScore));
   proxyReq.setHeader("X-Ruby-Policy-Source", req.rubyPolicyDecision.source);
   proxyReq.setHeader("X-Ruby-Target-Id", req.activeTarget.targetId);
@@ -1407,7 +1444,7 @@ const detectionHook = {
   onRequest({ proxyReq, req }) {
     prepareRequestObservation(req);
     // RUBY Policy 계약: 외부 입력을 제거하고, 완료된 탐지 이력에서 계산한
-    // 0~1 risk score와 가명 client id만 내부 헤더로 전달한다.
+    // 0~1 정책 점수와 확정 공격 점수, 가명 client id를 내부 헤더로 전달한다.
     forwardPolicyDecision(proxyReq, req);
     // Ground truth용 헤더는 탐지 프록시에서 소비하고 RUBY Policy에는 전달하지 않는다.
     proxyReq.removeHeader(EXPERIMENT_RUN_HEADER);

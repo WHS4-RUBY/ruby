@@ -162,7 +162,9 @@ test("64건 반복 공격 + 독립 증거가 실제 0.8 정책 구간에 도달�
   const score = result.attackScore;
   assert.ok(score >= 0.8);
   const plan = selectStrategies(score, loadPolicyRules(), { confirmedAttackScore: score });
-  assert.deepEqual(plan.map((step) => step.name), ["rate_limit_strict", "decoy_maze"]);
+  assert.deepEqual(plan.map((step) => step.name), score >= 0.95
+    ? ["rate_limit_strict", "account_overlay_high"]
+    : ["rate_limit_strict", "decoy_maze"]);
 });
 
 test("Automation Honey는 trap, no-asset, 조건부 coverage를 합쳐 최대 35점을 반영한다", () => {

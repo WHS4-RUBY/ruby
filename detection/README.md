@@ -74,8 +74,14 @@ max(현재 automationScore, 누적 최고 attackScore)
 ```
 
 정책 결정은 요청을 넘기기 전에 내려야 하는데 일부 탐지 신호(CRS 결과, 응답 상태)는
-upstream 응답이 돌아온 뒤에 확정됩니다. 따라서 각 요청에 적용되는 위험도는 **해당
-검증된 클라이언트/세션에서 직전까지 완료된 요청의 관찰 이력**을 기준으로 합니다.
+upstream 응답이 돌아온 뒤에 확정됩니다. 따라서 각 요청에 적용되는 위험도는
+현재 대상 실행에서 직전까지 완료된 요청의 관찰 이력을 기준으로 합니다. 대상 전환 때
+새 실행 ID가 발급되므로 이전 실행의 정책 점수와 과거 최고 공격점수는 승계하지 않습니다.
+반환·검증된 signed DCID가 있으면
+그 클라이언트의 이력을, 없으면 같은 IP·HTTP 지문의 관찰 후보와 한 IP 안에서 이어진
+Client Flow 이력을 사용합니다.
+브라우저 상호작용 telemetry에는 현재 실행 ID가 없어 실행별 자동 정책 점수에는 반영하지
+않습니다. 대시보드의 전체 관찰 분석에는 계속 표시됩니다.
 첫 요청은 0이며, 그 요청에서 확정된 신호는 다음 요청부터 반영됩니다. WebSocket은
 업그레이드 요청의 이전 HTTP 이력에만 정책을 적용하며 프레임 내용은 분석하거나 점수화하지 않습니다.
 Socket.IO polling은 HTTP 요청으로 기록되지만 배경 트래픽은 행동 점수에서 제외합니다.
@@ -84,17 +90,23 @@ Socket.IO polling은 HTTP 요청으로 기록되지만 배경 트래픽은 행�
 `tier`는 근거의 확실성 단계를 나타냅니다. 새 방어 전략은 점수 코드를 바꾸지 않고
 해당 단계의 `strategies`에 추가합니다.
 
-| 단계 | 조건 | 기본 전략 |
-|---|---|---|
-| `confirmed` | 위험도 0.8 이상 + **검증된 동일 DCID의 Resolved Actor** Attack Score 0.8 이상 | `rate_limit_strict`(초당 최대 1요청), `decoy_maze` |
-| `suspected` | 위험도 0.8 이상 | `decoy_maze` |
-| 없음 | 그 외 | 방어 계획 없음 |
+확정 공격 점수는 **검증된 동일 DCID의 Resolved Actor**에서만 계산합니다. 각 확정 단계는
+위험 점수도 표의 하한 이상이어야 합니다.
 
-위험 점수만으로 일괄 지연을 선택하지 않습니다. 공식 Defense가 속도 제한을
-실행하고, 비공개 CHeaT sidecar가 기만 계획을 실행합니다. 다만 미끼에 접촉한
+| 단계 | 위험 점수 | 확정 공격 점수 | 선택 전략 |
+|---|---:|---:|---|
+| `confirmed` | 0.95 이상 | 0.95 이상 | `rate_limit_strict`(초당 최대 1요청), `account_overlay_high` |
+| `confirmed` | 0.8 이상 | 0.8 이상 0.95 미만 | `rate_limit_strict`, `decoy_maze` |
+| `confirmed` | 0.5 이상 | 0.5 이상 0.8 미만 | `account_overlay_medium` |
+| `suspected` | 0.8 이상 | 0.5 미만 | `decoy_maze`만 적용. 확정된 차단·격리 없음 |
+| 없음 | 그 외 | 그 외 | 방어 계획 없음 |
+
+공식 Defense가 속도 제한과 계정 오버레이를 실행하고, 비공개 CHeaT sidecar가
+기만 계획을 실행합니다. 위험 점수에 따른 일괄 지연은 선택하지 않지만 미끼에 접촉한
 클라이언트에는 CHeaT의 미로·적응형 지연이 적용될 수 있습니다.
-공유 IP·curl 지문으로 연결된 Candidate/Client Flow와 서명 검증하지 않은
-Bearer 값의 그룹 점수는 자동 429 근거가 아닙니다. 한 요청의 공격 신호가 응답 후
+공유 IP·HTTP 지문으로 연결된 Candidate/Client Flow의 점수는 `suspected` 미끼 계획에만
+사용할 수 있으며 자동 429 또는 계정 오버레이의 근거가 아닙니다. 서명 검증하지 않은
+Bearer 값의 그룹 점수도 자동 429 근거가 아닙니다. 한 요청의 공격 신호가 응답 후
 확정되면 대응은 후속 요청부터 가능합니다. 429는 `X-Defense-Signal: rate_limited`로
 탐지 기록에 남으며, 해당 요청은 sidecar까지 전달되지 않습니다.
 
@@ -109,13 +121,13 @@ Bearer 값의 그룹 점수는 자동 429 근거가 아닙니다. 한 요청의 
 
 | 헤더 | 값 |
 |---|---|
-| `X-Defense-Plan` | 위험도 구간에 해당하는 전략 배열 JSON. Defense가 실행하고 기만 전략만 비공개 sidecar에 다시 전달합니다 |
+| `X-Defense-Plan` | 위험 점수와 확정 공격 점수에 맞는 전략 배열 JSON. Defense가 실행하고 기만 전략만 비공개 sidecar에 다시 전달합니다 |
 | `X-Client-Id` | 방어 상태의 키가 되는 가명 식별자 |
 | `X-Ruby-Request-Id` | 탐지·방어 기록을 결합할 무작위 요청 ID |
-| `X-Ruby-Automation-Score`, `X-Ruby-Attack-Score`, `X-Ruby-Risk-Score` | 전달 전 완료 이력의 0~1 점수 |
+| `X-Ruby-Automation-Score`, `X-Ruby-Attack-Score`, `X-Ruby-Confirmed-Attack-Score`, `X-Ruby-Risk-Score` | 전달 전 완료 이력의 0~1 점수 |
 | `X-Ruby-Policy-Source` | 정책 점수의 탐지 출처 |
 | `X-Ruby-Defense-Tier` | 선택된 `policy.json` 규칙의 단계(`confirmed`, `suspected`). 계획이 없으면 보내지 않습니다 |
-| `X-Ruby-Candidate-Id`, `X-Ruby-Client-Flow-Id` | 요청 당시 관찰 후보와 연결된 Client Flow. Defense 대시보드의 묶음 표시용이며 정책 판단에는 쓰지 않습니다 |
+| `X-Ruby-Candidate-Id`, `X-Ruby-Client-Flow-Id` | 요청 당시 관찰 후보와 연결된 Client Flow. 헤더 자체는 Defense 대시보드의 묶음 표시용이며, Detection은 별도로 해당 이력을 `suspected` 판단에 사용합니다 |
 | `X-Ruby-Target-Id`, `X-Ruby-Run-Id` | 선택된 대상과 실험 실행의 식별자 |
 
 점수·출처 헤더는 Defense의 관측용 내부 계약입니다. 외부 요청에 같은 이름의 헤더가
@@ -127,7 +139,7 @@ Bearer 값의 그룹 점수는 자동 429 근거가 아닙니다. 한 요청의 
 일반 HTTP 요청의 `X-Client-Id`는 반환·검증된 signed DCID가 있으면 그 가명 ID를
 사용합니다. 반환·검증된 DCID가 있는 HTTP 요청의 정책 점수는 그 DCID에 속한 완료
 요청만 사용합니다. 다른 사용자와 겹친 Candidate/Flow 점수는 탐지 화면의 관찰값으로
-남지만 그 사용자의 속도 제한 또는 기만 계획에는 쓰지 않습니다.
+남기며, 반환된 DCID를 가진 사용자의 속도 제한·격리·미끼 계획에는 쓰지 않습니다.
 
 DCID를 돌려주지 않은 요청은 매번 새 DCID를 발급받으므로 서명 ID로 이어 볼 수 없습니다.
 세션만 바꿔 가며 보내는 공격이 매번 이력 없음으로 통과하지 않도록, 이 요청은 쿠키와
@@ -143,8 +155,8 @@ Client Flow ID를 사용해 방어 상태가 쪼개지지 않게 합니다. 쿠�
 WebSocket 업그레이드는 HTTP 쿠키 발급 경로를 거치지 않으므로 유효한 DCID가 없으면
 업그레이드마다 고유한 `websocket:*` ID를 사용하고 Candidate/Flow 점수를 쓰지 않습니다.
 
-`X-Risk-Score`(이전 이름), `X-Ruby-Risk-Score`, `X-Client-Id`, `X-Classification`, `X-Defense-Plan`,
-`X-Ruby-*`, `X-Defense-Signal`은 클라이언트가 보내더라도 Detection에서 제거합니다.
+클라이언트가 보낸 `X-Ruby-*`, `X-Defense-*`, `X-Client-Id`, `X-Classification`은
+Detection에서 제거합니다. 실제 발행하는 위험도 헤더는 `X-Ruby-Risk-Score`입니다.
 
 ## 실행 및 확인
 
@@ -261,7 +273,7 @@ DOM XSS 탐지를 대체하지 않습니다. 본문 검사 상한을 넘으면 �
 컨테이너를 재생성해야 하며 동적으로 설정을 다시 읽지는 않습니다.
 
 XSS 서브스코어 가중치는 0.15이며 Payload Signature는 0.20, Attack Honey는 0.17입니다.
-XSS 단독 최고 기여도 0.15는 현재 방어 정책의 위험도·확정 공격 점수 기준 0.80보다
+XSS 단독 최고 기여도 0.15는 현재 방어 정책의 가장 낮은 위험도·확정 공격 점수 기준 0.50보다
 낮습니다. 다른 공격·자동화 신호와 결합해 정책을 결정하므로, 태그가 기록됐다는
 사실과 방어가 발동했다는 사실은 구분해야 합니다. 이 가중치는 확률이나 검증된
 탐지율이 아니며 실험으로 보정해야 합니다.

@@ -1,0 +1,20 @@
+# RUBY Market: frontend/src/main.tsx + backend/ruby_web/main.py.
+login_paths = ["/api/auth/login"]
+login_form_selector = ".masthead .session form.inline"
+# RUBY's inline login form has no recovery anchor; the lure script appends one.
+recovery_anchor_selector = "a[href='#/account']"
+menu_selector = "nav.primary"
+account_terms = ["login", "account", "auth", "user", "password", "session"]
+recon_segments = ["admin", "internal", "debug", "backup", "config", "private", "secret", ".git", ".env"]
+recon_html_paths = ["/admin", "/internal", "/debug", "/backup", "/.git", "/.env"]
+api_prefixes = ["/api", "/swagger", "/openapi"]
+ordinary_api_prefixes = ["/api/products", "/api/search", "/api/shops"]
+ordinary_api_exact = []
+# RUBY accepts Bearer first, then ruby_session. The overlay also removes both
+# real session cookies and the synthetic decoy's separate token cookie.
+origin_auth_cookies = ["ruby_session", "ruby_remember", "token"]
+robots_disallow = ["/ftp", "/ops/recovery/accounts", "/ops/service/manifest"]
+decoy_brand = "RUBY Market Archive"
+decoy_admin_email = "administrator@archive.invalid"
+decoy_service = "Internal Account Registry"
+decoy_profile_image = ""

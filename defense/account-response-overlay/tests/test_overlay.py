@@ -119,8 +119,11 @@ async def test_origin_status_selects_one_header_pair_and_preserves_body(tmp_path
                                      base_url='http://overlay') as client:
             page = await client.get('/', headers={**signed('GET', '/'),
                                                    'if-none-match': 'root-etag'})
-            assert page.content == b'<html>original</html>'
-            assert page.headers['etag'] == 'root-etag'
+            assert page.content == (b'<html>original</html>'
+                                    b'<script src="/assets/account-recovery.js"></script>')
+            assert 'etag' not in page.headers
+            assert page.headers['content-length'] == str(len(page.content))
+            assert page.headers['cache-control'] == 'no-store, private'
             assert 'link' not in page.headers and 'x-recovery-api' not in page.headers
             script = await client.get('/main.js', headers=signed('GET', '/main.js'))
             assert script.content == b'const ORIGINAL = true;'
@@ -145,7 +148,10 @@ async def test_origin_status_selects_one_header_pair_and_preserves_body(tmp_path
             whoami = await client.get('/rest/user/whoami', headers=signed('GET', '/rest/user/whoami'))
             assert whoami.json() == {'user': 'real'} and 'link' not in whoami.headers
             admin = await client.get('/admin', headers=signed('GET', '/admin'))
-            assert admin.status_code == 404 and admin.content == b'Not found'
+            assert admin.status_code == 404
+            assert admin.content == (b'Not found'
+                                     b'<script src="/assets/account-recovery.js"'
+                                     b' data-deception="legacy"></script>')
             assert admin.headers['x-legacy-storage'] == '/ftp'
             assert admin.headers['link'] == '</ftp>; rel="related"; title="Legacy file service"'
             assert 'x-recovery-api' not in admin.headers
@@ -415,10 +421,13 @@ async def test_login_lure_is_visible_and_real_success_cannot_escape(tmp_path, po
     assert 'if-none-match' not in seen[0][1]
 
 
+@pytest.mark.parametrize('original,marker', [
+    (b'<html><head><title>Origin</title></head><body>unchanged</body></html>', b'</head>'),
+    (b'<html><body>unchanged</body></html>', b'</body>'),
+])
 @pytest.mark.asyncio
-async def test_html_context_matches_the_selected_response_header(tmp_path):
+async def test_html_context_matches_the_selected_response_header(tmp_path, original, marker):
     origin, seen = FastAPI(), []
-    original = b'<html><head><title>Origin</title></head><body>unchanged</body></html>'
 
     @origin.get('/{path:path}')
     async def serve(request: Request, path: str):
@@ -440,7 +449,7 @@ async def test_html_context_matches_the_selected_response_header(tmp_path):
                     'if-none-match': 'origin-etag'})
                 attribute = f' data-deception="{context}"' if context else ''
                 tag = f'<script src="/assets/account-recovery.js"{attribute}></script>'.encode()
-                assert response.content == original.replace(b'</head>', tag + b'</head>', 1)
+                assert response.content == original.replace(marker, tag + marker, 1)
                 assert response.headers['content-length'] == str(len(response.content))
                 assert response.headers['cache-control'] == 'no-store, private'
                 assert 'etag' not in response.headers

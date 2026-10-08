@@ -1,0 +1,23 @@
+site_adapter = "juice_shop"
+frontend_dir = ""
+modules = ["cycle"]
+origin_policy = "sealed"
+# The current public gateway is HTTP. Its synthetic session cookie must work there.
+secure_cookie = false
+detector_required = true
+run_id = "juice-overlay-v2"
+audit_path = "/app/state/events.sqlite3"
+
+[limits]
+session_ttl = 21600
+session_requests = 1000
+session_bytes = 67108864
+
+[engagement]
+rounds = 8
+stages = 4
+candidates = 3
+
+[cycle]
+candidates = 3
+history = 3
