@@ -21,7 +21,9 @@ benchmark/
 
 ## 방어 파이프라인과의 관계
 
-이 영역은 Detection·Defense 파이프라인의 실행에 필요하지 않으며, 파이프라인도 이 영역의 서비스나 이미지에 의존하지 않습니다. 벤치마크 대상을 파이프라인에 연결하려면 대상을 이 호스트의 임의 포트에서 실행하고, 루트 `.env`의 `TARGET_PORT`를 그 포트로 지정합니다(자세한 내용은 [`defense/README.md`](../defense/README.md#target-연결) 참고).
+이 영역의 실험 문서와 결과 파일은 Detection·Defense 파이프라인의 실행에 필요하지 않습니다. 다만 실제 공격 실험에서는 별도로 실행한 벤치마크 서비스를 보호 대상으로 연결합니다. 현재 운영 Compose는 `.env`의 `TARGET_CHOICES`에 `juice-shop=http://juice-shop-target:3000`과 `ruby-shop=http://ruby-web-target:8080`을 등록하고, `TARGET_DEFAULT_ID`를 등록된 ID로 지정합니다. 활성 대상은 관리 화면에서 선택합니다. 연결 방식은 [`defense/README.md`](../defense/README.md#target-연결)를 참고하세요.
+
+공격 실험은 서버의 공개 포트 80으로 요청을 보내야 `Detection → Defense → 대상별 CHeaT sidecar → 벤치마크 대상`을 지나며 두 대시보드에 기록됩니다. 포트 3020의 벤치마크 선택 화면과 그 하위 앱 주소는 서비스에 직접 접속하는 경로라 탐지·방어 기록에 나타나지 않습니다. 관리자 화면은 서버의 `127.0.0.1:8088`에만 열려 있으며 SSH 터널로 접속합니다. 단일 대상을 호스트 포트에 연결하는 독립 실행/legacy 구성에서는 `.env`의 `TARGET_PORT`를 사용합니다.
 
 각 벤치마크는 다음 형태로 추가합니다.
 

@@ -49,6 +49,8 @@ from contextlib import closing
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+import profiles
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("DEFENSE_DB", os.path.join(HERE, "defense.db"))
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
@@ -58,16 +60,17 @@ _SESSION_TTL_S = 12 * 3600
 CODEX_LOG_PATH = os.environ.get("CODEX_LOG_PATH", "")
 LOG_PATH = os.path.join(HERE, "proxy_stdout.log")
 
-_KNOWN_MODES = {"off", "passive", "transform", "active", "combined"}
-_KNOWN_DEFENSE_ACTIONS = {"delay", "block"}
-_KNOWN_RCE_ACTIONS = {"tarpit", "block", "drop"}
+_KNOWN_MODES = {"off", "transform"}   # active/combined(무조건 지연·차단 계층)는 없어졌다
+_KNOWN_TRAP_ACTIONS = {"tarpit", "block", "drop"}   # POST_RCE_ACTION 용
 
 # Defense_proxy.py 의 _log_req() 가 실제로 남기는 defense_action 접두어를 세 갈래로 분류한다.
 # "decoy" 판정은 Defense_proxy.py 자신이 _esc.decoy_hits(에스컬레이션 트리거)를 셀 때 쓰는
-# 기준(transform-route/login-lure/maze)과 정확히 맞췄다 — 대시보드가 코드와 다른 정의를
-# 쓰면 숫자가 어긋난다. "rce"는 FAKE_SHELL 진입 이후의 포스트-익스플로잇 단계.
-_DECOY_PREFIXES = ("transform-route", "login-lure", "maze")
-_RCE_PREFIXES = ("fake-shell", "post-rce")
+# 기준(transform-route/login-lure/maze)과 맞췄다 — 대시보드가 코드와 다른 정의를 쓰면
+# 숫자가 어긋난다. "rce"는 FAKE_SHELL 진입 이후의 포스트-익스플로잇 단계. `captcha`/
+# `captcha-punish` 접두어는 CAPTCHA_TRAP 제거 전에 쌓인 과거 defense.db 를 계속 올바르게
+# 분류하려고 읽기 전용 호환으로만 남겨뒀다(현재 프록시는 이 라벨을 더 남기지 않는다).
+_DECOY_PREFIXES = ("transform-route", "login-lure", "maze", "captcha", "traversal-probe")
+_RCE_PREFIXES = ("fake-shell", "post-rce", "captcha-punish", "ambig-block")
 
 
 def _classify(action: str) -> str:
@@ -289,13 +292,25 @@ def api_requests(request: Request, limit: int = 150):
     if not os.path.exists(DB_PATH):
         return _db_missing()
     with closing(_conn()) as conn:
-        rows = conn.execute(
-            "SELECT ts, method, path, status, defense_action FROM reqs ORDER BY ts DESC LIMIT ?",
-            (max(1, min(limit, 1000)),),
-        ).fetchall()
+        try:
+            rows = conn.execute(
+                "SELECT ts, method, path, status, defense_action, client_id FROM reqs "
+                "ORDER BY ts DESC LIMIT ?",
+                (max(1, min(limit, 1000)),),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # client_id 컬럼 추가 이전의 defense.db(과거 실험 결과 등) 호환.
+            rows = [
+                (ts, m, p, s, a, "") for ts, m, p, s, a in conn.execute(
+                    "SELECT ts, method, path, status, defense_action FROM reqs "
+                    "ORDER BY ts DESC LIMIT ?",
+                    (max(1, min(limit, 1000)),),
+                ).fetchall()
+            ]
     return [
-        {"ts": ts, "method": m, "path": p, "status": s, "action": a, "category": _classify(a)}
-        for ts, m, p, s, a in rows
+        {"ts": ts, "method": m, "path": p, "status": s, "action": a, "category": _classify(a),
+         "client_id": cid or ""}
+        for ts, m, p, s, a, cid in rows
     ]
 
 
@@ -453,18 +468,29 @@ async def api_proxy_start(request: Request):
     if mode not in _KNOWN_MODES:
         return JSONResponse({"error": f"DEFENSE_MODE={mode!r} 은 알 수 없음. 가능: {sorted(_KNOWN_MODES)}"},
                             status_code=400)
-    defense_action = (body.get("DEFENSE_ACTION") or "delay").strip()
-    if defense_action not in _KNOWN_DEFENSE_ACTIONS:
-        return JSONResponse({"error": f"DEFENSE_ACTION={defense_action!r} 은 알 수 없음"}, status_code=400)
     rce_action = (body.get("POST_RCE_ACTION") or "tarpit").strip()
-    if rce_action not in _KNOWN_RCE_ACTIONS:
+    if rce_action not in _KNOWN_TRAP_ACTIONS:
         return JSONResponse({"error": f"POST_RCE_ACTION={rce_action!r} 은 알 수 없음"}, status_code=400)
+    try:
+        ambig_release_min = float(body.get("AMBIG_RELEASE_MIN") or "10")
+        if ambig_release_min <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "AMBIG_RELEASE_MIN 은 양수여야 함"}, status_code=400)
     try:
         port = int(body.get("PORT") or 3002)
         if not (1 <= port <= 65535):
             raise ValueError
     except (TypeError, ValueError):
         return JSONResponse({"error": "PORT가 올바른 포트 번호가 아님"}, status_code=400)
+
+    target_preset = (body.get("TARGET_PRESET") or profiles.DEFAULT_PRESET).strip()
+    if target_preset not in profiles.PRESETS:
+        return JSONResponse({"error": f"TARGET_PRESET={target_preset!r} 은 알 수 없음. 가능: {sorted(profiles.PRESETS)}"},
+                            status_code=400)
+    target_profile = (body.get("TARGET_PROFILE") or "").strip()
+    if target_profile and not os.path.isfile(target_profile):
+        return JSONResponse({"error": f"TARGET_PROFILE 파일이 없음: {target_profile!r}"}, status_code=400)
 
     real_backend = (body.get("REAL_BACKEND") or "http://127.0.0.1:3000").strip()
     technique = (body.get("ACTIVE_TECHNIQUE") or "").strip()
@@ -474,15 +500,18 @@ async def api_proxy_start(request: Request):
         "REAL_BACKEND": real_backend,
         "DEFENSE_MODE": mode,
         "ACTIVE_TECHNIQUE": technique,
-        "DEFENSE_ACTION": defense_action,
-        "DELAY_MS": str(body.get("DELAY_MS") or "8000"),
         "DECOY_MAZE": "1" if body.get("DECOY_MAZE") else "0",
         "ADAPTIVE_TRAP": "1" if body.get("ADAPTIVE_TRAP") else "0",
         "FAKE_SHELL": "1" if body.get("FAKE_SHELL") else "0",
         "POST_RCE_ACTION": rce_action,
         "FAKE_SHELL_RETRIES": str(body.get("FAKE_SHELL_RETRIES") or "0"),
+        "AMBIG_TRAP": "1" if body.get("AMBIG_TRAP") else "0",
+        "AMBIG_RELEASE_MIN": str(ambig_release_min),
+        "TARGET_PRESET": target_preset,
         "EXPERIMENT_RUN": experiment_run,
     }
+    if target_profile:
+        config["TARGET_PROFILE"] = target_profile
     config.update(_parse_extra_env(body.get("EXTRA_ENV") or ""))
 
     result = _start_proxy(config, port)
@@ -527,7 +556,9 @@ def api_logout(request: Request):
 def index(request: Request):
     if not _is_authed(request):
         return _LOGIN_PAGE
-    return _PAGE
+    opts = "".join(f'<option value="{n}"{" selected" if n == profiles.DEFAULT_PRESET else ""}>'
+                   f'{n} — {pr["description"][:60]}</option>' for n, pr in profiles.PRESETS.items())
+    return _PAGE.replace("__TARGET_PRESET_OPTIONS__", opts)
 
 
 _LOGIN_PAGE = r"""<!doctype html>
@@ -783,16 +814,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
         <label>DEFENSE_MODE
           <select name="DEFENSE_MODE">
             <option value="off">off (베이스라인)</option>
-            <option value="passive">passive</option>
             <option value="transform" selected>transform</option>
-            <option value="active">active</option>
-            <option value="combined">combined</option>
           </select>
         </label>
-        <label>DEFENSE_ACTION (active/combined)
-          <select name="DEFENSE_ACTION"><option value="delay" selected>delay</option><option value="block">block</option></select>
-        </label>
-        <label>DELAY_MS <input name="DELAY_MS" type="number" value="8000"></label>
         <label>EXPERIMENT_RUN <input name="EXPERIMENT_RUN" placeholder="비우면 자동 생성"></label>
       </div>
 
@@ -800,10 +824,21 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
         <div class="section-label">ACTIVE_TECHNIQUE (여러 개 선택 시 + 로 결합)</div>
         <div class="checkbox-group">
           <label class="checkbox-row"><input type="checkbox" name="tech_T2.1" checked> T2.1 (가짜 취약 버전 — FAKE_SHELL 전제조건)</label>
-          <label class="checkbox-row"><input type="checkbox" name="tech_T2.2"> T2.2 (관심 유도)</label>
-          <label class="checkbox-row"><input type="checkbox" name="tech_T4.2-bare"> T4.2-bare (passive 개발자 메모)</label>
+          <label class="checkbox-row"><input type="checkbox" name="tech_MIGRATION_TRACES"> MIGRATION_TRACES (마이그레이션 중 남은 흔적 — 가짜 관리 브리지 + HTML 개발자 메모)</label>
         </div>
         <label>직접 입력(위 체크박스와 +로 결합됨) <input name="ACTIVE_TECHNIQUE_EXTRA" placeholder="예: T2.1"></label>
+      </div>
+
+      <div class="form-section">
+        <div class="section-label">대상 서버 프로필 (T2.1 미끼·FAKE_SHELL 이 "어떤 서버인 척하는가")</div>
+        <div class="form-grid" style="grid-template-columns: repeat(2, 1fr);">
+          <label>TARGET_PRESET
+            <select name="TARGET_PRESET">__TARGET_PRESET_OPTIONS__</select>
+          </label>
+          <label>TARGET_PROFILE (덮어쓸 필드 JSON 경로, 선택 — <code>setup_profile.py</code> 로 생성)
+            <input name="TARGET_PROFILE" placeholder="예: ./target_profile.json">
+          </label>
+        </div>
       </div>
 
       <div class="form-section">
@@ -819,6 +854,21 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
           </label>
           <label>FAKE_SHELL_RETRIES <input name="FAKE_SHELL_RETRIES" type="number" value="0"></label>
         </div>
+      </div>
+
+      <div class="form-section">
+        <div class="section-label">AMBIG_TRAP (애매한 공격자 판정 — 가짜셸/미로 신호를 재사용한 최종 차단·해제)</div>
+        <div class="checkbox-group">
+          <label class="checkbox-row"><input type="checkbox" name="AMBIG_TRAP"> AMBIG_TRAP 켜기 (위 FAKE_SHELL/DECOY_MAZE+ADAPTIVE_TRAP 도 같이 켜야 실제로 신호가 잡힘)</label>
+        </div>
+        <label>AMBIG_RELEASE_MIN (아무것도 안 걸렸을 때 풀어주기까지, 분)
+          <select name="AMBIG_RELEASE_MIN">
+            <option value="5">5분</option>
+            <option value="10" selected>10분</option>
+            <option value="30">30분</option>
+            <option value="60">60분</option>
+          </select>
+        </label>
       </div>
 
       <div class="form-section">
@@ -856,7 +906,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     <h2>요청 타임라인</h2>
     <div class="legend">
       <span><span class="swatch" style="background:var(--series-normal)"></span>일반</span>
-      <span><span class="swatch" style="background:var(--series-decoy)"></span>미끼 접촉(Cloak)</span>
+      <span><span class="swatch" style="background:var(--series-decoy)"></span>미끼 접촉(Cloak/미로)</span>
       <span><span class="swatch" style="background:var(--series-rce)"></span>FAKE_SHELL / post-RCE</span>
     </div>
     <div id="timeline"></div>
@@ -872,7 +922,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     <h2>최근 요청 로그</h2>
     <div class="log-scroll">
       <table>
-        <thead><tr><th>시각</th><th>method</th><th>path</th><th>status</th><th>defense_action</th></tr></thead>
+        <thead><tr><th>시각</th><th>method</th><th>path</th><th>status</th><th>defense_action</th><th>client_id</th></tr></thead>
         <tbody id="logBody"></tbody>
       </table>
     </div>
@@ -928,7 +978,7 @@ document.getElementById('proxyForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   const techs = [];
-  ['T2.1', 'T2.2', 'T4.2-bare'].forEach(t => {
+  ['T2.1', 'MIGRATION_TRACES'].forEach(t => {
     if (f.querySelector(`[name="tech_${t}"]`).checked) techs.push(t);
   });
   const extra = f.ACTIVE_TECHNIQUE_EXTRA.value.trim();
@@ -938,14 +988,16 @@ document.getElementById('proxyForm').addEventListener('submit', async (e) => {
     REAL_BACKEND: f.REAL_BACKEND.value.trim(),
     PORT: parseInt(f.PORT.value, 10),
     DEFENSE_MODE: f.DEFENSE_MODE.value,
-    DEFENSE_ACTION: f.DEFENSE_ACTION.value,
-    DELAY_MS: f.DELAY_MS.value,
     ACTIVE_TECHNIQUE: techs.join('+'),
     DECOY_MAZE: f.DECOY_MAZE.checked,
     ADAPTIVE_TRAP: f.ADAPTIVE_TRAP.checked,
     FAKE_SHELL: f.FAKE_SHELL.checked,
     POST_RCE_ACTION: f.POST_RCE_ACTION.value,
     FAKE_SHELL_RETRIES: f.FAKE_SHELL_RETRIES.value,
+    AMBIG_TRAP: f.AMBIG_TRAP.checked,
+    AMBIG_RELEASE_MIN: f.AMBIG_RELEASE_MIN.value,
+    TARGET_PRESET: f.TARGET_PRESET.value,
+    TARGET_PROFILE: f.TARGET_PROFILE.value.trim(),
     EXPERIMENT_RUN: f.EXPERIMENT_RUN.value.trim(),
     EXTRA_ENV: f.EXTRA_ENV.value,
   };
@@ -1008,7 +1060,7 @@ async function refresh() {
 
     document.getElementById('runMeta').innerHTML =
       `<b>run</b>=${summary.run ?? '-'} &nbsp; <b>DEFENSE_MODE</b>=${summary.mode ?? '-'} &nbsp; ` +
-      `<b>ACTIVE_TECHNIQUE</b>=${summary.technique ?? '-'} &nbsp; <b>DEFENSE_ACTION</b>=${summary.action ?? '-'} &nbsp; ` +
+      `<b>ACTIVE_TECHNIQUE</b>=${summary.technique ?? '-'} &nbsp; ` +
       `<b>경과</b>=${summary.duration_s ?? 0}s`;
 
     const escBadge = summary.escalated
@@ -1023,8 +1075,7 @@ async function refresh() {
       <div class="kpi"><div class="label">미끼 접촉 (decoy_hits)</div><div class="value">${summary.decoy_hits}</div>
         <div class="sub">${summary.total_requests ? (100*summary.decoy_hits/summary.total_requests).toFixed(1) : 0}% of 전체</div></div>
       <div class="kpi"><div class="label">에스컬레이션 (ADAPTIVE_TRAP)</div><div class="value" style="font-size:15px">${escBadge}</div></div>
-      <div class="kpi"><div class="label">FAKE_SHELL 진입</div><div class="value" style="font-size:15px">${shellBadge}</div></div>
-    `;
+      <div class="kpi"><div class="label">FAKE_SHELL 진입</div><div class="value" style="font-size:15px">${shellBadge}</div></div>    `;
 
     // timeline
     const tl = document.getElementById('timeline');
@@ -1062,8 +1113,9 @@ async function refresh() {
         <td class="path" title="${r.path}">${r.path}</td>
         <td class="${statusClass(r.status)}">${r.status}</td>
         <td><span class="badge ${r.category}">${r.action}</span></td>
+        <td class="path" title="${r.client_id}">${r.client_id || '-'}</td>
       </tr>
-    `).join('') || '<tr><td colspan="5" class="meta">아직 요청 없음</td></tr>';
+    `).join('') || '<tr><td colspan="6" class="meta">아직 요청 없음</td></tr>';
 
     document.getElementById('lastUpdated').textContent = '갱신: ' + new Date().toLocaleTimeString('ko-KR');
   } catch (e) {

@@ -15,6 +15,7 @@ from .dashboard_auth import (
     LoginRateLimitedError,
 )
 from .monitoring import event_store
+from .overlay_routing import OVERLAY_NAMES
 from .strategies.registry import STRATEGY_REGISTRY
 from . import target_selection
 from .target_selection import TargetSelectionError
@@ -60,7 +61,9 @@ router = APIRouter(dependencies=[Depends(require_dashboard_enabled)])
 
 def _dashboard_config() -> dict:
     config = {
-        "availableStrategies": sorted(STRATEGY_REGISTRY),
+        "availableStrategies": sorted(set(STRATEGY_REGISTRY) | (
+            OVERLAY_NAMES if os.getenv("OVERLAY_UPSTREAM_CHOICES") else set()
+        )),
         "authenticationEnabled": auth_manager.enabled,
         "eventLimit": event_store.max_events,
     }

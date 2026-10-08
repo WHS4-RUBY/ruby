@@ -2,63 +2,48 @@
   "defense": {
     "rules": [
       {
-        "min_score": 0.0,
-        "max_score": 0.2,
-        "strategies": []
-      },
-      {
-        "min_score": 0.2,
-        "max_score": 0.5,
+        "tier": "confirmed",
+        "description": "확정 공격과 위험 점수가 모두 0.95 이상이면 요청 제한과 높은 계정 오버레이를 적용한다",
+        "min_score": 0.95,
+        "max_score": 1.01,
+        "min_confirmed_attack_score": 0.95,
+        "max_confirmed_attack_score": 1.01,
         "strategies": [
-          {
-            "name": "delay",
-            "params": {
-              "delay_ms": 200
-            }
-          }
+          { "name": "rate_limit_strict", "params": { "max_rps": 1 } },
+          { "name": "account_overlay_high", "params": {} }
         ]
       },
       {
-        "min_score": 0.5,
-        "max_score": 0.8,
-        "strategies": [
-          {
-            "name": "delay",
-            "params": {
-              "delay_ms": 300
-            }
-          }
-        ]
-      },
-      {
+        "tier": "confirmed",
+        "description": "확정 공격과 위험 점수가 모두 0.8 이상이면 요청 제한과 미끼를 적용한다",
         "min_score": 0.8,
         "max_score": 1.01,
         "min_confirmed_attack_score": 0.8,
+        "max_confirmed_attack_score": 0.95,
         "strategies": [
-          {
-            "name": "rate_limit_strict",
-            "params": {
-              "max_rps": 1
-            }
-          },
-          {
-            "name": "delay",
-            "params": {
-              "delay_ms": 500
-            }
-          }
+          { "name": "rate_limit_strict", "params": { "max_rps": 1 } },
+          { "name": "decoy_maze", "params": {} }
         ]
       },
       {
+        "tier": "confirmed",
+        "description": "확정 공격과 위험 점수가 모두 0.5 이상이면 중간 계정 오버레이를 적용한다",
+        "min_score": 0.5,
+        "max_score": 1.01,
+        "min_confirmed_attack_score": 0.5,
+        "max_confirmed_attack_score": 0.8,
+        "strategies": [
+          { "name": "account_overlay_medium", "params": {} }
+        ]
+      },
+      {
+        "tier": "suspected",
+        "description": "확정 공격 점수는 0.5 미만이지만 후보·흐름의 위험 점수가 0.8 이상이면 차단 없이 미끼만 적용한다",
         "min_score": 0.8,
         "max_score": 1.01,
+        "max_confirmed_attack_score": 0.5,
         "strategies": [
-          {
-            "name": "delay",
-            "params": {
-              "delay_ms": 500
-            }
-          }
+          { "name": "decoy_maze", "params": {} }
         ]
       }
     ]

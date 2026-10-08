@@ -3,7 +3,7 @@ const test = require("node:test");
 
 const { extractStreamFeatures } = require("../lib/featureExtractor");
 const { classify, AUTOMATION_WEIGHTS, ATTACK_WEIGHTS } = require("../lib/classifier");
-const { loadPolicyRules, selectStrategies } = require("../lib/policyEngine");
+const { loadPolicyRules, selectRule, selectStrategies } = require("../lib/policyEngine");
 const { classifyBackgroundTraffic } = require("../lib/backgroundTraffic");
 
 const telemetry = {
@@ -162,7 +162,9 @@ test("64건 반복 공격 + 독립 증거가 실제 0.8 정책 구간에 도달�
   const score = result.attackScore;
   assert.ok(score >= 0.8);
   const plan = selectStrategies(score, loadPolicyRules(), { confirmedAttackScore: score });
-  assert.deepEqual(plan.map((step) => step.name), ["rate_limit_strict", "delay"]);
+  assert.deepEqual(plan.map((step) => step.name), score >= 0.95
+    ? ["rate_limit_strict", "account_overlay_high"]
+    : ["rate_limit_strict", "decoy_maze"]);
 });
 
 test("Automation Honey는 trap, no-asset, 조건부 coverage를 합쳐 최대 35점을 반영한다", () => {
@@ -267,4 +269,52 @@ test("Socket.IO polling은 Automation 행동 Feature를 바꾸지 않고 원본�
   assert.equal(withPolling.attack.payloadSignatureHits, 1);
   assert.equal(withPolling.attack.crsRuleHits, 1);
   assert.deepEqual(withPolling.attack.matchedRuleIds, ["941100"]);
+});
+
+test("단일 신호로는 0.8에 못 미치고, 인젝션·XSS·경로 탐색·미끼를 합쳐야 방어 단계에 닿는다", () => {
+  const telemetryless = {
+    mouseMoveCount: 0, scrollCount: 0, routeChangeCount: 0,
+    domEventTypes: new Set(), pageLoads: 0, currentUrl: null, lastTelemetryAt: null,
+  };
+  const build = ({ tags = [], xss = false, deceptionHistory = null }) => {
+    const requests = Array.from({ length: 64 }, (_, index) => ({
+      ts: index * 1000, method: "GET", url: `/api/target/${index}`,
+      normalizedPath: "/api/target/:id", operation: "GET /api/target/:id", status: 404,
+      tags, blTags: [],
+      xssTags: xss ? ["xss:reflected-critical"] : [], xssMaxRisk: xss ? 100 : 0,
+    }));
+    return classify(extractStreamFeatures({ requests, headerSample: { "user-agent": "curl/8.0" },
+      fingerprint: "combined-signal", userAgent: "curl/8.0", telemetry: telemetryless,
+      firstSeen: 0, lastSeen: 63_000, sessionChurn: 1, deceptionHistory }));
+  };
+  const honey = {
+    distinctSignals: ["watermark_reuse", "trap_trigger", "script_hint_access", "no_asset_loading"],
+    signalCounts: { watermark_reuse: 2, trap_trigger: 3, script_hint_access: 1, no_asset_loading: 1 },
+    recentUniqueApiPaths: 20, coverageEligible: true,
+  };
+  const rules = loadPolicyRules();
+  const tierFor = (score, { confirmed = 0 } = {}) =>
+    selectRule(score, rules, { confirmedAttackScore: confirmed })?.tier ?? null;
+
+  const injectionOnly = build({ tags: ["sqli"] });
+  assert.ok(injectionOnly.attackScore < 0.8);
+  assert.equal(tierFor(injectionOnly.attackScore), null);
+
+  const payloadsOnly = build({ tags: ["sqli", "path-traversal", "command-injection"], xss: true });
+  assert.ok(payloadsOnly.attackScore > injectionOnly.attackScore);
+  assert.ok(payloadsOnly.attackScore < 0.8, "서명 기반 신호만으로는 방어 경계에 닿지 않는다");
+
+  const withHoney = build({ tags: ["sqli", "path-traversal", "command-injection"], xss: true,
+    deceptionHistory: honey });
+  assert.ok(withHoney.attackScore >= 0.8, `combined attack score=${withHoney.attackScore}`);
+
+  // 같은 점수라도 확정 공격 점수(검증된 DCID의 Resolved Actor)가 있어야 429 단계에 닿는다.
+  assert.equal(tierFor(withHoney.attackScore), "suspected");
+  assert.deepEqual(selectStrategies(withHoney.attackScore, rules).map((step) => step.name),
+    ["decoy_maze"]);
+  assert.equal(tierFor(withHoney.attackScore, { confirmed: withHoney.attackScore }), "confirmed");
+  assert.deepEqual(
+    selectStrategies(withHoney.attackScore, rules, { confirmedAttackScore: withHoney.attackScore })
+      .map((step) => step.name),
+    ["rate_limit_strict", "decoy_maze"]);
 });

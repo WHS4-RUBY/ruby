@@ -23,7 +23,15 @@ jobs:
       packages: write
     strategy:
       matrix:
-        service: [detection, defense]
+        include:
+          - service: detection
+            context: ./detection
+          - service: defense
+            context: ./defense
+          - service: decoy-sidecar
+            context: ./defense/CHeat-defense-proxy/defense_proxy_v2
+          - service: account-response-overlay
+            context: ./defense/account-response-overlay
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,7 +50,7 @@ jobs:
       - name: Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v6
         with:
-          context: ./${{ matrix.service }}
+          context: ${{ matrix.context }}
           push: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
@@ -62,13 +70,16 @@ jobs:
       - name: Set image prefix (lowercase)
         run: echo "IMAGE_PREFIX=${REGISTRY}/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
-      - name: Copy compose file to server
+      - name: Prepare candidate compose file
+        run: cp docker-compose.yml docker-compose.candidate.yml
+
+      - name: Copy candidate compose file to server
         uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: docker-compose.yml
+          source: docker-compose.candidate.yml
           target: ~/ruby
 
       - name: Deploy via SSH
@@ -112,19 +123,47 @@ jobs:
               fi
             done
 
+            # Reuse the existing deployment secret only as key material. The
+            # overlay receives a distinct, domain-separated detector key.
+            OVERLAY_DETECTOR_KEY="$(python3 -c 'import hashlib,hmac,os; print(hmac.new(os.environ["DCID_HMAC_SECRET"].encode(), b"ruby:account-overlay:detector:v1", hashlib.sha256).hexdigest())')"
+            export OVERLAY_DETECTOR_KEY
             export IMAGE_PREFIX IMAGE_TAG
             PREVIOUS_TAG="$(cat .deployed-image-tag 2>/dev/null || true)"
             rollback() {
-              if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "$IMAGE_TAG" ]; then
+              trap - ERR
+              if [ -n "$PREVIOUS_TAG" ] && [ -f docker-compose.yml ]; then
                 echo "Deployment failed; rolling back to $PREVIOUS_TAG" >&2
                 export IMAGE_TAG="$PREVIOUS_TAG"
-                docker compose -f docker-compose.yml up -d --wait --wait-timeout 120
+                docker compose -f docker-compose.yml up -d --remove-orphans --wait --wait-timeout 120
               fi
             }
             trap rollback ERR
 
-            docker compose -f docker-compose.yml pull
-            docker compose -f docker-compose.yml up -d --wait --wait-timeout 120
+            docker compose -f docker-compose.candidate.yml pull
+            docker compose -f docker-compose.candidate.yml up -d --wait --wait-timeout 120
+
+            # Verify both target-specific overlays with a private signed GET.
+            # This does not change the selected public target or expose a port.
+            docker compose -f docker-compose.candidate.yml exec -T defense python - <<'PY'
+            import asyncio
+            import os
+            import httpx
+            from app.overlay_routing import signed_headers
+
+            async def main():
+                secret = os.environ['OVERLAY_DETECTOR_KEY'].encode('utf-8')
+                async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+                    for target, origin in (
+                        ('juice', 'http://overlay-juice:8080'),
+                        ('ruby', 'http://overlay-ruby:8080'),
+                    ):
+                        headers = signed_headers(secret, f'deploy-smoke-{target}', 'GET', '/', b'', tier='medium')
+                        response = await client.get(origin + '/', headers=headers)
+                        if response.status_code != 200 or '/assets/account-recovery.js' not in response.text:
+                            raise SystemExit(f'{target} account overlay smoke failed: {response.status_code}')
+
+            asyncio.run(main())
+            PY
 
             DETECTION_COOKIES="$(mktemp)"
             DEFENSE_COOKIES="$(mktemp)"
@@ -148,5 +187,6 @@ jobs:
               http://127.0.0.1:8088/__defense/api/snapshot >/dev/null
             curl --fail --silent --show-error http://127.0.0.1/ >/dev/null
 
+            mv -f docker-compose.candidate.yml docker-compose.yml
             printf '%s\n' "$IMAGE_TAG" > .deployed-image-tag
             trap - ERR

@@ -311,7 +311,8 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(response.headers["cache-control"], "public, max-age=300")
         self.assertEqual(response.headers["x-app"], "unchanged")
         self.assertEqual(self.calls[0]["headers"]["X-Defense-Applied"], "delay")
-        self.assertEqual(self.calls[0]["headers"]["X-Defense-Delay-Ms"], "200")
+        # Current main forwards only the trusted applied marker to the target.
+        self.assertNotIn("X-Defense-Delay-Ms", self.calls[0]["headers"])
         self.emitted.assert_not_called()
 
     def test_page_preserves_multiple_backend_cookies_and_replaces_all_cache_headers(self):

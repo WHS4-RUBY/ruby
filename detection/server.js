@@ -63,7 +63,8 @@ const {
 } = require("./lib/priceIntegrity");
 const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
-const { applyDefensePlan, loadPolicyRules } = require("./lib/policyEngine");
+const { applyDefenseRule, loadPolicyRules } = require("./lib/policyEngine");
+const { createRunScopedPolicyAnalyzer } = require("./lib/runScopedPolicy");
 const { createProxyCore, fixRequestBody } = require("./lib/proxyCore");
 const { loadInspectionConfig, createRequestInspection, replayInspectedBody } = require("./lib/requestInspection");
 const {
@@ -141,6 +142,7 @@ const deceptionEngine = new DeceptionEngine({ enabled: process.env.DECEPTION_ENA
 const dcidManager = new DcidManager();
 const accountIdentityResolver = new AccountIdentityResolver();
 const policyRules = loadPolicyRules();
+const runPolicy = createRunScopedPolicyAnalyzer({ level: DETECTION_LEVEL });
 
 function positiveInt(name, fallback) {
   const value = Number.parseInt(process.env[name] || "", 10);
@@ -296,7 +298,6 @@ function buildPriorPolicyDecision(req) {
 
   const session = store.getSession(req.detectionSessionId);
   const actor = store.getActor(actorId);
-  const authGroup = req.authGroupId ? store.getAuthGroup(req.authGroupId) : null;
   const verifiedClientId = req.clientIdentity?.valid && req.clientIdentity?.continuityVerified
     ? req.clientIdentity.clientId : null;
   const resolvedActor = verifiedClientId
@@ -304,7 +305,14 @@ function buildPriorPolicyDecision(req) {
   // 전체 집계는 멤버 세션의 요청을 모두 훑고 정렬하므로 요청 수에 대해 제곱으로
   // 커진다. 실제로 Flow가 병합된 경우에만 계산하고, 그 외에는 O(1) 상태만 본다.
   const clientFlowState = store.getClientFlowState(actorId);
-  const clientFlow = clientFlowState?.aggregationEnabled
+  // 대시보드 묶음 표시용 관찰 단위. 탐지 화면과 같이 연결된 Flow(또는 충돌 Flow)만
+  // 흐름으로 넘기고, 나머지는 Candidate 단독 관찰로 둔다. 정책 점수에는 쓰지 않는다.
+  const observation = {
+    candidateId: actorId,
+    clientFlowId: clientFlowState?.flowLinked || clientFlowState?.status === "CONFLICT"
+      ? clientFlowState.id : null,
+  };
+  const clientFlow = !verifiedClientId && clientFlowState?.aggregationEnabled
     ? store.getClientFlowAggregate(actorId)
     : null;
 
@@ -312,33 +320,47 @@ function buildPriorPolicyDecision(req) {
   // 현재 클라이언트의 확정 근거로 사용하지 않는다.
   const sessionOwned = verifiedClientId && session &&
     session.requests.at(-1)?.clientId === verifiedClientId;
-  const analyses = {
-    session: sessionOwned ? analyzeSession(session) : null,
-    candidate: actor && clientFlowState?.status !== "CONFLICT" ? analyzeActor(actor) : null,
-    authGroup: authGroup ? analyzeAuthGroup(authGroup) : null,
-    clientFlow: clientFlow ? analyzeClientFlow(clientFlow) : null,
-    resolved: resolvedActor ? analyzeResolvedActor(resolvedActor) : null,
+  const runScope = {
+    targetId: req.activeTarget.targetId,
+    runId: req.activeTarget.runId,
   };
-  // Every HTTP request receives a fresh signed DCID when one is absent. A
-  // different client's shared curl/NAT fingerprint must not become this
-  // client's policy score, including a 500ms delay on a normal request.
-  const policyAnalyses = req.clientIdentity?.valid
+  const scoped = (source, entity) => entity
+    ? runPolicy.analyze({ ...runScope, source, entity }) : null;
+  const analyses = {
+    session: sessionOwned ? scoped("session", session) : null,
+    candidate: !verifiedClientId && actor && clientFlowState?.status !== "CONFLICT"
+      ? scoped("candidate", actor) : null,
+    authGroup: null,
+    clientFlow: scoped("clientFlow", clientFlow),
+    resolved: scoped("resolved", resolvedActor),
+  };
+  // 서명 dcid를 돌려준 클라이언트는 자기 세션·Resolved Actor 이력만 쓴다. 같은
+  // curl/NAT 지문을 쓰는 다른 클라이언트의 점수가 이 클라이언트의 방어를 일으키면 안 된다.
+  //
+  // dcid를 돌려주지 않는 요청은 매번 새 dcid를 받으므로 서명 ID로는 이어 볼 수 없다.
+  // 이때는 쿠키와 무관한 같은 IP·HTTP 지문의 Candidate와, 한 IP 안에서만 이어진 Client
+  // Flow 이력으로 판단한다. 세션만 바꿔 가며 보내는 공격이 매번 이력 없음으로 통과하지
+  // 않게 하기 위해서다. 쿠키가 없다는 사실 자체는 점수에 더하거나 빼지 않으며,
+  // 확정 공격 점수(Resolved Actor 전용)가 없으므로 policy.json의 약한 단계까지만 닿는다.
+  const singleIpFlow = analyses.clientFlow && analyses.clientFlow.observedIps.length <= 1;
+  const policyAnalyses = verifiedClientId
     ? { session: analyses.session, resolved: analyses.resolved }
-    : analyses;
+    : { candidate: analyses.candidate, clientFlow: singleIpFlow ? analyses.clientFlow : null };
+  // 방어 상태(속도 제한 카운터 등)의 키. 쿠키 미반환 요청은 요청마다 새로 받는 dcid 대신
+  // Candidate/Flow로 고정해야 상태가 요청마다 쪼개지지 않는다.
+  const clientId = verifiedClientId || selectClientId(policyAnalyses, {
+    actorId,
+    clientFlowId: clientFlowState?.id,
+  });
   if (!Object.values(policyAnalyses).some(Boolean)) {
-    return buildPolicyDecision({ clientId: req.clientIdentity?.valid ? req.clientIdentity.clientId : actorId });
+    return { ...buildPolicyDecision({ clientId }), observation };
   }
 
   const [source, analysis] = selectEffectiveDetection(policyAnalyses);
-  const clientId = (req.clientIdentity?.valid && req.clientIdentity.clientId) || selectClientId(analyses, {
-    actorId,
-    resolvedActorId: resolvedActor?.id,
-    clientFlowId: clientFlowState?.id,
-  });
   // Candidate/Flow fingerprint와 Bearer 값의 hash는 신원 검증이 아니다.
   // 자동 429에는 같은 signed dcid로 묶인 확정 Resolved Actor만 사용한다.
-  return buildPolicyDecision({ source, analysis, clientId,
-    confirmedAttackScore: confirmedAttackScore(analyses) });
+  return { ...buildPolicyDecision({ source, analysis, clientId,
+    confirmedAttackScore: confirmedAttackScore(analyses) }), observation };
 }
 
 function computeBusinessLogicTags(req) {
@@ -683,6 +705,8 @@ function recordCompletedRequest(req, {
       attackScore: req.rubyPolicyDecision.attackScore,
       confirmedAttackScore: req.rubyPolicyDecision.confirmedAttackScore,
       riskScore: req.rubyPolicyDecision.riskScore,
+      tier: req.rubyPolicyDecision.tier || null,
+      clientId: req.rubyPolicyDecision.clientId,
       strategies: (req.rubyPolicyDecision.plan || []).map((step) => step.name),
     } : null,
     defenseSignal: req.defenseSignal || null,
@@ -744,6 +768,20 @@ function recordCompletedRequest(req, {
     automationDetected: Boolean(effectiveDetectionAnalysis.detection?.automationDetected),
     attackDetected: Boolean(effectiveDetectionAnalysis.detection?.attackDetected),
   });
+  // 정책 점수는 대시보드의 전체 이력과 별개로 현재 대상 실행의 완료된 요청만
+  // 집계한다. 대상 전환 직후 이전 실행의 고점이 방어를 즉시 켜지 않도록 한다.
+  const runScope = {
+    targetId: req.activeTarget.targetId,
+    runId: req.activeTarget.runId,
+  };
+  for (const [source, entity] of [
+    ["session", session], ["candidate", actor],
+    ["clientFlow", clientFlowState?.aggregationEnabled
+      ? store.getClientFlowAggregate(clientFlowId) : null],
+    ["resolved", resolvedActor],
+  ]) {
+    if (entity) runPolicy.analyze({ ...runScope, source, entity });
+  }
   return {
     session,
     sessionAnalysis,
@@ -903,6 +941,20 @@ app.post("/__detection/api/xss/reflected/delete", express.json({ limit: "256kb" 
   const { value } = req.body || {};
   if (!value) return res.status(400).json({ ok: false, error: "value required" });
   res.json({ ok: xssEvidenceStore.removeReflected(value) });
+});
+// 후보(candidate)는 value 하나에 작성요청별로 여러 key가 있을 수 있어 모두 제거한다.
+app.post("/__detection/api/xss/candidates/delete", express.json({ limit: "256kb" }), (req, res) => {
+  const { value } = req.body || {};
+  if (!value) return res.status(400).json({ ok: false, error: "value required" });
+  let removed = 0;
+  try {
+    for (const c of xssCandidateStore.all() || []) {
+      if (c.value === value && typeof c.candidateKey === "string" && xssCandidateStore.delete(c.candidateKey)) {
+        removed += 1;
+      }
+    }
+  } catch (_) {}
+  res.json({ ok: removed > 0, removed });
 });
 
 app.get("/__detection/api/sessions", (req, res) => {
@@ -1355,20 +1407,25 @@ function forwardPolicyDecision(proxyReq, req) {
   req.activeTarget ||= targetSelection.read();
   req.rubyPolicyDecision = buildPriorPolicyDecision(req);
   stripDetectionHeaders(proxyReq);
-  const plan = applyDefensePlan(proxyReq, {
+  const { plan, tier } = applyDefenseRule(proxyReq, {
     riskScore: req.rubyPolicyDecision.riskScore,
     confirmedAttackScore: req.rubyPolicyDecision.confirmedAttackScore,
     rules: policyRules,
   });
   req.rubyPolicyDecision.plan = plan;
+  req.rubyPolicyDecision.tier = tier;
   proxyReq.setHeader("X-Client-Id", req.rubyPolicyDecision.clientId);
   proxyReq.setHeader("X-Ruby-Request-Id", req.rubyRequestId);
   proxyReq.setHeader("X-Ruby-Automation-Score", String(req.rubyPolicyDecision.automationScore));
   proxyReq.setHeader("X-Ruby-Attack-Score", String(req.rubyPolicyDecision.attackScore));
+  proxyReq.setHeader("X-Ruby-Confirmed-Attack-Score", String(req.rubyPolicyDecision.confirmedAttackScore));
   proxyReq.setHeader("X-Ruby-Risk-Score", String(req.rubyPolicyDecision.riskScore));
   proxyReq.setHeader("X-Ruby-Policy-Source", req.rubyPolicyDecision.source);
   proxyReq.setHeader("X-Ruby-Target-Id", req.activeTarget.targetId);
   proxyReq.setHeader("X-Ruby-Run-Id", req.activeTarget.runId);
+  const { candidateId, clientFlowId } = req.rubyPolicyDecision.observation || {};
+  if (candidateId) proxyReq.setHeader("X-Ruby-Candidate-Id", candidateId);
+  if (clientFlowId) proxyReq.setHeader("X-Ruby-Client-Flow-Id", clientFlowId);
 }
 
 function upgradeCookie(req, name) {
@@ -1395,7 +1452,7 @@ const detectionHook = {
 
   onRequest({ proxyReq, req }) {
     // RUBY Policy 계약: 외부 입력을 제거하고, 완료된 탐지 이력에서 계산한
-    // 0~1 risk score와 가명 client id만 내부 헤더로 전달한다.
+    // 0~1 정책 점수와 확정 공격 점수, 가명 client id를 내부 헤더로 전달한다.
     forwardPolicyDecision(proxyReq, req);
     // Ground truth용 헤더는 탐지 프록시에서 소비하고 RUBY Policy에는 전달하지 않는다.
     proxyReq.removeHeader(EXPERIMENT_RUN_HEADER);

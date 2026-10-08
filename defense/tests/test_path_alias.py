@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -541,6 +543,77 @@ class IntegrationTests(unittest.TestCase):
             response = self.client.get(alias + "?q=a%20b")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.calls[-1]["url"], "http://alternate:8080/rest/products/search?q=a%20b")
+
+    def test_restored_alias_reaches_decoy_sidecar_with_raw_query(self):
+        self.client.cookies.set(pa.COOKIE_NAME, ALICE)
+        alias = self.table.current_aliases(NOW, ALICE)["/rest/products/search"]
+        selected = main.target_selection.SelectedTarget(
+            "juice-shop", "http://juice-shop-target:3000", "run", "now")
+        raw_query = "next=%2Fapi%2FProducts%2F1&empty=&flag"
+        with patch.object(main.target_selection.target_selector, "for_request", return_value=selected), patch.object(
+                main, "DECOY_UPSTREAMS", {"juice-shop": "http://cheat-juice:3012"}), patch.object(
+                main, "OVERLAY_UPSTREAMS", {}):
+            response = self.client.get(alias + "?" + raw_query)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.calls[-1]["url"],
+                         "http://cheat-juice:3012/rest/products/search?" + raw_query)
+        self.assertEqual(self.logs()[-1]["route_id"], "/rest/products/search")
+
+    def test_restored_alias_reaches_overlay_with_signed_raw_target(self):
+        key = b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        self.client.cookies.set(pa.COOKIE_NAME, ALICE)
+        alias = self.table.current_aliases(NOW, ALICE)["/rest/user/login"]
+        selected = main.target_selection.SelectedTarget(
+            "juice-shop", "http://juice-shop-target:3000", "run", "now")
+        store = main.OverlayRouteStore.bootstrap(
+            str(Path(self.cfg.db_path).parent / "overlay" / "routes.sqlite3"), key, {"juice-shop"})
+        captured = []
+
+        def backend(request):
+            captured.append(request)
+            return httpx.Response(200, stream=_AsyncBody(b"overlay"))
+
+        upstream = httpx.AsyncClient(transport=httpx.MockTransport(backend))
+        self.addCleanup(lambda: asyncio.run(upstream.aclose()))
+        raw_query = "next=%2Fapi%2FProducts%2F1&empty=&flag"
+        body = b"email=a%40example.invalid"
+        plan = json.dumps([{"name": main.OVERLAY_MEDIUM, "params": {}}])
+        with patch.object(main.app.state, "http_client", upstream), patch.object(
+                main.target_selection.target_selector, "for_request", return_value=selected), patch.object(
+                main, "OVERLAY_UPSTREAMS", {"juice-shop": "http://overlay-juice:8080"}), patch.object(
+                main, "OVERLAY_DETECTOR_KEY", key), patch.object(
+                main.app.state, "overlay_routes", store, create=True):
+            response = self.client.post(alias + "?" + raw_query, content=body, headers={
+                "x-client-id": "resolved:alice",
+                "x-ruby-risk-score": "0.6",
+                "x-ruby-confirmed-attack-score": "0.6",
+                "x-defense-plan": plan,
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(captured), 1)
+        request = captured[0]
+        raw_target = "/rest/user/login?" + raw_query
+        self.assertEqual(request.url.raw_path, raw_target.encode("ascii"))
+        self.assertEqual(request.content, body)
+        signed = request.headers
+        fields = ["agent", signed["x-defense-actor"], signed["x-defense-timestamp"],
+                  signed["x-defense-nonce"], "POST", raw_target,
+                  hashlib.sha256(body).hexdigest()]
+        expected = hmac.new(key, "\n".join(fields).encode(), hashlib.sha256).hexdigest()
+        self.assertEqual(signed["x-defense-signature"], expected)
+        self.assertEqual(self.logs()[-1]["route_id"], "/rest/user/login")
+
+    def test_rewritten_html_strips_forged_defense_headers(self):
+        self.upstream = (200, [("content-type", "text/html"),
+                               ("x-defense-signal", "forged"),
+                               ("x-ruby-decoy-action", "maze")],
+                         b'<script>fetch("/rest/products/search")</script>')
+        page = self.client.get("/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("/__ruby_alias_", page.text)
+        self.assertNotIn("x-defense-signal", page.headers)
+        self.assertNotIn("x-ruby-decoy-action", page.headers)
 
     def test_alias_rewrite_runs_after_response_transform(self):
         from starlette.responses import Response
