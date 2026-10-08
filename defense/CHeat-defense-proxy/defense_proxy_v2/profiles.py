@@ -33,12 +33,15 @@ def _maze_defaults() -> dict:
     entry_path     : Link 헤더·HTML 주석·미로 본문의 "see also" 가 가리키는 입구 문서 경로(paths 에 속해야 함)
     comment_text   : 모든 200 text/html 에 넣는 `<!-- ops: ... -->` 주석 문구
     exclude        : 미로에서 제외할 실제 경로 정규식(예: ^/admin(/|$)). 빈 문자열이면 없음.
+    extra_pattern  : 이 서버 종류에만 있는 입구 이름(`a|b|c` 형태, 앞의 `^/` 없이). 기본 미로 패턴은 서버와 무관한 이름만 갖고,
+                     Apache/PHP/Spring 전용 이름(server-status·phpinfo·.htpasswd·actuator 등)은 그 서버 프리셋만 여기에 둔다.
     """
     return {
         "paths": ["/internal/", "/backup/", "/admin/", "/.git/", "/config/", "/private/"],
         "entry_path": "/internal/ops/runbook",
         "comment_text": "internal tooling & runbooks under /internal/ops/ (staging mirror)",
         "exclude": "",
+        "extra_pattern": "",
     }
 
 
@@ -77,7 +80,8 @@ PRESETS: dict[str, dict] = {
         "description": "Apache 2.4.49 + PHP — CVE-2021-41773(path traversal → RCE) 미끼. "
                        "지금까지의 모든 실험(Juice Shop 포함)이 쓴 기본 세트.",
         "family": ["apache", "php"],
-        "maze": _maze_defaults(),
+        "maze": {**_maze_defaults(),
+                 "extra_pattern": r"\.htpasswd|actuator|server-status|server-info|phpinfo"},
         "migration": _migration_defaults(),
         "web": {
             "server_banner": "Apache/2.4.49 (Unix)",

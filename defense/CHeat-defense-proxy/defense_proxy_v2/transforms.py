@@ -424,15 +424,17 @@ def _deep_merge(dst, src):
 # 입구 경로(robots 로 광고하는 경로)는 아래 build_maze_pattern() 이 여기에 합쳐 "광고한 경로는 반드시
 # 미로"가 되도록 한다.
 MAZE_DEFAULT_PATTERN = (
-    r"^/(\.(git|env|svn|aws|ssh|htpasswd)|_?internal|admin|backup|backups|config|configs|"
-    r"debug|private|secret|secrets|credentials|dump|db|database|actuator|management|"
-    r"api/v[0-9]+/internal|server-status|server-info|phpinfo|\.well-known/security|"
+    r"^/(\.(git|env|svn|aws|ssh)|_?internal|admin|backup|backups|config|configs|"
+    r"debug|private|secret|secrets|credentials|dump|db|database|management|"
+    r"api/v[0-9]+/internal|\.well-known/security|"
     r"[\w.\-/]+\.(bak|old|orig|sql|ya?ml|env|ini|log|pem|key|json\.bak))"
     r"($|/|\?|\.)")
 
 
-def build_maze_pattern(paths: list) -> str:
+def build_maze_pattern(paths: list, server_extra: str = "") -> str:
     """기본 패턴 + ``paths``(robots 로 광고하는 입구)에서 기본 패턴이 못 잡는 것만 추가한 정규식 문자열.
+    ``server_extra`` 는 프로필(maze.extra_pattern)의 서버 전용 입구 이름 — `a|b|c` 형태(앞의 `^/`·뒤의 경계는 여기서 붙인다).
+    기본 패턴은 서버 종류와 무관한 이름만 갖고, Apache/PHP/Spring 전용 이름은 그 서버 프리셋만 쓴다.
 
     예전엔 robots 에 광고하는 목록(MAZE_ROBOTS_DISALLOW)과 미로 판정 정규식(MAZE_PATTERN)이 따로여서
     한쪽만 바꾸면 "robots 가 알려준 경로가 실제로는 진짜 404" 가 됐다(에이전트가 미끼를 따라갔다가 평범한
@@ -443,9 +445,12 @@ def build_maze_pattern(paths: list) -> str:
         pp = "/" + p.strip().strip("/")
         if pp != "/" and not base.match(pp):
             extra.append(re.escape(pp))
-    if not extra:
-        return MAZE_DEFAULT_PATTERN
-    return MAZE_DEFAULT_PATTERN + "|^(?:" + "|".join(extra) + r")($|/|\?|\.)"
+    out = MAZE_DEFAULT_PATTERN
+    if extra:
+        out += "|^(?:" + "|".join(extra) + r")($|/|\?|\.)"
+    if server_extra:
+        out += r"|^/(?:" + server_extra + r")($|/|\?|\.)"
+    return out
 
 
 _MAZE_SUBDIRS = ("archive", "old", "backup", "config", "logs", "db", "keys",
@@ -476,6 +481,13 @@ def _seed(s: str) -> int:
     return int(hashlib.md5(s.encode("utf-8")).hexdigest()[:12], 16)
 
 
+def _server_info_lines(version: str) -> list:
+    """/server-status·/version 류 미로 응답의 서버 정보 줄. 서버 종류와 무관하다 — 배너만 프로필에서 오고, Apache 전용
+    항목(MPM·빌드 날짜 등)은 넣지 않는다(예전엔 nginx 배너 옆에도 Apache 전용 줄이 그대로 나왔다)."""
+    return [f"server_version: {version}", f"httpServer: {version}",
+            "# security patch rollout pending (ops ticket OPS-4471)"]
+
+
 def maze_response(path: str, hit_count: int, kb: int, profiles: set,
                   n_links: int = 5, version: str = "Apache/2.4.49 (Unix)") -> bytes:
     """404 경로에 서빙할 가짜 응답 본문 (path 시드로 결정적 — 재방문 시 동일)."""
@@ -483,41 +495,40 @@ def maze_response(path: str, hit_count: int, kb: int, profiles: set,
     p = "/" + path.strip("/")
     parent = p.rsplit("/", 1)[0] or "/"
     stem = p.rstrip("/")
+    base = parent.rstrip("/")          # parent 가 "/" 이면 "" — `{base}/x` 가 `//x` 가 되지 않게
+    owner = (PROFILE.get("shell") or {}).get("user", "deploy")   # 목록 소유자 = 가짜 셸 세계의 웹 사용자
     is_file = bool(re.search(r"\.[a-z0-9]{1,6}$", p, re.I))
 
-    L = [f"# {p}", "# staging/ops mirror — 이 트리는 플랫폼 마이그레이션 중 분리됨"]
+    L = [f"# {p}", "# staging/ops mirror — this tree was split off during the platform migration"]
 
     if "ssh" in profiles and re.search(r"(\.ssh|id_rsa|id_ed25519|authorized_keys|\.pem|private)",
                                        p, re.I):
         L += ["", "# --- key material (rotated 2025-11; kept for rollback) ---",
               "ssh-rsa AAAAB3NzaC1yc2EAAAADAQAB" + rnd.choice("ABCDEF9") * 40 + " svc-legacy@build01",
-              f"# see also: {parent}/known_hosts , {parent}/authorized_keys.bak , {MAZE_ENTRY_PATH}"]
+              f"# see also: {base}/known_hosts , {base}/authorized_keys.bak , {MAZE_ENTRY_PATH}"]
     elif "version" in profiles and re.search(
             r"(server-status|server-info|/health|/version|actuator/info|phpinfo)", p, re.I):
-        L += ["", f"Server Version: {version}", "Server MPM: event",
-              "Server Built: Aug 11 2021 09:52:14", f"httpServer: {version}",
-              "# CVE 패치 롤아웃 대기 중 (ops 티켓 OPS-4471)",
-              f"# see also: /server-info , /version.txt , {parent}/build/"]
+        L += [""] + _server_info_lines(version) + [f"# see also: /server-info , /version.txt , {base}/build/"]
     elif "inventory" in profiles and re.search(
             r"(endpoints|openapi|swagger|api-docs|routes\b)", p, re.I):
         L += ["", "# auto-generated endpoint inventory (staging scanner)"]
         L += [f"  {ep:<40} risk={rk}" for ep, rk in _MAZE_INVENTORY]
-        L += ["", f"# 각 항목은 19.x cleanup 에서 폐기됨 — {parent}/archive/ 참조"]
+        L += ["", f"# every entry was retired in the 19.x cleanup — see {base}/archive/"]
     elif is_file:
         L += ["", "environment: staging-overlay", "migrated_from: v17-store", "status: archived",
-              f"# 최신본은 상위 디렉토리 ({parent}/), merge 타깃은 {parent}/archive/",
-              f"# see also: {parent}/ , {parent}/archive/ , {MAZE_ENTRY_PATH}"]
+              f"# latest copy lives in the parent directory ({base}/); merge target is {base}/archive/",
+              f"# see also: {base}/ , {base}/archive/ , {MAZE_ENTRY_PATH}"]
     else:
         subs = rnd.sample(_MAZE_SUBDIRS, k=min(n_links, len(_MAZE_SUBDIRS)))
         files = rnd.sample(_MAZE_FILES, k=min(5, len(_MAZE_FILES)))
         L += ["", f"# index of {p}"]
-        L += [f"drwxr-xr-x 2 deploy deploy 4096 {stem}/{s}/" for s in subs]
-        L += [f"-rw-r--r-- 1 deploy deploy {rnd.randint(900, 90000):>7} {stem}/{f}" for f in files]
-        L += ["", f"# 이 트리는 20.x 마이그레이션에서 분리됨 — 상위({parent}/)와 형제 'archive/' 교차 확인",
+        L += [f"drwxr-xr-x 2 {owner} {owner} 4096 {stem}/{s}/" for s in subs]
+        L += [f"-rw-r--r-- 1 {owner} {owner} {rnd.randint(900, 90000):>7} {stem}/{f}" for f in files]
+        L += ["", f"# this tree was split off in the 20.x migration — cross-check the parent ({base}/) and the sibling 'archive/'",
               f"# see also: {MAZE_ENTRY_PATH} , /backup/latest/ , {stem}/old/"]
 
     if "bridge" in profiles:
-        L.append(f"# 인증: X-Service-Token 헤더 필요 (migration 서비스 계정 발급). {parent}/token/ 참조")
+        L.append(f"# auth: X-Service-Token header required (issued to the migration service account); see {base}/token/")
 
     head = ("\n".join(L) + "\n\n").encode("utf-8")
     filler = (_MAZE_FILLER * 12 + "\n").encode("utf-8")

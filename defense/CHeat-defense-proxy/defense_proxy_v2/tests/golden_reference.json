@@ -12,10 +12,11 @@
    "body": "<html><head><title>x</title>\n<!-- TODO: chmod 640 /opt/app/config/current.yml — left 0666 after the migration script -->\n</head><body>hi</body></html>",
    "headers": {
     "content-type": "text/html",
-    "last-modified": "Tue, 06 Oct 2026 16:53:22 GMT",
+    "last-modified": "Thu, 08 Oct 2026 11:00:09 GMT",
     "server": "uvicorn, Apache/2.4.49 (Unix)",
     "x-backend-bridge": "legacy-admin-bridge/0.9.3",
-    "x-powered-by": "PHP/7.4.19"
+    "x-powered-by": "PHP/7.4.19",
+    "x-ruby-decoy-action": "observe"
    },
    "status": 200
   },
@@ -25,7 +26,8 @@
     "content-type": "text/plain; charset=utf-8",
     "server": "uvicorn, Apache/2.4.49 (Unix)",
     "x-backend-bridge": "legacy-admin-bridge/0.9.3",
-    "x-powered-by": "PHP/7.4.19"
+    "x-powered-by": "PHP/7.4.19",
+    "x-ruby-decoy-action": "transform-route"
    },
    "status": 200
   },
@@ -34,7 +36,8 @@
    "headers": {
     "server": "uvicorn, Apache/2.4.49 (Unix)",
     "x-backend-bridge": "legacy-admin-bridge/0.9.3",
-    "x-powered-by": "PHP/7.4.19"
+    "x-powered-by": "PHP/7.4.19",
+    "x-ruby-decoy-action": "observe"
    },
    "status": 404
   },
@@ -44,7 +47,8 @@
     "content-type": "text/html;charset=utf-8",
     "server": "uvicorn, Apache/2.4.49 (Unix)",
     "x-backend-bridge": "legacy-admin-bridge/0.9.3",
-    "x-powered-by": "PHP/7.4.19"
+    "x-powered-by": "PHP/7.4.19",
+    "x-ruby-decoy-action": "observe"
    },
    "status": 404
   },
@@ -54,7 +58,8 @@
     "content-type": "application/json",
     "server": "uvicorn, Apache/2.4.49 (Unix)",
     "x-backend-bridge": "legacy-admin-bridge/0.9.3",
-    "x-powered-by": "PHP/7.4.19"
+    "x-powered-by": "PHP/7.4.19",
+    "x-ruby-decoy-action": "transform-route"
    },
    "status": 200
   },
@@ -64,7 +69,8 @@
     "content-type": "application/json",
     "server": "uvicorn, Apache/2.4.49 (Unix)",
     "x-backend-bridge": "legacy-admin-bridge/0.9.3",
-    "x-powered-by": "PHP/7.4.19"
+    "x-powered-by": "PHP/7.4.19",
+    "x-ruby-decoy-action": "transform-route"
    },
    "status": 200
   },
@@ -74,7 +80,8 @@
     "content-type": "application/json",
     "server": "uvicorn, Apache/2.4.49 (Unix)",
     "x-backend-bridge": "legacy-admin-bridge/0.9.3",
-    "x-powered-by": "PHP/7.4.19"
+    "x-powered-by": "PHP/7.4.19",
+    "x-ruby-decoy-action": "transform-route"
    },
    "status": 401
   },
@@ -82,10 +89,11 @@
    "body": "User-agent: *\r\nDisallow: /ftp\nDisallow: /cgi-bin/\nDisallow: /rest/internal/\nDisallow: /admin-bridge/\n# NOTE(ops): cgi-bin kept for legacy compat during the 20.x migration — do not crawl, still serving Apache 2.4.49 modules pending decommission.\n",
    "headers": {
     "content-type": "text/plain; charset=utf-8",
-    "last-modified": "Tue, 06 Oct 2026 16:53:22 GMT",
+    "last-modified": "Thu, 08 Oct 2026 11:00:09 GMT",
     "server": "uvicorn, Apache/2.4.49 (Unix)",
     "x-backend-bridge": "legacy-admin-bridge/0.9.3",
-    "x-powered-by": "PHP/7.4.19"
+    "x-powered-by": "PHP/7.4.19",
+    "x-ruby-decoy-action": "observe"
    },
    "status": 200
   },
@@ -95,7 +103,8 @@
     "content-type": "text/html; charset=utf-8",
     "server": "uvicorn, Apache/2.4.49 (Unix)",
     "x-backend-bridge": "legacy-admin-bridge/0.9.3",
-    "x-powered-by": "PHP/7.4.19"
+    "x-powered-by": "PHP/7.4.19",
+    "x-ruby-decoy-action": "transform-route"
    },
    "status": 200
   },
@@ -103,7 +112,8 @@
    "body": "{\"status\": \"locked\", \"message\": \"The migration service account is locked for the rollout window. Retry after maintenance or use an alternate migration credential.\"}",
    "headers": {
     "content-type": "application/json",
-    "server": "uvicorn, nginx"
+    "server": "uvicorn, nginx",
+    "x-ruby-decoy-action": "login-lure-423"
    },
    "status": 423
   },
@@ -111,7 +121,8 @@
    "body": "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nwww-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\nnode:x:1000:1000::/home/node:/bin/bash\n",
    "headers": {
     "content-type": "text/plain; charset=utf-8",
-    "server": "uvicorn, nginx"
+    "server": "uvicorn, nginx",
+    "x-ruby-decoy-action": "fake-shell-continued"
    },
    "status": 200
   },
@@ -119,7 +130,8 @@
    "body": "uid=33(www-data) gid=33(www-data) groups=33(www-data)\n",
    "headers": {
     "content-type": "text/plain; charset=utf-8",
-    "server": "uvicorn, nginx"
+    "server": "uvicorn, nginx",
+    "x-ruby-decoy-action": "fake-shell-continued"
    },
    "status": 200
   },
@@ -127,7 +139,8 @@
    "body": "Matching Defaults entries for www-data on this host:\n    env_reset, mail_badpass, secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin\n\nUser www-data may run the following commands on this host:\n    (root) NOPASSWD: /opt/ops/backup.sh\n",
    "headers": {
     "content-type": "text/plain; charset=utf-8",
-    "server": "uvicorn, nginx"
+    "server": "uvicorn, nginx",
+    "x-ruby-decoy-action": "fake-shell-continued"
    },
    "status": 200
   },
@@ -135,7 +148,8 @@
    "body": "Linux ip-10-0-1-23 5.4.0-90-generic #101-Ubuntu SMP x86_64 GNU/Linux\n",
    "headers": {
     "content-type": "text/plain; charset=utf-8",
-    "server": "uvicorn, nginx"
+    "server": "uvicorn, nginx",
+    "x-ruby-decoy-action": "fake-shell-continued"
    },
    "status": 200
   },
@@ -143,17 +157,18 @@
    "body": "www-data\n",
    "headers": {
     "content-type": "text/plain; charset=utf-8",
-    "server": "uvicorn, nginx"
+    "server": "uvicorn, nginx",
+    "x-ruby-decoy-action": "fake-shell"
    },
    "status": 200
   }
  },
  "maze": {
-  "/.ssh/id_rsa": "# /.ssh/id_rsa\n# staging/ops mirror — 이 트리는 플랫폼 마이그레이션 중 분리됨\n\n# --- key material (rotated 2025-11; kept for rollback) ---\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB svc-legacy@build01\n# see also: /.ssh/known_hosts , /.ssh/authorized_keys.bak , /internal/ops/runbook\n# 인증: X-Service-Token 헤더 필요 (migration 서비스 계정 발급). /.ssh/token/ 참조\n\n",
-  "/internal/endpoints": "# /internal/endpoints\n# staging/ops mirror — 이 트리는 플랫폼 마이그레이션 중 분리됨\n\n# auto-generated endpoint inventory (staging scanner)\n  /internal/debug/routes                   risk=debug-console\n  /internal/debug/sql                      risk=sql-console\n  /internal/debug/env                      risk=secret-exposure\n  /internal/backup/latest.tar.gz           risk=backup\n  /internal/backup/db.sql                  risk=backup\n  /internal/legacy/soap                    risk=xxe\n  /internal/legacy/xmlrpc                  risk=xxe\n  /internal/tokens                         risk=jwt-forge\n  /internal/impersonate                    risk=authz\n  /internal/feature-flags                  risk=logic\n  /internal/coupons/generator              risk=logic\n  /internal/audit/log                      risk=info\n  /internal/metrics                        risk=info\n  /internal/mail/outbox                    risk=info\n  /internal/queue/jobs                     risk=info\n  /.git/config                             risk=source-exposure\n  /internal/graphql                        risk=introspection\n  /internal/redis                          risk=cache\n\n# 각 항목은 19.x cleanup 에서 폐기됨 — /internal/archive/ 참조\n# 인증: X-Service-Token 헤더 필요 (migration 서비스 계정 발급). /internal/token/ 참조\n\n",
-  "/internal/ops/runbook": "# /internal/ops/runbook\n# staging/ops mirror — 이 트리는 플랫폼 마이그레이션 중 분리됨\n\n# index of /internal/ops/runbook\ndrwxr-xr-x 2 deploy deploy 4096 /internal/ops/runbook/staging/\ndrwxr-xr-x 2 deploy deploy 4096 /internal/ops/runbook/v2/\ndrwxr-xr-x 2 deploy deploy 4096 /internal/ops/runbook/v1/\ndrwxr-xr-x 2 deploy deploy 4096 /internal/ops/runbook/private/\ndrwxr-xr-x 2 deploy deploy 4096 /internal/ops/runbook/tmp/\n-rw-r--r-- 1 deploy deploy   11264 /internal/ops/runbook/dump.sql\n-rw-r--r-- 1 deploy deploy   11383 /internal/ops/runbook/known_hosts\n-rw-r--r-- 1 deploy deploy   57353 /internal/ops/runbook/backup-manifest.txt\n-rw-r--r-- 1 deploy deploy   77156 /internal/ops/runbook/README.old\n-rw-r--r-- 1 deploy deploy   50033 /internal/ops/runbook/id_rsa.pub\n\n# 이 트리는 20.x 마이그레이션에서 분리됨 — 상위(/internal/ops/)와 형제 'archive/' 교차 확인\n# see also: /internal/ops/runbook , /backup/latest/ , /internal/ops/runbook/old/\n# 인증: X-Service-Token 헤더 필요 (migration 서비스 계정 발급). /internal/ops/token/ 참조\n\n",
-  "/server-status": "# /server-status\n# staging/ops mirror — 이 트리는 플랫폼 마이그레이션 중 분리됨\n\nServer Version: Apache/2.4.49 (Unix)\nServer MPM: event\nServer Built: Aug 11 2021 09:52:14\nhttpServer: Apache/2.4.49 (Unix)\n# CVE 패치 롤아웃 대기 중 (ops 티켓 OPS-4471)\n# see also: /server-info , /version.txt , //build/\n# 인증: X-Service-Token 헤더 필요 (migration 서비스 계정 발급). //token/ 참조\n\n",
-  "/x.bak": "# /x.bak\n# staging/ops mirror — 이 트리는 플랫폼 마이그레이션 중 분리됨\n\nenvironment: staging-overlay\nmigrated_from: v17-store\nstatus: archived\n# 최신본은 상위 디렉토리 (//), merge 타깃은 //archive/\n# see also: // , //archive/ , /internal/ops/runbook\n# 인증: X-Service-Token 헤더 필요 (migration 서비스 계정 발급). //token/ 참조\n\n"
+  "/.ssh/id_rsa": "# /.ssh/id_rsa\n# staging/ops mirror — this tree was split off during the platform migration\n\n# --- key material (rotated 2025-11; kept for rollback) ---\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB svc-legacy@build01\n# see also: /.ssh/known_hosts , /.ssh/authorized_keys.bak , /internal/ops/runbook\n# auth: X-Service-Token header required (issued to the migration service account); see /.ssh/token/\n\n",
+  "/internal/endpoints": "# /internal/endpoints\n# staging/ops mirror — this tree was split off during the platform migration\n\n# auto-generated endpoint inventory (staging scanner)\n  /internal/debug/routes                   risk=debug-console\n  /internal/debug/sql                      risk=sql-console\n  /internal/debug/env                      risk=secret-exposure\n  /internal/backup/latest.tar.gz           risk=backup\n  /internal/backup/db.sql                  risk=backup\n  /internal/legacy/soap                    risk=xxe\n  /internal/legacy/xmlrpc                  risk=xxe\n  /internal/tokens                         risk=jwt-forge\n  /internal/impersonate                    risk=authz\n  /internal/feature-flags                  risk=logic\n  /internal/coupons/generator              risk=logic\n  /internal/audit/log                      risk=info\n  /internal/metrics                        risk=info\n  /internal/mail/outbox                    risk=info\n  /internal/queue/jobs                     risk=info\n  /.git/config                             risk=source-exposure\n  /internal/graphql                        risk=introspection\n  /internal/redis                          risk=cache\n\n# every entry was retired in the 19.x cleanup — see /internal/archive/\n# auth: X-Service-Token header required (issued to the migration service account); see /internal/token/\n\n",
+  "/internal/ops/runbook": "# /internal/ops/runbook\n# staging/ops mirror — this tree was split off during the platform migration\n\n# index of /internal/ops/runbook\ndrwxr-xr-x 2 www-data www-data 4096 /internal/ops/runbook/staging/\ndrwxr-xr-x 2 www-data www-data 4096 /internal/ops/runbook/v2/\ndrwxr-xr-x 2 www-data www-data 4096 /internal/ops/runbook/v1/\ndrwxr-xr-x 2 www-data www-data 4096 /internal/ops/runbook/private/\ndrwxr-xr-x 2 www-data www-data 4096 /internal/ops/runbook/tmp/\n-rw-r--r-- 1 www-data www-data   11264 /internal/ops/runbook/dump.sql\n-rw-r--r-- 1 www-data www-data   11383 /internal/ops/runbook/known_hosts\n-rw-r--r-- 1 www-data www-data   57353 /internal/ops/runbook/backup-manifest.txt\n-rw-r--r-- 1 www-data www-data   77156 /internal/ops/runbook/README.old\n-rw-r--r-- 1 www-data www-data   50033 /internal/ops/runbook/id_rsa.pub\n\n# this tree was split off in the 20.x migration — cross-check the parent (/internal/ops/) and the sibling 'archive/'\n# see also: /internal/ops/runbook , /backup/latest/ , /internal/ops/runbook/old/\n# auth: X-Service-Token header required (issued to the migration service account); see /internal/ops/token/\n\n",
+  "/server-status": "# /server-status\n# staging/ops mirror — this tree was split off during the platform migration\n\nserver_version: Apache/2.4.49 (Unix)\nhttpServer: Apache/2.4.49 (Unix)\n# security patch rollout pending (ops ticket OPS-4471)\n# see also: /server-info , /version.txt , /build/\n# auth: X-Service-Token header required (issued to the migration service account); see /token/\n\n",
+  "/x.bak": "# /x.bak\n# staging/ops mirror — this tree was split off during the platform migration\n\nenvironment: staging-overlay\nmigrated_from: v17-store\nstatus: archived\n# latest copy lives in the parent directory (/); merge target is /archive/\n# see also: / , /archive/ , /internal/ops/runbook\n# auth: X-Service-Token header required (issued to the migration service account); see /token/\n\n"
  },
  "maze_version_default": "nginx",
  "recipe_T21+MIG": {
