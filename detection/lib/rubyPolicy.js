@@ -15,6 +15,7 @@ const DETECTION_RESULT_HEADERS = Object.freeze([
   "x-ruby-run-id",
   "x-ruby-candidate-id",
   "x-ruby-client-flow-id",
+  "x-ruby-defense-tier",
   "x-defense-signal",
 ]);
 

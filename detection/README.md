@@ -80,10 +80,17 @@ upstream 응답이 돌아온 뒤에 확정됩니다. 따라서 각 요청에 적
 업그레이드 요청의 이전 HTTP 이력에만 정책을 적용하며 프레임 내용은 분석하거나 점수화하지 않습니다.
 Socket.IO polling은 HTTP 요청으로 기록되지만 배경 트래픽은 행동 점수에서 제외합니다.
 
-기본 정책은 위험도 0.8 이상이고 **검증된 동일 DCID의 Resolved Actor**에서
-Attack Score 0.8 이상이 확인된 경우에만 `rate_limit_strict`(초당 최대 1요청)와
-`decoy_maze`를 선택합니다. 위험 점수만으로 일괄 지연을 선택하지 않으며, 확정 공격
-점수가 기준에 못 미치면 방어 계획은 비어 있습니다. 공식 Defense가 속도 제한을
+`config/policy.json`의 규칙은 위에서부터 처음 맞는 하나만 선택하며, 각 규칙의
+`tier`는 근거의 확실성 단계를 나타냅니다. 새 방어 전략은 점수 코드를 바꾸지 않고
+해당 단계의 `strategies`에 추가합니다.
+
+| 단계 | 조건 | 기본 전략 |
+|---|---|---|
+| `confirmed` | 위험도 0.8 이상 + **검증된 동일 DCID의 Resolved Actor** Attack Score 0.8 이상 | `rate_limit_strict`(초당 최대 1요청), `decoy_maze` |
+| `suspected` | 위험도 0.8 이상 | `decoy_maze` |
+| 없음 | 그 외 | 방어 계획 없음 |
+
+위험 점수만으로 일괄 지연을 선택하지 않습니다. 공식 Defense가 속도 제한을
 실행하고, 비공개 CHeaT sidecar가 기만 계획을 실행합니다. 다만 미끼에 접촉한
 클라이언트에는 CHeaT의 미로·적응형 지연이 적용될 수 있습니다.
 공유 IP·curl 지문으로 연결된 Candidate/Client Flow와 서명 검증하지 않은
@@ -107,6 +114,7 @@ Bearer 값의 그룹 점수는 자동 429 근거가 아닙니다. 한 요청의 
 | `X-Ruby-Request-Id` | 탐지·방어 기록을 결합할 무작위 요청 ID |
 | `X-Ruby-Automation-Score`, `X-Ruby-Attack-Score`, `X-Ruby-Risk-Score` | 전달 전 완료 이력의 0~1 점수 |
 | `X-Ruby-Policy-Source` | 정책 점수의 탐지 출처 |
+| `X-Ruby-Defense-Tier` | 선택된 `policy.json` 규칙의 단계(`confirmed`, `suspected`). 계획이 없으면 보내지 않습니다 |
 | `X-Ruby-Candidate-Id`, `X-Ruby-Client-Flow-Id` | 요청 당시 관찰 후보와 연결된 Client Flow. Defense 대시보드의 묶음 표시용이며 정책 판단에는 쓰지 않습니다 |
 | `X-Ruby-Target-Id`, `X-Ruby-Run-Id` | 선택된 대상과 실험 실행의 식별자 |
 
@@ -117,15 +125,23 @@ Bearer 값의 그룹 점수는 자동 429 근거가 아닙니다. 한 요청의 
 잠정 클라이언트 관측으로 표시하고, 공유 Candidate/Flow 점수는 별도 집계로 남깁니다.
 
 일반 HTTP 요청의 `X-Client-Id`는 반환·검증된 signed DCID가 있으면 그 가명 ID를
-사용하고, 없으면 새 DCID를 발급해 첫 요청부터 발급된 가명 ID를 사용합니다. 첫 발급은
-아직 클라이언트의 연속성이 확인된 상태가 아닙니다. WebSocket 업그레이드는 이 HTTP
-쿠키 발급 경로를 거치지 않으므로 유효한 DCID가 없으면 업그레이드마다 고유한
-`websocket:*` ID를 사용합니다. 후보 흐름의 공유 지문 점수가 다른 클라이언트의
-방어 카운터나 무서명 WebSocket의 정책 점수로 넘어가지 않도록 하기 위한 경계입니다.
-DCID가 있는 HTTP 요청의 정책 점수는 그 DCID에 속한 완료 요청만 사용합니다. 다른
-사용자와 겹친 Candidate/Flow 점수는 탐지 화면의 관찰값으로 남지만 그 사용자의
-속도 제한 또는 기만 계획에는 쓰지 않습니다. 쿠키를 계속 버리는 클라이언트는
-이 방식의 정책 연속성을 회피할 수 있으므로 장기적으로 인증된 계정·세션 연계가 필요합니다.
+사용합니다. 반환·검증된 DCID가 있는 HTTP 요청의 정책 점수는 그 DCID에 속한 완료
+요청만 사용합니다. 다른 사용자와 겹친 Candidate/Flow 점수는 탐지 화면의 관찰값으로
+남지만 그 사용자의 속도 제한 또는 기만 계획에는 쓰지 않습니다.
+
+DCID를 돌려주지 않은 요청은 매번 새 DCID를 발급받으므로 서명 ID로 이어 볼 수 없습니다.
+세션만 바꿔 가며 보내는 공격이 매번 이력 없음으로 통과하지 않도록, 이 요청은 쿠키와
+무관한 같은 IP·HTTP 지문의 Candidate와 한 IP 안에서만 이어진 Client Flow의 완료
+이력으로 판단합니다. `X-Client-Id`도 요청마다 바뀌는 DCID 대신 그 Candidate 또는
+Client Flow ID를 사용해 방어 상태가 쪼개지지 않게 합니다. 쿠키가 없다는 사실 자체는
+점수에 더하거나 빼지 않으며, 확정 공격 점수가 없으므로 `suspected` 단계(미끼)까지만
+닿습니다. 같은 NAT 뒤에서 지문이 같은 다른 사용자의 첫 요청(쿠키 발급 전)에도 미끼
+계획이 붙을 수 있다는 점은 감수한 트레이드오프이며, 그 사용자가 DCID를 돌려주는
+순간부터는 자기 이력만 사용합니다. 요청마다 HTTP 지문이나 IP까지 바꾸는 클라이언트는
+매번 새 Candidate가 되므로 이 방식으로도 이어지지 않습니다.
+
+WebSocket 업그레이드는 HTTP 쿠키 발급 경로를 거치지 않으므로 유효한 DCID가 없으면
+업그레이드마다 고유한 `websocket:*` ID를 사용하고 Candidate/Flow 점수를 쓰지 않습니다.
 
 `X-Risk-Score`(이전 이름), `X-Ruby-Risk-Score`, `X-Client-Id`, `X-Classification`, `X-Defense-Plan`,
 `X-Ruby-*`, `X-Defense-Signal`은 클라이언트가 보내더라도 Detection에서 제거합니다.

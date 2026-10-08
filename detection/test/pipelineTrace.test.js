@@ -67,6 +67,7 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
         attackScore: Number(req.headers["x-ruby-attack-score"]),
         riskScore: Number(req.headers["x-ruby-risk-score"]),
         source: req.headers["x-ruby-policy-source"], plan, clientId, blocked,
+        tier: req.headers["x-ruby-defense-tier"],
         candidateId: req.headers["x-ruby-candidate-id"],
         clientFlowId: req.headers["x-ruby-client-flow-id"] });
       if (blocked) {
@@ -245,7 +246,14 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   });
   assert.equal(normal.status, 200);
   assert.equal(normal.body, "ok");
-  assert.deepEqual(seen.at(-1).plan, []);
+  // 쿠키를 돌려주지 않는 요청은 같은 IP·지문 Candidate 이력으로 판단한다. 같은 NAT의
+  // 다른 사용자일 수도 있으므로 확정 단계(429)가 아닌 미끼만 붙고, 서명 클라이언트의
+  // 방어 카운터도 공유하지 않는다.
+  assert.equal(seen.at(-1).candidateId, last.candidateId);
+  assert.deepEqual(seen.at(-1).plan.map((step) => step.name), ["decoy_maze"]);
+  assert.equal(seen.at(-1).tier, "suspected");
+  assert.equal(seen.at(-1).source, "actor-candidate-fallback");
+  assert.equal(seen.at(-1).clientId, last.candidateId);
   assert.notEqual(seen.at(-1).clientId, last.clientId);
 
   const firstOtherAttack = await request(detectionPort, "POST", "/api/orders/99", {
@@ -254,7 +262,8 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
     body: attackBody,
   });
   assert.equal(firstOtherAttack.status, 404);
-  assert.deepEqual(seen.at(-1).plan, []);
+  assert.ok(!seen.at(-1).plan.some((step) => step.name === "rate_limit_strict"),
+    "cookie-less requests never reach the confirmed tier");
   assert.notEqual(seen.at(-1).clientId, last.clientId);
   const anonymousSeen = [];
   for (let index = 0; index < 3; index++) {
@@ -266,8 +275,8 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   }
   assert.ok(anonymousSeen.every((item) => item.candidateId === anonymousSeen[0].candidateId &&
     item.candidateId !== "actor:spoofed"));
-  assert.equal(new Set(anonymousSeen.map((item) => item.clientId)).size, 3,
-    "cookie-less requests still receive separate policy keys");
+  assert.equal(new Set(anonymousSeen.map((item) => item.clientId)).size, 1,
+    "cookie-less requests share one policy key instead of a fresh DCID each time");
   assert.match(anonymousSeen.at(-1).clientFlowId, /^client-flow:[0-9a-f]{24}$/,
     "cookie-less requests from one candidate are reported as one linked flow");
   const finalExport = await request(detectionPort, "GET", "/__detection/api/export", {

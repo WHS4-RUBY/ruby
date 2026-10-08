@@ -196,6 +196,7 @@ class ProxyContractTests(unittest.IsolatedAsyncioTestCase):
                     "X-Client-Id": "resolved:test-client",
                     "X-Ruby-Candidate-Id": "actor:test-candidate",
                     "X-Ruby-Client-Flow-Id": "client-flow:test-flow",
+                    "X-Ruby-Defense-Tier": "suspected",
                 })
 
         self.assertEqual(response.text, "backend transformed")
@@ -206,6 +207,7 @@ class ProxyContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("x-client-id", captured[0].headers)
         self.assertNotIn("x-ruby-candidate-id", captured[0].headers)
         self.assertNotIn("x-ruby-client-flow-id", captured[0].headers)
+        self.assertNotIn("x-ruby-defense-tier", captured[0].headers)
         event = event_store.recent(1)[0]
         self.assertEqual(event["clientId"], "resolved:test-client")
         self.assertEqual(event["requestId"], "request-123")
@@ -214,6 +216,7 @@ class ProxyContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event["policySource"], "session")
         self.assertEqual(event["candidateId"], "actor:test-candidate")
         self.assertEqual(event["clientFlowId"], "client-flow:test-flow")
+        self.assertEqual(event["defenseTier"], "suspected")
         self.assertEqual(event["outcome"], "forwarded")
 
     async def test_clean_stream_records_after_completion(self):

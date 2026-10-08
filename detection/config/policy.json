@@ -2,6 +2,8 @@
   "defense": {
     "rules": [
       {
+        "tier": "confirmed",
+        "description": "dcid로 이어진 확인된 클라이언트의 공격 점수까지 높을 때",
         "min_score": 0.8,
         "max_score": 1.01,
         "min_confirmed_attack_score": 0.8,
@@ -12,6 +14,18 @@
               "max_rps": 1
             }
           },
+          {
+            "name": "decoy_maze",
+            "params": {}
+          }
+        ]
+      },
+      {
+        "tier": "suspected",
+        "description": "위험 점수만 높을 때(쿠키를 돌려주지 않는 클라이언트의 후보·흐름 이력 포함). 차단 없이 미끼만 붙인다",
+        "min_score": 0.8,
+        "max_score": 1.01,
+        "strategies": [
           {
             "name": "decoy_maze",
             "params": {}

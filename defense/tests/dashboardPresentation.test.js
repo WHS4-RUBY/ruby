@@ -195,6 +195,7 @@ test("요청 경로와 식별자, 전략 이름을 HTML로 해석하지 않는�
     targetId: injection,
     runId: injection,
     decoyAction: injection,
+    defenseTier: injection,
     outcome: "forwarded",
   };
   for (const row of [ui.renderRequestRow(event), ui.renderRequestRow(event, { key: injection, query: "img", expanded: true })]) {
@@ -245,6 +246,8 @@ test("요청 행은 결과별 막대·글자 태그와 메서드·상태 색을 
   assert.match(blocked, /<span class="tag action"[^>]*>엄격 속도 제한<\/span>/);
   const defended = ui.renderRequestRow({ requestId: "request:b", method: "GET", status: 200, outcome: "forwarded", strategies: ["delay"] }, { query: "request:b" });
   assert.match(defended, /class="log-entry sev-defended highlight"/);
+  const suspected = ui.renderRequestRow({ method: "GET", status: 200, outcome: "forwarded", strategies: ["decoy_maze"], defenseTier: "suspected" }, { expanded: true });
+  assert.match(suspected, /<dt>방어 단계<\/dt><dd>의심 · 미끼만 \(suspected\)<\/dd>/);
   const plain = ui.renderRequestRow({ requestId: "request:c", method: "GET", status: 200, outcome: "forwarded", strategies: [] }, { query: "request:b" });
   assert.match(plain, /class="log-entry sev-forwarded"/);
 });

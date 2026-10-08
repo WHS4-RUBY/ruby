@@ -444,6 +444,8 @@
       'fingerprint-client-flow':'유사 방문 흐름', 'confirmed-resolved-actor':'확인된 클라이언트 흐름',
     });
     const DEFENSE_SIGNALS = Object.freeze({ rate_limited:'요청 빈도 제한', none:'없음' });
+    // detection/config/policy.json의 tier 이름. 새 단계를 추가하면 여기에 표시 이름만 더한다.
+    const DEFENSE_TIERS = Object.freeze({ confirmed:'확정 · 제한과 미끼', suspected:'의심 · 미끼만' });
     const OUTCOME_FILTERS = Object.freeze({ all:'모든 결과', defended:'방어 적용', blocked:'차단·오류' });
     // 탐지 화면의 흐름 필터와 같은 이름을 쓴다. unlinked는 후보 정보가 없는 기록(이전 버전·서명 없는 WebSocket)이다.
     const FLOW_FILTERS = Object.freeze({ all:'모든 흐름', linked:'연결된 흐름', standalone:'단독 관찰', unlinked:'흐름 정보 없음' });
@@ -791,6 +793,7 @@
       if (!query) return true;
       return [
         event.requestId, event.id, event.path, hasClientId(event) ? event.clientId : '정책 키 없음 연결 불가', event.candidateId, event.clientFlowId, event.policySource, event.method,
+        event.defenseTier, displayName(event.defenseTier, DEFENSE_TIERS),
         event.outcome, event.defenseSignal, displayName(event.defenseSignal, DEFENSE_SIGNALS), event.decoyAction, event.targetId, event.runId,
         ...(Array.isArray(event.strategies) ? event.strategies.flatMap(name => [name, displayName(name, STRATEGY_NAMES)]) : []),
       ].join(' ').toLowerCase().includes(query);
@@ -838,6 +841,7 @@
       add('요청', `${escapeHtml(String(event.method || '—').toUpperCase())} ${escapeHtml(event.path || '')}`);
       add('응답', `${escapeHtml(transportResult(event))} · <span class="${outcomeClass(event.outcome)}">${escapeHtml(outcomeLabel(event.outcome))}</span>`);
       add('적용 전략', strategies);
+      add('방어 단계', event.defenseTier ? escapeHtml(displayName(event.defenseTier, DEFENSE_TIERS)) : '<span class="kv-note">없음</span>');
       add('정책 점수 (0~100)', `자동화 ${formatScore(event.automationScore)} · 공격 ${formatScore(event.attackScore)} · 위험 ${formatScore(event.riskScore)}`);
       add('점수 출처', escapeHtml(displayName(event.policySource, POLICY_SOURCES)));
       add('정책 키', hasClientId(event) ? `<code>${escapeHtml(event.clientId)}</code>` : '<span class="kv-note">없음 · 다른 요청과 방어 상태를 공유하지 않음</span>');

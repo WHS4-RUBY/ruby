@@ -82,6 +82,7 @@ _DEFENSE_INTERNAL_HEADERS = {
     "x-ruby-run-id",
     "x-ruby-candidate-id",
     "x-ruby-client-flow-id",
+    "x-ruby-defense-tier",
     "x-defense-signal",
     ACTION_HEADER,
     STRATEGIES_HEADER,
@@ -161,6 +162,7 @@ def _event_metadata(request: Request | WebSocket, selected=None) -> dict:
         "policy_source": headers.get("x-ruby-policy-source"),
         "candidate_id": headers.get("x-ruby-candidate-id"),
         "client_flow_id": headers.get("x-ruby-client-flow-id"),
+        "defense_tier": headers.get("x-ruby-defense-tier"),
         "target_id": selected.target_id if selected else None,
         "run_id": selected.run_id if selected else None,
     }

@@ -2,6 +2,8 @@ const fs = require("fs");
 const path = require("path");
 
 const DEFAULT_CONFIG_PATH = path.join(__dirname, "..", "config", "policy.json");
+// 단계 이름은 내부 헤더(X-Ruby-Defense-Tier)로 넘어가므로 짧은 식별자만 허용한다.
+const TIER_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
 
 function clampScore(value) {
   const numeric = Number(value);
@@ -31,31 +33,51 @@ function loadPolicyRules(configPath = process.env.POLICY_CONFIG_PATH || DEFAULT_
     if (!Number.isFinite(minConfirmedAttackScore) || minConfirmedAttackScore < 0 || minConfirmedAttackScore > 1) {
       throw new Error(`policy rule ${index} has an invalid confirmed attack threshold`);
     }
-    return { minScore, maxScore, minConfirmedAttackScore, strategies: rule.strategies };
+    if (rule.tier !== undefined && (typeof rule.tier !== "string" || !TIER_PATTERN.test(rule.tier))) {
+      throw new Error(`policy rule ${index} has an invalid tier name`);
+    }
+    return { tier: rule.tier || null, minScore, maxScore, minConfirmedAttackScore, strategies: rule.strategies };
   });
 }
 
-function selectStrategies(riskScore, rules, { confirmedAttackScore = 0 } = {}) {
+/**
+ * 규칙은 위에서부터 처음 맞는 하나만 고른다. 단계(tier)는 "얼마나 확실한 근거인가"를
+ * 나타내고, 각 단계에 어떤 전략을 붙일지는 policy.json에서만 정한다. 새 방어 전략은
+ * 점수 코드를 바꾸지 않고 해당 단계의 strategies에 추가하면 된다.
+ */
+function selectRule(riskScore, rules, { confirmedAttackScore = 0 } = {}) {
   const score = clampScore(riskScore);
   const confirmed = clampScore(confirmedAttackScore);
-  const rule = rules.find(({ minScore, maxScore, minConfirmedAttackScore = 0 }) =>
-    minScore <= score && score < maxScore && confirmed >= minConfirmedAttackScore);
-  return rule ? rule.strategies : [];
+  return rules.find(({ minScore, maxScore, minConfirmedAttackScore = 0 }) =>
+    minScore <= score && score < maxScore && confirmed >= minConfirmedAttackScore) || null;
 }
 
-function applyDefensePlan(proxyReq, { riskScore, confirmedAttackScore = 0, rules }) {
+function selectStrategies(riskScore, rules, options) {
+  return selectRule(riskScore, rules, options)?.strategies || [];
+}
+
+function applyDefenseRule(proxyReq, { riskScore, confirmedAttackScore = 0, rules }) {
   proxyReq.removeHeader("x-defense-plan");
-  const plan = selectStrategies(riskScore, rules, { confirmedAttackScore });
+  proxyReq.removeHeader("x-ruby-defense-tier");
+  const rule = selectRule(riskScore, rules, { confirmedAttackScore });
+  const plan = rule?.strategies || [];
   proxyReq.setHeader("X-Defense-Plan", JSON.stringify(plan));
+  if (rule?.tier) proxyReq.setHeader("X-Ruby-Defense-Tier", rule.tier);
   // The response interceptor operates on uncompressed response bodies.
   proxyReq.setHeader("Accept-Encoding", "identity");
-  return plan;
+  return { plan, tier: rule?.tier || null };
+}
+
+function applyDefensePlan(proxyReq, options) {
+  return applyDefenseRule(proxyReq, options).plan;
 }
 
 module.exports = {
   DEFAULT_CONFIG_PATH,
   applyDefensePlan,
+  applyDefenseRule,
   clampScore,
   loadPolicyRules,
+  selectRule,
   selectStrategies,
 };

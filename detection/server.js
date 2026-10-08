@@ -64,7 +64,7 @@ const {
 } = require("./lib/priceIntegrity");
 const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
-const { applyDefensePlan, loadPolicyRules } = require("./lib/policyEngine");
+const { applyDefenseRule, loadPolicyRules } = require("./lib/policyEngine");
 const { createProxyCore } = require("./lib/proxyCore");
 const {
   DashboardAuthManager,
@@ -325,23 +325,29 @@ function buildPriorPolicyDecision(req) {
     clientFlow: clientFlow ? analyzeClientFlow(clientFlow) : null,
     resolved: resolvedActor ? analyzeResolvedActor(resolvedActor) : null,
   };
-  // Every HTTP request receives a fresh signed DCID when one is absent. A
-  // different client's shared curl/NAT fingerprint must not become this
-  // client's policy score or trigger its defense plan.
-  const policyAnalyses = req.clientIdentity?.valid
+  // 서명 dcid를 돌려준 클라이언트는 자기 세션·Resolved Actor 이력만 쓴다. 같은
+  // curl/NAT 지문을 쓰는 다른 클라이언트의 점수가 이 클라이언트의 방어를 일으키면 안 된다.
+  //
+  // dcid를 돌려주지 않는 요청은 매번 새 dcid를 받으므로 서명 ID로는 이어 볼 수 없다.
+  // 이때는 쿠키와 무관한 같은 IP·HTTP 지문의 Candidate와, 한 IP 안에서만 이어진 Client
+  // Flow 이력으로 판단한다. 세션만 바꿔 가며 보내는 공격이 매번 이력 없음으로 통과하지
+  // 않게 하기 위해서다. 쿠키가 없다는 사실 자체는 점수에 더하거나 빼지 않으며,
+  // 확정 공격 점수(Resolved Actor 전용)가 없으므로 policy.json의 약한 단계까지만 닿는다.
+  const singleIpFlow = analyses.clientFlow && (clientFlow.observedIps || []).length <= 1;
+  const policyAnalyses = verifiedClientId
     ? { session: analyses.session, resolved: analyses.resolved }
-    : analyses;
+    : { candidate: analyses.candidate, clientFlow: singleIpFlow ? analyses.clientFlow : null };
+  // 방어 상태(속도 제한 카운터 등)의 키. 쿠키 미반환 요청은 요청마다 새로 받는 dcid 대신
+  // Candidate/Flow로 고정해야 상태가 요청마다 쪼개지지 않는다.
+  const clientId = verifiedClientId || selectClientId(policyAnalyses, {
+    actorId,
+    clientFlowId: clientFlowState?.id,
+  });
   if (!Object.values(policyAnalyses).some(Boolean)) {
-    return { ...buildPolicyDecision({ clientId: req.clientIdentity?.valid ? req.clientIdentity.clientId : actorId }),
-      observation };
+    return { ...buildPolicyDecision({ clientId }), observation };
   }
 
   const [source, analysis] = selectEffectiveDetection(policyAnalyses);
-  const clientId = (req.clientIdentity?.valid && req.clientIdentity.clientId) || selectClientId(analyses, {
-    actorId,
-    resolvedActorId: resolvedActor?.id,
-    clientFlowId: clientFlowState?.id,
-  });
   // Candidate/Flow fingerprint와 Bearer 값의 hash는 신원 검증이 아니다.
   // 자동 429에는 같은 signed dcid로 묶인 확정 Resolved Actor만 사용한다.
   return { ...buildPolicyDecision({ source, analysis, clientId,
@@ -689,6 +695,8 @@ function recordCompletedRequest(req, {
       attackScore: req.rubyPolicyDecision.attackScore,
       confirmedAttackScore: req.rubyPolicyDecision.confirmedAttackScore,
       riskScore: req.rubyPolicyDecision.riskScore,
+      tier: req.rubyPolicyDecision.tier || null,
+      clientId: req.rubyPolicyDecision.clientId,
       strategies: (req.rubyPolicyDecision.plan || []).map((step) => step.name),
     } : null,
     defenseSignal: req.defenseSignal || null,
@@ -1354,12 +1362,13 @@ function forwardPolicyDecision(proxyReq, req) {
   req.activeTarget ||= targetSelection.read();
   req.rubyPolicyDecision = buildPriorPolicyDecision(req);
   stripDetectionHeaders(proxyReq);
-  const plan = applyDefensePlan(proxyReq, {
+  const { plan, tier } = applyDefenseRule(proxyReq, {
     riskScore: req.rubyPolicyDecision.riskScore,
     confirmedAttackScore: req.rubyPolicyDecision.confirmedAttackScore,
     rules: policyRules,
   });
   req.rubyPolicyDecision.plan = plan;
+  req.rubyPolicyDecision.tier = tier;
   proxyReq.setHeader("X-Client-Id", req.rubyPolicyDecision.clientId);
   proxyReq.setHeader("X-Ruby-Request-Id", req.rubyRequestId);
   proxyReq.setHeader("X-Ruby-Automation-Score", String(req.rubyPolicyDecision.automationScore));
