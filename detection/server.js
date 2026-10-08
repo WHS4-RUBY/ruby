@@ -303,6 +303,13 @@ function buildPriorPolicyDecision(req) {
   // 전체 집계는 멤버 세션의 요청을 모두 훑고 정렬하므로 요청 수에 대해 제곱으로
   // 커진다. 실제로 Flow가 병합된 경우에만 계산하고, 그 외에는 O(1) 상태만 본다.
   const clientFlowState = store.getClientFlowState(actorId);
+  // 대시보드 묶음 표시용 관찰 단위. 탐지 화면과 같이 연결된 Flow(또는 충돌 Flow)만
+  // 흐름으로 넘기고, 나머지는 Candidate 단독 관찰로 둔다. 정책 점수에는 쓰지 않는다.
+  const observation = {
+    candidateId: actorId,
+    clientFlowId: clientFlowState?.flowLinked || clientFlowState?.status === "CONFLICT"
+      ? clientFlowState.id : null,
+  };
   const clientFlow = clientFlowState?.aggregationEnabled
     ? store.getClientFlowAggregate(actorId)
     : null;
@@ -325,7 +332,8 @@ function buildPriorPolicyDecision(req) {
     ? { session: analyses.session, resolved: analyses.resolved }
     : analyses;
   if (!Object.values(policyAnalyses).some(Boolean)) {
-    return buildPolicyDecision({ clientId: req.clientIdentity?.valid ? req.clientIdentity.clientId : actorId });
+    return { ...buildPolicyDecision({ clientId: req.clientIdentity?.valid ? req.clientIdentity.clientId : actorId }),
+      observation };
   }
 
   const [source, analysis] = selectEffectiveDetection(policyAnalyses);
@@ -336,8 +344,8 @@ function buildPriorPolicyDecision(req) {
   });
   // Candidate/Flow fingerprint와 Bearer 값의 hash는 신원 검증이 아니다.
   // 자동 429에는 같은 signed dcid로 묶인 확정 Resolved Actor만 사용한다.
-  return buildPolicyDecision({ source, analysis, clientId,
-    confirmedAttackScore: confirmedAttackScore(analyses) });
+  return { ...buildPolicyDecision({ source, analysis, clientId,
+    confirmedAttackScore: confirmedAttackScore(analyses) }), observation };
 }
 
 function computeBusinessLogicTags(req) {
@@ -1360,6 +1368,9 @@ function forwardPolicyDecision(proxyReq, req) {
   proxyReq.setHeader("X-Ruby-Policy-Source", req.rubyPolicyDecision.source);
   proxyReq.setHeader("X-Ruby-Target-Id", req.activeTarget.targetId);
   proxyReq.setHeader("X-Ruby-Run-Id", req.activeTarget.runId);
+  const { candidateId, clientFlowId } = req.rubyPolicyDecision.observation || {};
+  if (candidateId) proxyReq.setHeader("X-Ruby-Candidate-Id", candidateId);
+  if (clientFlowId) proxyReq.setHeader("X-Ruby-Client-Flow-Id", clientFlowId);
 }
 
 function upgradeCookie(req, name) {

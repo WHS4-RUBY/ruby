@@ -66,7 +66,9 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
         forwardedProto: req.headers["x-forwarded-proto"],
         attackScore: Number(req.headers["x-ruby-attack-score"]),
         riskScore: Number(req.headers["x-ruby-risk-score"]),
-        source: req.headers["x-ruby-policy-source"], plan, clientId, blocked });
+        source: req.headers["x-ruby-policy-source"], plan, clientId, blocked,
+        candidateId: req.headers["x-ruby-candidate-id"],
+        clientFlowId: req.headers["x-ruby-client-flow-id"] });
       if (blocked) {
         res.writeHead(429, { "Content-Type": "application/json",
           "X-Defense-Signal": "rate_limited" });
@@ -175,6 +177,9 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.ok(last.plan.some((step) => step.name === "decoy_maze"));
   assert.ok(seen.every((item) => item.forwardedFor === undefined));
   assert.ok(seen.every((item) => item.forwardedProto === "https"));
+  assert.match(last.candidateId, /^actor:/);
+  assert.ok(seen.every((item) => item.candidateId === last.candidateId),
+    "same IP and fingerprint keep one observation candidate for the defense dashboard");
 
   assert.ok(cookies.has("dlsid") && cookies.has("dcid"), "high-risk client has both session and signed client cookies");
   const anonymousUpgrade = await upgrade(detectionPort, "/socket", {
@@ -251,6 +256,20 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.equal(firstOtherAttack.status, 404);
   assert.deepEqual(seen.at(-1).plan, []);
   assert.notEqual(seen.at(-1).clientId, last.clientId);
+  const anonymousSeen = [];
+  for (let index = 0; index < 3; index++) {
+    await request(detectionPort, "GET", "/", {
+      headers: { "User-Agent": "curl/8.0", "X-Ruby-Client-Flow-Id": "client-flow:spoofed",
+        "X-Ruby-Candidate-Id": "actor:spoofed" },
+    });
+    anonymousSeen.push(seen.at(-1));
+  }
+  assert.ok(anonymousSeen.every((item) => item.candidateId === anonymousSeen[0].candidateId &&
+    item.candidateId !== "actor:spoofed"));
+  assert.equal(new Set(anonymousSeen.map((item) => item.clientId)).size, 3,
+    "cookie-less requests still receive separate policy keys");
+  assert.match(anonymousSeen.at(-1).clientFlowId, /^client-flow:[0-9a-f]{24}$/,
+    "cookie-less requests from one candidate are reported as one linked flow");
   const finalExport = await request(detectionPort, "GET", "/__detection/api/export", {
     headers: { Cookie: sessionCookie },
   });

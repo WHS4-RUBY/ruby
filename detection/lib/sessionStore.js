@@ -132,6 +132,8 @@ const SENSITIVE_DETECTION_HEADERS = new Set([
   "x-ruby-attack-score",
   "x-ruby-risk-score",
   "x-ruby-policy-source",
+  "x-ruby-candidate-id",
+  "x-ruby-client-flow-id",
   "x-defense-plan",
   "x-defense-signal",
   "x-client-id",

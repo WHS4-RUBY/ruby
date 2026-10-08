@@ -5,246 +5,412 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css" />
+  <!-- 탐지 대시보드와 같은 이유로 /favicon.ico 요청이 보호 대상으로 전달되지 않게 한다. -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23243b53'/%3E%3Cpath d='M8 3l3.6 1.6v3.1c0 2.2-1.5 4-3.6 4.7-2.1-.7-3.6-2.5-3.6-4.7V4.6z' fill='%23e8eef4'/%3E%3C/svg%3E" />
   <title>RUBY 방어 대시보드</title>
   <style>
-    /* 탐지 대시보드와 같은 GitHub Primer 계열 색. 요청 행의 메서드·상태·결과 색도 공유한다. */
+    /* ── 디자인 토큰 ────────────────────────────────────────────────
+       탐지 대시보드(detection/DESIGN.md)와 같은 GitHub Primer 계열 토큰을 쓴다.
+       색은 "차단/오류/방어 적용"만 구분하고 나머지 위계는 회색 단계와 굵기로 준다. */
     :root {
-      color-scheme: light;
+      color-scheme:light;
       --font:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR","Segoe UI",sans-serif;
       --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
-      --bg:#f6f8fa; --surface:#fff; --surface-subtle:#f6f8fa; --text:#1f2328;
-      --muted:#59636e; --border:#d1d9e0; --border-strong:#b7c0c9; --blue:#0969da;
-      --green:#1a7f37; --orange:#bc4c00; --amber:#9a6700; --red:#d1242f; --purple:#8250df; --hover:#eff2f5;
-      --header:#1f2328; --header-text:#f6f8fa; --select-bg:#ddf4ff; --select-border:#0969da; --mark-bg:#fff8c5; --mark-fg:#1f2328;
+      --radius:8px; --radius-sm:6px; --topbar-h:60px;
+      --bg:#f6f8fa; --surface:#ffffff; --surface-muted:#f6f8fa; --surface-raised:#ffffff;
+      --border:#d1d9e0; --border-strong:#b7c0c9; --text:#1f2328; --text-2:#3d444d; --muted:#59636e;
+      --blue:#0969da; --amber:#9a6700; --red:#d1242f; --green:#1a7f37; --purple:#8250df; --orange:#bc4c00; --hover:#eff2f5;
+      --btn-bg:#f6f8fa; --btn-hover:#eef1f4; --count-bg:rgba(31,35,40,.08);
+      --select-bg:#ddf4ff; --select-border:#0969da;
+      --badge-candidate-bg:#fff8c5; --badge-candidate-fg:#7d5300; --badge-candidate-border:#e9cf73;
+      --row-alt:rgba(31,35,40,.025); --mark-bg:#fff8c5; --mark-fg:#1f2328;
+      --sev-critical:#d1242f; --sev-error:#bc4c00; --sev-warn:#bf8700;
+      --tag-bg:#ffebe9; --tag-border:#ffcecb; --tag-fg:#c11d27;
+      --shadow:0 1px 0 rgba(31,35,40,.04); --shadow-lg:0 12px 32px rgba(31,35,40,.18);
     }
     html[data-theme="dark"] {
-      color-scheme:dark; --bg:#010409; --surface:#0d1117; --surface-subtle:#151b23;
-      --text:#e6edf3; --muted:#9198a1; --border:#30363d; --border-strong:#3d444d;
-      --blue:#58a6ff; --green:#3fb950; --orange:#f0883e; --amber:#d29922; --red:#f85149; --purple:#bc8cff;
-      --hover:#1c2128; --header:#010409; --header-text:#f0f6fc; --select-bg:rgba(56,139,253,.15); --select-border:#1f6feb;
-      --mark-bg:rgba(187,128,9,.4); --mark-fg:#f0f6fc;
+      color-scheme:dark;
+      --bg:#010409; --surface:#0d1117; --surface-muted:#151b23; --surface-raised:#161b22;
+      --border:#30363d; --border-strong:#3d444d; --text:#e6edf3; --text-2:#c9d1d9; --muted:#9198a1;
+      --blue:#58a6ff; --amber:#d29922; --red:#f85149; --green:#3fb950; --purple:#bc8cff; --orange:#f0883e; --hover:#1c2128;
+      --btn-bg:#21262d; --btn-hover:#292e36; --count-bg:rgba(110,118,129,.4);
+      --select-bg:rgba(56,139,253,.15); --select-border:#1f6feb;
+      --badge-candidate-bg:rgba(187,128,9,.15); --badge-candidate-fg:#d29922; --badge-candidate-border:rgba(187,128,9,.4);
+      --row-alt:rgba(240,246,252,.025); --mark-bg:rgba(187,128,9,.4); --mark-fg:#f0f6fc;
+      --sev-critical:#f85149; --sev-error:#f0883e; --sev-warn:#d29922;
+      --tag-bg:rgba(248,81,73,.12); --tag-border:rgba(248,81,73,.35); --tag-fg:#ff7b72;
+      --shadow:none; --shadow-lg:0 16px 48px rgba(1,4,9,.6);
     }
+
+    /* ── 기본 ─────────────────────────────────────────────────────── */
     * { box-sizing:border-box; }
-    body { margin:0; min-width:320px; background:var(--bg); color:var(--text); font:14px/1.45 var(--font); }
-    button,input { font:inherit; }
-    button { border:1px solid var(--border-strong); background:var(--surface); color:var(--text); cursor:pointer; }
-    button:hover { background:var(--hover); }
-    .app-header { background:var(--header); color:var(--header-text); border-bottom:1px solid var(--border); }
-    .header-inner { width:min(100% - 40px,1760px); min-height:94px; margin:auto; display:flex; align-items:center; gap:34px; }
-    .product-label { margin:0 0 3px; color:#58a6ff; font-size:11px; font-weight:700; text-transform:uppercase; }
-    h1 { margin:0; font-size:23px; letter-spacing:0; }
-    .header-stats { display:flex; gap:0; margin-left:18px; border-left:1px solid #30363d; }
-    .header-stats span { min-width:104px; padding:5px 20px; border-right:1px solid #30363d; color:#9198a1; font-size:12px; }
-    .header-stats b { display:block; color:#fff; font-size:20px; font-variant-numeric:tabular-nums; }
-    .header-actions { margin-left:auto; display:flex; align-items:center; gap:10px; }
-    .target-badge { max-width:320px; padding:6px 9px; border:1px solid #3d444d; color:#e6edf3; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .target-badge.error { border-color:var(--red); color:var(--red); }
-    .refresh-note { color:#9198a1; font-size:12px; }
-    .header-button { display:inline-block; padding:7px 11px; border:1px solid #3d444d; background:transparent; color:#e6edf3; text-decoration:none; white-space:nowrap; }
-    .header-button:hover { background:#1c2128; }
-    .page { width:min(100% - 40px,1760px); margin:0 auto; padding:24px 0 36px; }
-    .workspace { border:1px solid var(--border); background:var(--surface); }
-    .start-guide { padding:16px 18px; border-bottom:1px solid var(--border); background:var(--surface-subtle); }
-    .guide-steps { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:0; padding:0; list-style:none; }
-    .guide-steps li { min-width:0; padding:10px 12px; border:1px solid var(--border); background:var(--surface); }
-    .guide-steps strong { display:block; margin-bottom:3px; font-size:12px; }
-    .guide-steps span { color:var(--muted); font-size:12px; }
-    .guide-steps a { color:var(--blue); }
-    .guide-details { border-top:1px solid var(--border); }
-    .guide-details summary { cursor:pointer; padding:8px 0; color:var(--text); font-size:12px; font-weight:700; }
-    .guide-details summary:hover { color:var(--blue); }
-    .guide-details .guide-steps { padding-top:4px; }
-    .section-head { min-height:61px; padding:13px 18px; display:flex; align-items:center; justify-content:space-between; gap:20px; border-bottom:1px solid var(--border); }
-    .section-head h2 { margin:0; font-size:15px; }
-    .section-head p { margin:3px 0 0; color:var(--muted); font-size:12px; }
-    .status-line { display:flex; align-items:center; gap:8px; flex-shrink:0; color:var(--muted); font-size:12px; white-space:nowrap; }
-    .status-dot { width:8px; height:8px; border-radius:50%; background:var(--green); }
-    .status-dot.error { background:var(--red); }
-    .kpis { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); border-bottom:1px solid var(--border); }
-    .kpi { min-height:96px; padding:17px 18px; border-right:1px solid var(--border); }
-    .kpi:last-child { border-right:0; }
-    .kpi-label { color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase; }
-    .kpi-value { margin-top:5px; font-size:27px; font-weight:700; font-variant-numeric:tabular-nums; }
-    .kpi-sub { margin-top:2px; color:var(--muted); font-size:11px; }
-    .overview { display:grid; grid-template-columns:minmax(0,2fr) minmax(260px,1fr); border-bottom:1px solid var(--border); }
-    .pane { min-width:0; padding:18px; }
-    .pane + .pane { border-left:1px solid var(--border); }
-    .pane h3 { margin:0 0 13px; font-size:13px; }
-    .timeline { height:190px; display:grid; grid-template-columns:repeat(48,minmax(2px,1fr)); align-items:end; gap:3px; padding:18px 0 25px; border-bottom:1px solid var(--border); position:relative; }
-    .bar { min-height:1px; width:100%; padding:0; border:0; appearance:none; background:var(--blue); position:relative; }
-    .bar.defended { background:var(--orange); }
-    .bar.blocked { box-shadow:inset 0 4px var(--red); }
-    .timeline .bar:hover { background:var(--blue); }
-    .timeline .bar.defended:hover { background:var(--orange); }
-    .bar:hover::after,.bar:focus-visible::after { content:attr(data-label); position:absolute; z-index:2; left:50%; bottom:calc(100% + 7px); transform:translateX(-50%); white-space:nowrap; padding:5px 7px; background:var(--header); color:var(--header-text); font-size:10px; }
-    .bar:focus-visible { outline:2px solid var(--text); outline-offset:2px; }
-    .legend { display:flex; gap:16px; margin-top:10px; color:var(--muted); font-size:11px; }
-    .legend i { display:inline-block; width:8px; height:8px; margin-right:5px; }
-    .timeline-detail { min-height:18px; margin:7px 0 0; color:var(--muted); font-size:11px; }
-    .action-list { min-height:190px; }
-    .action-row { display:grid; grid-template-columns:minmax(90px,1fr) 3fr 44px; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); }
-    .action-row:last-child { border-bottom:0; }
-    .action-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
-    .action-track { height:8px; background:var(--surface-subtle); border:1px solid var(--border); }
-    .action-fill { height:100%; background:var(--blue); }
-    .action-count { text-align:right; font-variant-numeric:tabular-nums; }
-    .table-toolbar { padding:12px 18px; display:flex; flex-wrap:wrap; align-items:center; gap:10px; border-bottom:1px solid var(--border); background:var(--surface-subtle); }
-    .search-input { width:min(360px,100%); padding:7px 9px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); }
-    .copy-status { min-height:18px; color:var(--muted); font-size:12px; }
-    .group-list { padding:14px 18px 18px; display:grid; gap:10px; }
-    .client-group { min-width:0; border:1px solid var(--border); background:var(--surface); }
-    .client-summary { width:100%; display:grid; grid-template-columns:minmax(0,2fr) minmax(0,2fr) minmax(0,1.3fr) 20px; align-items:center; gap:16px; padding:14px 16px; border:0; text-align:left; }
-    .client-summary:hover { background:var(--hover); }
-    .client-summary:focus-visible,.copy-button:focus-visible { outline:2px solid var(--blue); outline-offset:-2px; }
-    .summary-label { display:block; color:var(--muted); font-size:11px; font-weight:700; }
-    .client-id { display:block; margin-top:3px; overflow-wrap:anywhere; font-size:12px; }
-    .client-id.truncate { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .client-group-identity { padding:10px 16px; border-bottom:1px solid var(--border); font-size:12px; overflow-wrap:anywhere; }
-    .client-group-identity .summary-label { margin-bottom:3px; }
-    .summary-detail { display:block; overflow-wrap:anywhere; color:var(--muted); font-size:12px; }
-    .summary-detail strong { color:var(--text); font-weight:600; }
-    .summary-counts { display:flex; flex-wrap:wrap; gap:5px; }
-    .summary-chevron { color:var(--muted); font-size:18px; line-height:1; transform:rotate(-90deg); }
-    .client-summary[aria-expanded="true"] .summary-chevron { transform:rotate(0); }
-    .client-requests { border-top:1px solid var(--border); background:var(--surface-subtle); }
-    .request-card { padding:13px 16px; border-bottom:1px solid var(--border); }
-    .request-card:last-child { border-bottom:0; }
-    .request-top { display:flex; flex-wrap:wrap; align-items:center; gap:7px 10px; }
-    .request-path { min-width:0; overflow-wrap:anywhere; font-size:12.5px; }
-    .request-time { margin-left:auto; color:var(--muted); font-size:12px; white-space:nowrap; }
-    .request-meta { display:grid; grid-template-columns:minmax(150px,1.4fr) minmax(150px,1fr) minmax(150px,1fr); gap:8px 16px; margin-top:10px; font-size:12px; }
-    .request-field { min-width:0; overflow-wrap:anywhere; }
-    .request-field .field-label { display:block; margin-bottom:2px; color:var(--muted); font-size:11px; }
-    .request-id-line { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
-    .request-id-line code { min-width:0; overflow-wrap:anywhere; }
-    .copy-button { padding:2px 7px; color:var(--blue); font-size:11px; white-space:nowrap; }
+    [hidden] { display:none !important; }
+    html { scroll-padding-top:calc(var(--topbar-h) + 12px); }
+    body { margin:0; min-width:320px; background:var(--bg); color:var(--text); font-family:var(--font); font-size:14px; line-height:1.55; -webkit-font-smoothing:antialiased; }
+    button,a,input,select { font:inherit; color:inherit; }
+    a { color:var(--blue); text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    code { font-family:var(--mono); font-size:.92em; color:var(--blue); }
+    h1,h2,h3 { margin:0; color:var(--text); line-height:1.35; }
+    h2 { font-size:16px; font-weight:650; }
+    h3 { font-size:14px; font-weight:650; }
+    .sub { margin:4px 0 0; color:var(--muted); font-size:12.5px; }
     .mono { font-family:var(--mono); }
-    /* 요청 행: 왼쪽 색 막대는 결과(차단 빨강 · 오류 주황 · 방어 적용 노랑), 메서드·상태는 고정 색 */
-    .request-card { border-left:3px solid transparent; }
-    .request-card:nth-child(even) { background:rgba(127,127,127,.035); }
-    .request-card.sev-blocked { border-left-color:var(--red); }
-    .request-card.sev-error { border-left-color:var(--orange); }
-    .request-card.sev-defended { border-left-color:var(--amber); }
-    .request-card.highlight { box-shadow:inset 0 0 0 1px var(--select-border); background:var(--select-bg); }
-    .method-badge { padding:0 5px; border:1px solid currentColor; font-family:var(--mono); font-size:11px; font-weight:700; line-height:1.55; }
-    .m-get { color:var(--blue); } .m-post { color:var(--green); } .m-put { color:var(--amber); }
-    .m-patch { color:var(--purple); } .m-delete { color:var(--red); } .m-other { color:var(--muted); }
-    .badge.s-2xx { color:var(--green); } .badge.s-3xx { color:var(--blue); } .badge.s-4xx { color:var(--amber); } .badge.s-5xx { color:var(--red); }
-    .request-time { font-family:var(--mono); font-variant-numeric:tabular-nums; }
-    mark { padding:0 1px; background:var(--mark-bg); color:var(--mark-fg); }
-    .badge { display:inline-block; padding:2px 6px; border:1px solid var(--border-strong); background:var(--surface-subtle); color:var(--muted); font-size:10px; margin:0 4px 2px 0; }
-    .badge.active { border-color:var(--amber); color:var(--amber); }
+    :focus-visible { outline:2px solid var(--select-border); outline-offset:2px; }
+    ::selection { background:var(--select-bg); }
+
+    .header-button,.link-button,.chip-button {
+      display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:32px; padding:5px 12px;
+      border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--btn-bg); color:var(--text);
+      font-size:13px; font-weight:550; line-height:1.2; white-space:nowrap; text-decoration:none; cursor:pointer;
+      transition:background .12s ease,border-color .12s ease;
+    }
+    .header-button:hover,.link-button:hover,.chip-button:hover { background:var(--btn-hover); text-decoration:none; }
+    .chip-button { min-height:30px; padding:4px 11px; font-size:12.5px; color:var(--text-2); }
+    .chip-button.active { background:var(--select-bg); color:var(--text); }
+    .chip-count { color:var(--muted); font-variant-numeric:tabular-nums; }
+    .search-input {
+      min-height:34px; width:100%; padding:6px 11px; border:1px solid var(--border-strong); border-radius:var(--radius-sm);
+      background:var(--surface); color:var(--text); font-size:13.5px;
+    }
+    .search-input::placeholder { color:var(--muted); }
+    .search-input:focus { outline:none; border-color:var(--select-border); box-shadow:0 0 0 3px var(--select-bg); }
+
+    /* ── 상단 바 ───────────────────────────────────────────────────── */
+    .app-header { position:sticky; top:0; z-index:30; background:var(--surface); border-bottom:1px solid var(--border); }
+    .header-inner,.page { width:min(1760px,100% - 48px); margin:0 auto; }
+    .header-inner { min-height:var(--topbar-h); display:flex; align-items:center; gap:20px; }
+    .brand { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+    .brand-mark { width:28px; height:28px; display:grid; place-items:center; border-radius:7px; background:var(--text); color:var(--surface); font-size:14px; font-weight:800; }
+    .product-label { margin:0; color:var(--muted); font-size:11.5px; font-weight:600; }
+    h1 { font-size:16px; font-weight:700; }
+    .target-status { display:flex; align-items:center; gap:10px; min-width:0; padding:5px 12px; border:1px solid var(--border); border-radius:999px; background:var(--surface-muted); font-size:12.5px; }
+    .target-status strong { color:var(--muted); font-weight:600; white-space:nowrap; }
+    .target-badge { min-width:0; overflow:hidden; font-family:var(--mono); font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+    .target-badge.error { color:var(--red); }
+    .status-dot { width:8px; height:8px; flex-shrink:0; border-radius:50%; background:var(--green); box-shadow:0 0 0 3px rgba(63,185,80,.18); }
+    .status-dot.error { background:var(--red); box-shadow:0 0 0 3px rgba(248,81,73,.18); }
+    .start-status { color:var(--muted); white-space:nowrap; }
+    .header-actions { display:flex; align-items:center; gap:8px; margin-left:auto; }
+    .workspace-settings { position:relative; }
+    .workspace-settings > summary { padding:8px 12px; color:var(--text-2); font-size:13px; font-weight:600; cursor:pointer; }
+    .settings-body { position:absolute; right:0; top:100%; z-index:35; display:grid; gap:12px; width:260px; padding:16px; background:var(--surface-raised); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow-lg); }
+    .settings-note { margin:0; color:var(--muted); font-size:12px; }
+
+    /* ── 페이지 머리·요약 ───────────────────────────────────────────── */
+    .page { padding:20px 0 48px; }
+    .workspace-heading { margin-bottom:16px; }
+    .workspace-heading h2 { font-size:20px; }
+    .workspace-heading p { margin:4px 0 0; color:var(--muted); }
+    .summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); margin-bottom:16px; border-bottom:1px solid var(--border); }
+    .stat-card { min-width:0; padding:8px 16px 16px; }
+    .stat-label { color:var(--muted); font-size:12.5px; font-weight:600; }
+    .stat-value { margin-top:2px; font-size:26px; font-weight:700; line-height:1.2; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+    .stat-sub { display:block; margin-top:2px; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+
+    /* 사용 방법과 방어 구성은 필요할 때 펼친다. */
+    .start-help,.overview-disclosure { margin-bottom:14px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
+    .start-help > summary,.overview-disclosure > summary { display:flex; align-items:center; gap:8px; padding:10px 16px; color:var(--text-2); font-size:13px; font-weight:600; cursor:pointer; list-style:none; }
+    .start-help > summary::-webkit-details-marker,.overview-disclosure > summary::-webkit-details-marker { display:none; }
+    .start-help > summary::before { content:"?"; width:18px; height:18px; display:grid; place-items:center; border-radius:50%; background:var(--select-bg); color:var(--blue); font-size:11px; font-weight:800; }
+    .overview-disclosure > summary::before { content:"▸"; width:18px; display:inline-block; color:var(--muted); text-align:center; transition:transform .15s ease; }
+    .overview-disclosure[open] > summary::before { transform:rotate(90deg); }
+    .start-help > summary::after,.overview-disclosure > summary::after { content:"펼치기"; margin-left:auto; flex-shrink:0; white-space:nowrap; color:var(--muted); font-size:12px; font-weight:500; }
+    .start-help[open] > summary::after,.overview-disclosure[open] > summary::after { content:"접기"; }
+    .overview-meta { min-width:0; overflow:hidden; color:var(--muted); font-weight:500; text-overflow:ellipsis; white-space:nowrap; }
+    .start-help ol { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0; padding:0 16px 12px; list-style:none; counter-reset:step; }
+    .start-help li { position:relative; padding:10px 12px 10px 40px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface-muted); color:var(--muted); font-size:12.5px; counter-increment:step; }
+    .start-help li::before { content:counter(step); position:absolute; left:12px; top:10px; width:20px; height:20px; display:grid; place-items:center; border-radius:50%; background:var(--blue); color:#fff; font-size:11px; font-weight:700; }
+    .start-help li strong { display:block; color:var(--text); font-size:13px; }
+    .start-help p { margin:0; padding:0 16px 12px; color:var(--muted); font-size:12px; }
+
+    .overview-body { border-top:1px solid var(--border); }
+    .strategy-notes { margin:0; padding:12px 16px; border-bottom:1px solid var(--border); color:var(--muted); font-size:12.5px; line-height:1.7; }
+    .strategy-notes span { display:block; }
+    .overview { display:grid; grid-template-columns:minmax(0,2fr) minmax(260px,1fr); }
+    .pane { min-width:0; padding:16px; }
+    .pane + .pane { border-left:1px solid var(--border); }
+    .pane h3 { margin:0 0 10px; font-size:13.5px; }
+    .timeline { height:140px; display:grid; grid-template-columns:repeat(48,minmax(2px,1fr)); align-items:end; gap:3px; padding:12px 0 0; border-bottom:1px solid var(--border); }
+    .bar { min-height:1px; width:100%; padding:0; border:0; border-radius:2px 2px 0 0; appearance:none; background:var(--blue); opacity:.6; position:relative; }
+    .bar.defended { background:var(--sev-warn); opacity:1; }
+    .bar.blocked { background:var(--sev-critical); opacity:1; }
+    button.bar { cursor:pointer; }
+    .bar:hover::after,.bar:focus-visible::after { content:attr(data-label); position:absolute; z-index:2; left:50%; bottom:calc(100% + 7px); transform:translateX(-50%); white-space:nowrap; padding:5px 7px; border-radius:4px; background:var(--text); color:var(--surface); font-size:11px; }
+    .legend { display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:8px; color:var(--muted); font-size:11.5px; }
+    .legend i { display:inline-block; width:8px; height:8px; margin-right:5px; border-radius:2px; }
+    .timeline-detail { min-height:18px; margin:6px 0 0; color:var(--muted); font-size:12px; }
+    .action-row { display:grid; grid-template-columns:minmax(90px,1fr) 2fr 44px; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); font-size:12.5px; }
+    .action-row:last-child { border-bottom:0; }
+    .action-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .action-track { height:6px; overflow:hidden; border-radius:999px; background:var(--border); }
+    .action-fill { display:block; height:100%; border-radius:inherit; background:var(--sev-warn); }
+    .action-count { text-align:right; font-variant-numeric:tabular-nums; }
+    .empty { margin:0; padding:20px 0; color:var(--muted); }
+
+    /* ── 정책 클라이언트: 목록 + 요청 로그 ─────────────────────────── */
+    .card { border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); box-shadow:var(--shadow); }
+    .users-layout { display:grid; grid-template-columns:minmax(280px,320px) minmax(0,1fr); gap:16px; align-items:start; }
+    .users-list-pane { position:sticky; top:calc(var(--topbar-h) + 14px); display:flex; flex-direction:column; max-height:calc(100dvh - var(--topbar-h) - 28px); overflow:hidden; }
+    .list-toolbar { display:flex; flex-direction:column; gap:8px; padding:14px; border-bottom:1px solid var(--border); }
+    .list-label { font-size:14px; font-weight:650; }
+    .filter-chips { display:flex; flex-wrap:wrap; gap:6px; }
+    .list-meta { margin:0; padding:8px 14px; border-bottom:1px solid var(--border); color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+    .user-list { flex:1; min-height:0; overflow-y:auto; padding:6px; }
+    .user-list .empty { padding:20px 10px; }
+    .user-card { display:flex; flex-direction:column; gap:8px; width:100%; margin:0 0 4px; padding:12px; border:1px solid transparent; border-radius:var(--radius-sm); background:transparent; color:var(--text); text-align:left; cursor:pointer; }
+    .user-card:hover { background:var(--hover); }
+    .user-card.selected { background:var(--select-bg); border-color:var(--border); }
+    .user-card-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+    .user-card-title { min-width:0; overflow:hidden; font-family:var(--mono); font-size:13.5px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+    .user-card-title.plain { font-family:var(--font); }
+    .user-card-time { flex-shrink:0; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+    .user-card-top { display:flex; flex-wrap:wrap; gap:5px; }
+    .user-card-top .badge { padding:1px 8px; font-size:11.5px; }
+    .user-card-evidence { color:var(--muted); font-size:12px; }
+    .user-card-id { overflow:hidden; color:var(--muted); font-family:var(--mono); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+
+    .badge { display:inline-flex; align-items:center; flex-shrink:0; padding:2px 9px; border:1px solid transparent; border-radius:999px; font-size:12px; font-weight:600; line-height:1.45; white-space:nowrap; }
+    .badge.candidate { background:var(--badge-candidate-bg); color:var(--badge-candidate-fg); border-color:var(--badge-candidate-border); }
+    .badge.neutral { background:var(--btn-bg); color:var(--text-2); border-color:var(--border); }
+    .badge.danger { background:var(--tag-bg); color:var(--tag-fg); border-color:var(--tag-border); }
+    .badge.flow { background:var(--select-bg); color:var(--blue); border-color:var(--select-border); }
+    .split-warn { color:var(--amber); font-weight:600; }
+    .detail-note { margin:10px 0 0; padding:8px 10px; border:1px solid var(--badge-candidate-border); border-radius:var(--radius-sm); background:var(--badge-candidate-bg); color:var(--badge-candidate-fg); font-size:12.5px; line-height:1.6; }
+    .detail-ids { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; }
+    .id-list { display:inline-flex; flex-wrap:wrap; align-items:center; gap:4px 6px; }
+    .id-count { color:var(--muted); font-size:11.5px; font-variant-numeric:tabular-nums; }
+
+    .user-detail-pane { min-width:0; }
+    .detail-empty { margin:0; padding:72px 24px; color:var(--muted); text-align:center; }
+    .detail-head { padding:16px 18px 14px; border-bottom:1px solid var(--border); }
+    .detail-title { display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0; overflow-wrap:anywhere; }
+    .detail-reference { color:var(--text-2); font-size:12.5px; }
+    .detail-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; margin-top:14px; overflow:hidden; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--border); }
+    .detail-stats .ds { display:flex; flex-direction:column; justify-content:center; gap:3px; min-width:0; padding:10px 12px; background:var(--surface-muted); }
+    .detail-stats .ds i { color:var(--muted); font-size:12px; font-style:normal; font-weight:600; }
+    .detail-stats .ds b { color:var(--text); font-size:18px; font-weight:700; line-height:1.25; font-variant-numeric:tabular-nums; }
+    .detail-stats .ds small { color:var(--muted); font-size:11.5px; }
+    .detail-meta { margin:10px 0 0; color:var(--muted); font-size:12.5px; line-height:1.7; }
+    .detail-meta strong { color:var(--text-2); font-weight:600; }
+
+    .idchip { display:inline-flex; align-items:center; gap:6px; max-width:100%; padding:3px 9px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface-muted); color:var(--blue); font-family:var(--mono); font-size:12.5px; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .idchip:hover { border-color:var(--select-border); }
+    .idchip::after { content:"복사"; color:var(--muted); font-family:var(--font); font-size:11px; }
+
+    /* ── 요청 로그 ─────────────────────────────────────────────────
+       탐지 화면과 같은 한 줄 한 요청 · 최신순. 행 왼쪽 막대와 글자 태그로 결과를 함께 알린다. */
+    .log-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; padding:14px 18px 10px; }
+    .log-head h3 { font-size:15px; }
+    .log-head .sub { margin:0; font-variant-numeric:tabular-nums; }
+    .timeline-body { min-height:200px; max-height:calc(100dvh - var(--topbar-h) - 24px); overflow-y:auto; border-top:1px solid var(--border); }
+    .log-list { --log-cols:108px 64px 46px minmax(0,1fr) auto 14px; }
+    .log-columns,.log-row { display:grid; grid-template-columns:var(--log-cols); align-items:center; column-gap:14px; }
+    .log-columns { position:sticky; top:0; z-index:3; padding:7px 18px; border-bottom:1px solid var(--border); background:var(--surface-muted); color:var(--muted); font-size:12px; font-weight:600; }
+    .log-entry { border-bottom:1px solid var(--border); }
+    .log-entry:nth-of-type(even) { background:var(--row-alt); }
+    .log-row { width:100%; padding:8px 18px; border:0; background:transparent; color:var(--text); text-align:left; font-size:13px; line-height:1.5; cursor:pointer; }
+    .log-row:hover { background:var(--hover); }
+    .log-row:focus-visible { outline:2px solid var(--select-border); outline-offset:-2px; }
+    .log-entry.sev-blocked > .log-row { box-shadow:inset 3px 0 var(--sev-critical); background:rgba(248,81,73,.07); }
+    .log-entry.sev-error > .log-row { box-shadow:inset 3px 0 var(--sev-error); }
+    .log-entry.sev-defended > .log-row { box-shadow:inset 3px 0 var(--sev-warn); }
+    .log-entry.sev-blocked > .log-row:hover { background:var(--hover); }
+    .log-entry.expanded > .log-row,.log-entry.highlight > .log-row { background:var(--select-bg); }
+    .log-time { color:var(--muted); font-family:var(--mono); font-size:12.5px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .method-badge { justify-self:start; padding:0 6px; border-radius:4px; font-family:var(--mono); font-size:11.5px; font-weight:700; line-height:1.7; }
+    .m-get { color:var(--blue); background:rgba(56,139,253,.12); }
+    .m-post { color:var(--green); background:rgba(46,160,67,.13); }
+    .m-put { color:var(--amber); background:rgba(187,128,9,.14); }
+    .m-patch { color:var(--purple); background:rgba(163,113,247,.14); }
+    .m-delete { color:var(--red); background:rgba(248,81,73,.13); }
+    .m-other { color:var(--muted); background:var(--btn-bg); }
+    .status-code { color:var(--muted); font-family:var(--mono); font-weight:700; font-variant-numeric:tabular-nums; }
+    .s-2xx { color:var(--green); } .s-3xx { color:var(--blue); } .s-4xx { color:var(--amber); } .s-5xx { color:var(--red); }
+    .log-path { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono); font-size:13px; }
+    mark { padding:0 1px; border-radius:2px; background:var(--mark-bg); color:var(--mark-fg); }
+    .log-signals { display:flex; align-items:center; justify-content:flex-end; gap:4px; max-width:400px; overflow:hidden; }
+    .log-chevron { color:var(--muted); font-size:10px; transition:transform .12s ease; }
+    .log-entry.expanded .log-chevron { transform:rotate(90deg); }
+    .tag { display:inline-block; padding:1px 7px; border:1px solid var(--tag-border); border-radius:4px; background:var(--tag-bg); color:var(--tag-fg); font-size:11.5px; font-weight:600; line-height:1.5; white-space:nowrap; }
+    .tag.action { border-color:var(--badge-candidate-border); background:var(--badge-candidate-bg); color:var(--badge-candidate-fg); }
+    .tag.muted { border-color:var(--border); background:var(--btn-bg); color:var(--muted); }
+
+    .log-detail { padding:12px 18px 16px; border-top:1px dashed var(--border); background:var(--surface-muted); }
+    .log-detail-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:10px; }
+    .kv { display:grid; grid-template-columns:minmax(120px,180px) minmax(0,1fr); margin:0; overflow:hidden; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); font-size:13px; }
+    .kv dt { padding:7px 12px; border-bottom:1px solid var(--border); background:var(--surface-muted); color:var(--muted); font-weight:600; }
+    .kv dd { margin:0; padding:7px 12px; border-bottom:1px solid var(--border); font-family:var(--mono); font-size:12.5px; line-height:1.6; word-break:break-all; }
+    .kv dt:nth-last-of-type(1),.kv dd:nth-last-of-type(1) { border-bottom:0; }
+    .kv dd .tag { margin:0 4px 3px 0; font-family:var(--font); }
+    .kv-note { color:var(--muted); font-family:var(--font); }
     .outcome-blocked { color:var(--red); font-weight:700; }
     .outcome-error { color:var(--red); }
     .outcome-forwarded { color:var(--green); }
-    .empty { padding:28px 18px; color:var(--muted); text-align:center; }
-    .login-backdrop { position:fixed; inset:0; z-index:20; display:none; align-items:center; justify-content:center; padding:18px; background:rgba(5,9,12,.78); }
+    .log-json { margin-top:10px; }
+    .log-json summary { color:var(--text-2); font-size:12.5px; font-weight:600; cursor:pointer; }
+    .log-json pre { max-height:380px; margin:8px 0 0; padding:12px 14px; overflow:auto; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); font-family:var(--mono); font-size:12.5px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }
+
+    /* ── 토스트·로그인 ─────────────────────────────────────────────── */
+    .toast { position:fixed; right:24px; bottom:24px; z-index:60; padding:10px 14px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface-raised); color:var(--text); font-size:13px; box-shadow:var(--shadow-lg); opacity:0; transform:translateY(6px); transition:opacity .15s,transform .15s; pointer-events:none; }
+    .toast.visible { opacity:1; transform:translateY(0); }
+    .login-backdrop { position:fixed; inset:0; z-index:70; display:none; align-items:center; justify-content:center; padding:18px; background:rgba(1,4,9,.8); }
     .login-backdrop.visible { display:flex; }
-    .login-dialog { width:min(390px,100%); border:1px solid var(--border-strong); background:var(--surface); box-shadow:0 18px 60px rgba(0,0,0,.4); }
-    .login-dialog header { padding:18px; border-bottom:1px solid var(--border); }
-    .login-dialog h2 { margin:0; font-size:17px; }
-    .login-form { padding:18px; }
-    .login-form label { display:block; margin-bottom:7px; color:var(--muted); font-size:12px; }
-    .login-form input { width:100%; padding:9px; border:1px solid var(--border-strong); background:var(--surface-subtle); color:var(--text); }
+    .login-dialog { width:min(380px,100%); overflow:hidden; border:1px solid var(--border-strong); border-radius:var(--radius); background:var(--surface); box-shadow:var(--shadow-lg); }
+    .login-dialog header { padding:18px 20px; border-bottom:1px solid var(--border); }
+    .login-dialog h2 { margin-top:2px; font-size:17px; }
+    .login-form { padding:18px 20px 20px; }
+    .login-form label { display:block; margin-bottom:6px; color:var(--muted); font-size:12.5px; font-weight:600; }
+    .login-form input { width:100%; min-height:36px; padding:7px 11px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface-muted); color:var(--text); }
     .login-actions { display:flex; justify-content:flex-end; margin-top:14px; }
-    .primary { padding:8px 14px; border-color:#1f883d; background:#1f883d; color:#fff; }
-    .login-error { min-height:20px; margin-top:8px; color:var(--red); font-size:12px; }
-    @media (max-width:1050px) {
-      .header-inner { flex-wrap:wrap; padding:15px 0; gap:16px; }
-      .header-stats { order:3; width:100%; margin-left:0; }
-      .header-actions { margin-left:auto; }
-      .kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
-      .kpi { border-bottom:1px solid var(--border); }
+    .login-error { min-height:20px; margin-top:8px; color:var(--red); font-size:12.5px; }
+
+    /* ── 반응형 ───────────────────────────────────────────────────── */
+    @media (prefers-reduced-motion:reduce) {
+      *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; animation:none !important; }
+    }
+    @media (max-width:1280px) {
+      .target-status .start-status { display:none; }
+    }
+    @media (max-width:1100px) {
+      .app-header { position:static; }
+      .header-inner { flex-wrap:wrap; gap:10px 14px; padding:12px 0; }
+      .header-actions { width:100%; margin-left:0; flex-wrap:wrap; }
+      .users-layout { grid-template-columns:minmax(0,1fr); }
+      .users-list-pane { position:static; max-height:420px; }
+      .timeline-body { max-height:75vh; }
       .overview { grid-template-columns:1fr; }
       .pane + .pane { border-left:0; border-top:1px solid var(--border); }
+      html { scroll-padding-top:12px; }
     }
-    @media (max-width:620px) {
-      .guide-steps { grid-template-columns:1fr; }
-      .header-inner,.page { width:min(100% - 20px,1760px); }
-      .header-stats { overflow:auto; }
-      .header-stats span { min-width:95px; padding:5px 12px; }
-      .header-actions { width:100%; justify-content:space-between; }
-      .kpis { grid-template-columns:1fr; }
-      .kpi { border-right:0; }
-      .section-head { align-items:flex-start; flex-direction:column; }
+    @media (max-width:720px) {
+      .header-inner,.page { width:min(100% - 32px,1760px); }
+      .target-status { width:100%; }
+      .summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .stat-card { padding:12px 8px; }
+      .start-help ol { grid-template-columns:1fr; }
+      .detail-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .header-button,.link-button,.chip-button,.search-input,summary { min-height:44px; }
+      .search-input { font-size:16px; }
+      .settings-body { position:static; width:100%; margin-top:8px; box-shadow:none; }
+      .workspace-settings[open] { width:100%; }
       .timeline { gap:1px; }
-      .group-list { padding:10px; }
-      .client-summary { grid-template-columns:minmax(0,1fr) 20px; gap:7px 10px; }
-      .client-summary > :not(:first-child):not(.summary-chevron) { grid-column:1; }
-      .summary-chevron { grid-column:2; grid-row:1; }
-      .request-meta { grid-template-columns:1fr; }
-      .request-time { width:100%; margin-left:0; }
-      .search-input { width:100%; }
+      .log-list { --log-cols:72px 48px 32px minmax(0,1fr) 12px; }
+      .log-row,.log-columns { column-gap:8px; padding-left:12px; padding-right:12px; }
+      .log-row { min-height:44px; }
+      .log-columns .col-signals { display:none; }
+      .log-path,.log-time { font-size:12px; }
+      .log-ms { display:none; }
+      .log-signals { grid-column:1 / -1; grid-row:2; justify-content:flex-start; flex-wrap:wrap; max-width:none; }
+      .log-signals:empty { display:none; }
+      .log-chevron { grid-column:5; grid-row:1; }
+      .kv { grid-template-columns:minmax(0,1fr); }
+      .kv dt { border-bottom:0; padding-bottom:0; }
     }
   </style>
 </head>
 <body>
   <header class="app-header">
     <div class="header-inner">
-      <div>
-        <p class="product-label">보안 대응</p>
-        <h1>트래픽 방어 대시보드</h1>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">R</span>
+        <div>
+          <p class="product-label">RUBY 보안 모니터링</p>
+          <h1>방어 워크스페이스</h1>
+        </div>
       </div>
-      <div class="header-stats">
-        <span><b id="headerTotal">0</b> 요청</span>
-        <span><b id="headerDefended">0</b> 방어 적용</span>
-        <span><b id="headerBlocked">0</b> 차단</span>
+      <div class="target-status" aria-label="보호 대상과 연결 상태">
+        <i class="status-dot" id="statusDot" aria-hidden="true"></i>
+        <strong>보호 대상</strong>
+        <span class="target-badge" id="activeTargetBadge" role="status" aria-live="polite">확인 중…</span>
+        <span class="start-status" id="statusText" role="status" aria-live="polite">연결 확인 중</span>
       </div>
       <div class="header-actions">
-        <span class="target-badge" id="activeTargetBadge" role="status" aria-live="polite">보호 대상 확인 중</span>
-        <span class="refresh-note">3초 간격 자동 갱신</span>
-        <a class="header-button" href="/__detection/dashboard">탐지 화면</a>
-        <button class="header-button" type="button" id="themeToggle">라이트 모드</button>
-        <button class="header-button" type="button" id="logoutButton" hidden>로그아웃</button>
+        <a class="header-button" href="/__detection/dashboard">← 탐지 화면</a>
+        <details class="workspace-settings">
+          <summary>화면 설정</summary>
+          <div class="settings-body">
+            <button class="header-button" type="button" id="themeToggle">라이트 모드</button>
+            <button class="header-button" type="button" id="logoutButton" hidden>로그아웃</button>
+            <p class="settings-note">화면은 3초마다 자동 갱신됩니다.</p>
+          </div>
+        </details>
       </div>
     </div>
   </header>
 
   <main class="page">
-    <section class="workspace">
-      <section class="start-guide" aria-label="방어 화면 읽는 순서">
-        <details class="guide-details" id="defenseGuide" open>
-          <summary>처음 보는 분: 탐지부터 방어 결과까지 확인하기</summary>
-          <ol class="guide-steps">
-            <li><strong>1. 탐지 결과 확인</strong><span><a href="/__detection/dashboard">탐지 화면</a>에서 방문 흐름과 점수를 확인합니다. 두 화면의 점수는 0~100 관찰 지표이며 공격 성공 확률이 아닙니다.</span></li>
-            <li><strong>2. 방어 결과 대조</strong><span>아래에서 요청을 열고 적용 전략·응답을 확인합니다. 요청 ID로 탐지 기록과 대조할 수 있습니다.</span></li>
-          </ol>
-        </details>
-      </section>
-      <div class="section-head">
-        <div><h2>방어 상태</h2><p id="strategyText">설치된 전략을 불러오는 중입니다.</p><p id="appliedStrategyText">보관 기록에서 적용된 전략을 불러오는 중입니다.</p><p id="summaryScope">보관된 요청 기준</p></div>
-        <div class="status-line"><i class="status-dot" id="statusDot"></i><span id="statusText">연결 확인 중</span></div>
-      </div>
+    <div class="workspace-heading">
+      <h2>어떤 요청에 방어가 적용됐나요?</h2>
+      <p>탐지 화면과 같은 기준(연결된 흐름 · 단독 관찰)으로 묶었습니다. 흐름을 선택하고 요청을 눌러 적용 전략과 응답을 확인하세요.</p>
+    </div>
 
-      <div class="kpis">
-        <div class="kpi"><div class="kpi-label">전체 요청</div><div class="kpi-value" id="totalRequests">0</div><div class="kpi-sub">보관 범위 내 누적</div></div>
-        <div class="kpi"><div class="kpi-label">방어 적용</div><div class="kpi-value" id="defendedRequests">0</div><div class="kpi-sub" id="defendedRate">0%</div></div>
-        <div class="kpi"><div class="kpi-label">차단</div><div class="kpi-value" id="blockedRequests">0</div><div class="kpi-sub">원본 전달 중단 · WS 연결 거부 포함</div></div>
-        <div class="kpi"><div class="kpi-label">오류</div><div class="kpi-value" id="errorRequests">0</div><div class="kpi-sub">연결·스트리밍 오류 포함</div></div>
-        <div class="kpi"><div class="kpi-label">평균 처리 시간</div><div class="kpi-value" id="averageDuration">0 ms</div><div class="kpi-sub">방어·원본 응답·WebSocket 연결 포함</div></div>
-      </div>
-
-      <div class="overview">
-        <section class="pane">
-          <h3>최근 1시간 요청 흐름</h3>
-          <div class="timeline" id="timeline" role="group" aria-label="최근 1시간 요청 흐름"></div>
-          <div class="legend"><span><i style="background:var(--blue)"></i>일반 전달 구간</span><span><i style="background:var(--orange)"></i>방어 적용 구간</span><span><i style="background:var(--red)"></i>차단 포함 구간</span></div>
-          <p class="timeline-detail" id="timelineDetail" role="status" aria-live="polite">막대를 누르거나 선택하면 해당 시간의 건수를 볼 수 있습니다.</p>
-        </section>
-        <section class="pane">
-          <h3>전략 적용 분포</h3>
-          <div class="action-list" id="actionList"></div>
-        </section>
-      </div>
-
-      <div class="section-head"><div><h2>최근 요청·연결</h2><p id="requestMeta">최근 250건 중 0건 표시</p><p>대상 전환 전 기록도 보관 범위에 포함됩니다. 각 요청의 대상과 실험 ID를 확인하세요. 같은 정책 클라이언트 ID의 요청만 묶습니다. 이 ID는 동일 인물의 증거가 아닙니다. 점수는 해당 요청 직전까지 완료된 탐지 기록을 사용합니다. WebSocket은 업그레이드와 연결 종료 결과를 구분합니다.</p></div></div>
-      <div class="table-toolbar">
-        <input class="search-input" id="requestSearch" type="search" placeholder="요청 ID · 경로 · 정책 클라이언트 ID · 전략 검색" aria-label="최근 요청 검색" />
-        <span class="copy-status" id="copyStatus" role="status" aria-live="polite"></span>
-      </div>
-      <div class="group-list" id="requestGroups"></div>
+    <section class="summary" aria-label="보관된 방어 기록 요약">
+      <div class="stat-card"><div class="stat-label">요청</div><div class="stat-value" id="totalRequests">—</div><span class="stat-sub" id="averageDuration">평균 처리 시간 —</span></div>
+      <div class="stat-card"><div class="stat-label">방어 적용</div><div class="stat-value" id="defendedRequests">—</div><span class="stat-sub" id="defendedRate">전체의 —</span></div>
+      <div class="stat-card"><div class="stat-label">차단</div><div class="stat-value" id="blockedRequests">—</div><span class="stat-sub">원본 전달 중단 · WS 연결 거부 포함</span></div>
+      <div class="stat-card"><div class="stat-label">오류</div><div class="stat-value" id="errorRequests">—</div><span class="stat-sub">연결·스트리밍 오류 포함</span></div>
     </section>
+
+    <details class="start-help" id="defenseGuide">
+      <summary>사용 방법 · 탐지에서 방어 결과까지</summary>
+      <ol>
+        <li><strong>탐지 결과 확인</strong><a href="/__detection/dashboard">탐지 화면</a>에서 요청 흐름과 점수를 봅니다.</li>
+        <li><strong>요청 흐름 선택</strong>왼쪽 목록에서 연결된 흐름이나 단독 관찰을 고르면 요청 로그가 열립니다.</li>
+        <li><strong>방어 결과 대조</strong>요청을 펼쳐 적용 전략·응답을 보고, 요청 ID로 탐지 기록과 대조합니다.</li>
+      </ol>
+      <p>점수는 0~100 범위의 관찰 지표이며 공격 성공 확률이 아닙니다. 점수는 해당 요청 직전까지 완료된 탐지 기록을 사용합니다. 목록은 탐지가 넘긴 관찰 후보와 Client Flow로 묶으며, 동일 인물의 증거가 아닙니다. 속도 제한 같은 방어 상태는 정책 키별로 따로 쌓이므로, 한 흐름에 정책 키가 여러 개면 방어가 그만큼 나뉘어 적용된 것입니다. 흐름 연결은 요청 뒤에 확정되므로, 먼저 들어온 요청도 같은 후보의 이후 기록을 따라 흐름에 함께 표시합니다. 대상 전환 전 기록도 보관 범위에 포함되므로 요청별 대상과 실행 ID를 확인하세요. WebSocket은 업그레이드와 연결 종료 결과를 구분합니다.</p>
+    </details>
+
+    <details class="overview-disclosure" id="overviewDisclosure">
+      <summary>방어 구성·시간 분포<span class="overview-meta" id="overviewMeta"></span></summary>
+      <div class="overview-body">
+        <p class="strategy-notes">
+          <span id="strategyText">설치된 전략을 불러오는 중입니다.</span>
+          <span id="appliedStrategyText">보관 기록에서 적용된 전략을 불러오는 중입니다.</span>
+          <span id="summaryScope">보관된 요청 기준</span>
+        </p>
+        <div class="overview">
+          <section class="pane">
+            <h3>최근 1시간 요청</h3>
+            <div class="timeline" id="timeline" role="group" aria-label="최근 1시간 요청 흐름"></div>
+            <div class="legend"><span><i style="background:var(--blue);opacity:.6"></i>일반 전달 구간</span><span><i style="background:var(--sev-warn)"></i>방어 적용 구간</span><span><i style="background:var(--sev-critical)"></i>차단 포함 구간</span></div>
+            <p class="timeline-detail" id="timelineDetail" role="status" aria-live="polite">막대를 누르거나 선택하면 해당 시간의 건수를 볼 수 있습니다.</p>
+          </section>
+          <section class="pane">
+            <h3>전략 적용 분포</h3>
+            <div id="actionList"></div>
+          </section>
+        </div>
+      </div>
+    </details>
+
+    <div class="users-layout">
+      <aside class="users-list-pane card">
+        <div class="list-toolbar">
+          <label class="list-label" for="requestSearch">요청 흐름</label>
+          <input class="search-input" id="requestSearch" type="search" placeholder="요청 ID · 경로 · 흐름·후보·정책 키 · 전략 검색" />
+          <div class="filter-chips" id="flowFilters" role="group" aria-label="흐름 종류 필터">
+            <button class="chip-button active" type="button" data-flow-filter="all" aria-pressed="true">모든 흐름</button>
+            <button class="chip-button" type="button" data-flow-filter="linked" aria-pressed="false">연결된 흐름</button>
+            <button class="chip-button" type="button" data-flow-filter="standalone" aria-pressed="false">단독 관찰</button>
+          </div>
+          <div class="filter-chips" id="outcomeFilters" role="group" aria-label="요청 결과 필터">
+            <button class="chip-button active" type="button" data-outcome-filter="all" aria-pressed="true">모든 결과</button>
+            <button class="chip-button" type="button" data-outcome-filter="defended" aria-pressed="false">방어 적용</button>
+            <button class="chip-button" type="button" data-outcome-filter="blocked" aria-pressed="false">차단·오류</button>
+          </div>
+        </div>
+        <p class="list-meta" id="requestMeta" role="status" aria-live="polite">—</p>
+        <div class="user-list" id="requestGroups"></div>
+      </aside>
+      <section class="user-detail-pane card" id="groupDetail" aria-label="선택한 흐름의 요청">
+        <p class="detail-empty">왼쪽 목록에서 흐름을 선택하면 요청 로그가 표시됩니다.</p>
+      </section>
+    </div>
   </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <div class="login-backdrop" id="loginBackdrop">
     <section class="login-dialog" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
@@ -253,13 +419,18 @@
         <label for="password">비밀번호</label>
         <input id="password" type="password" autocomplete="current-password" required />
         <div class="login-error" id="loginError" role="alert"></div>
-        <div class="login-actions"><button class="primary" type="submit">로그인</button></div>
+        <div class="login-actions"><button class="header-button" type="submit">로그인</button></div>
       </form>
     </section>
   </div>
 
   <script>
-    const state = { requests: [], groupOpen: new Map(), authEnabled: false, timer: null, copyStatusTimer: null, selectedBucket: null };
+    const EXPANDED_LIMIT = 50;
+    const state = {
+      requests: [], selectedKey: null, expanded: new Set(), jsonOpen: new Set(), outcomeFilter: 'all', flowFilter: 'all',
+      autoFocusedQuery: '', resetDetailScroll: false, authEnabled: false, timer: null, selectedBucket: null,
+      rendered: { flowFilters: '', filters: '', list: '', detail: '' },
+    };
 
     const STRATEGY_NAMES = Object.freeze({
       delay:'지연 적용', rate_limit_strict:'엄격 속도 제한',
@@ -273,21 +444,61 @@
       'fingerprint-client-flow':'유사 방문 흐름', 'confirmed-resolved-actor':'확인된 클라이언트 흐름',
     });
     const DEFENSE_SIGNALS = Object.freeze({ rate_limited:'요청 빈도 제한', none:'없음' });
+    const OUTCOME_FILTERS = Object.freeze({ all:'모든 결과', defended:'방어 적용', blocked:'차단·오류' });
+    // 탐지 화면의 흐름 필터와 같은 이름을 쓴다. unlinked는 후보 정보가 없는 기록(이전 버전·서명 없는 WebSocket)이다.
+    const FLOW_FILTERS = Object.freeze({ all:'모든 흐름', linked:'연결된 흐름', standalone:'단독 관찰', unlinked:'흐름 정보 없음' });
+    const GROUP_KINDS = Object.freeze({ flow:'linked', candidate:'standalone', client:'unlinked', missing:'unlinked' });
+    // 갱신 뒤 포커스를 되돌릴 때 쓰는 data 속성(dataset 이름 → HTML 속성 이름).
+    const FOCUS_ATTRS = Object.freeze({
+      groupKey:'data-group-key', rowKey:'data-row-key', jsonKey:'data-json-key', copy:'data-copy',
+      outcomeFilter:'data-outcome-filter', flowFilter:'data-flow-filter',
+    });
 
     function displayName(value, names) {
       const raw = String(value ?? '');
       return Object.prototype.hasOwnProperty.call(names, raw) ? `${names[raw]} (${raw})` : raw || '—';
     }
 
+    function shortName(value, names) {
+      const raw = String(value ?? '');
+      return Object.prototype.hasOwnProperty.call(names, raw) ? names[raw] : raw || '—';
+    }
+
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+    }
+
+    function highlightText(value, query) {
+      const text = String(value ?? '');
+      const lower = text.toLowerCase();
+      // 대소문자 변환으로 길이가 달라지는 문자열은 위치가 어긋나므로 강조하지 않는다.
+      if (!query || lower.length !== text.length) return escapeHtml(text);
+      let html = '';
+      let at = 0;
+      for (let hit = lower.indexOf(query); hit !== -1; hit = lower.indexOf(query, at)) {
+        html += `${escapeHtml(text.slice(at, hit))}<mark>${escapeHtml(text.slice(hit, hit + query.length))}</mark>`;
+        at = hit + query.length;
+      }
+      return html + escapeHtml(text.slice(at));
+    }
+
+    function shortId(value, head = 12) {
+      const text = String(value ?? '');
+      return text.length > head + 1 ? `${text.slice(0, head)}…` : text;
+    }
+
+    function idChip(value, head = 12) {
+      const text = String(value ?? '');
+      if (!text) return '';
+      return `<button type="button" class="idchip" data-copy="${escapeHtml(text)}" title="클릭하면 전체 값을 복사합니다&#10;${escapeHtml(text)}">${escapeHtml(shortId(text, head))}</button>`;
     }
 
     function applyTheme(theme) {
       const dark = theme === 'dark';
       document.documentElement.dataset.theme = dark ? 'dark' : 'light';
       document.getElementById('themeToggle').textContent = dark ? '라이트 모드' : '다크 모드';
-      localStorage.setItem('defense-dashboard-theme', dark ? 'dark' : 'light');
+      try { localStorage.setItem('defense-dashboard-theme', dark ? 'dark' : 'light'); }
+      catch (_) { /* 저장소가 없어도 테마 전환은 동작한다. */ }
     }
 
     function formatTime(timestamp) {
@@ -302,17 +513,30 @@
       return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
     }
 
+    function formatDuration(value) {
+      const duration = Number(value);
+      return Number.isFinite(duration) ? `${Math.round(duration).toLocaleString()} ms` : '—';
+    }
+
     const METHOD_CLASSES = Object.freeze({ GET:'m-get', HEAD:'m-get', POST:'m-post', PUT:'m-put', PATCH:'m-patch', DELETE:'m-delete' });
+
+    function isDefended(event) {
+      return Array.isArray(event.strategies) && event.strategies.length > 0;
+    }
+
+    function isWebSocket(event) {
+      return String(event.method || '').toUpperCase() === 'WEBSOCKET';
+    }
 
     function requestSeverity(event) {
       if (event.outcome === 'blocked') return 'blocked';
       if (event.outcome === 'error') return 'error';
-      return Array.isArray(event.strategies) && event.strategies.length ? 'defended' : 'forwarded';
+      return isDefended(event) ? 'defended' : 'forwarded';
     }
 
     function statusFamilyClass(event) {
       const status = Number(event.status);
-      if (String(event.method || '').toUpperCase() === 'WEBSOCKET' || !(status >= 200 && status < 600)) return '';
+      if (isWebSocket(event) || !(status >= 200 && status < 600)) return '';
       return ` s-${Math.floor(status / 100)}xx`;
     }
 
@@ -344,13 +568,19 @@
       document.getElementById('loginError').textContent = '';
     }
 
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.classList.add('visible');
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(() => toast.classList.remove('visible'), 1600);
+    }
+
     function renderActiveTarget(config) {
       const badge = document.getElementById('activeTargetBadge');
       const active = config.activeTarget;
       badge.classList.toggle('error', !active);
-      badge.textContent = active
-        ? `보호 대상 ${active.targetId} · 실행 ${active.runId || '기본'}`
-        : '보호 대상 선택 오류';
+      badge.textContent = active ? `${active.targetId} · 실행 ${active.runId || '기본'}` : '선택 오류';
       badge.title = active?.changedAt ? `선택 시각: ${active.changedAt}` : '';
     }
 
@@ -358,21 +588,19 @@
       renderActiveTarget(config);
       const total = summary.totalRequests || 0;
       const defended = summary.defendedRequests || 0;
-      document.getElementById('headerTotal').textContent = total.toLocaleString();
-      document.getElementById('headerDefended').textContent = defended.toLocaleString();
-      document.getElementById('headerBlocked').textContent = (summary.blockedRequests || 0).toLocaleString();
       document.getElementById('totalRequests').textContent = total.toLocaleString();
       document.getElementById('defendedRequests').textContent = defended.toLocaleString();
       document.getElementById('blockedRequests').textContent = (summary.blockedRequests || 0).toLocaleString();
       document.getElementById('errorRequests').textContent = (summary.errorRequests || 0).toLocaleString();
-      document.getElementById('averageDuration').textContent = `${Math.round(summary.averageDurationMs || 0).toLocaleString()} ms`;
-      document.getElementById('defendedRate').textContent = `${total ? ((defended / total) * 100).toFixed(1) : '0.0'}%`;
+      document.getElementById('averageDuration').textContent = `평균 처리 시간 ${Math.round(summary.averageDurationMs || 0).toLocaleString()} ms`;
+      document.getElementById('defendedRate').textContent = `전체의 ${total ? ((defended / total) * 100).toFixed(1) : '0.0'}%`;
       const available = config.availableStrategies || [];
       const applied = summary.activeStrategies || [];
       document.getElementById('strategyText').textContent = `설치된 전략: ${available.map(name => displayName(name, STRATEGY_NAMES)).join(', ') || '없음'}`;
       document.getElementById('appliedStrategyText').textContent = `보관 기록에서 실제 적용: ${applied.map(name => displayName(name, STRATEGY_NAMES)).join(', ') || '없음'}`;
       const limit = Number(config.eventLimit || summary.maxEvents);
-      document.getElementById('summaryScope').textContent = `위 지표는 보관된 모든 대상의 HTTP 요청·WebSocket 연결 기준${Number.isFinite(limit) && limit > 0 ? ` (최대 ${limit.toLocaleString()}건)` : ''} · 방어 프로세스 재시작 시 초기화`;
+      document.getElementById('summaryScope').textContent = `요약 수치는 보관된 모든 대상의 HTTP 요청·WebSocket 연결 기준${Number.isFinite(limit) && limit > 0 ? ` (최대 ${limit.toLocaleString()}건)` : ''} · 방어 프로세스 재시작 시 초기화`;
+      document.getElementById('overviewMeta').textContent = `· 설치 ${available.length}종 · 실제 적용 ${applied.length}종`;
     }
 
     function renderTimeline(data) {
@@ -385,7 +613,7 @@
       const blocked = buckets.reduce((sum, bucket) => sum + bucket.blocked, 0);
       root.setAttribute('aria-label', `최근 1시간 전체 ${total}건, 방어 적용 ${defended}건, 차단 ${blocked}건. 막대 높이는 각 시간 구간의 전체 요청 수입니다.`);
       root.innerHTML = buckets.map((bucket, index) => {
-        const height = Math.max(bucket.total ? 4 : 1, (bucket.total / max) * 145);
+        const height = Math.max(bucket.total ? 4 : 1, (bucket.total / max) * 120);
         const cls = bucket.blocked ? 'bar blocked' : bucket.defended ? 'bar defended' : 'bar';
         const label = `${formatTime(bucket.start)} · 전체 ${bucket.total} · 방어 ${bucket.defended} · 차단 ${bucket.blocked}`;
         return bucket.total
@@ -405,14 +633,14 @@
       const root = document.getElementById('actionList');
       const actions = data.actions || [];
       if (!actions.length) {
-        root.innerHTML = '<p class="empty">아직 방어 기록이 없습니다. 사이트로 요청이 들어오면 요청과 적용 전략을 확인할 수 있습니다.</p>';
+        root.innerHTML = '<p class="empty">아직 방어 기록이 없습니다.</p>';
         return;
       }
       const max = Math.max(...actions.map(action => action.count), 1);
       root.innerHTML = actions.map(action => `
         <div class="action-row">
           <span class="action-name" title="${escapeHtml(action.name)}">${escapeHtml(displayName(action.name, STRATEGY_NAMES))}</span>
-          <span class="action-track"><span class="action-fill" style="display:block;width:${(action.count / max) * 100}%"></span></span>
+          <span class="action-track"><span class="action-fill" style="width:${(action.count / max) * 100}%"></span></span>
           <span class="action-count">${action.count}</span>
         </div>`).join('');
     }
@@ -420,6 +648,10 @@
     function hasClientId(event) {
       const clientId = String(event.clientId ?? '').trim();
       return clientId !== '' && clientId.toLowerCase() !== 'unknown';
+    }
+
+    function cleanId(value) {
+      return String(value ?? '').trim();
     }
 
     function clientKey(event, index, occurrence) {
@@ -432,32 +664,109 @@
         : JSON.stringify(['missing-client-observation', index]);
     }
 
+    function rowKey(event, index) {
+      const eventId = String(event.id ?? '').trim();
+      return eventId ? `event:${eventId}` : `observation:${index}`;
+    }
+
+    /* 탐지는 요청 당시의 후보 ID와 (연결된 경우) Client Flow ID를 넘긴다. 흐름 연결은
+       응답 뒤에 확정되고 흐름끼리 합쳐지기도 하므로, 같은 후보나 흐름을 공유하는 기록을
+       하나로 잇고 가장 최근 기록의 흐름 ID로 표시한다. 탐지의 흐름은 합쳐지기만 한다. */
+    function observationGroups(events) {
+      const parent = new Map();
+      const find = node => {
+        let root = node;
+        while (parent.get(root) !== root) root = parent.get(root);
+        for (let next = node; next !== root;) { const up = parent.get(next); parent.set(next, root); next = up; }
+        return root;
+      };
+      const add = node => { if (!parent.has(node)) parent.set(node, node); return node; };
+      for (const event of events) {
+        const nodes = [cleanId(event.candidateId) && `c:${cleanId(event.candidateId)}`, cleanId(event.clientFlowId) && `f:${cleanId(event.clientFlowId)}`].filter(Boolean);
+        nodes.forEach(add);
+        if (nodes.length === 2) {
+          const [left, right] = nodes.map(find);
+          if (left !== right) parent.set(right, left);
+        }
+      }
+      // 최신 기록부터 오므로 처음 만난 흐름 ID가 탐지의 현재 대표 흐름이다.
+      const flowByRoot = new Map();
+      for (const event of events) {
+        const flowId = cleanId(event.clientFlowId);
+        if (!flowId) continue;
+        const root = find(`f:${flowId}`);
+        if (!flowByRoot.has(root)) flowByRoot.set(root, flowId);
+      }
+      return event => {
+        const candidateId = cleanId(event.candidateId);
+        const flowId = cleanId(event.clientFlowId);
+        if (!candidateId && !flowId) return null;
+        const root = find(flowId ? `f:${flowId}` : `c:${candidateId}`);
+        const groupFlowId = flowByRoot.get(root);
+        return groupFlowId ? { kind:'flow', id:groupFlowId } : { kind:'candidate', id:candidateId };
+      };
+    }
+
     function indexRequests(events) {
       const requestOccurrences = new Map();
+      const observationOf = observationGroups(events);
       return events.map((event, index) => {
         const requestId = String(event.requestId ?? '').trim();
         const occurrence = requestOccurrences.get(requestId) || 0;
         if (!hasClientId(event) && !String(event.id ?? '').trim() && requestId) requestOccurrences.set(requestId, occurrence + 1);
-        return { event, index, key: clientKey(event, index, occurrence), occurrence };
+        const observation = observationOf(event);
+        const key = observation ? JSON.stringify([observation.kind, observation.id]) : clientKey(event, index, occurrence);
+        const kind = observation ? observation.kind : hasClientId(event) ? 'client' : 'missing';
+        return { event, index, key, kind, label: observation?.id, occurrence, rowKey: rowKey(event, index) };
       });
     }
 
-    function groupRequests(events) {
+    function groupRequests(items) {
       const groups = new Map();
-      for (const { event, index, key, occurrence } of events) {
+      for (const item of items) {
+        const { event, index, key, kind, occurrence } = item;
         if (!groups.has(key)) groups.set(key, {
           key,
-          label: hasClientId(event) ? String(event.clientId) : '정책 키 없음(연결 불가)',
-          missingClientId: !hasClientId(event),
+          kind,
+          flowType: GROUP_KINDS[kind],
+          label: item.label || (hasClientId(event) ? String(event.clientId) : '정책 키 없음(연결 불가)'),
+          missingClientId: kind === 'missing',
           reference: [
             String(event.requestId ?? '').trim() ? `요청 ID ${String(event.requestId).trim()}${occurrence ? ` · 동일 ID 기록 ${occurrence + 1}` : ''}` : '',
             String(event.id ?? '').trim() ? `기록 ID ${String(event.id).trim()}` : '',
           ].filter(Boolean).join(' · ') || `관찰 순번 ${index + 1}`,
           events: [],
+          items: [],
         });
         groups.get(key).events.push(event);
+        groups.get(key).items.push(item);
       }
-      return [...groups.values()];
+      // 탐지 화면처럼 연결된 흐름을 먼저 두고, 같은 종류 안에서는 최근 기록 순서를 유지한다.
+      const order = { linked:0, standalone:1, unlinked:2 };
+      return [...groups.values()].sort((a, b) => order[a.flowType] - order[b.flowType]);
+    }
+
+    function countIds(values) {
+      const counts = new Map();
+      for (const value of values) if (value) counts.set(value, (counts.get(value) || 0) + 1);
+      return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    }
+
+    function groupCounts(group) {
+      const durations = group.events.map(event => Number(event.durationMs)).filter(Number.isFinite);
+      return {
+        total: group.events.length,
+        defended: group.events.filter(isDefended).length,
+        blocked: group.events.filter(event => event.outcome === 'blocked').length,
+        errors: group.events.filter(event => event.outcome === 'error').length,
+        latest: Math.max(...group.events.map(event => Number(event.timestamp) || 0)),
+        averageDuration: durations.length ? durations.reduce((sum, value) => sum + value, 0) / durations.length : NaN,
+        strategies: [...new Set(group.events.flatMap(event => Array.isArray(event.strategies) ? event.strategies : []))],
+        // 방어 상태(속도 제한 카운터 등)는 정책 키에 붙는다. 흐름 하나에 키가 여럿이면 그만큼 나뉘어 적용된다.
+        policyKeys: countIds(group.events.filter(hasClientId).map(event => String(event.clientId))),
+        missingPolicyKeys: group.events.filter(event => !hasClientId(event)).length,
+        candidates: countIds(group.events.map(event => cleanId(event.candidateId))),
+      };
     }
 
     function outcomeLabel(outcome) {
@@ -472,106 +781,274 @@
     }
 
     function transportResult(event) {
-      if (String(event.method || '').toUpperCase() !== 'WEBSOCKET') return `HTTP ${event.status ?? '—'}`;
+      if (!isWebSocket(event)) return `HTTP ${event.status ?? '—'}`;
       if (Number(event.status) === 101) return event.outcome === 'error' ? 'WS 연결 중 오류' : 'WS 연결 종료';
       if (event.outcome === 'blocked') return 'WS 업그레이드 차단';
       return 'WS 업그레이드 오류';
     }
 
-    function renderRequestCard(event, query = '') {
+    function matchesQuery(event, query) {
+      if (!query) return true;
+      return [
+        event.requestId, event.id, event.path, hasClientId(event) ? event.clientId : '정책 키 없음 연결 불가', event.candidateId, event.clientFlowId, event.policySource, event.method,
+        event.outcome, event.defenseSignal, displayName(event.defenseSignal, DEFENSE_SIGNALS), event.decoyAction, event.targetId, event.runId,
+        ...(Array.isArray(event.strategies) ? event.strategies.flatMap(name => [name, displayName(name, STRATEGY_NAMES)]) : []),
+      ].join(' ').toLowerCase().includes(query);
+    }
+
+    function matchesOutcome(event, filter) {
+      if (filter === 'defended') return isDefended(event);
+      if (filter === 'blocked') return event.outcome === 'blocked' || event.outcome === 'error';
+      return true;
+    }
+
+    function renderRequestRow(event, { key = rowKey(event, 0), query = '', expanded = false } = {}) {
       const requestId = String(event.requestId || '');
       const method = String(event.method || '—').toUpperCase();
       const highlighted = query && requestId.toLowerCase() === query;
-      const strategies = Array.isArray(event.strategies) && event.strategies.length
-        ? event.strategies.map(name => `<span class="badge active">${escapeHtml(displayName(name, STRATEGY_NAMES))}</span>`).join('')
-        : '<span class="badge">없음</span>';
-      const duration = Number(event.durationMs);
-      const durationText = Number.isFinite(duration) ? `${Math.round(duration).toLocaleString()} ms` : '—';
-      return `<article class="request-card sev-${requestSeverity(event)}${highlighted ? ' highlight' : ''}">
-        <div class="request-top">
-          <span class="method-badge ${METHOD_CLASSES[method] || 'm-other'}">${escapeHtml(method)}</span>
-          <span class="request-path mono">${escapeHtml(event.path || '—')}</span>
-          <span class="badge mono${statusFamilyClass(event)}">${escapeHtml(transportResult(event))}</span>
-          <span class="${outcomeClass(event.outcome)}">${escapeHtml(outcomeLabel(event.outcome))}</span>
-          <time class="request-time" title="${escapeHtml(formatTime(event.timestamp))}">${formatTimeMs(event.timestamp)}</time>
-        </div>
-        <div class="request-meta">
-          <div class="request-field"><span class="field-label">대조에 사용할 요청 ID</span>
-            <span class="request-id-line"><code class="mono">${escapeHtml(requestId || '—')}</code>
-              ${requestId ? `<button type="button" class="copy-button" data-request-id="${escapeHtml(requestId)}" aria-label="요청 ID 복사">복사</button>` : ''}</span>
+      const clock = formatTimeMs(event.timestamp);
+      const signals = [
+        isWebSocket(event) ? `<span class="tag muted">${escapeHtml(transportResult(event))}</span>` : '',
+        event.outcome === 'blocked' || event.outcome === 'error' ? `<span class="tag">${escapeHtml(outcomeLabel(event.outcome))}</span>` : '',
+        ...(isDefended(event) ? event.strategies.map(name => `<span class="tag action" title="${escapeHtml(displayName(name, STRATEGY_NAMES))}">${escapeHtml(shortName(name, STRATEGY_NAMES))}</span>`) : []),
+      ].join('');
+      const classes = ['log-entry', `sev-${requestSeverity(event)}`, highlighted ? 'highlight' : '', expanded ? 'expanded' : ''].filter(Boolean).join(' ');
+      return `<div class="${classes}">
+        <button type="button" class="log-row" data-row-key="${escapeHtml(key)}" aria-expanded="${expanded}">
+          <span class="log-time" title="${escapeHtml(formatTime(event.timestamp))}">${escapeHtml(clock.slice(0, 8))}<span class="log-ms">${escapeHtml(clock.slice(8))}</span></span>
+          <span class="method-badge ${METHOD_CLASSES[method] || 'm-other'}">${escapeHtml(isWebSocket(event) ? 'WS' : method)}</span>
+          <span class="status-code${statusFamilyClass(event)}">${escapeHtml(event.status ?? '—')}</span>
+          <span class="log-path" title="${escapeHtml(event.path || '')}">${highlightText(event.path || '—', query)}</span>
+          <span class="log-signals">${signals}</span>
+          <span class="log-chevron" aria-hidden="true">▶</span>
+        </button>
+        ${expanded ? renderRequestDetail(event, key) : ''}
+      </div>`;
+    }
+
+    function renderRequestDetail(event, key) {
+      const requestId = String(event.requestId || '');
+      const rows = [];
+      const add = (label, html) => rows.push(`<dt>${escapeHtml(label)}</dt><dd>${html}</dd>`);
+      const strategies = isDefended(event)
+        ? event.strategies.map(name => `<span class="tag action">${escapeHtml(displayName(name, STRATEGY_NAMES))}</span>`).join('')
+        : '<span class="kv-note">없음</span>';
+      add('시각', `${escapeHtml(formatTime(event.timestamp))} <span class="kv-note">${escapeHtml(formatTimeMs(event.timestamp))}</span>`);
+      add('요청 ID', requestId ? `<code>${escapeHtml(requestId)}</code>` : '—');
+      add('요청', `${escapeHtml(String(event.method || '—').toUpperCase())} ${escapeHtml(event.path || '')}`);
+      add('응답', `${escapeHtml(transportResult(event))} · <span class="${outcomeClass(event.outcome)}">${escapeHtml(outcomeLabel(event.outcome))}</span>`);
+      add('적용 전략', strategies);
+      add('정책 점수 (0~100)', `자동화 ${formatScore(event.automationScore)} · 공격 ${formatScore(event.attackScore)} · 위험 ${formatScore(event.riskScore)}`);
+      add('점수 출처', escapeHtml(displayName(event.policySource, POLICY_SOURCES)));
+      add('정책 키', hasClientId(event) ? `<code>${escapeHtml(event.clientId)}</code>` : '<span class="kv-note">없음 · 다른 요청과 방어 상태를 공유하지 않음</span>');
+      add('관찰 후보', cleanId(event.candidateId) ? `<code>${escapeHtml(event.candidateId)}</code>` : '<span class="kv-note">탐지가 넘기지 않음</span>');
+      add('요청 당시 흐름', cleanId(event.clientFlowId) ? `<code>${escapeHtml(event.clientFlowId)}</code>` : '<span class="kv-note">연결 전 · 단독 관찰</span>');
+      add('방어 신호', escapeHtml(displayName(event.defenseSignal || 'none', DEFENSE_SIGNALS)));
+      if (event.decoyAction) add('미끼 동작', escapeHtml(event.decoyAction));
+      add('요청 당시 대상', `${escapeHtml(event.targetId || '대상 미기록')} · 실행 ${escapeHtml(event.runId || '—')}`);
+      add('처리 시간', escapeHtml(formatDuration(event.durationMs)));
+      if (event.id) add('기록 ID', escapeHtml(event.id));
+      return `<div class="log-detail">
+        <div class="log-detail-actions">${idChip(requestId, 44)}</div>
+        <dl class="kv">${rows.join('')}</dl>
+        <details class="log-json"${state.jsonOpen.has(key) ? ' open' : ''}><summary data-json-key="${escapeHtml(key)}">원본 JSON</summary><pre>${escapeHtml(JSON.stringify(event, null, 2))}</pre></details>
+      </div>`;
+    }
+
+    const KIND_BADGES = Object.freeze({
+      flow: ['flow', '연결된 흐름', '탐지가 지문 단서로 이어 붙인 Client Flow의 요청입니다. 동일 클라이언트 확정이 아닙니다.'],
+      candidate: ['neutral', '단독 관찰', '연결된 Client Flow가 없는 관찰 후보(IP와 HTTP 지문)의 요청입니다.'],
+      client: ['neutral', '흐름 정보 없음', '탐지가 후보 정보를 넘기지 않은 기록이라 정책 키로 묶었습니다.'],
+      missing: ['neutral', '연결 불가', '후보 정보와 정책 키가 모두 없어 다른 요청과 묶지 않았습니다.'],
+    });
+
+    function kindBadge(group) {
+      const [cls, text, title] = KIND_BADGES[group.kind];
+      return `<span class="badge ${cls}" title="${escapeHtml(title)}">${escapeHtml(text)}</span>`;
+    }
+
+    function splitPolicyKeys(group, counts) {
+      return (group.kind === 'flow' || group.kind === 'candidate') && counts.policyKeys.length > 1;
+    }
+
+    function policyKeySummary(group, counts) {
+      if (group.kind === 'client' || group.kind === 'missing') return '';
+      const text = `정책 키 ${counts.policyKeys.length.toLocaleString()}개${splitPolicyKeys(group, counts) ? '로 나뉨' : ''}`;
+      return splitPolicyKeys(group, counts) ? `<span class="split-warn">${escapeHtml(text)}</span>` : escapeHtml(text);
+    }
+
+    function renderGroupCard(group, selected) {
+      const counts = groupCounts(group);
+      const strategyText = counts.strategies.length ? counts.strategies.map(name => shortName(name, STRATEGY_NAMES)).join(', ') : '없음';
+      const evidence = [
+        group.kind === 'flow' ? escapeHtml(`후보 ${counts.candidates.length}개`) : '',
+        policyKeySummary(group, counts),
+        escapeHtml(`전략 ${strategyText}`),
+      ].filter(Boolean).join(' · ');
+      return `<button type="button" class="user-card${selected ? ' selected' : ''}" data-group-key="${escapeHtml(group.key)}" aria-current="${selected}">
+        <span class="user-card-head"><span class="user-card-title${group.missingClientId ? ' plain' : ''}">${escapeHtml(group.missingClientId ? '정책 키 없음' : shortId(group.label, 24))}</span><span class="user-card-time" title="${escapeHtml(formatTime(counts.latest))}">${escapeHtml(formatTimeMs(counts.latest).slice(0, 8))}</span></span>
+        <span class="user-card-top">${kindBadge(group)}<span class="badge neutral">요청 ${counts.total}</span>${counts.defended ? `<span class="badge candidate">방어 ${counts.defended}</span>` : ''}${counts.blocked ? `<span class="badge danger">차단 ${counts.blocked}</span>` : ''}${counts.errors ? `<span class="badge danger">오류 ${counts.errors}</span>` : ''}</span>
+        <span class="user-card-evidence">${evidence}</span>
+        <span class="user-card-id" title="${escapeHtml(group.missingClientId ? group.reference : group.label)}">${escapeHtml(group.missingClientId ? group.reference : group.label)}</span>
+      </button>`;
+    }
+
+    function idList(entries, limit = 6) {
+      const shown = entries.slice(0, limit).map(([id, count]) => `${idChip(id, 20)}<span class="id-count">${count.toLocaleString()}건</span>`).join('');
+      return `<span class="id-list">${shown}${entries.length > limit ? `<span class="id-count">외 ${(entries.length - limit).toLocaleString()}개</span>` : ''}</span>`;
+    }
+
+    function renderGroupDetail(group, query) {
+      if (!group) {
+        return `<p class="detail-empty">${state.requests.length
+          ? '조건에 맞는 요청이 없습니다. 검색어나 필터를 바꿔 보세요.'
+          : '아직 방어 기록이 없습니다. 보호 대상으로 요청이 들어오면 흐름별로 표시됩니다.'}</p>`;
+      }
+      const counts = groupCounts(group);
+      const title = group.missingClientId
+        ? `<span class="detail-reference mono">${escapeHtml(group.reference)}</span>`
+        : idChip(group.label, 40);
+      const identity = [];
+      if (group.kind === 'flow') identity.push(`관찰 후보 ${idList(counts.candidates)}`);
+      if (group.kind !== 'missing') {
+        identity.push(`정책 키 ${counts.policyKeys.length ? idList(counts.policyKeys) : '<span class="id-count">없음</span>'}${counts.missingPolicyKeys ? ` <span class="id-count">· 정책 키 없음 ${counts.missingPolicyKeys.toLocaleString()}건</span>` : ''}`);
+      }
+      const splitNote = splitPolicyKeys(group, counts)
+        ? `<p class="detail-note">같은 ${group.kind === 'flow' ? '흐름' : '후보'}의 요청 ${counts.total.toLocaleString()}건이 정책 키 ${counts.policyKeys.length.toLocaleString()}개로 나뉘었습니다. 속도 제한 같은 방어 상태는 정책 키별로 따로 쌓이므로, 이 흐름에는 방어가 나뉘어 적용됩니다.</p>`
+        : '';
+      const rows = group.items.map(item => renderRequestRow(item.event, { key: item.rowKey, query, expanded: state.expanded.has(item.rowKey) })).join('');
+      return `<div class="detail-head">
+          <div class="detail-title">${kindBadge(group)}${title}</div>
+          <div class="detail-stats">
+            <span class="ds"><i>요청</i><b>${counts.total.toLocaleString()}</b></span>
+            <span class="ds"><i>방어 적용</i><b>${counts.defended.toLocaleString()}</b><small>${counts.total ? ((counts.defended / counts.total) * 100).toFixed(1) : '0.0'}%</small></span>
+            <span class="ds"><i>차단</i><b>${counts.blocked.toLocaleString()}</b></span>
+            <span class="ds"><i>오류</i><b>${counts.errors.toLocaleString()}</b></span>
           </div>
-          <div class="request-field"><span class="field-label">정책 점수(0~100) · 자동화 / 공격 / 위험</span>
-            <span class="mono">${formatScore(event.automationScore)} / ${formatScore(event.attackScore)} / ${formatScore(event.riskScore)}</span>
-          </div>
-          <div class="request-field"><span class="field-label">점수 출처</span><span>${escapeHtml(displayName(event.policySource, POLICY_SOURCES))}</span></div>
-          <div class="request-field"><span class="field-label">요청 당시 보호 대상</span><span class="mono">${escapeHtml(event.targetId || '대상 미기록')}</span></div>
-          <div class="request-field"><span class="field-label">실험 실행 ID</span><span class="mono">${escapeHtml(event.runId || '—')}</span></div>
-          <div class="request-field"><span class="field-label">적용 전략</span>${strategies}</div>
-          <div class="request-field"><span class="field-label">방어 신호</span><span>${escapeHtml(displayName(event.defenseSignal || 'none', DEFENSE_SIGNALS))}</span></div>
-          ${event.decoyAction ? `<div class="request-field"><span class="field-label">미끼 동작</span><span class="mono">${escapeHtml(event.decoyAction)}</span></div>` : ''}
-          <div class="request-field"><span class="field-label">처리 시간</span><span class="mono">${durationText}</span></div>
+          <p class="detail-meta">최근 기록 <strong>${escapeHtml(formatTime(counts.latest))}</strong> · 적용 전략 <strong>${escapeHtml(counts.strategies.map(name => displayName(name, STRATEGY_NAMES)).join(', ') || '없음')}</strong> · 평균 처리 시간 ${escapeHtml(formatDuration(counts.averageDuration))}</p>
+          ${identity.map(line => `<p class="detail-meta detail-ids">${line}</p>`).join('')}
+          ${splitNote}
         </div>
-      </article>`;
+        <section aria-label="요청 로그">
+          <div class="log-head"><h3>요청 로그</h3><span class="sub">${counts.total.toLocaleString()}건 · 최신순 · 행을 누르면 상세</span></div>
+          <div class="timeline-body" id="timelineBody">
+            <div class="log-list"><div class="log-columns" aria-hidden="true"><span>시간</span><span>메서드</span><span>상태</span><span>경로</span><span class="col-signals">결과 · 전략</span><span></span></div>${rows}</div>
+          </div>
+        </section>`;
+    }
+
+    function renderFlowFilters(groups) {
+      const counts = { all: groups.length, linked: 0, standalone: 0, unlinked: 0 };
+      for (const group of groups) counts[group.flowType]++;
+      return Object.entries(FLOW_FILTERS)
+        .filter(([value]) => value !== 'unlinked' || counts.unlinked || state.flowFilter === 'unlinked')
+        .map(([value, label]) => {
+          const active = state.flowFilter === value;
+          return `<button class="chip-button${active ? ' active' : ''}" type="button" data-flow-filter="${value}" aria-pressed="${active}">${label} <span class="chip-count">${counts[value].toLocaleString()}</span></button>`;
+        }).join('');
+    }
+
+    function renderOutcomeFilters(items) {
+      const counts = {
+        all: items.length,
+        defended: items.filter(({ event }) => matchesOutcome(event, 'defended')).length,
+        blocked: items.filter(({ event }) => matchesOutcome(event, 'blocked')).length,
+      };
+      return Object.entries(OUTCOME_FILTERS).map(([value, label]) => {
+        const active = state.outcomeFilter === value;
+        return `<button class="chip-button${active ? ' active' : ''}" type="button" data-outcome-filter="${value}" aria-pressed="${active}">${label} <span class="chip-count">${counts[value].toLocaleString()}</span></button>`;
+      }).join('');
+    }
+
+    function captureFocus(root) {
+      const focused = document.activeElement;
+      if (!focused || !root.contains(focused)) return null;
+      const name = Object.keys(FOCUS_ATTRS).find(key => focused.dataset?.[key] !== undefined);
+      return name ? { name, value: focused.dataset[name] } : null;
+    }
+
+    function restoreFocus(root, saved) {
+      if (!saved) return;
+      [...root.querySelectorAll(`[${FOCUS_ATTRS[saved.name]}]`)]
+        .find(element => element.dataset[saved.name] === saved.value)
+        ?.focus({ preventScroll: true });
+    }
+
+    // 3초 갱신이 같은 내용을 다시 그려 포커스·스크롤·펼침을 흔들지 않도록, 바뀐 영역만 교체한다.
+    function replaceContent(root, slot, html, { scrollSelector = '', resetScroll = false } = {}) {
+      if (state.rendered[slot] === html) return;
+      state.rendered[slot] = html;
+      const focus = captureFocus(root);
+      const scroller = scrollSelector ? root.querySelector?.(scrollSelector) : root;
+      const scrollTop = scroller?.scrollTop || 0;
+      root.innerHTML = html;
+      const nextScroller = scrollSelector ? root.querySelector?.(scrollSelector) : root;
+      if (nextScroller) nextScroller.scrollTop = resetScroll ? 0 : scrollTop;
+      restoreFocus(root, focus);
     }
 
     function renderRequests() {
-      const query = document.getElementById('requestSearch').value.trim().toLowerCase();
-      const indexedRequests = indexRequests(state.requests);
-      const availableKeys = new Set(indexedRequests.map(({ key }) => key));
-      for (const key of state.groupOpen.keys()) if (!availableKeys.has(key)) state.groupOpen.delete(key);
-      const filtered = indexedRequests.filter(({ event }) => [
-        event.requestId, event.id, event.path, hasClientId(event) ? event.clientId : '정책 키 없음 연결 불가', event.policySource, event.method,
-        event.outcome, event.defenseSignal, displayName(event.defenseSignal, DEFENSE_SIGNALS), event.decoyAction, event.targetId, event.runId,
-        ...(Array.isArray(event.strategies) ? event.strategies.flatMap(name => [name, displayName(name, STRATEGY_NAMES)]) : []),
-      ].join(' ').toLowerCase().includes(query));
-      const groups = groupRequests(filtered);
+      const query = String(document.getElementById('requestSearch').value || '').trim().toLowerCase();
+      const indexed = indexRequests(state.requests);
+      const searched = indexed.filter(({ event }) => matchesQuery(event, query));
+      const outcomeMatched = searched.filter(({ event }) => matchesOutcome(event, state.outcomeFilter));
+      const allGroups = groupRequests(outcomeMatched);
+      const groups = state.flowFilter === 'all' ? allGroups : allGroups.filter(group => group.flowType === state.flowFilter);
+      const filtered = groups.flatMap(group => group.items);
+
+      // 탐지 화면의 "방어 기록에서 보기"(?q=요청 ID)처럼 요청 ID를 그대로 넣으면 그 요청을 한 번 열어 준다.
+      const exact = query && query !== state.autoFocusedQuery
+        ? outcomeMatched.find(({ event }) => String(event.requestId ?? '').trim().toLowerCase() === query)
+        : null;
+      if (exact && !groups.some(group => group.key === exact.key)) {
+        // 흐름 필터에 가려진 요청이면 필터를 풀어 바로 보이게 한다.
+        state.flowFilter = 'all';
+        return renderRequests();
+      }
+      if (exact) {
+        state.autoFocusedQuery = query;
+        state.selectedKey = exact.key;
+        state.expanded.add(exact.rowKey);
+      }
+      if (!groups.some(group => group.key === state.selectedKey)) state.selectedKey = groups[0]?.key ?? null;
+      const liveRows = new Set(indexed.map(item => item.rowKey));
+      for (const key of [...state.expanded]) if (!liveRows.has(key)) state.expanded.delete(key);
+      for (const key of [...state.jsonOpen]) if (!state.expanded.has(key)) state.jsonOpen.delete(key);
+      while (state.expanded.size > EXPANDED_LIMIT) state.expanded.delete(state.expanded.values().next().value);
+
+      const kindCount = kind => groups.filter(group => group.flowType === kind).length;
       const missingGroups = groups.filter(group => group.missingClientId).length;
-      document.getElementById('requestMeta').textContent = `최근 ${state.requests.length.toLocaleString()}건 중 ${filtered.length.toLocaleString()}건 · 정책 클라이언트 ID ${(groups.length - missingGroups).toLocaleString()}개 · 정책 키 없음 ${missingGroups.toLocaleString()}건`;
-      const root = document.getElementById('requestGroups');
-      const focused = document.activeElement;
-      const focusedClientId = root.contains(focused) ? focused.dataset.clientId : null;
-      const focusedRequestId = root.contains(focused) ? focused.dataset.requestId : null;
-      if (!groups.length) {
-        root.innerHTML = state.requests.length
-          ? '<p class="empty">검색 조건에 맞는 요청이 없습니다.</p>'
-          : '<p class="empty">아직 최근 요청이 없습니다. 사이트로 요청이 들어오면 이곳에 요청 결과가 표시됩니다.</p>';
-        return;
-      }
-      root.innerHTML = groups.map((group, index) => {
-        const defended = group.events.filter(event => Array.isArray(event.strategies) && event.strategies.length).length;
-        const blocked = group.events.filter(event => event.outcome === 'blocked').length;
-        const errors = group.events.filter(event => event.outcome === 'error').length;
-        const latest = Math.max(...group.events.map(event => Number(event.timestamp) || 0));
-        const names = [...new Set(group.events.flatMap(event => Array.isArray(event.strategies) ? event.strategies : []))];
-        const strategyText = names.length ? names.map(name => displayName(name, STRATEGY_NAMES)).join(', ') : '없음';
-        const open = state.groupOpen.has(group.key) ? state.groupOpen.get(group.key) : Boolean(query);
-        const panelId = `client-requests-${index}`;
-        return `<section class="client-group">
-          <button type="button" class="client-summary" data-client-id="${escapeHtml(group.key)}" aria-expanded="${open}" aria-controls="${panelId}">
-            <span><span class="summary-label">${group.missingClientId ? '연결 불가' : '정책 클라이언트 ID'}</span><code class="client-id mono${group.missingClientId ? '' : ' truncate'}" title="${escapeHtml(group.label)}">${escapeHtml(group.label)}</code>${group.missingClientId ? `<span class="summary-detail mono">${escapeHtml(group.reference)}</span>` : ''}</span>
-            <span><span class="summary-label">최근 기록</span><span class="summary-detail">${formatTime(latest)} · 전략 <strong>${escapeHtml(strategyText)}</strong></span></span>
-            <span class="summary-counts"><span class="badge">요청 ${group.events.length}</span><span class="badge active">방어 ${defended}</span><span class="badge">차단 ${blocked}</span><span class="badge">오류 ${errors}</span></span>
-            <span class="summary-chevron" aria-hidden="true">⌄</span>
-          </button>
-          <div class="client-requests" id="${panelId}" ${open ? '' : 'hidden'}>${group.missingClientId ? '' : `<div class="client-group-identity"><span class="summary-label">정책 클라이언트 ID 전체</span><code class="mono">${escapeHtml(group.label)}</code></div>`}${group.events.map(event => renderRequestCard(event, query)).join('')}</div>
-        </section>`;
-      }).join('');
-      if (focusedClientId !== null && focusedClientId !== undefined) {
-        [...root.querySelectorAll('[data-client-id]')].find(button => button.dataset.clientId === focusedClientId)?.focus();
-      } else if (focusedRequestId !== null && focusedRequestId !== undefined) {
-        [...root.querySelectorAll('[data-request-id]')].find(button => button.dataset.requestId === focusedRequestId)?.focus();
-      }
+      const policyKeys = new Set(filtered.filter(({ event }) => hasClientId(event)).map(({ event }) => String(event.clientId))).size;
+      document.getElementById('requestMeta').textContent = [
+        `최근 ${state.requests.length.toLocaleString()}건 중 ${filtered.length.toLocaleString()}건`,
+        `연결된 흐름 ${kindCount('linked').toLocaleString()}개`,
+        `단독 관찰 ${kindCount('standalone').toLocaleString()}개`,
+        kindCount('unlinked') ? `흐름 정보 없음 ${kindCount('unlinked').toLocaleString()}개` : '',
+        `정책 키 ${policyKeys.toLocaleString()}개`,
+        missingGroups ? `정책 키 없음 ${missingGroups.toLocaleString()}건` : '',
+      ].filter(Boolean).join(' · ');
+      replaceContent(document.getElementById('flowFilters'), 'flowFilters', renderFlowFilters(allGroups));
+      replaceContent(document.getElementById('outcomeFilters'), 'filters', renderOutcomeFilters(searched));
+
+      const listHtml = groups.length
+        ? groups.map(group => renderGroupCard(group, group.key === state.selectedKey)).join('')
+        : `<p class="empty">${state.requests.length ? '검색 조건에 맞는 요청이 없습니다.' : '아직 최근 요청이 없습니다.'}</p>`;
+      replaceContent(document.getElementById('requestGroups'), 'list', listHtml);
+      replaceContent(document.getElementById('groupDetail'), 'detail', renderGroupDetail(groups.find(group => group.key === state.selectedKey), query), {
+        scrollSelector: '#timelineBody', resetScroll: state.resetDetailScroll,
+      });
+      state.resetDetailScroll = false;
     }
 
-    async function copyRequestId(requestId) {
+    async function copyText(text) {
       if (navigator.clipboard?.writeText) {
         try {
-          await navigator.clipboard.writeText(requestId);
+          await navigator.clipboard.writeText(text);
           return true;
-        } catch (_) { /* HTTP deployments may require the fallback below. */ }
+        } catch (_) { /* HTTP 배포에서는 아래 대체 방법이 필요할 수 있다. */ }
       }
       const field = document.createElement('textarea');
-      field.value = requestId;
+      field.value = text;
       field.style.position = 'fixed';
       field.style.opacity = '0';
       document.body.appendChild(field);
@@ -591,23 +1068,31 @@
         renderActions({ actions:snapshot.actions });
         renderRequests();
         document.getElementById('statusDot').classList.remove('error');
-        document.getElementById('statusText').textContent = '대시보드 데이터 연결됨';
+        document.getElementById('statusText').textContent = '방어 기록 연결됨';
       } catch (error) {
         if (String(error.message).includes('authentication')) return;
         document.getElementById('statusDot').classList.add('error');
-        document.getElementById('statusText').textContent = '대시보드 데이터 연결 오류';
+        document.getElementById('statusText').textContent = '방어 기록 연결 오류';
       }
     }
 
-    async function initialize() {
-      const guide = document.getElementById('defenseGuide');
-      try { guide.open = localStorage.getItem('ruby-defense-start-help') !== 'closed'; }
-      catch (_) { guide.open = true; }
-      guide.addEventListener('toggle', () => {
-        try { localStorage.setItem('ruby-defense-start-help', guide.open ? 'open' : 'closed'); }
-        catch (_) { /* 안내는 저장소가 없어도 사용할 수 있다. */ }
+    function rememberDisclosure(id, storageKey) {
+      const disclosure = document.getElementById(id);
+      try { disclosure.open = localStorage.getItem(storageKey) === 'open'; }
+      catch (_) { disclosure.open = false; }
+      disclosure.addEventListener('toggle', () => {
+        try { localStorage.setItem(storageKey, disclosure.open ? 'open' : 'closed'); }
+        catch (_) { /* 저장소가 없어도 펼침은 동작한다. */ }
       });
-      applyTheme(localStorage.getItem('defense-dashboard-theme') || 'dark');
+    }
+
+    async function initialize() {
+      rememberDisclosure('defenseGuide', 'ruby-defense-start-help');
+      rememberDisclosure('overviewDisclosure', 'ruby-defense-overview');
+      let theme = 'dark';
+      try { theme = localStorage.getItem('defense-dashboard-theme') || 'dark'; }
+      catch (_) { /* 기본 다크 테마를 쓴다. */ }
+      applyTheme(theme);
       // 탐지 화면의 "방어 기록에서 보기" 링크(?q=요청 ID)로 들어오면 해당 요청을 바로 검색한다.
       const initialQuery = new URLSearchParams(window.location.search).get('q');
       if (initialQuery) document.getElementById('requestSearch').value = initialQuery.slice(0, 200);
@@ -623,6 +1108,18 @@
       applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
     });
     document.getElementById('requestSearch').addEventListener('input', renderRequests);
+    document.getElementById('flowFilters').addEventListener('click', event => {
+      const chip = event.target.closest('[data-flow-filter]');
+      if (!chip) return;
+      state.flowFilter = chip.dataset.flowFilter;
+      renderRequests();
+    });
+    document.getElementById('outcomeFilters').addEventListener('click', event => {
+      const chip = event.target.closest('[data-outcome-filter]');
+      if (!chip) return;
+      state.outcomeFilter = chip.dataset.outcomeFilter;
+      renderRequests();
+    });
     for (const eventName of ['click', 'focusin']) {
       document.getElementById('timeline').addEventListener(eventName, event => {
         const bar = event.target.closest('[data-bucket-index]');
@@ -631,24 +1128,34 @@
         document.getElementById('timelineDetail').textContent = bar.dataset.label;
       });
     }
-    document.getElementById('requestGroups').addEventListener('click', async event => {
-      const root = document.getElementById('requestGroups');
-      const copyButton = event.target.closest('[data-request-id]');
-      if (copyButton && root.contains(copyButton)) {
-        const copied = await copyRequestId(copyButton.dataset.requestId);
-        copyButton.focus();
-        const status = document.getElementById('copyStatus');
-        status.textContent = copied ? '요청 ID를 복사했습니다.' : '복사하지 못했습니다.';
-        window.clearTimeout(state.copyStatusTimer);
-        state.copyStatusTimer = window.setTimeout(() => { status.textContent = ''; }, 2500);
-        return;
-      }
-      const toggle = event.target.closest('[data-client-id]');
-      if (!toggle || !root.contains(toggle)) return;
-      const open = toggle.getAttribute('aria-expanded') !== 'true';
-      state.groupOpen.set(toggle.dataset.clientId, open);
-      toggle.setAttribute('aria-expanded', String(open));
-      document.getElementById(toggle.getAttribute('aria-controls')).hidden = !open;
+    document.getElementById('requestGroups').addEventListener('click', event => {
+      const card = event.target.closest('[data-group-key]');
+      if (!card || card.dataset.groupKey === state.selectedKey) return;
+      state.selectedKey = card.dataset.groupKey;
+      state.resetDetailScroll = true;
+      renderRequests();
+      if (window.matchMedia('(max-width:1100px)').matches) document.getElementById('groupDetail').scrollIntoView({ block:'start' });
+    });
+    document.getElementById('groupDetail').addEventListener('click', event => {
+      const row = event.target.closest('[data-row-key]');
+      if (!row) return;
+      const key = row.dataset.rowKey;
+      if (state.expanded.has(key)) state.expanded.delete(key);
+      else state.expanded.add(key);
+      renderRequests();
+    });
+    // details의 toggle은 버블링되지 않으므로 캡처 단계에서 원본 JSON 펼침 상태를 기억한다.
+    document.getElementById('groupDetail').addEventListener('toggle', event => {
+      const key = event.target.querySelector?.('[data-json-key]')?.dataset.jsonKey;
+      if (!key) return;
+      if (event.target.open) state.jsonOpen.add(key);
+      else state.jsonOpen.delete(key);
+    }, true);
+    document.addEventListener('click', async event => {
+      const chip = event.target.closest('[data-copy]');
+      if (!chip) return;
+      const copied = await copyText(chip.dataset.copy);
+      showToast(copied ? '복사했습니다.' : '복사하지 못했습니다.');
     });
     document.getElementById('loginForm').addEventListener('submit', async event => {
       event.preventDefault();

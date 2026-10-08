@@ -107,6 +107,7 @@ Bearer 값의 그룹 점수는 자동 429 근거가 아닙니다. 한 요청의 
 | `X-Ruby-Request-Id` | 탐지·방어 기록을 결합할 무작위 요청 ID |
 | `X-Ruby-Automation-Score`, `X-Ruby-Attack-Score`, `X-Ruby-Risk-Score` | 전달 전 완료 이력의 0~1 점수 |
 | `X-Ruby-Policy-Source` | 정책 점수의 탐지 출처 |
+| `X-Ruby-Candidate-Id`, `X-Ruby-Client-Flow-Id` | 요청 당시 관찰 후보와 연결된 Client Flow. Defense 대시보드의 묶음 표시용이며 정책 판단에는 쓰지 않습니다 |
 | `X-Ruby-Target-Id`, `X-Ruby-Run-Id` | 선택된 대상과 실험 실행의 식별자 |
 
 점수·출처 헤더는 Defense의 관측용 내부 계약입니다. 외부 요청에 같은 이름의 헤더가

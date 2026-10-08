@@ -40,6 +40,8 @@ test("외부에서 주입한 탐지 헤더를 제거한다", () => {
     ["x-ruby-request-id", "forged"],
     ["x-ruby-attack-score", "1"],
     ["x-defense-signal", "forged"],
+    ["x-ruby-candidate-id", "actor:forged"],
+    ["x-ruby-client-flow-id", "client-flow:forged"],
     ["content-type", "application/json"],
   ]);
   const proxyReq = {
@@ -57,6 +59,8 @@ test("외부에서 주입한 탐지 헤더를 제거한다", () => {
   assert.equal(headers.has("x-ruby-request-id"), false);
   assert.equal(headers.has("x-ruby-attack-score"), false);
   assert.equal(headers.has("x-defense-signal"), false);
+  assert.equal(headers.has("x-ruby-candidate-id"), false);
+  assert.equal(headers.has("x-ruby-client-flow-id"), false);
 
   // 관련 없는 헤더는 유지되어야 한다.
   assert.equal(headers.get("content-type"), "application/json")
