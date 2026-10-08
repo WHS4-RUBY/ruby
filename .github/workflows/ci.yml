@@ -97,7 +97,7 @@ jobs:
 
       - name: Test account overlay
         working-directory: defense/account-response-overlay
-        run: pytest -q
+        run: python -m pytest -q
 
       - name: Test overlay lure UI
         working-directory: defense/account-response-overlay
