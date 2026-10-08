@@ -1,5 +1,6 @@
 const zlib = require("node:zlib");
-const { createProxyMiddleware } = require("http-proxy-middleware");
+const httpProxy = require("http-proxy");
+const querystring = require("node:querystring");
 
 const DEFAULT_MAX_RESPONSE_BODY_BYTES = 4 * 1024 * 1024;
 const DETECTION_COOKIE_NAMES = new Set(["dlsid", "dcid"]);
@@ -7,6 +8,19 @@ const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
   "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
   "te", "trailer", "transfer-encoding", "upgrade",
 ]);
+
+function fixRequestBody(proxyReq, req) {
+  if (req.readableLength !== 0 || !req.body) return;
+  const contentType = String(proxyReq.getHeader("content-type") || "");
+  let body;
+  if (contentType.includes("application/json")) body = JSON.stringify(req.body);
+  else if (contentType.includes("application/x-www-form-urlencoded")) {
+    body = querystring.stringify(req.body);
+  }
+  if (body === undefined) return;
+  proxyReq.setHeader("content-length", Buffer.byteLength(body));
+  proxyReq.write(body);
+}
 
 function normalizedHooks(hooks) {
   return Array.isArray(hooks) ? hooks.filter(Boolean) : [];
@@ -274,14 +288,14 @@ function createProxyCore({
           startStreaming();
           await writeWithBackpressure(res, raw);
         } else {
+          copyResponseHeaders(proxyRes, res, { rawBody: false });
           const responseBuffer = await runResponseHooks(hookList, {
             responseBuffer: decoded, bodyAvailable: true,
             responseBodyBytes: state.responseBodyBytes, proxyRes, req, res, target,
           });
-          copyResponseHeaders(proxyRes, res, {
-            rawBody: false,
-            bodyChanged: !decoded.equals(responseBuffer) || contentEncoding(proxyRes.headers) !== "identity",
-          });
+          if (!decoded.equals(responseBuffer) || contentEncoding(proxyRes.headers) !== "identity") {
+            for (const name of ["etag", "content-md5", "digest", "accept-ranges"]) res.removeHeader(name);
+          }
           res.setHeader("content-length", responseBuffer.length);
           res.end(responseBuffer);
           state.terminal = "success";
@@ -304,33 +318,31 @@ function createProxyCore({
     }
   }
 
-  return createProxyMiddleware({
-    target,
-    changeOrigin,
-    // server.js owns the single explicit upgrade listener. HPM's ws:true would
-    // attach a second listener after the first HTTP request.
-    ws: false,
-    selfHandleResponse: true,
-    onProxyReq(proxyReq, req, res) {
-      applyForwardedHeaders(proxyReq, req);
-      runRequestHooks(hookList, { proxyReq, req, res, target });
-    },
-    onProxyReqWs(proxyReq, req, socket) {
-      applyForwardedHeaders(proxyReq, req);
-      runWebSocketHooks(hookList, { proxyReq, req, res: socket, target });
-    },
-    onProxyRes(proxyRes, req, res) {
-      void handleProxyResponse(proxyRes, req, res);
-    },
-    onError(error, req, res) {
-      void reportError(req, res, error);
-    },
+  const proxy = httpProxy.createProxyServer({ target, changeOrigin, selfHandleResponse: true });
+  proxy.on("proxyReq", (proxyReq, req, res) => {
+    applyForwardedHeaders(proxyReq, req);
+    runRequestHooks(hookList, { proxyReq, req, res, target });
   });
+  proxy.on("proxyReqWs", (proxyReq, req, socket) => {
+    applyForwardedHeaders(proxyReq, req);
+    runWebSocketHooks(hookList, { proxyReq, req, res: socket, target });
+  });
+  proxy.on("proxyRes", (proxyRes, req, res) => {
+    void handleProxyResponse(proxyRes, req, res);
+  });
+  const middleware = (req, res) => proxy.web(req, res, { target }, error => {
+    void reportError(req, res, error);
+  });
+  middleware.upgrade = (req, socket, head) => proxy.ws(req, socket, head, { target }, error => {
+    void reportError(req, socket, error);
+  });
+  return middleware;
 }
 
 module.exports = {
   applyForwardedHeaders,
   createProxyCore,
+  fixRequestBody,
   runRequestHooks,
   runResponseHooks,
   runWebSocketHooks,

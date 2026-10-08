@@ -24,7 +24,7 @@ jobs:
       - name: Test Detection
         working-directory: detection
         run: npm test
-      
+
       - name: Test Defense dashboard presentation
         run: node --test defense/tests/dashboardPresentation.test.js
 
@@ -38,11 +38,28 @@ jobs:
       - name: Build Detection image
         run: docker build -t detection:ci ./detection
 
+      - name: Test native CRS inspection and pre-forward blocking
+        run: docker run --rm -e REQUIRE_CRS_BINARY_TESTS=true detection:ci node --test test/crsBinaryIntegration.test.js test/requestInspection.test.js
+
   python-check:
     runs-on: ubuntu-26.04
     strategy:
       matrix:
         service: [defense]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ruby
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ruby
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ruby -d ruby"
+          --health-interval 2s --health-timeout 3s --health-retries 15
+    env:
+      PATH_ALIAS_TEST_DB_URL: postgresql://ruby:ci@127.0.0.1:5432/ruby
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +79,13 @@ jobs:
 
       - name: Test ${{ matrix.service }}
         run: python -m unittest discover -s ${{ matrix.service }}/tests -p 'test_*.py'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Test browser API request capture
+        run: node --test defense/tests/capture_api_requests.test.cjs
 
   decoy-check:
     runs-on: ubuntu-26.04

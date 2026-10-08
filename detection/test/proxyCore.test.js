@@ -387,3 +387,138 @@ test("전달 IP 헤더는 제거하고 Host와 Proto만 재구성한다", () => 
   assert.equal(headers.get("x-forwarded-host"), "ruby.example.com");
   assert.equal(headers.get("x-forwarded-proto"), "https");
 });
+
+const express = require("express");
+async function aliasListen(server) {
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+async function aliasClose(server) {
+  server.closeAllConnections();
+  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+}
+
+function aliasRequest(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, { headers }, (res) => {
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers,
+        body: Buffer.concat(chunks).toString("utf8") }));
+      res.on("error", reject);
+    });
+    req.on("error", reject);
+  });
+}
+
+for (const scenario of [
+  { name: "local and upstream cookies", local: ["dlsid=session; Path=/", "dcid=client; Path=/"],
+    upstream: ["first=1; Path=/", "second=2; Path=/", "__ruby_tg=token; Path=/; HttpOnly"] },
+  { name: "local cookies only", local: ["dlsid=session; Path=/", "dcid=client; Path=/"], upstream: [] },
+  { name: "upstream cookies only", local: [], upstream: ["__ruby_tg=token; Path=/; HttpOnly"] },
+  { name: "no cookies", local: [], upstream: [] },
+  { name: "single string local cookie", local: "dcid=client; Path=/", upstream: ["app=1; Path=/"] },
+]) {
+  test(`proxy preserves ${scenario.name} and forwards request headers`, async (t) => {
+    let received;
+    let seenByResponseHook;
+    const backend = http.createServer((req, res) => {
+      received = req.headers;
+      if (scenario.upstream.length) res.setHeader("Set-Cookie", scenario.upstream);
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("X-App", "unchanged");
+      res.end('{"ok":true}');
+    });
+    const target = await aliasListen(backend);
+    t.after(() => aliasClose(backend));
+    const app = express();
+    app.use((_req, res, next) => {
+      if (scenario.local.length) res.setHeader("Set-Cookie", scenario.local);
+      next();
+    });
+    app.use(createProxyCore({ target, hooks: [{
+      onResponse({ res, responseBuffer }) {
+        seenByResponseHook = res.getHeader("set-cookie");
+        return responseBuffer;
+      },
+    }] }));
+    const proxy = http.createServer(app);
+    const baseUrl = await aliasListen(proxy);
+    t.after(() => aliasClose(proxy));
+    const headers = { Accept: "text/html", "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate", Cookie: "__ruby_tg=existing; app=1" };
+    const result = await aliasRequest(baseUrl + "/api", headers);
+    const local = Array.isArray(scenario.local) ? scenario.local : [scenario.local];
+    const expected = [...local, ...scenario.upstream];
+    assert.deepEqual(result.headers["set-cookie"] || [], expected);
+    assert.deepEqual(seenByResponseHook === undefined ? []
+      : Array.isArray(seenByResponseHook) ? seenByResponseHook : [seenByResponseHook], expected);
+    assert.equal(result.status, 200);
+    assert.equal(result.body, '{"ok":true}');
+    assert.equal(result.headers["x-app"], "unchanged");
+    for (const [name, value] of Object.entries(headers)) assert.equal(received[name.toLowerCase()], value);
+  });
+}
+
+test("concurrent proxy responses keep cookie snapshots isolated and preserve body hooks", async (t) => {
+  const backend = http.createServer((req, res) => {
+    const client = req.url.slice(1);
+    res.setHeader("Set-Cookie", [`__ruby_tg=${client}; Path=/`]);
+    res.setHeader("Content-Type", "text/plain");
+    setTimeout(() => res.end(client), client === "one" ? 20 : 0);
+  });
+  const target = await aliasListen(backend);
+  t.after(() => aliasClose(backend));
+  const app = express();
+  app.use((req, res, next) => {
+    res.setHeader("Set-Cookie", [`dcid=${req.url.slice(1)}; Path=/`]);
+    next();
+  });
+  app.use(createProxyCore({ target, hooks: [{
+    onRequest({ req, res }) { res.append("Set-Cookie", `dlsid=${req.url.slice(1)}; Path=/`); },
+    onResponse({ responseBuffer }) { return Buffer.concat([responseBuffer, Buffer.from("-hook")]); },
+  }] }));
+  const proxy = http.createServer(app);
+  const baseUrl = await aliasListen(proxy);
+  t.after(() => aliasClose(proxy));
+  const results = await Promise.all(["one", "two"].map((client) => aliasRequest(`${baseUrl}/${client}`)));
+  for (const [index, client] of ["one", "two"].entries()) {
+    assert.deepEqual(results[index].headers["set-cookie"], [
+      `dcid=${client}; Path=/`, `dlsid=${client}; Path=/`, `__ruby_tg=${client}; Path=/`,
+    ]);
+    assert.equal(results[index].body, `${client}-hook`);
+  }
+});
+
+test("compressed upstream responses are decoded before hooks and sent with corrected headers", async (t) => {
+  const original = Buffer.from("compressed response");
+  const compressed = zlib.gzipSync(original);
+  const backend = http.createServer((_req, res) => {
+    res.setHeader("Content-Type", "text/plain");
+    res.setHeader("Content-Encoding", "gzip");
+    res.setHeader("Content-Length", compressed.length);
+    res.setHeader("Set-Cookie", "app=1; Domain=backend.invalid; Path=/");
+    res.end(compressed);
+  });
+  const target = await aliasListen(backend);
+  t.after(() => aliasClose(backend));
+  const app = express();
+  app.use(createProxyCore({ target, hooks: [{
+    onResponse({ responseBuffer }) {
+      assert.equal(responseBuffer.toString(), original.toString());
+      return Buffer.concat([responseBuffer, Buffer.from("-hook")]);
+    },
+  }] }));
+  const proxy = http.createServer(app);
+  const baseUrl = await aliasListen(proxy);
+  t.after(() => aliasClose(proxy));
+  const result = await aliasRequest(baseUrl + "/api");
+  assert.equal(result.body, "compressed response-hook");
+  assert.equal(result.headers["content-encoding"], undefined);
+  assert.equal(Number(result.headers["content-length"]), Buffer.byteLength(result.body));
+  assert.deepEqual(result.headers["set-cookie"], ["app=1; Path=/"]);
+});

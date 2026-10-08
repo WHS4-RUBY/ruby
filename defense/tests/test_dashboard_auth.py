@@ -1,4 +1,5 @@
 import unittest
+import os
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -55,6 +56,16 @@ class DashboardAuthManagerTests(unittest.TestCase):
 
 
 class DashboardApiTests(unittest.TestCase):
+    def test_dashboard_can_be_hidden_for_isolated_attack_experiment(self):
+        with patch.dict(os.environ, {"DEFENSE_DASHBOARD_ENABLED": "false"}):
+            with TestClient(app) as client:
+                for path in ("/__defense", "/__defense/dashboard",
+                             "/__defense/api/auth/status", "/__defense/api/snapshot",
+                             "/__defense/api/config", "/__defense/not-a-route"):
+                    self.assertEqual(client.get(path).status_code, 404, path)
+                self.assertEqual(client.post("/__defense/api/login", json={"password": ""}).status_code, 404)
+                self.assertEqual(client.get("/healthz").status_code, 200)
+
     def test_login_snapshot_and_logout(self):
         manager = DashboardAuthManager(password="secret", max_attempts=3)
         with patch("defense.app.dashboard.auth_manager", manager):

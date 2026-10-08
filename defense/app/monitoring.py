@@ -145,9 +145,10 @@ class DefenseEventStore:
             for index in range(safe_buckets)
         ]
         for event in events:
-            index = int((event["timestamp"] - start) // bucket_seconds)
-            if not 0 <= index < safe_buckets:
+            timestamp = event["timestamp"]
+            if not start <= timestamp <= end:
                 continue
+            index = min(safe_buckets - 1, int((timestamp - start) // bucket_seconds))
             bucket = result[index]
             bucket["total"] += 1
             if event["strategies"]:

@@ -1,0 +1,9 @@
+{
+  "routes": [
+    {"path": "/api/items", "methods": ["GET"]},
+    {"path": "/api/items/{id}", "methods": ["GET", "POST"]}
+  ],
+  "query_routes": [
+    {"path": "/gateway", "parameter": "route"}
+  ]
+}
