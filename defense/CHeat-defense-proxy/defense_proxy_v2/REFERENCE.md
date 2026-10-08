@@ -493,7 +493,7 @@ AMBIG_TRAP=1 AMBIG_RELEASE_MIN=10 \
 | `MAZE_BASE_KB` / `MAZE_ESC_KB` / `MAZE_MAX_KB` | 30 / 250 / 900 | 미로 응답 크기 (KB) |
 | `MAZE_DELAY_MS` / `MAZE_ESC_DELAY_MS` | 2500 / 6000 | 미로 응답 지연 (ms). 에스컬레이션 후에는 `ESCALATE_DELAY_MS` 와 합산이 아니라 **둘 중 큰 값** |
 | `MAZE_ESCALATE_HITS` | 4 | 이 횟수 이상 물면 미로가 확대 |
-| `MAZE_PATHS` | 프로필 `maze.paths`(`/internal/,/backup/,/admin/,/.git/,/config/,/private/`) | 미로 입구 경로(콤마) — robots `Disallow` 줄과 미로 판정 정규식을 **같이** 만든다. 실제 앱에 있는 경로는 넣지 말 것 |
+| `MAZE_PATHS` | 프로필 `maze.paths`(`/internal/,/backup/,/admin/,/config/,/private/`) | 미로 입구 경로(콤마) — robots `Disallow` 줄과 미로 판정 정규식을 **같이** 만든다. 실제 앱에 있는 경로는 넣지 말 것 |
 | `MAZE_PATTERN` | — | 미로 판정 정규식을 통째로 교체(고급). 광고 경로와의 일관성은 preflight 가 점검 |
 | `MAZE_EXCLUDE` | 프로필 `maze.exclude`(빈 값) | 미로에서 뺄 실제 경로 정규식(예: `^/(admin\|config)(/\|$)`) |
 | `MAZE_INTERCEPT_403` | `1` | `0` 이면 백엔드 403 은 미로로 안 바꿈(진짜 보호 경로가 403 을 주는 서버용) |

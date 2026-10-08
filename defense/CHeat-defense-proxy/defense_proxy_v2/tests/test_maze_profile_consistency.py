@@ -37,6 +37,9 @@ try:
         listing = T.maze_response("/internal/ops/", 1, 1, {"bridge"}, 5).decode()
         check(f"{preset}: 디렉터리 목록 소유자 = 가짜 셸 사용자({owner})", f"{owner} {owner}" in listing and "deploy deploy" not in listing, listing[:260])
 
+        # 점(.)으로 시작하는 입구는 광고하지 않는다 — main 의 탐지 CRS(enforce)가 방어에 닿기 전에 403 으로 막는다(/.git/*, /.env, /.ssh/*)
+        dot = [x for x in prof["maze"]["paths"] if x.startswith("/.")]
+        check(f"{preset}: robots 로 광고하는 입구에 점(.) 시작 경로가 없다(CRS 선차단 회피)", not dot, dot)
         rx = re.compile(T.build_maze_pattern(prof["maze"]["paths"], prof["maze"]["extra_pattern"]), re.I)
         generic = ("/internal/x", "/.git/config", "/backup/x", "/config/", "/private/y", "/db.sql.bak")
         check(f"{preset}: 서버 무관 입구는 항상 미로 대상", all(rx.match(p) for p in generic), [p for p in generic if not rx.match(p)])
