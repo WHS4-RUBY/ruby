@@ -135,6 +135,17 @@
   .tab-count { min-width:22px; padding:0 7px; border-radius:999px; background:var(--count-bg); color:var(--text-2); font-size:12px; font-weight:600; text-align:center; font-variant-numeric:tabular-nums; }
   .tab-panel { display:none; }
   .tab-panel.active { display:block; }
+  #panel-xss .xss-block { margin-top:16px; }
+  .xss-block-head { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); }
+  .xss-block-head h3 { margin:0; font-size:14px; color:var(--text); }
+  .xss-persist { font-size:11.5px; color:var(--navy); font-weight:600; }
+  .sev-badge { display:inline-block; padding:1px 7px; border:1px solid var(--border-strong); font-size:11px; font-weight:700; }
+  .sev-critical, .sev-high { color:var(--red); border-color:var(--red); }
+  .sev-medium { color:var(--amber); border-color:var(--amber); }
+  .xss-status { font:inherit; font-size:12px; padding:3px 6px; border:1px solid var(--border-strong); background:var(--surface); color:var(--text); }
+  .xss-del { padding:3px 9px; border:1px solid var(--red); background:transparent; color:var(--red); font-size:12px; font-weight:600; cursor:pointer; }
+  .xss-del:hover { background:var(--red); color:#fff; }
+  .payload-cell { font-family:var(--font-mono,"SFMono-Regular",Consolas,monospace); font-size:12px; word-break:break-all; max-width:360px; }
   .card { border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); box-shadow:var(--shadow); }
   .section-head { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; padding:16px 18px 12px; }
   .observation { display:inline-block; margin-left:6px; padding:1px 8px; border:1px solid var(--border-strong); border-radius:999px; color:var(--muted); font-size:11px; font-weight:600; vertical-align:2px; }
@@ -619,6 +630,7 @@
       <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-sessions" data-tab="sessions">세션<span class="tab-count" id="sessionTabCount">0</span></button>
       <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-auth" data-tab="auth">인증 그룹<span class="tab-count" id="authTabCount">0</span></button>
       <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-ip" data-tab="ip">IP 관찰<span class="tab-count" id="ipTabCount">0</span></button>
+      <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-xss" data-tab="xss">XSS 탐지<span class="tab-count" id="xssTabCount">0</span></button>
         </div>
       </details>
     </nav>
@@ -702,6 +714,31 @@
       <div class="table-wrap"><table><thead><tr>
         <th>IP</th><th>요청</th><th>세션</th><th>후보 클라이언트</th><th>고유 경로</th><th>최근 관찰</th>
       </tr></thead><tbody id="ipRows"></tbody></table></div>
+    </div>
+
+    <div class="tab-panel" id="panel-xss" role="tabpanel" hidden>
+      <div class="section-head"><div><h2>XSS 탐지</h2><p class="sub">확정(stored)·reflected 증거와 stored 후보를 DB에서 조회합니다. 삭제·상태 변경은 DB에 즉시 반영됩니다.</p></div></div>
+
+      <div class="card xss-block">
+        <div class="xss-block-head"><h3>확정 공격 (stored)</h3><span class="xss-persist" id="xssPersistBadge"></span></div>
+        <div class="table-wrap"><table><thead><tr>
+          <th>payload (미리보기)</th><th>파라미터</th><th>심각도</th><th>위험점수</th><th>endpoint</th><th>심은 세션</th><th>상태</th><th>관찰</th><th>최초</th><th>최근</th><th>관리</th>
+        </tr></thead><tbody id="xssConfirmedRows"></tbody></table></div>
+      </div>
+
+      <div class="card xss-block">
+        <div class="xss-block-head"><h3>Reflected 탐지</h3></div>
+        <div class="table-wrap"><table><thead><tr>
+          <th>payload (미리보기)</th><th>파라미터</th><th>심각도</th><th>위험점수</th><th>endpoint</th><th>세션</th><th>관찰</th><th>최초</th><th>최근</th><th>관리</th>
+        </tr></thead><tbody id="xssReflectedRows"></tbody></table></div>
+      </div>
+
+      <div class="card xss-block">
+        <div class="xss-block-head"><h3>Stored 후보 (미확정)</h3></div>
+        <div class="table-wrap"><table><thead><tr>
+          <th>payload (미리보기)</th><th>파라미터</th><th>endpoint</th><th>심은 세션</th><th>관찰</th><th>최초</th><th>최근</th><th>관리</th>
+        </tr></thead><tbody id="xssCandidateRows"></tbody></table></div>
+      </div>
     </div>
   </main>
 
@@ -1082,6 +1119,7 @@ function setTab(tabName) {
   const secondaryLabel = document.getElementById('secondaryViewLabel');
   const activeButton = [...document.querySelectorAll('.tab-button')].find(button => button.dataset.tab === tabName);
   secondaryLabel.textContent = tabName === 'users' ? '' : ` · ${activeButton?.childNodes[0]?.textContent || ''}`;
+  if (tabName === 'xss' && typeof loadXss === 'function') loadXss();
 }
 
 function showToast(message) {
@@ -2507,7 +2545,105 @@ async function monitoredRefresh() {
     status.textContent = '탐지 기록을 불러오지 못했습니다';
     status.classList.add('error');
   }
+  loadXss();
 }
+
+// XSS 탐지 목록 (확정 stored / reflected / stored 후보)
+const XSS_STATUS_LABELS = { open:'미처리', investigating:'조사중', resolved:'처리완료', false_positive:'오탐' };
+function xssSevBadge(severity) {
+  const s = String(severity || '').toLowerCase();
+  if (!s) return '—';
+  const cls = s === 'critical' ? 'sev-critical' : s === 'high' ? 'sev-high' : s === 'medium' ? 'sev-medium' : '';
+  return `<span class="sev-badge ${cls}">${escapeHtml(s)}</span>`;
+}
+function xssTime(iso) { return iso ? escapeHtml(formatTime(Date.parse(iso))) : '—'; }
+function xssDelBtn(kind, value) {
+  return `<button type="button" class="xss-del" data-xss-del="${kind}" data-value="${escapeHtml(value)}">삭제</button>`;
+}
+function xssStatusSelect(value, status) {
+  const cur = XSS_STATUS_LABELS[status] ? status : 'open';
+  const opts = Object.entries(XSS_STATUS_LABELS)
+    .map(([k, label]) => `<option value="${k}"${k === cur ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
+  return `<select class="xss-status" data-xss-status data-value="${escapeHtml(value)}">${opts}</select>`;
+}
+async function xssPost(url, body) {
+  try {
+    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    if (!r.ok) return false;
+    const j = await r.json().catch(() => ({}));
+    return j.ok !== false;
+  } catch (_) { return false; }
+}
+function renderXssConfirmed(items, persistent) {
+  const badge = document.getElementById('xssPersistBadge');
+  if (badge) badge.textContent = persistent ? 'SQLite 영속' : '인메모리(재시작 시 소실)';
+  document.getElementById('xssConfirmedRows').innerHTML = (items || []).map(c => `<tr>
+    <td class="payload-cell">${escapeHtml(c.payloadPreview || c.value)}</td>
+    <td>${escapeHtml(c.parameter || '—')}</td><td>${xssSevBadge(c.severity)}</td><td>${escapeHtml(String(c.riskScore ?? '—'))}</td>
+    <td>${escapeHtml(c.endpoint || '—')}</td><td><code>${escapeHtml((c.originSession || '—').slice(0,8))}</code></td>
+    <td>${xssStatusSelect(c.value, c.status)}</td><td>${escapeHtml(String(c.times ?? '—'))}</td>
+    <td>${xssTime(c.firstAt)}</td><td>${xssTime(c.lastAt)}</td><td>${xssDelBtn('confirmed', c.value)}</td>
+  </tr>`).join('') || '<tr><td colspan="11" class="empty">확정된 stored XSS가 없습니다.</td></tr>';
+}
+function renderXssReflected(items) {
+  document.getElementById('xssReflectedRows').innerHTML = (items || []).map(c => `<tr>
+    <td class="payload-cell">${escapeHtml(c.payloadPreview || c.value)}</td>
+    <td>${escapeHtml(c.parameter || '—')}</td><td>${xssSevBadge(c.severity)}</td><td>${escapeHtml(String(c.riskScore ?? '—'))}</td>
+    <td>${escapeHtml(c.endpoint || '—')}</td><td><code>${escapeHtml((c.originSession || '—').slice(0,8))}</code></td>
+    <td>${escapeHtml(String(c.times ?? '—'))}</td><td>${xssTime(c.firstAt)}</td><td>${xssTime(c.lastAt)}</td><td>${xssDelBtn('reflected', c.value)}</td>
+  </tr>`).join('') || '<tr><td colspan="10" class="empty">관찰된 reflected XSS가 없습니다.</td></tr>';
+}
+function renderXssCandidates(items) {
+  document.getElementById('xssCandidateRows').innerHTML = (items || []).map(c => `<tr>
+    <td class="payload-cell">${escapeHtml(c.payloadPreview || c.value)}</td>
+    <td>${escapeHtml(c.parameter || '—')}</td><td>${escapeHtml(c.endpoint || '—')}</td>
+    <td><code>${escapeHtml((c.originSession || '—').slice(0,8))}</code></td>
+    <td>${escapeHtml(String(c.timesSeen ?? '—'))}</td><td>${xssTime(c.firstSeenAt)}</td><td>${xssTime(c.lastSeenAt)}</td>
+    <td>${xssDelBtn('candidates', c.value)}</td>
+  </tr>`).join('') || '<tr><td colspan="8" class="empty">관찰된 stored XSS 후보가 없습니다.</td></tr>';
+}
+async function loadXss() {
+  let confirmed, reflected, candidates;
+  try {
+    const [c, r, n] = await Promise.all([
+      fetch('/__detection/api/xss/confirmed'),
+      fetch('/__detection/api/xss/reflected'),
+      fetch('/__detection/api/xss/candidates'),
+    ]);
+    confirmed = c.ok ? await c.json() : { items:[], count:0 };
+    reflected = r.ok ? await r.json() : { items:[], count:0 };
+    candidates = n.ok ? await n.json() : { items:[], count:0 };
+  } catch (_) { return; }
+  const total = (confirmed.count || 0) + (reflected.count || 0) + (candidates.count || 0);
+  const tabCount = document.getElementById('xssTabCount');
+  if (tabCount) tabCount.textContent = total.toLocaleString();
+  const panel = document.getElementById('panel-xss');
+  if (!panel || !panel.classList.contains('active')) return;
+  if (panel.contains(document.activeElement) && document.activeElement !== document.body) return;
+  renderXssConfirmed(confirmed.items, confirmed.persistent);
+  renderXssReflected(reflected.items);
+  renderXssCandidates(candidates.items);
+}
+(function wireXssPanel() {
+  const panel = document.getElementById('panel-xss');
+  if (!panel) return;
+  panel.addEventListener('click', async (e) => {
+    const del = e.target.closest('[data-xss-del]');
+    if (!del) return;
+    if (!window.confirm('이 항목을 DB에서 삭제할까요?')) return;
+    const kind = del.dataset.xssDel;
+    const ok = await xssPost(`/__detection/api/xss/${kind}/delete`, { value: del.dataset.value });
+    showToast(ok ? '삭제됨' : '삭제 실패');
+    if (ok) loadXss();
+  });
+  panel.addEventListener('change', async (e) => {
+    const sel = e.target.closest('[data-xss-status]');
+    if (!sel) return;
+    const ok = await xssPost('/__detection/api/xss/confirmed/update', { value: sel.dataset.value, status: sel.value });
+    showToast(ok ? '상태 변경됨' : '변경 실패');
+    if (ok) loadXss();
+  });
+})();
 
 function flattenMetrics(object, prefix = '') {
   const rows = [];

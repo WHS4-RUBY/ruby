@@ -870,6 +870,20 @@ app.post("/__detection/api/xss/reflected/delete", express.json({ limit: "256kb" 
   if (!value) return res.status(400).json({ ok: false, error: "value required" });
   res.json({ ok: xssEvidenceStore.removeReflected(value) });
 });
+// 후보(candidate)는 value 하나에 작성요청별로 여러 key가 있을 수 있어 모두 제거한다.
+app.post("/__detection/api/xss/candidates/delete", express.json({ limit: "256kb" }), (req, res) => {
+  const { value } = req.body || {};
+  if (!value) return res.status(400).json({ ok: false, error: "value required" });
+  let removed = 0;
+  try {
+    for (const c of xssCandidateStore.all() || []) {
+      if (c.value === value && typeof c.candidateKey === "string" && xssCandidateStore.delete(c.candidateKey)) {
+        removed += 1;
+      }
+    }
+  } catch (_) {}
+  res.json({ ok: removed > 0, removed });
+});
 
 app.get("/__detection/api/sessions", (req, res) => {
   const result = store.getAllSessions().map((s) => {
