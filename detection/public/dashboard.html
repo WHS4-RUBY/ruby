@@ -186,6 +186,12 @@
   .idchip::after { content:"복사"; color:var(--muted); font-family:var(--font); font-size:11px; }
   .idchip.copied { border-color:var(--green); color:var(--green); }
   .idchip.copied::after { content:"복사됨"; color:var(--green); }
+  .ip-list { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  .ip-chip { white-space:normal; overflow-wrap:anywhere; text-align:left; }
+  .ip-chip::after { flex-shrink:0; }
+  .observed-ips { margin-top:12px; }
+  .observed-ips > p { margin:0 0 6px; color:var(--muted); font-size:12.5px; }
+  .user-card-ips { padding:0 12px 10px; }
 
   .badge { display:inline-flex; align-items:center; flex-shrink:0; padding:2px 9px; border:1px solid transparent; border-radius:999px; font-size:12px; font-weight:600; line-height:1.45; white-space:nowrap; }
   .badge.confirmed { background:var(--badge-confirmed-bg); color:var(--badge-confirmed-fg); border-color:var(--badge-confirmed-border); }
@@ -374,6 +380,19 @@
 
   .log-detail { padding:12px 18px 16px 21px; border-top:1px dashed var(--border); background:var(--surface-muted); cursor:auto; }
   .log-detail-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:10px; }
+  .request-summary { padding:16px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
+  .request-summary h4 { margin:0 0 6px; color:var(--text); font-size:16px; }
+  .request-summary p { margin:6px 0; color:var(--text-2); font-size:13px; overflow-wrap:anywhere; }
+  .request-summary .request-time { color:var(--muted); font-size:12px; }
+  .request-score-title { margin-top:14px !important; font-weight:600; }
+  .request-scores { display:flex; flex-wrap:wrap; gap:8px 16px; margin:6px 0; font-size:13px; }
+  .request-scores strong { margin-left:6px; color:var(--text); }
+  .request-summary .request-score-note { color:var(--muted); font-size:12px; }
+  .request-disclosure { margin-top:10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); }
+  .request-disclosure > summary { padding:10px 12px; color:var(--text); font-size:13px; font-weight:600; cursor:pointer; }
+  .request-disclosure-body { padding:0 12px 12px; }
+  .request-explanation .kv dd { font-family:var(--font); word-break:normal; overflow-wrap:anywhere; }
+  .request-explanation .kv-note { display:block; margin-top:4px; font-size:12px; }
   .kv { display:grid; grid-template-columns:minmax(120px,180px) minmax(0,1fr); margin:0; overflow:hidden; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); font-size:13px; }
   .kv dt { padding:7px 12px; border-bottom:1px solid var(--border); background:var(--surface-muted); color:var(--muted); font-weight:600; }
   .kv dd { margin:0; padding:7px 12px; border-bottom:1px solid var(--border); font-family:var(--mono); font-size:12.5px; line-height:1.6; word-break:break-all; }
@@ -434,6 +453,14 @@
   .metric:last-child { border-bottom:0; }
   .metric .key { color:var(--muted); word-break:break-word; }
   .metric .value { color:var(--text); text-align:right; word-break:break-word; font-family:var(--mono); font-size:12px; font-variant-numeric:tabular-nums; }
+  .metric[data-metric-help] { cursor:help; }
+  .metric-help { display:inline; padding:0; border:0; background:none; text-align:left; font:inherit; color:inherit; cursor:help; }
+  .metric-help-label { text-decoration:underline dotted var(--border-strong); text-underline-offset:4px; }
+  .metric-help-icon { display:inline-block; margin-left:6px; color:var(--blue); font-size:11px; }
+  .metric-tooltip { position:fixed; z-index:80; width:min(360px,calc(100vw - 24px)); padding:12px 14px; border:1px solid var(--border-strong); border-radius:var(--radius); background:var(--surface-raised); color:var(--text-2); box-shadow:var(--shadow-lg); font-size:12.5px; line-height:1.65; overflow-wrap:anywhere; }
+  .metric-tooltip strong { display:block; margin-bottom:5px; color:var(--text); }
+  .metric-tooltip p { margin:0; }
+  .metric-tooltip code { display:block; margin-top:7px; color:var(--muted); font-size:11px; }
   .section-title { margin:22px 0 10px; font-size:14px; }
   .sequence { margin:0; padding-left:28px; font-size:12.5px; }
   .sequence li { padding:3px 0; }
@@ -833,6 +860,7 @@ const state = {
   timelineResetScroll: false,
   logFullscreen: false,       // 요청 로그만 화면 전체로 보기
   logExpanded: new Set(),     // 펼친 로그 행 키
+  requestDisclosures: new Set(), // 자동 갱신 중에도 요청 상세의 펼침 상태를 유지한다.
   logLookup: {},              // 컨테이너별 로그 키 → 요청 (지연 렌더링용)
   connectionDetailsExpanded: false,
   evidenceExpanded: false,
@@ -881,6 +909,25 @@ const entityLabels = {
 };
 
 const metricLabels = {
+  reflectedXss: '응답 내 XSS 반영 (Reflected XSS)',
+  repeatedEvidenceBonus: '반복 공격 근거 가산점',
+  totalPoints: '허니 합계 점수',
+  maximumPoints: '허니 최대 배점',
+  trap_trigger: '미끼 링크 접근',
+  no_asset_loading: '정적 자산 없는 API 호출',
+  coverage: 'API 경로 탐색 범위',
+  watermark_reuse: '워터마크 미끼 자격증명 재사용',
+  writable_file_write: '미끼 파일 쓰기 시도',
+  ssh_cred_reuse: '미끼 SSH 자격증명 재사용',
+  password_list_reuse: '미끼 비밀번호 목록 재사용',
+  writable_file_found: '미끼 파일 조회',
+  script_hint_access: '힌트에 나온 미끼 스크립트 접근',
+  xssHits: 'XSS 반영 탐지 수',
+  distinctXssCategories: 'XSS 반영 유형 수',
+  xssCategories: 'XSS 반영 유형',
+  maxXssRisk: '최대 XSS 위험 점수',
+  'repeatedEvidence.count': '반복 공격 근거 요청 수',
+  'repeatedEvidence.windowMs': '반복 공격 근거 시간 범위, ms',
   timingRegularity: '요청 시간 규칙성 (Timing Regularity)',
   requestIntensity: '요청 집중도 (Request Intensity)',
   repeatedOperation: '반복 작업 (Repeated Operation)',
@@ -967,6 +1014,126 @@ const metricLabels = {
   strongestEvidenceLevel: '최고 근거 등급 (Strongest Evidence Level)',
   firstEventAt: '최초 미끼 이벤트 (First Deception Event)',
   lastEventAt: '최근 미끼 이벤트 (Last Deception Event)'
+};
+
+const metricDescriptions = {
+  timingRegularity: '최근 분석 대상 요청 최대 50건의 간격을 비교합니다. 평균 간격이 짧고 간격 변동이 작을수록 자동화 점수가 높아지며, 요청이 3건 미만이면 반영하지 않습니다.',
+  requestIntensity: '최근 요청에서 2초 동안의 최대 요청 수와 마지막 10초 요청 수를 봅니다. 짧은 시간에 요청이 집중될수록 자동화 점수가 높아집니다.',
+  repeatedOperation: '최근 분석 대상 요청 최대 20건에서 같은 작업의 반복 비율과 연속 반복 길이를 봅니다. 3건 이상부터 반영하며 반복 비율 40%와 연속 2회를 넘는 부분을 평가합니다.',
+  sessionChurn: '이 집계에 포함된 세션 수입니다. 단일 세션에서는 1이며, 같은 집계에 세션이 많이 연결될수록 자동화 판단의 보조 신호로 사용합니다.',
+  headerAnomaly: '자동화 도구의 User-Agent와 일반 브라우저 헤더의 누락을 함께 평가합니다. 헤더만으로 실제 사용자나 공격 여부를 확정하지 않습니다.',
+  browserInteraction: '마우스 이동·스크롤·DOM 이벤트가 적을수록 자동화 점수가 높아집니다. 텔레메트리가 없을 때도 보조 점수를 주므로, 상호작용을 수집하지 못한 정상 브라우저도 점수가 생길 수 있습니다.',
+  payloadSignature: '요청에서 발견된 공격 페이로드 서명과 공격 유형의 다양성을 평가합니다. 서명 탐지는 공격 성공 여부와 별개의 신호입니다.',
+  reflectedXss: '입력값이 응답의 실행 가능한 HTML 문맥에 반영된 것으로 탐지되면 위험도와 유형 수를 반영합니다. 문자열·문맥 분석 결과이며 브라우저에서 스크립트가 실행됐다는 증거는 아닙니다.',
+  notFoundExploration: '최근 분석 대상 요청 최대 50건의 404 응답 비율을 평가합니다. 비율 40%에서 이 항목의 최대 배점에 도달하며 정상적인 없는 경로 접근도 포함될 수 있습니다.',
+  accessDeniedExploration: '최근 분석 대상 요청 최대 50건의 401·403 응답 비율을 평가합니다. 비율 40%에서 이 항목의 최대 배점에 도달하며 로그인 만료 등 정상적인 거부도 포함될 수 있습니다.',
+  idorWalk: '이 집계에 보관된 요청에서 같은 자원 경로의 서로 다른 숫자 ID 접근을 평가합니다. 고유 ID 2개부터 점수가 증가하고 6개에서 최대 배점에 도달합니다. 다른 계정의 데이터 열람 성공을 뜻하지 않습니다.',
+  loginBruteForce: '로그인 실패·비밀번호 재설정·보안 질문 조회를 이메일별로 합산합니다. 같은 이메일에 반복한 횟수와 서로 다른 이메일 수 중 큰 신호를 반영합니다.',
+  businessLogicViolation: '가격 변조·허용되지 않은 필드 변경 등으로 탐지된 비즈니스 로직 위반의 존재와 유형 수를 평가합니다. 실제 변경 성공 여부는 응답과 별도로 확인해야 합니다.',
+  csrf: 'Origin 등 CSRF 관련 헤더 검사에서 발견한 위반과 유형 수를 평가합니다. 실제 CSRF 공격이 성공했다는 의미는 아닙니다.',
+  automationHoney: '미끼 링크 접근·정적 자산 없는 API 호출·조건부 경로 탐색 점수를 합산해 35점으로 제한한 뒤, 자동화 점수에 반영합니다.',
+  attackHoney: '미끼 자격증명 재사용·미끼 파일 접근 등 공격 허니 배점을 합산해 내부 합계를 35점으로 제한한 뒤, 최종 공격 점수의 해당 배점에 맞춰 반영합니다.',
+  repeatedEvidenceBonus: '이 집계에 보관된 요청 중 마지막 요청 시각 기준 최근 1시간 안의 구체적인 공격 근거를 셉니다. 4·8·16·32·64건 이상이면 각각 5·10·15·20·30점을 추가합니다. 정상 반복이나 Origin 누락만으로는 가산하지 않습니다.',
+  totalPoints: '각 허니 신호의 배점을 합산한 내부 점수입니다. 합이 35점을 넘어도 35점까지만 반영합니다. 공격 허니는 이 합계를 최종 공격 점수의 최대 배점으로 환산합니다.',
+  maximumPoints: '허니 신호를 합산할 때 적용하는 내부 상한입니다. 현재 자동화 허니와 공격 허니 모두 35점이며, 최종 점수의 배점과는 구분됩니다.',
+  trap_trigger: '응답에 심어 둔 유효한 세션별 미끼 링크에 GET 요청을 보낸 신호입니다. 자동화 허니에 20점을 반영합니다.',
+  no_asset_loading: '한 세션에서 API를 3회 이상 호출하면서 CSS·이미지·폰트 같은 정적 자산을 한 번도 요청하지 않은 신호입니다. 자동화 허니에 8점을 반영하며 일반 API 클라이언트에서도 발생할 수 있습니다.',
+  coverage: '최근 분석 대상 요청 최대 50건의 고유 정규화 API 경로 수를 봅니다. 정적 자산 없는 API 호출·자동화 UA·텔레메트리 없음 중 하나가 있으면, 경로 10·15·20개 이상에 각각 3·5·7점을 자동화 허니에 반영합니다.',
+  watermark_reuse: '응답에 넣은 세션별 워터마크 미끼 자격증명이 이후 요청 본문에 다시 나타난 신호입니다. 공격 허니에 20점을 반영하며 실제 계정 인증 성공을 뜻하지 않습니다.',
+  writable_file_write: '쓰기 가능해 보이는 미끼 파일 경로에 PUT·POST·PATCH를 보낸 신호입니다. 공격 허니에 20점을 반영하며 원본 서버 파일을 실제로 변경한 것은 아닙니다.',
+  ssh_cred_reuse: '제공한 미끼 SSH 계정명과 비밀번호가 HTTP 요청 본문에 함께 다시 나타난 신호입니다. 공격 허니에 12점을 반영하며 SSH 접속 성공을 뜻하지 않습니다.',
+  password_list_reuse: '제공한 LLM_ 접두어 미끼 비밀번호를 password·pw·pass 형태로 요청 본문에 넣은 신호입니다. 공격 허니에 12점을 반영합니다.',
+  writable_file_found: '쓰기 가능해 보이는 미끼 파일 경로를 GET으로 조회한 신호입니다. 공격 허니에 8점을 반영하며 실제 민감 파일 노출을 뜻하지 않습니다.',
+  script_hint_access: '힌트에 언급한 미끼 스크립트 경로를 GET으로 조회한 신호입니다. 공격 허니에 5점을 반영하며 서버에서 스크립트를 실행한 것은 아닙니다.',
+  timingSampleSize: '요청 간격·빈도 계산에 사용한 최근 분석 대상 요청 수입니다. 최대 50건이며 정적 자산 등 배경 요청은 제외합니다.',
+  avgIntervalMs: '분석 대상 요청 사이의 평균 시간 간격입니다. 단위는 밀리초이며 값이 작을수록 빠르게 요청한 것입니다.',
+  intervalStdevMs: '요청 간격의 표준편차입니다. 단위는 밀리초이며 값이 작을수록 간격이 일정합니다.',
+  intervalCV: '요청 간격 표준편차를 평균 간격으로 나눈 값입니다. 작을수록 규칙적인 간격을 뜻하며 평균 간격이 0이면 0으로 표시합니다.',
+  maxRequests2s: '시간 분석 표본 안에서 임의의 연속 2초 구간에 들어온 최대 요청 수입니다.',
+  requests10s: '시간 분석 표본의 마지막 요청을 기준으로 직전 10초 동안의 요청 수입니다.',
+  repeatSampleSize: '같은 작업의 반복을 계산한 최근 분석 대상 요청 수입니다. 최대 20건입니다.',
+  repeatRatio: '반복 표본에서 가장 많이 나온 작업의 횟수를 전체 표본 수로 나눈 비율입니다.',
+  maxConsecutiveRepeats: '반복 표본에서 같은 작업을 끊김 없이 연속으로 수행한 최대 횟수입니다.',
+  diversitySampleSize: '경로 다양성을 계산한 최근 분석 대상 요청 수입니다. 최대 50건입니다.',
+  uniqueNormalizedPaths: '다양성 표본에서 중복을 제거한 정규화 경로 수입니다. URL 정규화에 따라 서로 다른 원본 URL이 한 경로로 집계될 수 있습니다.',
+  pathDiversity: '고유 정규화 경로 수를 다양성 표본 수로 나눈 비율입니다. 경로를 얼마나 넓게 탐색했는지 보여 주며 직접적인 점수 항목은 아닙니다.',
+  sampleSize: '이 패널의 계산에 사용한 요청 수입니다. 경로 탐색은 최근 분석 대상 요청 최대 50건, 공격 탐지는 이 집계에 보관된 전체 요청을 사용합니다.',
+  notFoundCount: '경로 탐색 표본에서 HTTP 404 응답을 받은 요청 수입니다.',
+  notFoundRatio: '경로 탐색 표본 중 HTTP 404 응답을 받은 요청의 비율입니다.',
+  accessDeniedCount: '경로 탐색 표본에서 HTTP 401 또는 403 응답을 받은 요청 수입니다.',
+  accessDeniedRatio: '경로 탐색 표본 중 HTTP 401 또는 403 응답을 받은 요청의 비율입니다.',
+  statusCounts: '경로 탐색 표본의 HTTP 응답 상태별 요청 수입니다.',
+  headerObservationAvailable: '대표 요청의 HTTP 헤더 표본이 확보됐는지 나타냅니다. 없으면 헤더 이상 항목은 점수를 주지 않습니다.',
+  automationUA: '대표 User-Agent가 알려진 자동화 도구 패턴과 일치하는지 나타냅니다. 실제 실행 주체를 확정하는 정보는 아닙니다.',
+  missingHeaderCount: '대표 요청에서 일반 브라우저가 보내는 것으로 기대한 헤더 중 누락된 헤더 수입니다.',
+  missingHeaders: '일반 브라우저 헤더 검사에서 빠진 것으로 확인한 헤더의 목록입니다.',
+  mouseMoveCount: '브라우저 텔레메트리가 보고한 마우스 이동 횟수입니다. 연결된 세션이 여러 개면 합산하며 수집되지 않은 경우에도 0일 수 있습니다.',
+  scrollCount: '브라우저 텔레메트리가 보고한 스크롤 횟수입니다. 연결된 세션이 여러 개면 합산합니다.',
+  routeChangeCount: '브라우저가 보고한 SPA 화면 경로 변경 횟수입니다. 서버 HTTP 요청 수와 별개이며 직접 점수에 반영하지 않습니다.',
+  domEventDiversity: '브라우저 텔레메트리에서 관찰한 서로 다른 DOM 이벤트 유형 수입니다.',
+  pageLoads: '브라우저 텔레메트리가 보고한 문서 로드 횟수입니다. 직접 점수에 반영하지 않습니다.',
+  currentUrl: '브라우저 텔레메트리가 마지막으로 보고한 화면 경로입니다. 클라이언트 보고값이며 서버 요청 기록과 구분합니다.',
+  routeHistory: '브라우저가 보고한 화면 이동 이력입니다. SPA 이동은 HTTP 요청이 없을 수 있으며 관찰 전용 정보입니다.',
+  hasTelemetry: '브라우저 상호작용 텔레메트리를 한 번 이상 수신했는지 나타냅니다.',
+  payloadSignatureHits: '공격 분석 표본의 요청에 붙은 공격 페이로드 서명 태그 수입니다. 요청 수가 아니라 탐지 태그 수입니다.',
+  distinctPayloadCategories: '공격 페이로드 서명 태그에서 중복을 제거한 유형 수입니다.',
+  payloadCategories: '공격 페이로드 검사에서 관찰한 서로 다른 유형의 목록입니다.',
+  crsSampleSize: '공격 분석 표본 중 ModSecurity/OWASP CRS 검사 결과를 확보한 요청 수입니다.',
+  crsUnavailableCount: '공격 분석 표본 중 CRS 검사 결과를 확보하지 못한 요청 수입니다. 탐지 없음과 검사 불가를 구분합니다.',
+  crsRuleHits: '공격 분석 표본에서 일치한 CRS 규칙의 총 탐지 수입니다. 요청 하나에서 여러 규칙이 일치할 수 있습니다.',
+  maxCrsAnomalyScore: '관찰된 CRS 검사 결과 중 가장 높은 이상 점수입니다. 최종 공격 점수와는 별도의 CRS 원점수입니다.',
+  matchedRuleIds: '관찰된 CRS 규칙 ID에서 중복을 제거한 목록입니다.',
+  maxDistinctIdsPerResource: '같은 자원 유형의 URL에서 관찰한 서로 다른 숫자 ID 수의 최댓값입니다. IDOR 순차 접근 점수에 사용합니다.',
+  failedLoginCount: '이메일을 추출할 수 있고 로그인 실패로 기록된 요청 수입니다.',
+  resetPasswordAttemptCount: '이메일을 추출할 수 있는 비밀번호 재설정 시도 요청 수입니다.',
+  securityQuestionProbeCount: '이메일을 추출할 수 있는 보안 질문 조회 요청 수입니다.',
+  distinctEmailsAttempted: '로그인 실패·비밀번호 재설정·보안 질문 조회에서 중복을 제거한 이메일 수입니다.',
+  maxAttemptsPerEmail: '한 이메일에 대해 로그인 실패·비밀번호 재설정·보안 질문 조회를 합산한 횟수의 최댓값입니다.',
+  businessLogicHits: '공격 분석 표본에 붙은 비즈니스 로직 위반 탐지 태그의 총수입니다.',
+  distinctBusinessLogicCategories: '비즈니스 로직 위반 탐지 태그의 서로 다른 유형 수입니다.',
+  businessLogicCategories: '탐지한 비즈니스 로직 위반 유형의 목록입니다.',
+  csrfHits: '공격 분석 표본에 붙은 CSRF 헤더 위반 태그의 총수입니다.',
+  distinctCsrfCategories: 'CSRF 헤더 위반 태그의 서로 다른 유형 수입니다.',
+  csrfCategories: '탐지한 CSRF 헤더 위반 유형의 목록입니다.',
+  xssHits: '공격 분석 표본에 붙은 XSS 반영 탐지 태그의 총수입니다. 실제 브라우저 실행 횟수가 아닙니다.',
+  distinctXssCategories: 'XSS 반영 탐지 태그에서 중복을 제거한 유형 수입니다.',
+  xssCategories: '응답의 실행 가능한 문맥에서 탐지한 XSS 반영 유형의 목록입니다.',
+  maxXssRisk: '공격 분석 표본에서 가장 높은 XSS 문맥 위험 점수입니다. 0~100 범위의 휴리스틱 점수이며 실행 성공 확률이 아닙니다.',
+  'repeatedEvidence.count': '최근 공격 분석 표본 중 1시간 안에 구체적인 공격 근거가 있는 요청 수입니다. 정상적인 반복 요청은 포함하지 않습니다.',
+  'repeatedEvidence.windowMs': '반복 공격 근거를 셀 때 마지막 요청에서 거슬러 보는 시간 범위입니다. 현재 3,600,000ms, 즉 1시간입니다.',
+  hasAttackHistory: '해당 집계에 누적 공격 이력이 있는지 나타냅니다. 현재 분석 창의 점수와는 별도로 보관합니다.',
+  maxAttackScore: '보관된 공격 이력의 최고 공격 점수입니다. 화면에는 100점 기준으로 표시하며 현재 점수와 구분합니다.',
+  cumulativeRuleHits: '보관된 공격 이력에서 누적한 CRS 규칙 탐지 수입니다.',
+  attackCategories: '보관된 공격 이력에 누적된 서로 다른 공격 유형의 목록입니다.',
+  firstAttackAt: '보관된 공격 이력에서 최초로 공격 신호가 기록된 시각입니다.',
+  lastAttackAt: '보관된 공격 이력에서 가장 최근에 공격 신호가 기록된 시각입니다.',
+  recentUniqueApiPaths: '최근 분석 대상 요청 최대 50건에서 서로 다른 정규화 /api/ 또는 /rest/ 경로 수입니다.',
+  coverageEligible: '경로 탐색 범위를 자동화 허니 점수에 반영할 조건이 충족됐는지 나타냅니다. 정적 자산 없는 API 호출·자동화 UA·텔레메트리 없음 중 하나가 있으면 충족됩니다.',
+  errorToEndpointChangeCount: '최근 요청에서 오류 응답 뒤 5분 이내에 경로를 바꾼 횟수입니다. 에이전트 행동 관찰용이며 점수에 직접 반영하지 않습니다.',
+  errorToMethodChangeCount: '오류 응답 뒤 5분 이내에 같은 경로의 HTTP 메서드를 바꾼 횟수입니다. 점수에 직접 반영하지 않습니다.',
+  retryWithPayloadChangeCount: '오류 응답 뒤 5분 이내에 같은 작업을 요청 본문 지문을 바꿔 재시도한 횟수입니다. 점수에 직접 반영하지 않습니다.',
+  authAddedAfter401Count: '401 응답 뒤 5분 이내에 같은 경로로 Authorization 헤더를 추가해 요청한 횟수입니다. 점수에 직접 반영하지 않습니다.',
+  failureChangeSuccessCount: '오류 응답 뒤 5분 이내에 같은 경로에서 메서드·본문 지문·인증 여부 중 하나를 바꾸고 2xx·3xx를 받은 횟수입니다. 점수에 직접 반영하지 않습니다.',
+  hasEvidence: '보관된 이력에 허니 신호가 하나 이상 있는지 나타냅니다.',
+  totalEvents: '보관된 허니 이벤트의 전체 발생 횟수입니다. 같은 신호가 여러 번 발생해도 배점은 횟수만큼 반복 합산하지 않습니다.',
+  distinctSignals: '보관된 허니 신호에서 중복을 제거한 종류 목록입니다.',
+  distinctScoredSignals: '점수 계산 대상으로 분류한 서로 다른 허니 신호의 목록입니다. 조건부 신호는 추가 조건이 있어야 점수에 반영됩니다.',
+  signalCounts: '허니 신호별 실제 발생 횟수입니다. 배점과 구분하며 동일 신호의 반복 횟수만큼 배점이 증가하지 않습니다.',
+  strongestEvidenceLevel: '허니 이력에서 가장 강한 근거 등급입니다. observation·supporting·medium·strong 순으로 강해지며 실제 공격 성공을 확정하는 등급은 아닙니다.',
+  firstEventAt: '보관된 허니 이력의 첫 이벤트 발생 시각입니다.',
+  lastEventAt: '보관된 허니 이력의 마지막 이벤트 발생 시각입니다.',
+  status: '연결된 기록의 연속성 판정 상태입니다. 확정·잠정·제안 등 연결 근거의 수준을 구분합니다.',
+  confidence: '연결 판정에 사용한 근거의 신뢰 수준입니다. 동일한 사람일 확률을 나타내지 않습니다.',
+  aggregationPolicy: '이 기록에 어떤 요청과 세션을 합산했는지 나타내는 정책입니다.',
+  sessions: '이 기록에 연결된 세션 ID 목록입니다. 세션은 쿠키에 따른 방문 흐름입니다.',
+  candidates: '이 기록에 연결된 관찰 후보 ID 목록입니다. HTTP 지문과 요청 연속성에 따른 후보입니다.',
+  observedIps: '이 기록에서 관찰된 IP 목록입니다. 같은 IP를 사용하는 여러 클라이언트가 있을 수 있습니다.',
+  ipChangeCount: '연결된 기록의 요청에서 관찰한 IP 변경 횟수입니다.',
+  clientIds: '연결 근거로 사용한 서명 클라이언트 ID 목록입니다.',
+  accounts: '이 기록과 연관된 계정 및 인증 검증 여부입니다. 계정 연관과 실제 사람의 신원은 구분합니다.',
+  authGroups: '같은 인증 토큰을 기준으로 묶은 인증 그룹 ID 목록입니다.',
+  evidence: '기록을 연결하는 데 사용한 근거 코드 목록입니다.',
+  conflicts: '연결 근거 사이에서 발견한 충돌 코드 목록입니다.',
 };
 
 /* 상태/신뢰도 코드의 한국어 이름. API가 주는 코드 값 자체는 바꾸지 않고
@@ -1097,6 +1264,23 @@ function idChip(value, { head = 12, label = '' } = {}) {
   const text = String(value ?? '');
   if (!text) return '<span class="idchip">—</span>';
   return `<button type="button" class="idchip" data-copy="${escapeHtml(text)}" title="클릭하면 전체 값을 복사합니다&#10;${escapeHtml(text)}">${escapeHtml(label ? `${label} ` : '')}${escapeHtml(shortId(text, head))}</button>`;
+}
+function displayIp(value) {
+  const text = String(value || '');
+  const mapped = text.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  return mapped && mapped[1].split('.').every(part => Number(part) <= 255) ? mapped[1] : text;
+}
+function observedIps(data) {
+  return [...new Set([...(data.observedIps || data.ips || []), data.ip,
+    ...(data.requests || []).map(request => request.ip)].filter(Boolean).map(displayIp))];
+}
+function ipChips(ips) {
+  return [...new Set((ips || []).filter(Boolean).map(displayIp))].map(ip =>
+    `<button type="button" class="idchip ip-chip" data-copy="${escapeHtml(ip)}" aria-label="IP ${escapeHtml(ip)} 복사" title="클릭하면 IP를 복사합니다">${escapeHtml(ip)}</button>`).join('') || '—';
+}
+function renderObservedIps(data) {
+  const ips = observedIps(data);
+  return ips.length ? `<div class="observed-ips"><p>관찰된 IP ${ips.length}개 · 주소를 누르면 복사됩니다</p><div class="ip-list">${ipChips(ips)}</div></div>` : '';
 }
 /* "연속성 확정 (CONFIRMED)" 형태의 표시 문자열. 한국어 이름이 없는 코드는 원본 그대로 둔다. */
 function statusText(code) {
@@ -1360,6 +1544,7 @@ function renderUserList() {
     : `${rows.length.toLocaleString()} / 전체 ${state.users.length.toLocaleString()}개 흐름`;
 
   list.innerHTML = rows.map(row => {
+    const ips = observedIps(row);
     const detection = detectionFor(row);
     const scoreScope = 'heuristic';
     const selected = state.selected && state.selected.kind === row.kind && state.selected.id === row.id;
@@ -1373,9 +1558,9 @@ function renderUserList() {
       row.deceptionHistory?.hasEvidence ? '<span class="badge neutral" title="허니 신호가 관찰되었습니다.">허니</span>' : '',
     ].join('');
     const scoreScopeNote = '요청 흐름 전체의 관찰 점수 · 개별 서명 ID의 방어 판단과 다를 수 있음';
-    return `<button type="button" class="user-card${selected ? ' selected' : ''}" data-user-kind="${escapeHtml(row.kind)}" data-user-id="${escapeHtml(row.id)}" aria-pressed="${selected ? 'true' : 'false'}">
+    return `<div class="user-card-item"><button type="button" class="user-card${selected ? ' selected' : ''}" data-user-kind="${escapeHtml(row.kind)}" data-user-id="${escapeHtml(row.id)}" aria-pressed="${selected ? 'true' : 'false'}">
       <span class="user-card-head">
-        <span class="user-card-title" title="${escapeHtml(userCardTitle(row))}">${escapeHtml(row.ips?.[0] || shortId(row.id, 18))}${row.ipCount > 1 ? ` 외 ${row.ipCount - 1}` : ''}</span>
+        <span class="user-card-title" title="${escapeHtml(userCardTitle(row))}">${escapeHtml(ips[0] || shortId(row.id, 18))}${ips.length > 1 ? ` 외 ${ips.length - 1}개` : ''}</span>
         <span class="user-card-time" title="최근 ${escapeHtml(formatTime(row.lastSeen))}">${escapeHtml(formatRelative(row.lastSeen))}</span>
       </span>
       <span class="user-card-top">${badge}${flags}</span>
@@ -1390,7 +1575,7 @@ function renderUserList() {
         ${miniScore('공격', detection.maxAttackScore / 100, 'attack')}
       </span>
       <span class="user-card-id" title="${escapeHtml(row.id)}">${escapeHtml(shortId(row.id, 40))}</span>
-    </button>`;
+    </button>${ips.length ? `<div class="ip-list user-card-ips" aria-label="관찰된 IP 목록">${ipChips(ips)}</div>` : ''}</div>`;
   }).join('') || (state.users.length
     ? '<p class="empty" style="padding:20px 16px;">검색·필터와 일치하는 흐름이 없습니다. 조건을 바꿔 보세요.</p>'
     : '<p class="empty" style="padding:20px 16px;">아직 관찰된 흐름이 없습니다. 사이트를 열고 요청을 보낸 뒤 확인하세요.</p>');
@@ -1506,10 +1691,8 @@ function buildSessionNodes(detail, kind) {
 
 function isFlaggedRequest(request) {
   return Boolean(
-    (request.deceptionEvents || []).length ||
-    (request.tags || []).length ||
+    isAttackSignalRequest(request) ||
     request.responseTransportOutcome === 'error' ||
-    Number(request.attackDetection?.anomalyScore || 0) > 0 ||
     Number(request.status) >= 400
   );
 }
@@ -1523,7 +1706,22 @@ function isBackgroundRequest(request) {
 const LOG_HISTOGRAM_BUCKETS = 48;
 const LOG_EXPANDED_LIMIT = 200;
 const METHOD_CLASSES = { GET:'m-get', HEAD:'m-get', OPTIONS:'m-other', POST:'m-post', PUT:'m-put', PATCH:'m-patch', DELETE:'m-delete' };
-const STRATEGY_LABELS = { delay:'지연', rate_limit_strict:'속도 제한' };
+const STRATEGY_LABELS = {
+  delay:'응답 지연', rate_limit_strict:'엄격한 요청 속도 제한',
+  account_overlay_medium:'중위험 계정 응답에 미끼 정보 추가',
+  account_overlay_high:'고위험 클라이언트 격리',
+  decoy_maze:'미끼 경로로 유도', maze:'미끼 경로로 유도',
+  decoy_t21_shell:'미끼 셸 경로로 유도', decoy_migration:'미끼 이전 안내 제공',
+};
+const REQUEST_SOURCE_DESCRIPTIONS = {
+  session:'현재 방문 세션의 요청 기록을 참고했습니다.',
+  'actor-candidate-fallback':'비슷한 IP·요청 헤더로 묶은 관찰 후보의 기록을 참고했습니다. 같은 사람이라는 의미는 아닙니다.',
+  'fingerprint-client-flow':'HTTP 요청 특징과 세션 연속성으로 연결한 흐름의 기록을 참고했습니다. 동일 클라이언트로 확정한 기록과 구분합니다.',
+  'auth-group':'같은 인증 토큰으로 묶인 요청 기록을 참고했습니다. 토큰 공유만으로 동일한 사람이라고 확정하지 않습니다.',
+  'confirmed-resolved-actor':'서명된 클라이언트 ID로 연속성을 확인한 요청 기록을 참고했습니다. 실제 사람의 신원을 확인한 것은 아닙니다.',
+  'provisional-client-observation':'아직 연속성을 확인하지 못한 클라이언트 기록으로 계산했습니다.',
+  none:'참고할 이전 요청 기록이 없습니다.',
+};
 const LOG_QUERY_FIELDS = new Set(['status', 'method', 'tag', 'session', 'id', 'path']);
 const SEVERITY_LEVELS = ['info', 'warn', 'error', 'critical'];
 const SEVERITY_NAMES = { info:'정상', warn:'4xx', error:'5xx·전송 오류', critical:'공격·허니 신호' };
@@ -1532,9 +1730,16 @@ function isAttackSignalRequest(request) {
   return Boolean(
     (request.deceptionEvents || []).length ||
     (request.tags || []).length ||
+    (request.blTags || []).length ||
+    (request.csrfTags || []).length ||
+    (request.xssTags || []).length ||
     Number(request.attackDetection?.anomalyScore || 0) > 0 ||
     (request.attackDetection?.hits || []).length
   );
+}
+
+function isRoutineBackgroundRequest(request) {
+  return isBackgroundRequest(request) && !isAttackSignalRequest(request);
 }
 
 /* 행 왼쪽 색 막대와 히스토그램 색에 쓰는 심각도. isFlaggedRequest와 같은 신호를 등급으로 나눈다. */
@@ -1775,53 +1980,149 @@ function renderLogRow(request, key, { sessionCell = '', terms = [], repeats = []
       <span class="log-signals">${signals}</span>
       <span class="log-chevron" aria-hidden="true">▶</span>
     </button>
-    ${expanded ? renderLogDetail(request) : ''}
+    ${expanded ? renderLogDetail(request, key) : ''}
   </div>`;
 }
 
-/* Cloudflare 보안 이벤트·Kibana 문서 보기처럼 필드를 표로 펼친다. 원본은 JSON으로 함께 제공한다. */
-function renderLogDetail(request) {
+function requestActionText(request) {
+  const method = String(request.method || '').toUpperCase();
+  const path = String(request.url || '').split('?')[0];
+  if (method === 'GET' && path === '/') return '메인 페이지 조회';
+  return ({ GET:'페이지·정보 조회', HEAD:'응답 정보 조회', POST:'데이터 전송 요청',
+    PUT:'정보 교체 요청', PATCH:'정보 수정 요청', DELETE:'정보 삭제 요청',
+    OPTIONS:'연결 허용 여부 확인' })[method] || '웹 요청';
+}
+
+function requestOutcomeText(request) {
+  const status = Number(request.status);
+  if (request.responseTransportOutcome === 'error') return '응답 전달 중 오류';
+  if (status === 304) return '저장된 페이지 사용';
+  if (status >= 200 && status < 300) return '정상 응답';
+  if (status >= 300 && status < 400) return '다른 주소로 이동 안내';
+  if (status === 401 || status === 403) return '접근 거부 응답';
+  if (status === 404) return '요청한 경로를 찾을 수 없음';
+  if (status === 429) return '요청 횟수 제한 응답';
+  if (status >= 400 && status < 500) return '요청 오류 응답';
+  if (status >= 500) return '서버·중계 오류 응답';
+  return '응답 상태 기록 없음';
+}
+
+function requestScoreText(value) {
+  return value === null || value === undefined || !Number.isFinite(Number(value))
+    ? '기록 없음' : `${formatPoints(scoreNumber(value))} / 100점`;
+}
+
+function requestSourceText(source) {
+  return REQUEST_SOURCE_DESCRIPTIONS[source] || '점수 계산에 참고한 기록의 종류는 기술 정보에서 확인할 수 있습니다.';
+}
+
+function requestBodyInfo(contentType) {
+  return `<code>${escapeHtml(contentType)}</code>`;
+}
+
+function renderLogDetail(request, key = request.requestId) {
   const policy = request.policyDecision;
   const post = request.detectionResult;
   const detection = request.attackDetection;
-  const rows = [];
-  const add = (label, html) => rows.push(`<dt>${escapeHtml(label)}</dt><dd>${html}</dd>`);
+  const technicalRows = [];
+  const explanationRows = [];
+  const row = (label, html) => `<dt>${escapeHtml(label)}</dt><dd>${html}</dd>`;
+  const add = (label, html) => technicalRows.push(row(label, html));
+  const explain = (label, html) => explanationRows.push(row(label, html));
   const tagList = values => values.map(value => `<span class="tag">${escapeHtml(value)}</span>`).join('');
   const operation = request.operation && request.operation !== `${request.method} ${request.url}` ? request.operation : '';
+  const disclosure = name => {
+    const id = `${key || 'untracked'}:${name}`;
+    return `data-request-disclosure="${escapeHtml(id)}"${state.requestDisclosures.has(id) ? ' open' : ''}`;
+  };
+  const strategies = policy?.strategies || [];
+  const strategyText = strategies.map(name => STRATEGY_LABELS[name] || '기타 방어 전략').join(' · ');
+  const selectedDefense = policy ? strategyText || '추가 방어 전략을 선택하지 않음' : '방어 판단 기록 없음';
+  const crsHits = detection?.hits || [];
+  const ruleSummary = detection?.available
+    ? crsHits.length || Number(detection.anomalyScore) > 0
+      ? crsHits.length ? `규칙 일치 ${crsHits.length}개` : '공격 규칙 신호 있음'
+      : '규칙 일치 없음'
+    : '규칙 검사 미확인';
+  const extraSignals = [...(request.tags || []), ...(request.blTags || []), ...(request.csrfTags || []), ...(request.xssTags || [])];
+  const honeySignals = request.deceptionEvents || [];
+  const responseWarning = request.responseTransportOutcome === 'error'
+    ? '<p class="kv-warn">서버 응답 상태가 기록됐지만, 응답 내용 전달을 완료하지 못했습니다.</p>'
+    : request.responseTransportOutcome === 'complete' && request.responseBodyInspected === false
+      ? '<p class="request-score-note">응답 내용 검사는 생략했습니다. 스트리밍 응답이나 크기 제한으로 내용을 확인하지 못한 경우입니다.</p>' : '';
 
-  add('시각', `${escapeHtml(formatTime(request.ts))} <span class="kv-note">${escapeHtml(formatClockMs(request.ts))} · ${escapeHtml(formatRelative(request.ts))}</span>`);
+  explain('요청을 보내기 전 판단', policy
+    ? `자동화 의심 ${requestScoreText(policy.automationScore)} · 공격 신호 ${requestScoreText(policy.attackScore)}<span class="kv-note">이전에 완료된 요청의 집계 점수로 판단했습니다. 이번 요청 한 건의 점수가 아닙니다.</span>`
+    : '<span class="kv-note">요청을 보내기 전의 판단 기록이 없습니다.</span>');
+  if (policy) {
+    explain('방어 판단에 사용한 값', `${requestScoreText(policy.riskScore)}<span class="kv-note">자동화·공격 점수 중 높은 값을 사용합니다.</span>`);
+    explain('연속성을 확인한 기록의 공격 점수', `${requestScoreText(policy.confirmedAttackScore)}<span class="kv-note">서명된 클라이언트 ID로 연속성을 확인한 요청 이력의 점수입니다. 사람의 신원이나 공격 성공을 확인한 점수가 아닙니다.</span>`);
+    explain('참고한 기록', escapeHtml(requestSourceText(policy.source)));
+  }
+  explain('선택한 방어', escapeHtml(selectedDefense));
+  if (strategies.length) explain('실제 방어 처리 확인', '위 전략은 요청 전달 전에 선택한 계획입니다. 실제 실행한 전략과 처리 결과는 방어 기록에서 확인할 수 있습니다.');
+  if (request.defenseSignal) explain('확인된 방어 결과', escapeHtml(request.defenseSignal === 'rate_limited' ? '요청 속도 제한이 적용됐습니다.' : '추가 방어 신호가 기록됐습니다. 기술 정보에서 원본 값을 확인할 수 있습니다.'));
+  explain('이번 요청의 공격 규칙 검사', escapeHtml(ruleSummary));
+  if (extraSignals.length) explain('추가 관찰 신호', `공격 패턴·로직·CSRF·XSS 검사 태그 ${extraSignals.length}개가 기록됐습니다. 기술 정보에서 각 태그를 확인할 수 있습니다.`);
+  if (honeySignals.length) explain('미끼 정보에 대한 반응', honeySignals.map(event => escapeHtml(metricLabels[event.signal] || '미끼 반응 신호')).join(' · ') + '<span class="kv-note">미끼 접근이나 재사용을 관찰한 기록이며 실제 공격 성공을 뜻하지 않습니다.</span>');
+  if (isBackgroundRequest(request)) explain('배경 통신', '페이지의 실시간 연결을 유지하는 Socket.IO 요청입니다. 요청 간격·집중도·반복 같은 자동화 행동 점수에서 제외합니다.');
+
+  add('정밀 시각', `${escapeHtml(formatTime(request.ts))} · ${escapeHtml(formatClockMs(request.ts))}`);
   add('요청 ID', request.requestId ? `<code>${escapeHtml(request.requestId)}</code>` : '—');
   add('요청', `${escapeHtml(request.method || '—')} ${escapeHtml(request.url || '')}`);
   if (operation) add('작업', escapeHtml(operation));
-  add('응답', `<span class="status-code s-${statusFamily(request)}">${escapeHtml(request.status ?? '—')}</span>${request.responseTransportOutcome === 'error' ? ' <span class="kv-warn">응답 전달 중 오류(본문 불완전)</span>' : ''}${request.responseTransportOutcome === 'complete' && request.responseBodyInspected === false ? ' <span class="kv-note">응답 본문 검사 생략(스트리밍·크기 제한)</span>' : ''}`);
-  add('세션', `<code>${escapeHtml(request.sessionId || '—')}</code>`);
-  if (request.ip) add('IP', escapeHtml(request.ip));
-  add('전달 전 정책', policy
-    ? `자동화 ${scoreNumber(policy.automationScore)} · 공격 ${scoreNumber(policy.attackScore)} · 위험 ${scoreNumber(policy.riskScore)} · 확정 공격 근거 ${scoreNumber(policy.confirmedAttackScore)}<br>출처 ${escapeHtml(policy.source || '—')} · 전략 ${escapeHtml((policy.strategies || []).join(', ') || '없음')}`
-    : '<span class="kv-note">기록 없음</span>');
-  if (post) add('응답 후 클라이언트 점수', `자동화 ${scoreNumber(post.automationScore)} · 공격 ${scoreNumber(post.effectiveAttackScore)} · 출처 ${escapeHtml(post.source || '—')}`);
-  if (request.targetId) add('요청 당시 대상', `${escapeHtml(request.targetId)} · 실행 ${escapeHtml(request.targetRunId || '—')}`);
-  if (request.defenseSignal) add('방어 신호', escapeHtml(request.defenseSignal));
-  add('OWASP CRS', detection?.available
-    ? `${escapeHtml(detection.crsVersion || '')} · 이상 점수 ${Number(detection.anomalyScore || 0)} · 규칙 ${escapeHtml((detection.hits || []).map(hit => hit.ruleId).join(', ') || '—')}`
-    : '<span class="kv-note">미관찰 (legacy fallback)</span>');
+  add('HTTP 응답 상태', escapeHtml(request.status ?? '기록 없음'));
+  add('방문 세션 ID', `<code>${escapeHtml(request.sessionId || '기록 없음')}</code>`);
+  if (request.ip) {
+    const ip = displayIp(request.ip);
+    const privateIp = /^(?:10\.|127\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(ip);
+    add('서버에서 관찰한 접속 주소', `${ipChips([ip])}${privateIp ? '<span class="kv-note">내부 네트워크 주소입니다. 사용자의 외부 IP와 다를 수 있습니다.</span>' : ''}`);
+  }
+  if (policy) {
+    add('전달 전 계산 대상 코드', `<code>${escapeHtml(policy.source || '기록 없음')}</code>`);
+    add('선택한 방어 전략 코드', `<code>${escapeHtml(strategies.join(', ') || '없음')}</code>`);
+  }
+  if (post) add('처리 후 계산 대상 코드', `<code>${escapeHtml(post.source || '기록 없음')}</code>`);
+  if (request.targetId) {
+    const targetName = ({ legacy:'기본 연결 서비스', alternate:'추가 연결 서비스', 'juice-shop':'OWASP Juice Shop', 'ruby-shop':'RUBY Market' })[request.targetId] || '연결된 서비스';
+    add('요청을 처리한 서비스', escapeHtml(targetName));
+  }
+  if (request.targetRunId) add('대상 실행 ID', `<code>${escapeHtml(request.targetRunId)}</code>`);
+  if (request.defenseSignal) add('방어 결과 코드', `<code>${escapeHtml(request.defenseSignal)}</code>`);
+  add('공격 규칙 검사', escapeHtml(ruleSummary));
   if ((request.tags || []).length) add('공격 태그', tagList(request.tags));
   if ((request.deceptionEvents || []).length) add('허니 신호', tagList(request.deceptionEvents.map(event => `${event.signal} · ${event.evidenceLevel || '—'}`)));
   const logicTags = [...(request.blTags || []), ...(request.csrfTags || []), ...(request.xssTags || [])];
   if (logicTags.length) add('로직·CSRF·XSS 태그', tagList(logicTags));
   if (isBackgroundRequest(request)) add('백그라운드', `${escapeHtml(request.backgroundTraffic?.category || 'background')} · 자동화 행동 점수 제외`);
-  add('요청 본문', `형식 <code>${escapeHtml(request.requestContentType || '—')}</code> · 선언 ${formatBytes(request.requestContentLength)} · 관찰 ${formatBytes(request.requestBodyBytes)}`);
-  add('응답 본문', `형식 <code>${escapeHtml(request.responseContentType || '—')}</code> · 선언 ${formatBytes(request.responseContentLength)} · 관찰 ${formatBytes(request.responseBodyBytes)}`);
-  if (request.body) add('본문', escapeHtml(typeof request.body === 'string' ? request.body : JSON.stringify(request.body)));
+  if (request.requestContentType) add('요청 내용 형식', requestBodyInfo(request.requestContentType));
+  if (request.responseContentType) add('응답 내용 형식', requestBodyInfo(request.responseContentType));
+  if (request.body) add('요청에 담긴 데이터', escapeHtml(typeof request.body === 'string' ? request.body : JSON.stringify(request.body)));
   if (request.experimentRunId) add('실험 실행 ID', escapeHtml(request.experimentRunId));
 
   const defenseLink = request.requestId
     ? `<a class="link-button" href="/__defense/dashboard?q=${encodeURIComponent(request.requestId)}" target="_blank" rel="noopener" title="방어 화면에서 같은 요청 ID의 전략·응답을 검색합니다.">방어 기록에서 보기 ↗</a>`
     : '';
   return `<div class="log-detail">
-    <div class="log-detail-actions">${request.requestId ? idChip(request.requestId, { head: 44 }) : ''}${defenseLink}</div>
-    <dl class="kv">${rows.join('')}</dl>
-    <details class="log-json"><summary>원본 JSON</summary><pre>${highlightJson(request)}</pre></details>
+    <section class="request-summary" aria-label="요청 결과 요약">
+      <h4>${escapeHtml(requestActionText(request))} · ${escapeHtml(requestOutcomeText(request))}</h4>
+      <p class="request-time">${escapeHtml(formatTime(request.ts))} · ${escapeHtml(formatRelative(request.ts))}</p>
+      <p>요청한 주소: <code>${escapeHtml(request.url || '기록 없음')}</code></p>
+      <p>서버 응답: <span class="status-code s-${statusFamily(request)}">${escapeHtml(request.status ?? '기록 없음')}</span> · ${escapeHtml(requestOutcomeText(request))}</p>
+      ${responseWarning}
+      <p>선택한 방어: ${escapeHtml(selectedDefense)}</p>
+      ${policy ? `<p class="request-score-title">방어 판단에 사용한 점수</p>
+      <div class="request-scores"><span>자동화 의심<strong>${escapeHtml(requestScoreText(policy.automationScore))}</strong></span><span>공격 신호<strong>${escapeHtml(requestScoreText(policy.attackScore))}</strong></span></div>` : ''}
+      <p>이번 요청의 공격 규칙 검사: ${escapeHtml(ruleSummary)}</p>
+      ${extraSignals.length ? `<p>추가 관찰 신호 ${extraSignals.length}개가 있습니다. 아래 판단 근거에서 확인할 수 있습니다.</p>` : ''}
+      ${honeySignals.length ? `<p>미끼 정보에 대한 반응 ${honeySignals.length}건이 기록됐습니다.</p>` : ''}
+    </section>
+    <details class="request-disclosure request-explanation" ${disclosure('why')}><summary>왜 이렇게 처리했나요?</summary><div class="request-disclosure-body"><dl class="kv">${explanationRows.join('')}</dl>${defenseLink ? `<div class="log-detail-actions" style="margin:12px 0 0">${defenseLink}</div>` : ''}</div></details>
+    <details class="request-disclosure request-technical" ${disclosure('technical')}><summary>기술 정보 보기</summary><div class="request-disclosure-body">
+      <div class="log-detail-actions">${request.requestId ? idChip(request.requestId, { head: 44 }) : ''}</div>
+      <dl class="kv">${technicalRows.join('')}</dl>
+      <details class="log-json" ${disclosure('json')}><summary>원본 JSON</summary><pre>${highlightJson(request)}</pre></details>
+    </div></details>
   </div>`;
 }
 
@@ -2144,13 +2445,19 @@ function renderTimeline(detail, sessionNodes) {
   const keys = assignLogKeys(chronological);
   // 로그 뷰어처럼 최신 요청을 맨 위에 둔다.
   const requests = chronological.reverse();
+  const showBackground = state.timelineBackgroundExpanded || Boolean(rawQuery);
+  const inSession = request => state.timelineSession === 'all' || request.sessionId === state.timelineSession;
   const scoped = requests.filter(request => {
-    if (state.timelineSession !== 'all' && request.sessionId !== state.timelineSession) return false;
+    if (!inSession(request)) return false;
+    if (!showBackground && isRoutineBackgroundRequest(request)) return false;
     if (state.timelineFlaggedOnly && !isFlaggedRequest(request)) return false;
     return true;
   });
   const range = state.timelineRange;
   const inRange = request => !range || (Number(request.ts) >= range.from && Number(request.ts) <= range.to);
+  const backgroundCount = requests.filter(request => inSession(request) && inRange(request)
+    && isRoutineBackgroundRequest(request) && matchesLogQuery(request, query)
+    && (!state.timelineFlaggedOnly || isFlaggedRequest(request))).length;
   const queried = scoped.filter(request => matchesLogQuery(request, query));
   const filtered = queried.filter(inRange);
   const facetBase = scoped.filter(request => inRange(request) && matchesLogQuery(request, query, ['status', 'method']));
@@ -2161,10 +2468,9 @@ function renderTimeline(detail, sessionNodes) {
   else if (previousNewest) state.timelinePendingNew += filtered.filter(request => Number(request.ts) > previousNewest).length;
   state.timelineNewestTs = Math.max(previousNewest || 0, ...filtered.map(request => Number(request.ts) || 0));
 
-  const backgroundCount = filtered.filter(isBackgroundRequest).length;
   const entries = mergeRouteEntries(
     buildLogEntries(filtered, {
-      collapseBackground: !(state.timelineBackgroundExpanded || rawQuery),
+      collapseBackground: !showBackground,
       dedupe: state.timelineDedup,
     }),
     detail.features?.client?.browserInteraction?.routeHistory,
@@ -2218,7 +2524,7 @@ function renderTimeline(detail, sessionNodes) {
       <label for="timelineSessionSelect"><span class="search-label">세션 범위</span><select class="select-input" id="timelineSessionSelect" aria-label="세션 필터">${sessionOptions}</select></label>
       <button class="chip-button${state.timelineDedup ? ' active' : ''}" type="button" id="timelineDedupToggle" aria-pressed="${state.timelineDedup}" title="같은 세션에서 연속된 동일 요청(메서드·경로·상태)을 ×N 한 줄로 접습니다. 신호가 있는 요청은 접지 않습니다.">중복 접기</button>
       <button class="chip-button" type="button" id="logDensityToggle" title="행 간격을 바꿉니다.">${document.documentElement?.dataset?.density === 'compact' ? '넓게' : '촘촘하게'}</button>
-      ${backgroundCount ? `<button class="chip-button${state.timelineBackgroundExpanded ? ' active' : ''}" type="button" id="timelineBackgroundToggle" title="Socket.IO 같은 백그라운드 통신은 기록에는 남지만 자동화 행동 점수에서는 제외됩니다.">${state.timelineBackgroundExpanded ? '백그라운드 접기' : `백그라운드 ${backgroundCount.toLocaleString()}건 펼치기`}</button>` : ''}
+      ${backgroundCount ? `<button class="chip-button${state.timelineBackgroundExpanded ? ' active' : ''}" type="button" id="timelineBackgroundToggle" aria-pressed="${state.timelineBackgroundExpanded}" title="공격 신호가 없는 Socket.IO 배경 요청은 오류 응답도 기본 화면에서 숨깁니다. 보기 또는 검색으로 원본 기록을 확인할 수 있습니다.">${state.timelineBackgroundExpanded ? '백그라운드 숨기기' : `백그라운드 ${backgroundCount.toLocaleString()}건 보기`}</button>` : ''}
     </div>
     ${renderLogFacets(facetBase, query)}
     ${renderLogHistogram(queried)}
@@ -2286,6 +2592,7 @@ function renderUserDetail() {
         <span class="ds" title="현재 Automation Score를 선택 기준과 비교합니다."><i>${kind === 'resolved-actors' ? '자동화' : '흐름 자동화'}</i>${scoreCell(detail.automationScore, 'automation', detection.automationDetected, continuityConfirmed ? 'confirmed' : kind === 'resolved-actors' ? 'observed' : 'heuristic')}</span>
         <span class="ds" title="현재값이 아니라 과거 최고 Attack Score를 선택 기준과 비교합니다."><i>${kind === 'resolved-actors' ? '공격 최고' : '흐름 공격 최고'}</i>${scoreCell(detection.maxAttackScore / 100, 'attack', detection.attackDetected, continuityConfirmed ? 'confirmed' : kind === 'resolved-actors' ? 'observed' : 'heuristic')}</span>
       </div>
+      ${renderObservedIps(detail)}
     </div>
     ${renderTimeline(detail, sessionNodes)}
     <details class="evidence-disclosure" id="evidenceDisclosure"${state.evidenceExpanded ? ' open' : ''}>
@@ -2488,7 +2795,7 @@ async function refresh() {
       return `<tr ${rowAttrs('resolved-actors', actor.resolvedActorId)}>
       <td><code>${escapeHtml(shortId(actor.resolvedActorId, 24))}</code></td>
       <td>${escapeHtml(actor.continuityConfirmed ? '서명 ID 확인' : '연속성 미확인')}</td>
-      <td>${escapeHtml((actor.observedIps || []).join(', ') || '—')}</td>
+      <td><div class="ip-list">${ipChips(observedIps(actor))}</div></td>
       <td>${scoreCell(actor.automationScore, 'automation', detection.automationDetected)}</td>
       <td>${scoreCell(detection.maxAttackScore / 100, 'attack', detection.attackDetected)}</td>
       <td>${Number(actor.totalRequests || 0).toLocaleString()}</td>
@@ -2502,7 +2809,7 @@ async function refresh() {
     .map(s => {
       const detection = detectionFor(s);
       return `<tr ${rowAttrs('sessions', s.sessionId)}>
-      <td><code>${escapeHtml(s.sessionId.slice(0,8))}</code></td><td>${escapeHtml(s.ip)}</td>
+      <td><code>${escapeHtml(s.sessionId.slice(0,8))}</code></td><td>${ipChips([s.ip])}</td>
       <td>${scoreCell(s.automationScore,'automation',detection.automationDetected)}</td><td>${scoreCell(detection.maxAttackScore/100,'attack',detection.attackDetected)}</td><td>${honeySignalsCell(s.deceptionHistory)}</td><td>${attackHistoryCell(s.attackHistory)}</td>
       <td>${s.features.totalRequests}</td><td>${fixed(s.features.temporal.avgIntervalMs,0)}</td>
       <td>${s.features.temporal.maxRequests2s}</td><td>${s.features.temporal.requests10s}</td>
@@ -2523,7 +2830,7 @@ async function refresh() {
         ? `<div class="meta">연관 ${Number(relation.score || 0).toFixed(1)}/100 · ${escapeHtml(relation.decision || '—')} · 변경 ${escapeHtml((relation.changedFields || []).join(', ') || '없음')}</div>`
         : '<div class="meta">연관 Candidate 없음</div>';
       return `<tr ${rowAttrs('actors', a.actorId)}>
-      <td><code>${escapeHtml(a.actorId.slice(0,18))}…</code></td><td>${escapeHtml(a.ip)}</td>
+      <td><code>${escapeHtml(a.actorId.slice(0,18))}…</code></td><td><div class="ip-list">${ipChips(observedIps(a))}</div></td>
       <td><code>${escapeHtml(profileText)}</code>${relationText}</td>
       <td>${scoreCell(a.automationScore,'automation',detection.automationDetected)}</td><td>${scoreCell(detection.maxAttackScore/100,'attack',detection.attackDetected)}</td><td>${honeySignalsCell(a.deceptionHistory)}</td><td>${attackHistoryCell(a.attackHistory)}</td>
       <td>${a.totalRequests}</td><td>${a.sessionCount}</td><td>${escapeHtml(formatTime(a.firstSeen))}</td><td>${escapeHtml(formatTime(a.lastSeen))}</td>
@@ -2545,13 +2852,16 @@ async function refresh() {
   document.getElementById('ipRows').innerHTML = ipEntries
     .sort((a,b) => b.totalRequests-a.totalRequests)
     .map(e => `<tr ${rowAttrs('ip-entries', e.ip)}>
-      <td><code>${escapeHtml(e.ip)}</code></td><td>${e.totalRequests}</td><td>${e.sessionCount}</td>
+      <td>${ipChips([e.ip])}</td><td>${e.totalRequests}</td><td>${e.sessionCount}</td>
       <td>${e.actorCandidateCount}</td><td>${e.features.behavior.uniqueNormalizedPaths}</td>
       <td>${escapeHtml(formatTime(e.lastSeen))}</td>
     </tr>`).join('') || '<tr><td colspan="6" class="empty">관찰된 IP가 없습니다.</td></tr>';
 
   document.querySelectorAll('tr[data-kind]').forEach(row => {
-    row.addEventListener('click', () => openDetail(row.dataset.kind, row.dataset.id));
+    row.addEventListener('click', event => {
+      if (event.target.closest('[data-copy]')) return;
+      openDetail(row.dataset.kind, row.dataset.id);
+    });
   });
 }
 
@@ -2744,10 +3054,117 @@ function metricLabel(key) {
   return key;
 }
 
-function metricPanel(title, object) {
+function metricDescription(key, maximumPoints) {
+  const segments = String(key).split('.');
+  const leaf = segments.at(-1);
+  let description = metricDescriptions[key] || metricDescriptions[leaf];
+  if (segments[0] === 'statusCounts') description = `최근 경로 탐색 표본에서 HTTP ${leaf} 응답을 받은 요청 수입니다.`;
+  if (segments[0] === 'signalCounts') description = `이 신호의 실제 발생 횟수입니다. ${description || '보관된 허니 이벤트를 집계합니다.'} 동일 신호의 배점은 발생 횟수만큼 반복 합산하지 않습니다.`;
+  if (maximumPoints !== undefined) {
+    if (key === 'sessionChurn') description = '이 집계에 연결된 세션 수를 자동화 점수로 환산한 값입니다. 세션 1개는 0점이고 이후 세션마다 증가해 10개에서 최대 배점에 도달합니다.';
+    description = `${description || '최종 점수에 반영한 항목별 배점입니다.'} 이 항목은 최대 ${formatPoints(maximumPoints)}이며, 표시된 값은 최종 점수에 더하는 점수입니다.`;
+  }
+  return description || '현재 집계에서 관찰된 분석 값입니다. 원본 필드명은 아래에 표시합니다.';
+}
+
+function formatPoints(value) {
+  return `${Number((Number(value) || 0).toFixed(2))}점`;
+}
+
+function metricPanel(title, object, options = {}) {
   return `<div class="panel"><h3>${escapeHtml(title)}</h3>${flattenMetrics(object)
-    .map(([key,value]) => `<div class="metric"><span class="key">${escapeHtml(metricLabel(key))}</span><span class="value">${escapeHtml(value)}</span></div>`)
+    .map(([key,value]) => `<div class="metric" data-metric-key="${escapeHtml(key)}" data-metric-help="${escapeHtml(metricDescription(key, options.maximumPoints?.[key]))}"><span class="key"><button type="button" class="metric-help" aria-label="${escapeHtml(metricLabel(key))} 설명"><span class="metric-help-label">${escapeHtml(metricLabel(key))}</span><span class="metric-help-icon" aria-hidden="true">ⓘ</span></button></span><span class="value">${escapeHtml(options.points ? formatPoints(value) : value)}</span></div>`)
     .join('')}</div>`;
+}
+
+function initializeMetricTooltips() {
+  const tooltip = document.createElement('div');
+  tooltip.id = 'metricTooltip';
+  tooltip.className = 'metric-tooltip';
+  tooltip.setAttribute('role', 'tooltip');
+  tooltip.hidden = true;
+  document.body.append(tooltip);
+  let owner = null;
+  let pinned = false;
+  let hideTimer;
+  let pointerPosition = { x: null, y: null };
+  let dismissedPosition = null;
+  const hide = () => {
+    clearTimeout(hideTimer);
+    owner?.querySelector('.metric-help')?.removeAttribute('aria-describedby');
+    tooltip.hidden = true;
+    owner = null;
+    pinned = false;
+  };
+  const show = row => {
+    clearTimeout(hideTimer);
+    if (owner !== row) hide();
+    owner = row;
+    const key = row.dataset.metricKey;
+    tooltip.innerHTML = `<strong>${escapeHtml(metricLabel(key))}</strong><p>${escapeHtml(row.dataset.metricHelp)}</p><code>${escapeHtml(key)}</code>`;
+    tooltip.hidden = false;
+    row.querySelector('.metric-help').setAttribute('aria-describedby', tooltip.id);
+    const anchor = row.getBoundingClientRect();
+    const box = tooltip.getBoundingClientRect();
+    const left = Math.max(12, Math.min(anchor.left, window.innerWidth - box.width - 12));
+    const below = anchor.bottom + 8;
+    const top = below + box.height <= window.innerHeight - 12 ? below : Math.max(12, anchor.top - box.height - 8);
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  };
+  document.addEventListener('pointerover', event => {
+    const row = event.target.closest('[data-metric-help]');
+    if (row && !dismissedPosition) show(row);
+    else if (tooltip.contains(event.target)) clearTimeout(hideTimer);
+  });
+  document.addEventListener('pointermove', event => {
+    pointerPosition = { x: event.clientX, y: event.clientY };
+    if (!dismissedPosition || (dismissedPosition.x === event.clientX && dismissedPosition.y === event.clientY)) return;
+    dismissedPosition = null;
+    const row = event.target.closest('[data-metric-help]');
+    if (row) show(row);
+  });
+  document.addEventListener('pointerout', event => {
+    if (!owner || pinned) return;
+    const next = event.relatedTarget;
+    if (next && (owner.contains(next) || tooltip.contains(next))) return;
+    if (owner.contains(document.activeElement)) return;
+    hideTimer = setTimeout(hide, 120);
+  });
+  document.addEventListener('focusin', event => {
+    const row = event.target.closest('[data-metric-help]');
+    if (row) { dismissedPosition = null; show(row); }
+    else hide();
+  });
+  document.addEventListener('focusout', event => {
+    if (event.target.closest('.metric-help')) hide();
+  });
+  document.addEventListener('click', event => {
+    const row = event.target.closest('.metric-help')?.closest('[data-metric-help]');
+    if (row) {
+      dismissedPosition = null;
+      if (owner === row && pinned) hide();
+      else { show(row); pinned = true; }
+    } else if (!tooltip.contains(event.target)) hide();
+  });
+  const dismissOnEscape = event => {
+    if (event.key !== 'Escape' || tooltip.hidden) return;
+    dismissedPosition = pointerPosition;
+    hide();
+    event.stopImmediatePropagation();
+    event.preventDefault();
+  };
+  document.addEventListener('keydown', dismissOnEscape, true);
+  document.addEventListener('scroll', () => {
+    if (!owner) return;
+    const anchor = owner.getBoundingClientRect();
+    const container = owner.closest('#detailContent')?.getBoundingClientRect();
+    const top = Math.max(0, container?.top || 0);
+    const bottom = Math.min(window.innerHeight, container?.bottom || window.innerHeight);
+    if (anchor.bottom <= top || anchor.top >= bottom) hide();
+    else show(owner);
+  }, true);
+  window.addEventListener('resize', hide);
 }
 
 function renderAttackHistory(history) {
@@ -2791,12 +3208,12 @@ function renderHoneyBreakdown(honeyBreakdown) {
       totalPoints: automation.totalPoints || 0,
       maximumPoints: automation.maximumPoints || 35,
       contributions: automation.contributions || {}
-    })}
+    }, { points: true })}
     ${metricPanel('공격 허니 배점 (Attack Honey) · 최대 35점', {
       totalPoints: attack.totalPoints || 0,
       maximumPoints: attack.maximumPoints || 35,
       contributions: attack.contributions || {}
-    })}
+    }, { points: true })}
   </div>`;
 }
 
@@ -2808,16 +3225,21 @@ function renderRequests(requests) {
   const lookup = new Map();
   state.logLookup.modal = lookup;
   const multiSession = new Set(chronological.map(request => request.sessionId)).size > 1;
-  const entries = chronological.reverse().map(request => ({ type: 'request', request, repeats: [] }));
-  const rows = renderLogEntries(entries, {
+  const newestFirst = chronological.reverse();
+  const background = newestFirst.filter(isRoutineBackgroundRequest);
+  const visible = newestFirst.filter(request => !isRoutineBackgroundRequest(request));
+  const renderRows = source => renderLogEntries(source.map(request => ({ type: 'request', request, repeats: [] })), {
     keys,
     lookup,
     sessionCell: request => multiSession
       ? `<span class="log-session" title="${escapeHtml(request.sessionId || '—')}">${escapeHtml(shortId(String(request.sessionId || '—').replace(/^session:/, ''), 6))}</span>`
       : '',
   });
-  return `<p class="sub" style="margin:0 0 8px;">${chronological.length.toLocaleString()}건 · 최신 요청이 위에 있습니다. 행을 누르면 필드 표와 원본 JSON을 펼칩니다.</p>
-    <div class="log-list${multiSession ? ' multi-session' : ''}" data-log-container="modal">${logColumnsHeader(multiSession)}${rows}</div>`;
+  const rows = renderRows(visible) || '<p class="empty">표시할 요청이 없습니다. 배경 요청은 아래에서 확인할 수 있습니다.</p>';
+  const backgroundRows = renderRows(background);
+  return `<p class="sub" style="margin:0 0 8px;">${visible.length.toLocaleString()} / ${chronological.length.toLocaleString()}건 표시 · 최신 요청이 위에 있습니다. 행을 누르면 필드 표와 원본 JSON을 펼칩니다.</p>
+    <div class="log-list${multiSession ? ' multi-session' : ''}" data-log-container="modal">${logColumnsHeader(multiSession)}${rows}</div>
+    ${background.length ? `<details class="modal-disclosure"><summary>백그라운드 ${background.length.toLocaleString()}건 보기 · 오류 응답 포함</summary><div class="modal-disclosure-body"><div class="log-list${multiSession ? ' multi-session' : ''}" data-log-container="modal">${logColumnsHeader(multiSession)}${backgroundRows}</div></div></details>` : ''}`;
 }
 
 function renderResolution(data) {
@@ -2863,14 +3285,13 @@ function renderModalDetail(data, kind, id) {
     ${kind === 'client-flows' || data.clientFlow ? renderFingerprintSimilarity(data) : ''}`;
   const scoreHtml = observationOnly ? '' : `
     <div class="score-grid">
-      ${metricPanel(`현재 자동화 점수 · ${detection.automationScore}`, data.automationBreakdown)}
-      ${metricPanel(`현재 공격 점수 · ${detection.currentAttackScore}`, {
-        ...(data.attackBreakdown || {}), repeatedEvidenceBonus: data.attackEvidenceBonus || 0
-      })}
-    </div>`;
+      ${metricPanel(`현재 자동화 점수 · ${formatPoints(detection.automationScore)}`, data.automationPointBreakdown, { points: true, maximumPoints: data.scoreMaximumPoints?.automation })}
+      ${metricPanel(`현재 공격 점수 · ${formatPoints(detection.currentAttackScore)}`, data.attackPointBreakdown, { points: true, maximumPoints: data.scoreMaximumPoints?.attack })}
+    </div><p class="sub">각 항목은 최종 점수에 더하는 배점입니다. 공격 점수는 가산 후 최대 100점으로 제한하며, 반올림으로 합계와 차이가 날 수 있습니다.</p>`;
   return `
     <section class="modal-overview" aria-label="관찰 요약">
       <div class="modal-overview-head"><h3>관찰 요약</h3>${idChip(id, { head: 30 })}</div>
+      ${renderObservedIps(data)}
       <dl class="detail-stats">
         <div class="ds"><dt>전체 요청</dt><dd><b>${Number(data.totalRequests ?? features.totalRequests ?? requests.length).toLocaleString()}</b></dd></div>
         <div class="ds"><dt>신호·오류 요청</dt><dd><b>${requests.filter(isFlaggedRequest).length.toLocaleString()}</b><small>표시된 로그 ${requests.length.toLocaleString()}건 중</small></dd></div>
@@ -2888,9 +3309,6 @@ function renderModalDetail(data, kind, id) {
         </div>
         <p class="sub">표시 기준 ${detection.threshold}점 · 점수는 관찰 지표이며 공격 성공 확률이 아닙니다.</p>
         <p class="sub">${detectionScopeNote(scope)}</p>`}
-    </section>
-    <section class="modal-requests" id="modalRequests" aria-label="요청 기록">
-      <h3>어떤 요청이 있었나요?</h3>${renderRequests(requests)}
     </section>
     <h3 class="modal-analysis-title">더 자세히 확인하기</h3>
     ${observationOnly ? '' : `<details class="modal-disclosure" id="modalScores">
@@ -2921,6 +3339,9 @@ function renderModalDetail(data, kind, id) {
     </ol></div>
     ${agentic ? metricPanel('에이전트 행동 근거 (Agentic Evidence) · 관찰 전용, 미점수', agentic) : ''}
       </div></details>
+    <section class="modal-requests" id="modalRequests" aria-label="요청 기록">
+      <h3>어떤 요청이 있었나요?</h3>${renderRequests(requests)}
+    </section>
   `;
 }
 
@@ -2952,6 +3373,16 @@ function closeModal() {
 }
 
 document.getElementById('closeButton').addEventListener('click', closeModal);
+initializeMetricTooltips();
+document.addEventListener('toggle', event => {
+  const key = event.target.dataset?.requestDisclosure;
+  if (!key) return;
+  if (event.target.open) {
+    state.requestDisclosures.add(key);
+    while (state.requestDisclosures.size > LOG_EXPANDED_LIMIT * 3)
+      state.requestDisclosures.delete(state.requestDisclosures.values().next().value);
+  } else state.requestDisclosures.delete(key);
+}, true);
 document.getElementById('backdrop').addEventListener('click', event => {
   if (event.target.id === 'backdrop') closeModal();
 });

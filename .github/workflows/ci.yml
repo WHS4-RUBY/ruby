@@ -143,6 +143,7 @@ jobs:
       TARGET_PORT: "3000"
       TARGET_CHOICES: legacy=http://host.docker.internal:3000,alternate=http://host.docker.internal:3000
       TARGET_DEFAULT_ID: legacy
+      OVERLAY_UPSTREAM_CHOICES: legacy=http://overlay-legacy:8080,alternate=http://overlay-alternate:8080
     steps:
       - uses: actions/checkout@v4
 
