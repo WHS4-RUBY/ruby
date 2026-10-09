@@ -612,7 +612,8 @@ class IntegrationTests(unittest.TestCase):
     def test_direct_hit_rotates_that_clients_aliases(self):
         _, client_id, alias = self.open_page()
         backend_calls = len(self.calls)
-        self.assertEqual(self.client.get("/rest/products/search").status_code, 404)
+        with patch.object(main, "PATH_ALIAS", replace(self.cfg, rotate_on=("direct",))):
+            self.assertEqual(self.client.get("/rest/products/search").status_code, 404)
         self.assertEqual(self.logs()[-1]["rotation"], "rotated")
         self.assertEqual(self.client.get(alias).status_code, 404)
         self.assertEqual(len(self.calls), backend_calls)
@@ -639,7 +640,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
         log = self.logs()[-1]
-        self.assertEqual((log["decision"], log["rotation"]), ("would_block", "would_rotate"))
+        self.assertEqual((log["decision"], log["rotation"]), ("would_block", None))
         self.assertEqual(self.client.get(alias).status_code, 200)
 
     def test_rotation_triggers_can_be_disabled(self):
@@ -648,6 +649,17 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(self.client.get("/rest/products/search").status_code, 404)
         self.assertIsNone(self.logs()[-1]["rotation"])
         self.assertEqual(self.client.get(alias).status_code, 200)
+
+    def test_default_direct_hit_blocks_without_invalidating_open_tabs(self):
+        _, client_id, alias = self.open_page()
+        before = len(self.calls)
+        self.assertEqual(self.client.get("/rest/products/search").status_code, 404)
+        self.assertEqual(len(self.calls), before)
+        self.assertEqual(self.logs()[-1]["decision"], "block")
+        self.assertIsNone(self.logs()[-1]["rotation"])
+        self.assertEqual(self.client.get(alias).status_code, 200)
+        _, same_client, current = self.open_page()
+        self.assertEqual((same_client, current), (client_id, alias))
 
     def test_oversized_stream_and_off(self):
         body = b'"/rest/products/search"' * 10

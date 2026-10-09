@@ -457,6 +457,7 @@ class AliasPolicyIntegrationTests(IntegrationTests):
             self.assertEqual(len(self.calls), before)  # the refused request never reached the target
 
     def test_event_revoked_alias_is_not_redirected_and_does_not_cascade(self):
+        self.configure(rotate_on=("direct",))
         _, client, alias = self.open_page()
         self.assertEqual(self.client.get(alias).status_code, 200)
         self.assertEqual(self.client.get("/rest/products/search").status_code, 404)  # direct: rotate
@@ -468,7 +469,7 @@ class AliasPolicyIntegrationTests(IntegrationTests):
             self.assertIsNone(self.logs()[-1]["rotation"])
 
     def test_rotation_minimum_interval(self):
-        self.configure(rotate_min_interval_s=5)
+        self.configure(rotate_min_interval_s=5, rotate_on=("direct",))
         _, client, alias = self.open_page()
         self.client.get(alias)
         self.client.get("/rest/products/search")
@@ -651,7 +652,7 @@ class WebSocketAliasTests(IntegrationTests):
                 with self.client.websocket_connect("/rest/user/whoami") as ws:
                     ws.receive_text()
         self.assertEqual(len(connected), 1)  # the original route never reached the target
-        self.assertEqual(self.logs()[-1]["rotation"], "rotated")
+        self.assertIsNone(self.logs()[-1]["rotation"])
 
 
 def load_tests(loader, tests, pattern):

@@ -85,7 +85,7 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 
 | 상황 | 결과 | 교체 |
 |---|---|---|
-| 원본 보호 경로 직접 호출 (`direct`) | enforce 404 | 예 (기본) |
+| 원본 보호 경로 직접 호출 (`direct`) | enforce 404 | 아니오 (기본). 기존 탭의 별칭은 유지 |
 | 형식은 맞지만 테이블에 없는 별칭 (`unknown_alias`) | 404 | 아니오 (기본). 130비트 별칭을 추측할 수는 없으므로 실제로는 tombstone 기간이 지난 오래된 탭이다 |
 | 별칭 이름공간의 다른 표기(대소문자·%-인코딩 등, `malformed_alias`) | 404 | 예 |
 | 다른 확인된 클라이언트의 별칭 (`foreign_alias`) | 404 | 예 (요청한 클라이언트만) |
@@ -94,7 +94,7 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 | 시간 만료된 **자기** 별칭 (`stale_alias`) | GET/HEAD는 307로 현재 별칭에 연결. POST 등은 404, `PATH_ALIAS_STALE_REDIRECT_UNSAFE=true`이면 307 | 아니오 |
 | 이벤트 교체로 폐기된 자기 별칭 (`revoked_alias`) | 404, 자동 연결 없음 | 아니오 |
 
-- `PATH_ALIAS_ROTATE_ON`은 사유별로 지정한다. 기본은 `direct,malformed_alias,foreign_alias`. `reject`는 모든 거부 사유의 묶음이다. `stale_alias`·`revoked_alias`는 지정할 수 없다. 정상 페이지에서도 생기는 사유로 교체하면 그 사용자의 다른 탭·요청이 연쇄로 깨지기 때문이다.
+- `PATH_ALIAS_ROTATE_ON`은 사유별로 지정한다. 기본은 `malformed_alias,foreign_alias`. 원본 경로 직접 호출은 404로 차단하고 기록하지만 현재 탭의 별칭을 폐기하지 않는다. 직접 호출 시에도 교체하려면 `direct`를 명시적으로 추가한다. 기존 환경변수에 `direct`가 있으면 제거해야 새 기본 정책을 적용할 수 있다. `reject`는 모든 거부 사유의 묶음이다. `stale_alias`·`revoked_alias`는 지정할 수 없다.
 - `PATH_ALIAS_ROTATE_MIN_INTERVAL_S`(기본 5초) 안의 추가 교체는 `rotation=suppressed`로 기록하고 쓰기를 하지 않는다.
 - **자동 복구는 기본적으로 GET/HEAD만** 한다. POST·결제·작성 요청은 404로 끝나고 사용자가 새로고침해야 한다. POST 등도 307로 보내려면 경로 파일에 `"stale_redirect_unsafe": true`를 넣는다(앱별 선택). 환경변수 `PATH_ALIAS_STALE_REDIRECT_UNSAFE`가 비어 있으면 경로 파일을 따르고, `true`/`false`면 경로 파일보다 우선한다. 조건은 자기 클라이언트·시간이나 설정으로 만료·이벤트 폐기 아님이다. 거부된 첫 요청은 대상에 전달되지 않았으므로 307을 따라 보낸 요청만 실행된다. 다만 결제 같은 작업 전반의 "정확히 한 번" 보장은 아니다. 307을 따르지 않는 클라이언트, 네트워크 재시도, 중복 클릭은 앱이 다뤄야 하며(RFC 9110은 상태를 바꾸는 요청의 자동 이동에 주의를 요구한다), 그래서 전역 기본값은 끔이고 실제 브라우저로 확인한 앱에만 켠다. 이벤트로 폐기된 별칭은 공격자가 이전 별칭으로 새 별칭을 얻지 못하도록 자동 연결하지 않는다.
 - 자동 복구 주소는 **복원된 원본 경로**로 다시 만든다. 넓은 별칭(`/api/{tail*}`)에 `/items`를 붙인 요청이 더 구체적인 경로로 해석됐다면, 그 경로의 현재 별칭으로 보내고 `/items`를 다시 붙이지 않는다.
@@ -248,7 +248,7 @@ SQLite는 쓰기 잠금이 DB 전체 단위라 서로 다른 사용자의 발급
 | `PATH_ALIAS_PREFIXES` | `/rest/,/api/,/b2b/` | 직접 호출을 보는 보호 접두사. 경로 파일의 모든 경로가 이 안에 있어야 함 |
 | `PATH_ALIAS_DB_PATH` | Compose: `/app/alias-data/path-alias.sqlite3` | SQLite 파일 (`PATH_ALIAS_DB_URL`이 있으면 시작 실패) |
 | `PATH_ALIAS_EPOCH_S`, `PATH_ALIAS_GRACE_EPOCHS` | 1800, 1 | 시간 교체와 유예 |
-| `PATH_ALIAS_ROTATE_ON` | `direct,malformed_alias,foreign_alias` | 사유별 즉시 교체 |
+| `PATH_ALIAS_ROTATE_ON` | `malformed_alias,foreign_alias` | 사유별 즉시 교체. 원본 호출은 차단만 |
 | `PATH_ALIAS_ROTATE_MIN_INTERVAL_S` | 5 | 클라이언트별 교체 최소 간격 |
 | `PATH_ALIAS_STALE_REDIRECT` | true | 만료된 자기 별칭 GET/HEAD 307 |
 | `PATH_ALIAS_STALE_REDIRECT_UNSAFE` | 비어 있음(경로 파일의 `stale_redirect_unsafe`, 기본 false) | true면 POST 등도 같은 조건에서 307. Juice Shop 파일은 검증 후 true |

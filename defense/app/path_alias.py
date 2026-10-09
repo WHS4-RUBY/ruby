@@ -52,7 +52,7 @@ ROTATION_REASONS = ("direct",) + REJECT_REASONS
 #   realistic; in practice it is an old tab whose tombstone was swept, or a restarted store.
 # - invalid_alias_arguments: a URL the app spells differently than expected.
 # Rotating on either revoked every other alias on the user's page.
-DEFAULT_ROTATE_ON = ("direct", "malformed_alias", "foreign_alias")
+DEFAULT_ROTATE_ON = ("malformed_alias", "foreign_alias")
 _ALIAS_MARKER = "__ruby_alias_"
 _TOKEN_LEN = 26
 _ALIAS_PATH = re.compile(r"^(/" + _ALIAS_MARKER + r"[a-z2-7]{26})(/.*)?$")
