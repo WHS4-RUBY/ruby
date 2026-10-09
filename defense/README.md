@@ -64,22 +64,25 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 
 공식 Defense 전략은 `DefenseStrategy`를 구현해 Registry에 등록합니다. CHeaT 기만 전략은 비공개 sidecar에서 실행하고, Defense가 sidecar의 실제 적용 전략과 동작을 대시보드에 집계합니다. 계정 오버레이 계획은 Defense가 확정 공격 점수와 함께 검증해 서명·라우팅하며, 실제 오버레이 경로를 사용한 경우만 대시보드에 기록합니다.
 
-## 경로 별칭 (클라이언트별 별칭·이벤트 교체 v3, 2026-10-01)
+## 경로 별칭 (v4, 2026-10-09)
 
-`PATH_ALIAS_ROUTES_FILE`의 경로·템플릿마다 **클라이언트별** 난수 별칭을 발급하고 DB 테이블(운영: PostgreSQL)에서 조회합니다. 클라이언트는 Defense가 발급하는 `ruby_alias_client` 쿠키로 구분하며, 다른 클라이언트의 별칭은 거부합니다.
-원래 경로 직접 호출(`direct`)이나 잘못된 별칭(`reject`)을 보낸 클라이언트는 별칭이 즉시 교체되고(`PATH_ALIAS_ROTATE_ON`, enforce에서만), 이벤트가 없어도 `PATH_ALIAS_EPOCH_S`(기본 1800초)마다 교체됩니다.
-HTML·JS·JSON 응답과 `Location`에서 설정된 경로를 별칭으로 바꾸고, 들어온 유효 별칭은 원래 경로로 복원합니다.
-`PATH_ALIAS_PREFIXES` 아래 원래 주소 직접 요청은 `observe`에서 기록하고 `enforce`에서 404로 막습니다.
-기본값은 `PATH_ALIAS_MODE=off`입니다. 로컬 Juice Shop의 경로 예시는 [`config/juice-shop-routes.json`](config/juice-shop-routes.json)에 있습니다.
-다른 앱에는 경로 파일·보호 접두사를 바꿔 정상 사용을 먼저 검증해야 합니다. 저장소는 `PATH_ALIAS_DB_URL`(PostgreSQL)이 있으면 그것을, 없으면 `PATH_ALIAS_DB_PATH`(영속 SQLite 파일)를 씁니다. 로컬·배포 Compose는 `path-alias-db`(PostgreSQL 16) 컨테이너와 `path-alias-pg` 볼륨을 쓰며, 배포 Compose는 `PATH_ALIAS_DB_PASSWORD`가 없으면 시작하지 않습니다(GitHub Secret `PATH_ALIAS_DB_PASSWORD` 필요). 같은 DB와 같은 경로 설정을 쓰는 worker·서버는 발급 결과를 공유하고 재시작 후에도 현재 별칭을 유지합니다. 프로세스마다 `PATH_ALIAS_DB_POOL_SIZE`(기본 10)개까지 연결을 재사용합니다. SQLite는 단일 호스트 실험(`benchmark/experiments/path_alias_ab`)과 테스트용으로 남겨 둡니다.
-DB는 `(app_id, client_id)`별 세대와 `(app_id, client_id, route_path, generation)`별 별칭을 분리해 저장합니다. 한 사용자의 별칭 교체가 다른 사용자에게 영향을 주지 않으며, 쓰기는 PostgreSQL에서 클라이언트별 advisory lock으로 직렬화하므로 서로 다른 사용자의 발급·교체는 서로 기다리지 않습니다(SQLite는 DB 전체 쓰기 잠금). 만료 행 청소는 프로세스당 최대 `min(EPOCH_S, 60)`초에 한 번, 한 worker만 수행합니다. DB 호출은 이벤트 루프를 막지 않도록 스레드에서 실행합니다. PostgreSQL 테이블 테스트는 `PATH_ALIAS_TEST_DB_URL=postgresql://...`을 지정하면 실행되며 CI에서는 항상 실행합니다.
-프록시는 일반 쿼리 필드의 원본 바이트를 보존합니다. `query_routes`로 지정한 API 선택값은 별칭으로 치환·복원하고, 중복 라우팅 키는 거부합니다. 앱의 실제 규칙은 수집 자료 검토와 정상 흐름 검증을 거쳐 확정합니다.
+설치·운영·검증 결과는 [경로 별칭 설치·운영 가이드](docs/path-alias-operations.md)에 정리했습니다. 요약:
+
+- `PATH_ALIAS_ROUTES_FILE`의 경로마다 **클라이언트별** 난수 별칭을 응답에 실제로 나온 것만 발급하고, Defense가 발급하는 `ruby_alias_client` 쿠키에 묶습니다. 별칭은 원래 경로로 복원해 후속 전략과 대상에 전달합니다.
+- 모드: `off`(기본) / `audit`(응답을 바꾸지 않고 집계만) / `observe`(응답 치환·쿠키 발급, 원본도 전달) / `enforce`(원본 404). **enforce는 경로 파일이 `enforce_ready`와 검증한 흐름·갱신 방식을 기록해야 적용되며, 없으면 observe로 동작합니다.** 경로별 `"mode":"observe"`, 대상별 `target_ids`로 범위를 좁힐 수 있습니다.
+- 저장소 기본값은 **SQLite 파일**(`PATH_ALIAS_DB_PATH`, `defense-alias-data` 볼륨, WAL)입니다. 별도 DB 서비스나 비밀번호가 필요 없습니다. 여러 호스트가 별칭을 공유해야 할 때만 PostgreSQL(`PATH_ALIAS_DB_URL`, `WITH_POSTGRES=true`로 빌드)을 씁니다. 전환 기준·절차·롤백은 가이드 9절을 보세요. DB 오류는 원본 우회가 아니라 503으로 끝납니다.
+- 교체는 사유별(`PATH_ALIAS_ROTATE_ON`)이며 만료·폐기된 자기 별칭은 교체를 일으키지 않습니다. 만료된 자기 별칭의 GET/HEAD는 현재 별칭으로 307 연결하고, POST 등은 재전송하지 않습니다.
+- 치환은 URL 문맥(JSON 값 전체, HTML 속성, JS 문자열, 같은 출처 절대 URL)에만 적용하고 설명 문장·주석·다른 출처는 건드리지 않습니다. 후속 전략의 응답 변형 뒤에 적용하며, 전략이 직접 만든 즉시 반환 응답은 치환하지 않습니다.
+- 쿠키를 돌려주지 않는 클라이언트는 미확인 클라이언트로 상한(`PATH_ALIAS_MAX_PENDING_CLIENTS`)·수명(`PATH_ALIAS_PENDING_TTL_S`)이 있고, 넘으면 enforce에서 503입니다. 쿠키가 없어도 원본 보호 경로는 허용하지 않습니다.
+- `query_routes`(경로 선택형 `/gateway?route=/api/items`)와 `action_routes`(기능 선택형 `/api.php?action=login`)를 지원합니다. 보호하지 않는 dispatcher 값은 통과하고 일반 쿼리 필드는 바이트 그대로 보존합니다. 본문 속 라우팅은 지원하지 않으며 보호 대상이면 거부·기록합니다.
+- WebSocket은 업그레이드 URL에만 같은 규칙을 적용하고 프레임은 치환하지 않습니다.
+
 경로 목록을 검토할 때는 별칭 적용 전 앱에서 `python -m defense.scripts.discover_path_alias_routes --fetch http://APP_ORIGIN --asset-dir local-assets --output route-report.json`으로 공개 JS·HTML을 자동 수집할 수 있습니다. 저장한 JS·HTML 또는 브라우저 HAR도 입력 파일로 지정할 수 있습니다. 보고서는 이미 설정된 경로와 동적 접두사, 경로를 담은 쿼리 키를 구분하며 설정 파일을 자동 변경하지 않습니다. HAR 원본에는 세션 정보가 있을 수 있으므로 로컬 임시 경로에 보관하세요.
-로그인 후·화면 상호작용 중에만 나타나는 API는 Playwright가 설치된 로컬 테스트 환경에서 `node defense/scripts/capture_api_requests.cjs --origin http://APP_ORIGIN --steps flow.json --output capture.runtime.json`으로 기록합니다. 필요하면 `--storage-state state.json`으로 테스트 계정의 브라우저 세션을 주입합니다. 흐름 파일의 `fill` 단계는 값 대신 환경변수 이름(`valueEnv`)을 받습니다. 생성된 `*.runtime.json`을 수집기의 입력으로 추가하면 관찰된 경로·메서드·응답 상태와 쿼리 라우팅 후보를 합칩니다. 보호 접두사 밖 dispatcher도 쿼리 값에 보호 경로가 있으면 기록합니다. 쿠키·헤더·본문·일반 쿼리 값은 저장하지 않지만 보호 경로를 담은 쿼리 값은 후보로 저장하므로 민감한 식별자가 있는지 검토하세요.
+로그인 후·화면 상호작용 중에만 나타나는 API는 Playwright가 설치된 로컬 테스트 환경에서 `node defense/scripts/capture_api_requests.cjs --origin http://APP_ORIGIN --steps flow.json --output capture.runtime.json [--route-keys route,action]`으로 기록합니다. 보호 접두사 밖의 같은 출처 fetch/XHR도 method·pathname·query key·status로 기록하고, 값은 운영자가 `--route-keys`로 지정한 라우팅 키만 경로형(`path`)·기능형(`action`)으로 남깁니다. 본문에 라우팅 키가 있으면 키 이름만 기록해 보고서의 `unsupported_routing`에 나타냅니다. 필요하면 `--storage-state state.json`으로 테스트 계정의 브라우저 세션을 주입합니다. 흐름 파일의 `fill` 단계는 값 대신 환경변수 이름(`valueEnv`)을 받습니다. 쿠키·헤더·본문 값·일반 쿼리 값은 저장하지 않지만 보호 경로를 담은 쿼리 값은 후보로 저장하므로 민감한 식별자가 있는지 검토하세요.
 
 수집 보고서는 운영자가 검토해 경로와 쿼리 라우팅 규칙을 설정합니다. AI 모델 호출과 설정 초안 생성은 제공하지 않으며, 정상 흐름 확인 후 `PATH_ALIAS_ROUTES_FILE`로 적용합니다.
 두 도구의 기본 보호 경로 접두사는 `/rest/,/api/`입니다. 다른 앱에서는 두 명령에 같은 `--prefixes /graphql,/v1/` 값을 지정해 해당 앱의 API 경로 관례에 맞춥니다.
-설계·검증 결과·한계는 [경로 별칭 설계](docs/path-alias-plan.md), 설치형 경로 수집과 DB 키 설계는 [경로 발견 설계](docs/route-discovery-design.md)를 참고하세요.
+운영은 [설치·운영 가이드](docs/path-alias-operations.md), 연구 설계·실험 기록은 [경로 별칭 설계](docs/path-alias-plan.md), 경로 수집은 [경로 발견 설계](docs/route-discovery-design.md)를 참고하세요.
 
 ### 방어 단계에서의 위치: 1단계 (2026-10-07)
 
@@ -87,7 +90,8 @@ DB는 `(app_id, client_id)`별 세대와 `(app_id, client_id, route_path, genera
 
 - **뒤 단계가 진짜 경로를 봅니다.** 1단계에서 복원한 요청 객체를 뒤 전략에 전달합니다. URL·ASGI 경로·라우트 매개변수와 설정된 쿼리 라우팅 값이 복원됩니다. 일반 쿼리 필드와 요청 본문은 유지합니다. 쿼리 라우팅 앱의 후속 전략은 복원된 파라미터를 확인해야 하며 dispatcher의 pathname 자체는 유지됩니다. 별칭 로그에는 원래 들어온 요청을 사용합니다.
 - **값싸고 확실한 차단을 먼저 합니다.** DB 조회 한 번으로 발급받은 주소를 아는 클라이언트인지 판정합니다. 원래 주소를 직접 호출하는 스캐너·에이전트를 여기서 404로 막으면 뒤 단계의 부담이 줄어듭니다.
-- **교체 신호를 놓치지 않습니다.** 별칭 교체는 `direct`·`reject` 요청을 보고 일어납니다. 앞 단계가 그런 요청을 먼저 막으면 교체가 일어나지 않습니다.
+- **교체 신호를 놓치지 않습니다.** 별칭 교체는 원본 직접 호출·위조/타인 별칭 같은 사유를 보고 일어납니다. 앞 단계가 그런 요청을 먼저 막으면 교체가 일어나지 않습니다.
+- **마지막 단계에서 응답을 치환합니다.** 후속 전략의 응답 변형이 끝난 본문에 별칭을 넣습니다.
 - **응답 치환은 클라이언트에 가장 가까운 곳에서 마지막으로 하는 것이 설계 목표입니다.** 현재는 업스트림 응답의 경로와 `Location`을 치환합니다. 전략의 응답 처리 훅과 역순 실행은 아직 없으며, 전략이 즉시 반환한 응답(`short_circuit`)도 현재 치환 대상이 아닙니다. 뒤 단계가 응답에 미끼 링크 등을 추가하려면 이 응답 처리 구조를 먼저 구현해야 합니다.
 
 단계가 위험도에 따라 올라가는 구조여도 별칭은 **모든 클라이언트에 처음부터 적용**해야 합니다. 이미 원래 경로가 담긴 JS를 받은 클라이언트에게 도중에 별칭을 켜면 앱이 깨지고, 공격자에게 탐지됐다는 신호를 줍니다. 위험도가 오르면 별칭을 새로 켜는 대신 교체 강도를 올립니다(짧은 주기, 유예 0, 즉시 교체). 클라이언트별로 이 값을 다르게 주려면 추가 구현이 필요합니다.
@@ -124,15 +128,15 @@ Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사�
 
 응답 변형 전략이 있으면 백엔드 본문을 받아 변형한 뒤 전송합니다. 본문은 기본 4 MiB까지 허용하며 `DEFENSE_TRANSFORM_BODY_LIMIT`로 조절합니다. 한도를 넘으면 502와 오류 이벤트를 반환합니다. 변형 전략이 없는 공식 Defense 응답은 스트리밍하지만, 현재 CHeaT sidecar는 HTTP 요청·응답 본문을 버퍼링하므로 sidecar를 거치는 경로는 종단 간 스트리밍이 아닙니다. 스트림이 중간에 끊기면 이미 보낸 HTTP 상태를 502로 바꿀 수 없으므로 연결이 중단되고 Defense 이벤트는 `outcome=error`로 남습니다. 이벤트의 `status`는 이미 전송한 백엔드 상태일 수 있으므로 결과와 함께 읽어야 합니다.
 
-WebSocket은 업그레이드 요청 시 공식 Defense 전략을 한 번 적용합니다. 오버레이에 분류되지 않은 클라이언트만 선택된 Target에 직접 연결하고 텍스트·바이너리 프레임을 중계합니다. 오버레이로 분류된 클라이언트의 업그레이드는 원본 우회를 막기 위해 거부합니다. Sidecar 기만과 프레임별 탐지·응답 변형은 적용하지 않습니다. `/__defense` 관리 경로는 WebSocket 엔드포인트가 없으므로 업그레이드를 거부합니다.
+WebSocket은 업그레이드 URL에 경로 별칭 1단계를 먼저 적용하고(원본 보호 경로·위조 별칭은 수락 전 거부, 프레임 치환 없음), 공식 Defense 전략을 한 번 적용합니다. 오버레이에 분류되지 않은 클라이언트만 선택된 Target에 직접 연결하고 텍스트·바이너리 프레임을 중계합니다. 오버레이로 분류된 클라이언트의 업그레이드는 원본 우회를 막기 위해 거부합니다. Sidecar 기만과 프레임별 탐지·응답 변형은 적용하지 않습니다. `/__defense` 관리 경로는 WebSocket 엔드포인트가 없으므로 업그레이드를 거부합니다.
 
 `X-Client-Id`와 `X-Ruby-*`는 내부 Detection 프록시가 재생성하는 헤더입니다. 반환·검증된 DCID가 있으면 정책 키는 해당 가명 ID이고, 쿠키를 돌려주지 않는 요청은 관찰 후보 또는 한 IP의 Client Flow ID를 정책 키로 사용합니다. 후자의 공유 지문은 차단·계정 격리 근거가 아니며 `suspected` 미끼 단계에만 사용됩니다. Defense에 직접 접속할 수 있으면 헤더를 위조할 수 있으므로 배포에서는 Defense 포트를 외부에 공개하지 말고 Detection과 같은 비공개 네트워크에서만 접근시키세요. 최근 대시보드 이벤트와 일반 전략 상태는 단일 프로세스 메모리에 보관되고 재시작 시 사라지지만, 계정 오버레이 경로와 격리 상태는 영속 볼륨에 남습니다.
 
 ## 참여 방법
 
-쿼리로 API 경로를 선택하는 웹은 `PATH_ALIAS_ROUTES_FILE`의 `query_routes`에 진입 경로와 파라미터를 지정한다. 예: `{"path":"/gateway","parameter":"route"}`. 응답의 라우팅 값을 별칭으로 치환하고 요청에서 복원하며, 원본 경로·다른 사용자 별칭·중복 라우팅 키는 enforce에서 차단한다. [설정 예시](config/query-routing-example.json)와 [지원 범위](docs/route-discovery-design.md#쿼리-기반-api-라우팅)를 참고한다.
+쿼리로 API 경로를 선택하는 웹은 `PATH_ALIAS_ROUTES_FILE`의 `query_routes`(경로 선택형, 예: `{"path":"/gateway","parameter":"route"}`) 또는 `action_routes`(기능 선택형, 예: `{"path":"/api.php","parameter":"action","actions":{"login":["POST"]}}`)를 지정한다. 보호 대상 값만 별칭으로 치환·복원하고, 원본 값·다른 사용자 별칭·보호 대상이 섞인 중복 키는 enforce에서 차단하며, 보호하지 않는 값은 그대로 통과시킨다. [설정 예시](config/query-routing-example.json)와 [설치·운영 가이드 3절](docs/path-alias-operations.md#3-경로-파일-형식)을 참고한다.
 
-기본 `juice-shop-routes.json`에는 Juice Shop 서버 코드에서 확인한 `/rest/`, `/api/`, `/b2b/` 경로 67개 패턴이 들어 있다. RUBY Market 설정은 `ruby-shop-routes.json`이며, Ruby Shop 저장소의 FastAPI `/api/` 선언 63개에서 경로 템플릿을 포함해 가져왔다. 대상에 맞는 파일을 `PATH_ALIAS_ROUTES_FILE`로 선택한다. Ruby Shop을 로컬에서 실행할 때는 예를 들어 `PATH_ALIAS_ROUTES_FILE=/app/config/ruby-shop-routes.json`을 지정한다. 두 목록은 각각 `juice-shop/juice-shop`의 `1618a61`과 `WHS4-RUBY/web-defense-benchmark`의 `bba11eb` 소스 기준이며, 새 API나 플러그인이 추가되면 다시 수집하고 실제 브라우저 흐름을 확인해야 한다. Ruby Shop 목록에는 취약점 모듈이 켜졌을 때만 등록되는 API 한 개도 포함한다.
+기본 `juice-shop-routes.json`에는 Juice Shop 서버 코드에서 확인한 `/rest/`, `/api/`, `/b2b/` 경로 67개 패턴이 들어 있다. RUBY Market 설정은 `ruby-shop-routes.json`이며, Ruby Shop 저장소의 FastAPI `/api/` 선언 63개에서 경로 템플릿을 포함해 가져왔다. 대상에 맞는 파일을 `PATH_ALIAS_ROUTES_FILE`로 선택한다. Juice Shop 파일은 실제 스택 브라우저 검증을 기록해 `enforce_ready`이고, Ruby Shop 파일은 아직 검증 전이라 enforce를 지정해도 observe로 동작한다. Ruby Shop을 로컬에서 실행할 때는 예를 들어 `PATH_ALIAS_ROUTES_FILE=/app/config/ruby-shop-routes.json`을 지정한다. 두 목록은 각각 `juice-shop/juice-shop`의 `1618a61`과 `WHS4-RUBY/web-defense-benchmark`의 `bba11eb` 소스 기준이며, 새 API나 플러그인이 추가되면 다시 수집하고 실제 브라우저 흐름을 확인해야 한다. Ruby Shop 목록에는 취약점 모듈이 켜졌을 때만 등록되는 API 한 개도 포함한다.
 
 `main`에 직접 push하지 않고 작업 브랜치에서 변경한 뒤 Pull Request를 제출합니다. 자세한 규칙은 [루트 CONTRIBUTING.md](../CONTRIBUTING.md)를 확인하세요.
 
