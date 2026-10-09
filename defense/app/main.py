@@ -490,30 +490,56 @@ def _replay_receive(body: bytes):
     return receive
 
 
-async def _body_routing(request: Request, alias: path_alias.Resolution,
-                        alias_client: str | None) -> tuple[path_alias.Resolution, bytes | None, str | None]:
-    """Check a configured dispatcher's form/JSON body for a routing selector.
+def _prefixed_receive(prefix: bytes, receive):
+    """Replay already-read body bytes, then continue with the rest of the client stream."""
+    sent = False
 
-    Returns (resolution, buffered body or None, note). Bodies that cannot be inspected are
-    forwarded unchanged and reported as ``body_uninspected``.
+    async def wrapped():
+        nonlocal sent
+        if not sent:
+            sent = True
+            return {"type": "http.request", "body": prefix, "more_body": True}
+        return await receive()
+
+    return wrapped
+
+
+async def _body_routing(request: Request, alias: path_alias.Resolution,
+                        alias_client: str | None) -> tuple[path_alias.Resolution, object, str | None]:
+    """Check the body of a configured dispatcher for a routing selector.
+
+    Returns (resolution, receive callable that replays the body or None, note). Up to
+    ``PATH_ALIAS.body_inspect_limit`` bytes are read whatever Content-Length says. A body that
+    cannot be inspected (larger than the limit, unknown or malformed encoding) is refused by
+    enforce as ``body_uninspectable``; in observe it is forwarded intact and logged.
     """
-    dispatchers = {r.path for r in PATH_ALIAS.query_routes + PATH_ALIAS.action_routes}
     if (request.method in {"GET", "HEAD", "OPTIONS"} or alias.kind in ("direct", "reject", "channel")
-            or alias.upstream_path not in dispatchers):
+            or not PATH_ALIAS_TABLE.is_dispatcher(alias.upstream_path)):
         return alias, None, None
-    content_type = request.headers.get("content-type", "")
-    try:
-        length = int(request.headers.get("content-length", ""))
-    except ValueError:
-        length = -1
-    media = content_type.split(";", 1)[0].strip().lower()
-    if (length < 0 or length > path_alias.BODY_ROUTING_LIMIT or not (
-            media in ("application/x-www-form-urlencoded", "application/json") or media.endswith("+json"))):
-        return alias, None, "body_uninspected"
-    body = await request.body()
-    found = await _alias_db(PATH_ALIAS_TABLE.body_selector, alias.upstream_path, content_type, body,
-                            request.method, time.time(), alias_client)
-    return (found or alias), body, None
+    limit = PATH_ALIAS.body_inspect_limit
+    chunks, size, more = [], 0, True
+    # Read ASGI messages directly so we know whether the client stream has really ended.
+    while more and size <= limit:
+        message = await request.receive()
+        if message["type"] != "http.request":
+            more = False
+            break
+        chunk = message.get("body", b"")
+        chunks.append(chunk)
+        size += len(chunk)
+        more = message.get("more_body", False)
+    body = b"".join(chunks)
+    complete = not more and size <= limit
+    # complete: the whole body was read and is replayed. Otherwise the rest stays in receive().
+    receive = (_replay_receive(body) if not more
+               else _prefixed_receive(body, request.receive))
+    if not complete:
+        return PATH_ALIAS_TABLE.body_uninspectable(alias.upstream_path), receive, "body_uninspectable"
+    found = await _alias_db(PATH_ALIAS_TABLE.body_selector, alias.upstream_path,
+                            request.headers.get("content-type", ""), body, request.method,
+                            time.time(), alias_client)
+    note = "body_uninspectable" if found is not None and found.reason == "body_uninspectable" else None
+    return (found or alias), receive, note
 
 
 async def _replay_body(consumed: list[bytes], rest, upstream: httpx.Response, on_complete=None):
@@ -903,13 +929,13 @@ async def catch_all(request: Request, full_path: str):
     # risk scores never switch an ongoing session into enforcement.
     alias_active = PATH_ALIAS_TABLE.applies_to(selected.target_id)
     alias = path_alias.Resolution("other", request.url.path)
-    body_note, buffered_body = None, None
+    body_note, body_receive = None, None
     if alias_active:
         try:
             alias = await _alias_db(PATH_ALIAS_TABLE.resolve_request, request.url.path,
                                     request.scope.get("query_string", b""), request.method,
                                     time.time(), alias_client, request.headers)
-            alias, buffered_body, body_note = await _body_routing(request, alias, alias_client)
+            alias, body_receive, body_note = await _body_routing(request, alias, alias_client)
         except path_alias.AliasStoreError as exc:
             # Fail closed: an alias that cannot be checked is never forwarded as the original.
             _log_alias(request, alias, "error", skipped=str(exc) or "db_error",
@@ -944,8 +970,10 @@ async def catch_all(request: Request, full_path: str):
                                 "full_path": scope["path"].lstrip("/")}
         if alias.query_string is not None:
             scope["query_string"] = alias.query_string
-        receive = _replay_receive(buffered_body) if buffered_body is not None else request.receive
-        strategy_request = Request(scope, receive)
+        strategy_request = Request(scope, body_receive or request.receive)
+    elif body_receive is not None:
+        # The body was read for inspection: later strategies and the target get it replayed.
+        strategy_request = Request(request.scope, body_receive)
 
     def record(
         status: int, outcome: str, names: list[str], signal: str | None = None,

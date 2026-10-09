@@ -14,6 +14,9 @@ method) before ``enforce`` applies to it; otherwise its routes stay at ``observe
 """
 
 import base64
+import bisect
+import email.parser
+import email.policy
 import hashlib
 import json
 import logging
@@ -55,7 +58,14 @@ _ACTION_NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 _BODY_VAR = rb"(\$\{[^}/]+\}|[^/?#\"'`\s]+)"
 _BODY_BOUNDARY = rb"(?=$|[?#\"'`\s,;)}])"
 _DISPATCH_TAIL = rb"\?[^\s\x22\x27`<>\)]+"
-BODY_ROUTING_LIMIT = 64 * 1024
+BODY_INSPECT_LIMIT = 1024 * 1024
+# String literals and comments of JavaScript, used to skip paths that only appear in comments.
+# `//` counts as a comment only after a line start, whitespace or punctuation, so that `\/\/`
+# in a regular expression literal does not hide the rest of a minified line.
+_JS_TOKENS = re.compile(rb'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|`(?:\\.|[^`\\])*`'
+                        rb'|(?:^|(?<=[\s;{}(),=]))//[^\n]*|/\*.*?\*/', re.S | re.M)
+_HTML_COMMENT = re.compile(rb"<!--.*?-->", re.S)
+_HTML_SCRIPT = re.compile(rb"<script\b[^>]*>(.*?)</script\s*>", re.S | re.I)
 
 
 class AliasStoreError(RuntimeError):
@@ -378,6 +388,7 @@ class PathAliasConfig:
     max_pending_clients: int = 10_000
     max_clients: int = 100_000
     stale_redirect: bool = True
+    body_inspect_limit: int = BODY_INSPECT_LIMIT
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] = os.environ) -> "PathAliasConfig":
@@ -394,9 +405,10 @@ class PathAliasConfig:
             pending_ttl = int(environ.get("PATH_ALIAS_PENDING_TTL_S", "300"))
             max_pending = int(environ.get("PATH_ALIAS_MAX_PENDING_CLIENTS", "10000"))
             max_clients = int(environ.get("PATH_ALIAS_MAX_CLIENTS", "100000"))
+            body_limit = int(environ.get("PATH_ALIAS_BODY_INSPECT_BYTES", str(BODY_INSPECT_LIMIT)))
         except ValueError as exc:
             raise ValueError("Path alias numeric settings must be numbers") from exc
-        if epoch_s < 1 or not 0 <= grace <= 10 or max_bytes < 1:
+        if epoch_s < 1 or not 0 <= grace <= 10 or max_bytes < 1 or body_limit < 1:
             raise ValueError("Path alias requires epoch >= 1, grace 0..10 and a positive size limit")
         if min_interval < 0 or pending_ttl < 1 or max_pending < 1 or max_clients < max_pending:
             raise ValueError("Path alias needs a non-negative rotation interval, a positive pending "
@@ -426,7 +438,7 @@ class PathAliasConfig:
                    rotate_on, flags["PATH_ALIAS_COOKIE_SECURE"],
                    document.query_routes, document.action_routes, document.channels,
                    document.target_ids, document.enforce_ready, min_interval, pending_ttl,
-                   max_pending, max_clients, flags["PATH_ALIAS_STALE_REDIRECT"])
+                   max_pending, max_clients, flags["PATH_ALIAS_STALE_REDIRECT"], body_limit)
 
     @property
     def default_mode(self) -> str:
@@ -851,7 +863,7 @@ class PathAliasTable:
             row = db.execute("""SELECT r.client_id, r.route_path, r.generation, r.expires_at,
                 r.retired_at, r.retired_reason,
                 c.generation AS client_generation, c.issued_at AS client_issued_at,
-                c.config_hash, c.confirmed
+                c.config_hash, c.confirmed, c.created_at
                 FROM path_alias_alias_rows r LEFT JOIN path_alias_client_state c
                 ON c.app_id=r.app_id AND c.client_id=r.client_id
                 WHERE r.alias_route=? AND r.app_id=?""", (alias, self.cfg.app_id)).fetchone()
@@ -878,13 +890,17 @@ class PathAliasTable:
                    and now < row["client_issued_at"] + self.cfg.epoch_s)
         return "current" if current else "grace"
 
-    def _owner(self, row, client_id: str | None, state: str) -> str:
-        """owner | adopted | foreign. A pending owner never returned its cookie, so whoever
-        holds the alias also received that cookie: binding adds nothing there, and refusing
-        would only break concurrent first-visit tabs or cookieless tools."""
+    def _owner(self, row, client_id: str | None, state: str, now: float) -> str:
+        """owner | adopted | expired | foreign. A pending owner never returned its cookie, so
+        whoever holds the alias also received that cookie: binding adds nothing there, and
+        refusing would only break concurrent first-visit tabs or cookieless tools. That use
+        ends with the pending TTL, checked here rather than relying on the sweeper."""
         if row["client_id"] == client_id:
             return "owner"
-        if row["confirmed"] == 0 and state in ("current", "grace"):
+        if row["confirmed"] == 0:
+            if (state not in ("current", "grace") or row["created_at"] is None
+                    or row["created_at"] <= now - self.cfg.pending_ttl_s):
+                return "expired"
             return "adopted"
         return "foreign"
 
@@ -905,7 +921,9 @@ class PathAliasTable:
             route = self._routes_by_path[row["route_path"]]
             mode = self.cfg.route_mode(route)
             state = self._row_state(row, now)
-            owner = self._owner(row, client_id, state)
+            owner = self._owner(row, client_id, state, now)
+            if owner == "expired":  # cookieless use past the pending TTL: dead, but not an attack
+                state, owner = "stale", "adopted"
             if owner == "foreign":
                 return Resolution("reject", path, reason="foreign_alias", route_id=route.path, mode=mode)
             if not route.allows(method):
@@ -1000,7 +1018,9 @@ class PathAliasTable:
             mode = self.cfg.route_mode(rule)
             route_id = rule.route_id(action)
             state = self._row_state(row, now)
-            owner = self._owner(row, client_id, state)
+            owner = self._owner(row, client_id, state, now)
+            if owner == "expired":
+                state, owner = "stale", "adopted"
             if owner == "foreign":
                 return Resolution("reject", path, reason="foreign_alias", route_id=route_id, mode=mode), None
             if "*" not in rule.methods(action) and method.upper() not in rule.methods(action):
@@ -1090,31 +1110,68 @@ class PathAliasTable:
                                owner_ok=inner.owner_ok and inner.kind != "stale")
         return replace(selected, query_string="&".join(fields).encode("ascii", errors="surrogateescape"))
 
-    def body_selector(self, path: str, content_type: str, body: bytes, method: str, now: float,
-                      client_id: str | None) -> Resolution | None:
-        """Classify a routing selector carried in a form/JSON body of a configured dispatcher.
+    def _dispatcher_rules(self, path: str):
+        return [r for r in self.cfg.query_routes + self.cfg.action_routes
+                if r.path == path or r.path == _canonical(path)]
 
-        Body routing cannot be aliased; a protected selector there is reported as ``direct``
-        with reason ``body_routing_unsupported``. Values are never logged.
-        """
-        rules = [r for r in self.cfg.query_routes + self.cfg.action_routes if r.path == _canonical(path)
-                 or r.path == path]
-        if not rules or not body:
-            return None
+    def is_dispatcher(self, path: str) -> bool:
+        return bool(self._dispatcher_rules(path))
+
+    def body_uninspectable(self, path: str) -> Resolution:
+        """A dispatcher body that could carry a selector but cannot be checked (too large,
+        unknown or malformed encoding). Enforce refuses it instead of forwarding it unseen."""
+        modes = [self.cfg.route_mode(r) if isinstance(r, ActionRoute) else self.cfg.default_mode
+                 for r in self._dispatcher_rules(path)]
+        mode = "enforce" if "enforce" in modes else self.cfg.default_mode
+        return Resolution("direct", path, reason="body_uninspectable", mode=mode)
+
+    @staticmethod
+    def _body_fields(content_type: str, body: bytes) -> dict[str, list[str]] | None:
+        """Top-level fields of a form, multipart or JSON body; None when it cannot be parsed."""
         media = content_type.split(";", 1)[0].strip().lower()
         values: dict[str, list[str]] = {}
         try:
             if media == "application/x-www-form-urlencoded":
-                for key, value in parse_qsl(body.decode("utf-8"), keep_blank_values=True):
+                for key, value in parse_qsl(body.decode("latin-1"), keep_blank_values=True,
+                                            encoding="utf-8", errors="replace"):
                     values.setdefault(key, []).append(value)
             elif media == "application/json" or media.endswith("+json"):
                 document = json.loads(body)
                 if isinstance(document, dict):
                     values = {k: [v] for k, v in document.items() if isinstance(v, str)}
+            elif media == "multipart/form-data":
+                message = email.parser.BytesParser(policy=email.policy.HTTP).parsebytes(
+                    b"Content-Type: " + content_type.encode("latin-1") + b"\r\n\r\n" + body)
+                if not message.is_multipart():
+                    return None
+                for part in message.iter_parts():
+                    name = part.get_param("name", header="content-disposition")
+                    if name is None:
+                        continue
+                    payload = part.get_payload(decode=True) or b""
+                    values.setdefault(name, []).append(payload.decode("utf-8", errors="replace"))
+            elif not body.strip():
+                return {}
             else:
                 return None
-        except (UnicodeDecodeError, ValueError):
+        except (UnicodeError, ValueError, LookupError):
             return None
+        return values
+
+    def body_selector(self, path: str, content_type: str, body: bytes, method: str, now: float,
+                      client_id: str | None) -> Resolution | None:
+        """Classify a routing selector carried in the body of a configured dispatcher.
+
+        Body routing cannot be aliased; a protected selector there is reported as ``direct``
+        with reason ``body_routing_unsupported``. A body that cannot be parsed is
+        ``body_uninspectable``. Values are never logged.
+        """
+        rules = self._dispatcher_rules(path)
+        if not rules or not body:
+            return None
+        values = self._body_fields(content_type, body)
+        if values is None:
+            return self.body_uninspectable(path)
         for rule in rules:
             for value in values.get(rule.parameter, []):
                 if isinstance(rule, ActionRoute):
@@ -1146,7 +1203,10 @@ class PathAliasTable:
                 return False, start
             close = body.find(b'"', end)
             value = body[url_start:close if close != -1 else len(body)]
-            return close != -1 and not re.search(rb"\s|\\u0020", value), url_start
+            # A JSON object key is data, not a URL the app will request.
+            after = body[close + 1:close + 64].lstrip() if close != -1 else b""
+            return (close != -1 and not re.search(rb"\s|\\u0020", value)
+                    and not after.startswith(b":")), url_start
         if before in (b'"', b"'", b"`"):
             return True, url_start
         if kind == "html" and (before == b"=" or body.endswith((b"&quot;", b"&#34;", b"&#39;"), 0, url_start)):
@@ -1157,20 +1217,42 @@ class PathAliasTable:
             return body.rfind(b"${", line_start, start) != -1, url_start
         return False, start
 
+    @staticmethod
+    def _comment_spans(body: bytes, kind: str) -> list[tuple[int, int]]:
+        """Sorted (start, end) of HTML and JavaScript comments."""
+        spans = []
+        if kind == "html":
+            spans += [(m.start(), m.end()) for m in _HTML_COMMENT.finditer(body)]
+            for script in _HTML_SCRIPT.finditer(body):
+                offset = script.start(1)
+                spans += [(offset + m.start(), offset + m.end()) for m in _JS_TOKENS.finditer(script.group(1))
+                          if m.group().startswith((b"//", b"/*"))]
+        elif kind == "js":
+            spans = [(m.start(), m.end()) for m in _JS_TOKENS.finditer(body)
+                     if m.group().startswith((b"//", b"/*"))]
+        return sorted(spans)
+
     def _references(self, body: bytes, kind: str, origins: tuple[bytes, ...]):
         """Supported route references: (start, end, route or None, matched bytes)."""
+        comments = self._comment_spans(body, kind)
+        starts = [s for s, _ in comments]
+
+        def in_comment(position: int) -> bool:
+            index = bisect.bisect_right(starts, position) - 1
+            return index >= 0 and comments[index][0] <= position < comments[index][1]
+
         found = []
         spans = []
         for pattern in self._dispatch_patterns:
             for match in pattern.finditer(body):
                 ok, _ = self._context_ok(body, match.start(), match.end(), kind, origins)
-                if ok:
+                if ok and not in_comment(match.start()):
                     found.append((match.start(), match.end(), None, match.group()))
                     spans.append((match.start(), match.end()))
         copied_until = 0
         for candidate in self._body_candidates.finditer(body):
             start = candidate.start()
-            if start < copied_until or any(s <= start < e for s, e in spans):
+            if start < copied_until or any(s <= start < e for s, e in spans) or in_comment(start):
                 continue
             for route, pattern in self._body_patterns:
                 match = pattern.match(body, start)
@@ -1302,10 +1384,15 @@ class PathAliasTable:
     @_guard
     def redirect_target(self, resolution: Resolution, now: float, client_id: str) -> str | None:
         """Current alias path for a stale alias of this client (auto-recovery for GET/HEAD)."""
-        route = self._routes_by_path.get(resolution.route_id or "")
-        if route is None or resolution.reason != "stale_alias" or not resolution.owner_ok:
+        if resolution.reason != "stale_alias" or not resolution.owner_ok:
             return None
-        return self.current_aliases(now, client_id, (route.path,), returned=True)[route.path] + resolution.suffix
+        # Rebuild from the restored path: a broad alias plus a runtime suffix may have resolved
+        # to a more specific route whose current alias must not get the suffix again.
+        matched = self._match_route(resolution.upstream_path)
+        if matched is None:
+            return None
+        route, suffix = matched
+        return self.current_aliases(now, client_id, (route.path,), returned=True)[route.path] + suffix
 
 
 def effective_mode(resolution: Resolution, cfg: PathAliasConfig) -> str:

@@ -173,6 +173,28 @@ class RewriteContextTests(unittest.TestCase):
         self.assertEqual((empty.upstream_path, empty.route_id), ("/rest/captcha/", "/rest/captcha"))
         self.assertEqual(table.resolve(captcha + "/9", "GET", NOW, ALICE).upstream_path, "/rest/captcha/9")
 
+    def test_json_keys_and_comments_are_not_rewritten(self):
+        alias = self.alias("/rest/products/search").encode()
+        output, count = self.table.rewrite_body(
+            b'{"/rest/products/search":"ordinary key", "/rest/products/search" : 1,'
+            b' "next":"/rest/products/search"}', NOW, ALICE, kind="json")
+        self.assertEqual(count, 1)
+        self.assertTrue(output.startswith(b'{"/rest/products/search":"ordinary key"'))
+        self.assertIn(b'"next":"' + alias + b'"', output)
+        js = (b'// fetch("/rest/products/search")\n/* old: \'/rest/products/search\' */'
+              b'var re=/https?:\/\//,u="//cdn";fetch("/rest/products/search")')
+        output, count = self.table.rewrite_body(js, NOW, ALICE, kind="js")
+        self.assertEqual(count, 1)
+        self.assertIn(b'// fetch("/rest/products/search")', output)
+        self.assertIn(b"/* old: '/rest/products/search' */", output)
+        self.assertTrue(output.endswith(b'fetch("' + alias + b'")'))
+        html = (b'<!-- <a href="/rest/products/search"> --><script>// "/rest/products/search"\n'
+                b'fetch("/rest/products/search")</script><a href="/rest/products/search">x</a>')
+        output, count = self.table.rewrite_body(html, NOW, ALICE, kind="html")
+        self.assertEqual(count, 2)
+        self.assertIn(b'<!-- <a href="/rest/products/search"> -->', output)
+        self.assertIn(b'// "/rest/products/search"', output)
+
     def test_lazy_issuance_only_for_routes_in_the_response(self):
         self.table.rewrite_body(b'fetch("/rest/user/whoami")', NOW, BOB)
         with self.table._store.connect() as db:
@@ -248,6 +270,7 @@ class AliasPolicyIntegrationTests(IntegrationTests):
         self.assertIsNone(self.logs()[-1]["rotation"])
 
     def test_cookieless_tool_can_use_aliases_until_pending_ttl(self):
+        self.configure(pending_ttl_s=5)  # shorter than the 10 s epoch: rows are still current
         self.upstream = self.PAGE
         page = self.client.get("/")
         cookie = page.cookies.get(pa.COOKIE_NAME)
@@ -255,11 +278,18 @@ class AliasPolicyIntegrationTests(IntegrationTests):
         self.client.cookies.clear()
         self.upstream = self.JSON
         self.assertEqual(self.client.get(alias).status_code, 200)  # no cookie, pending owner
-        with patch.object(main.time, "time", return_value=NOW + self.cfg.pending_ttl_s + 61):
-            self.table._next_sweep = 0
-            self.table.current_aliases(NOW + self.cfg.pending_ttl_s + 61, BOB)  # triggers sweep
+        later = NOW + self.cfg.pending_ttl_s + 1
+        with patch.object(main.time, "time", return_value=later):
+            # No sweep has run: the TTL is enforced at lookup, not by deleting rows.
+            self.table._next_sweep = later + 3600
             self.assertEqual(self.client.get(alias).status_code, 404)
-        self.assertEqual(self.logs()[-1]["reason"], "unknown_alias")
+            self.assertEqual((self.logs()[-1]["reason"], self.logs()[-1]["rotation"]), ("stale_alias", None))
+            # the browser that does return the cookie keeps working
+            self.client.cookies.set(pa.COOKIE_NAME, cookie)
+            self.assertEqual(self.client.get(alias).status_code, 200)
+            self.table._next_sweep = 0
+            self.table.current_aliases(later, BOB)  # sweep: rows of expired pending clients go
+        self.client.cookies.clear()
 
     def test_pending_client_cap_answers_503_in_enforce_and_original_in_observe(self):
         self.configure(max_pending_clients=2, max_clients=2)
@@ -312,6 +342,21 @@ class AliasPolicyIntegrationTests(IntegrationTests):
             self.assertEqual(self.logs()[-1]["reason"], "stale_alias")
             self.assertIsNone(self.logs()[-1]["rotation"])
             self.assertEqual(self.client.get(fresh).status_code, 200)
+
+    def test_stale_broad_alias_with_suffix_redirects_to_the_specific_route(self):
+        self.client.cookies.set(pa.COOKIE_NAME, ALICE)
+        broad = self.table.current_aliases(NOW, ALICE, returned=True)["/rest/user/{tail*}"]
+        self.table.current_aliases(NOW, ALICE, returned=True)  # confirmed
+        self.assertEqual(self.client.get(broad + "/whoami").status_code, 200)
+        later = NOW + 25
+        with patch.object(main.time, "time", return_value=later):
+            response = self.client.get(broad + "/whoami?x=1")
+            self.assertEqual(response.status_code, 307)
+            whoami = self.table.current_aliases(later, ALICE)["/rest/user/whoami"]
+            self.assertEqual(response.headers["location"], whoami + "?x=1")
+            self.assertEqual(self.client.get(response.headers["location"]).status_code, 200)
+            self.assertIsNone(self.logs()[-1]["rotation"])
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/user/whoami?x=1"))
 
     def test_event_revoked_alias_is_not_redirected_and_does_not_cascade(self):
         _, client, alias = self.open_page()
@@ -401,8 +446,57 @@ class AliasPolicyIntegrationTests(IntegrationTests):
 
         import asyncio
         self.assertEqual(asyncio.run(forwarded()), b'{"action":"help","n":1}')
-        self.client.post("/api.php", content=b"--x--", headers={"content-type": "multipart/form-data; boundary=x"})
-        self.assertEqual(self.logs()[-1]["rewrite_skipped"], "body_uninspected")
+        multipart = (b'--x\r\nContent-Disposition: form-data; name="action"\r\n\r\nlogin\r\n'
+                     b'--x\r\nContent-Disposition: form-data; name="f"; filename="a.txt"\r\n\r\nhi\r\n--x--\r\n')
+        before = len(self.calls)
+        response = self.client.post("/api.php", content=multipart,
+                                    headers={"content-type": "multipart/form-data; boundary=x"})
+        self.assertEqual((response.status_code, len(self.calls)), (404, before))
+        self.assertEqual(self.logs()[-1]["reason"], "body_routing_unsupported")
+
+    def test_uninspectable_dispatcher_body_is_refused_in_enforce(self):
+        self.configure(action_routes=(ACTIONS,), body_inspect_limit=64)
+        padded = b"action=login&pad=" + b"x" * 200
+        cases = {
+            "oversized form": (padded, {"content-type": "application/x-www-form-urlencoded"}),
+            "oversized, chunked": ((chunk for chunk in (padded[:50], padded[50:])),
+                                   {"content-type": "application/x-www-form-urlencoded"}),
+            "unknown type": (b"action=login", {"content-type": "text/plain"}),
+            "malformed json": (b'{"action":"login"', {"content-type": "application/json"}),
+        }
+        for name, (content, headers) in cases.items():
+            with self.subTest(name=name):
+                before = len(self.calls)
+                response = self.client.post("/api.php", content=content, headers=headers)
+                self.assertEqual((response.status_code, len(self.calls)), (404, before))
+                log = self.logs()[-1]
+                self.assertEqual((log["reason"], log["rotation"]), ("body_uninspectable", None))
+        # small, parseable and unprotected: forwarded byte for byte
+        ok = self.client.post("/api.php?x=1", content=b"action=help&n=1",
+                              headers={"content-type": "application/x-www-form-urlencoded"})
+        self.assertEqual(ok.status_code, 200)
+
+    def test_uninspectable_body_is_forwarded_intact_in_observe(self):
+        self.configure(mode="observe", action_routes=(ACTIONS,), body_inspect_limit=64)
+        case, self.received = self, []
+
+        class ReadingClient:  # like httpx: the request body is consumed while sending
+            def build_request(self, **kwargs):
+                return kwargs
+
+            async def send(self, request, stream=False):
+                content = request.get("content")
+                case.received.append(b"".join([c async for c in content]) if content is not None else b"")
+                return httpx.Response(200, headers=[("content-type", "application/json")],
+                                      stream=_AsyncBody(b"{}"))
+
+        main.app.state.http_client = ReadingClient()
+        padded = b"action=login&pad=" + b"x" * 200
+        response = self.client.post("/api.php", content=(c for c in (padded[:50], padded[50:])),
+                                    headers={"content-type": "application/x-www-form-urlencoded"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.received[-1], padded)
+        self.assertEqual(self.logs()[-1]["decision"], "would_block")
 
     def test_cookieless_channel_passes_only_without_alias_cookie(self):
         channel = pa.Channel("partner", (pa.Route("/rest/products/search"),), ("GET",), ("authorization",))
