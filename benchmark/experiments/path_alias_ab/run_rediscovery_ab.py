@@ -47,6 +47,7 @@ def compose(project, mode, scenario, duration, destination, defense_image):
                  "PATH_ALIAS_GRACE_EPOCHS": "1", "PATH_ALIAS_ROTATE_ON": "direct,reject",
                  "PATH_ALIAS_PREFIXES": "/rest/,/api/,/b2b/",
                  "PATH_ALIAS_ROUTES_FILE": "/app/config/juice-shop-routes.json",
+                 "PATH_ALIAS_TARGET_IDS": "legacy",
                  "PATH_ALIAS_DB_PATH": "/tmp/rediscovery-alias.sqlite3", "PATH_ALIAS_APP_ID": project},
                "depends_on": {"target": {"condition": "service_healthy"}},
                "healthcheck": {"test": ["CMD", "python", "-c",

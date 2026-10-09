@@ -426,6 +426,13 @@ class PathAliasConfig:
         db_path = environ.get("PATH_ALIAS_DB_PATH", "").strip()
         if mode != "audit" and (not db_path or db_path == ":memory:"):
             raise ValueError("Set PATH_ALIAS_DB_PATH to a persistent SQLite file")
+        target_ids = document.target_ids
+        override = environ.get("PATH_ALIAS_TARGET_IDS", "").strip()
+        if override:
+            # Deployment-specific target names (e.g. "legacy" in local runs) for the same app file.
+            target_ids = tuple(item.strip() for item in override.split(",") if item.strip())
+            if any(not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", item) for item in target_ids):
+                raise ValueError("PATH_ALIAS_TARGET_IDS must be comma-separated target IDs")
         rotate_on = _parse_triggers(environ.get("PATH_ALIAS_ROTATE_ON", ",".join(DEFAULT_ROTATE_ON)))
         flags = {}
         for name, default in (("PATH_ALIAS_COOKIE_SECURE", "false"), ("PATH_ALIAS_STALE_REDIRECT", "true")):
@@ -437,7 +444,7 @@ class PathAliasConfig:
         return cls(mode, epoch_s, grace, prefixes, document.routes, max_bytes, app_id, db_path,
                    rotate_on, flags["PATH_ALIAS_COOKIE_SECURE"],
                    document.query_routes, document.action_routes, document.channels,
-                   document.target_ids, document.enforce_ready, min_interval, pending_ttl,
+                   target_ids, document.enforce_ready, min_interval, pending_ttl,
                    max_pending, max_clients, flags["PATH_ALIAS_STALE_REDIRECT"], body_limit)
 
     @property

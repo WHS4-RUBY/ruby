@@ -1,25 +1,44 @@
 // Normal-user flows through Detection -> Defense -> CHeaT -> Juice Shop with a real browser.
-// Usage: node browser_flows.cjs <label> [base] [--wait-expiry seconds]
+// Usage: node browser_flows.cjs <label> [base] [--mode off|audit|observe|enforce] [--wait-expiry seconds]
+// Exits non-zero when any step fails, any same-origin response is 4xx/5xx, the page throws,
+// or (with aliases on) the app requests an original protected route.
 const { chromium } = require('/runner/node_modules/playwright');
 
 const LABEL = process.argv[2] || 'run';
 const BASE = process.argv[3] || 'http://host.docker.internal:8081';
 const WAIT = process.argv.includes('--wait-expiry') ? Number(process.argv[process.argv.indexOf('--wait-expiry') + 1]) : 0;
+const MODE = process.argv.includes('--mode') ? process.argv[process.argv.indexOf('--mode') + 1] : 'enforce';
+const ALIASES_ON = MODE === 'observe' || MODE === 'enforce';
 const PROTECTED = /^\/(rest|api|b2b)\//i;
 const results = [];
-const net = { alias: 0, direct: 0, redirects: 0, errors4xx: [], errors5xx: [], aliasStatuses: {} };
+const net = { alias: 0, direct: 0, redirects: 0, errors4xx: [], errors5xx: [], aliasStatuses: {}, failed: [], cancelled: [] };
 
 function log(step, ok, info = {}) {
   results.push({ step, ok, ...info });
   console.log(JSON.stringify({ label: LABEL, step, ok, ...info }));
 }
 
+let currentPage = null;
+
 async function step(name, fn) {
-  try { const info = await fn(); log(name, true, info || {}); return true; }
+  try {
+    const info = await fn();
+    // Let in-flight XHRs finish so the next navigation does not cancel them (ERR_ABORTED).
+    if (currentPage) await currentPage.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+    log(name, true, info || {});
+    return true;
+  }
   catch (error) { log(name, false, { error: String(error.message || error).slice(0, 200) }); return false; }
 }
 
 function watch(page) {
+  page.on('requestfailed', (request) => {
+    if (!request.url().startsWith(BASE)) return;
+    const entry = `${request.failure()?.errorText} ${new URL(request.url()).pathname.slice(0, 40)}`;
+    // ERR_ABORTED = the app or a navigation cancelled the request (Juice Shop's review dialog
+    // does this with aliases off too). Reported separately; every other failure fails the run.
+    (request.failure()?.errorText === 'net::ERR_ABORTED' ? net.cancelled : net.failed).push(entry);
+  });
   page.on('response', (response) => {
     const url = new URL(response.url());
     if (!url.href.startsWith(BASE)) return;
@@ -48,6 +67,7 @@ async function dismiss(page) {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ serviceWorkers: 'allow' });
   const page = await context.newPage();
+  currentPage = page;
   page.setDefaultTimeout(15000);
   let pageErrors = 0;
   page.on('pageerror', () => { pageErrors++; });
@@ -106,6 +126,7 @@ async function dismiss(page) {
     await box.pressSequentially('verification review ' + Date.now());
     await page.locator('#submitButton').click({ force: true });
     await page.locator('simple-snack-bar, .mat-mdc-snack-bar-label').first().waitFor();
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
     await page.keyboard.press('Escape');
   });
   await step('second_tab_same_cookie', async () => {
@@ -149,11 +170,13 @@ async function dismiss(page) {
       await page.locator('simple-snack-bar, .mat-mdc-snack-bar-label').first().waitFor();
     });
   }
-  log('network', net.direct === 0 && net.errors5xx.length === 0, {
-    alias_requests: net.alias, alias_statuses: net.aliasStatuses, direct_protected_requests: net.direct,
-    redirects: net.redirects, errors4xx: net.errors4xx.slice(0, 12), errors5xx: net.errors5xx.slice(0, 12),
+  log('network', (!ALIASES_ON || net.direct === 0) && net.errors4xx.length === 0 &&
+    net.errors5xx.length === 0 && net.failed.length === 0 && pageErrors === 0, {
+    mode: MODE, alias_requests: net.alias, alias_statuses: net.aliasStatuses, direct_protected_requests: net.direct,
+    redirects: net.redirects, errors4xx: net.errors4xx, errors5xx: net.errors5xx, failed_requests: net.failed, cancelled_requests: net.cancelled,
     page_errors: pageErrors });
   const passed = results.filter((r) => r.ok).length;
   console.log(JSON.stringify({ label: LABEL, summary: { passed, total: results.length } }));
   await browser.close();
-})();
+  if (passed !== results.length) process.exitCode = 1;
+})().catch((error) => { console.error(error); process.exitCode = 1; });

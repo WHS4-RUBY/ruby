@@ -74,7 +74,7 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 - 교체는 사유별(`PATH_ALIAS_ROTATE_ON`)이며 만료·폐기된 자기 별칭은 교체를 일으키지 않습니다. 만료된 자기 별칭의 GET/HEAD는 현재 별칭으로 307 연결하고, POST 등은 재전송하지 않습니다.
 - 치환은 URL 문맥(JSON 값 전체, HTML 속성, JS 문자열, 같은 출처 절대 URL)에만 적용하고 설명 문장·주석·다른 출처는 건드리지 않습니다. 후속 전략의 응답 변형 뒤에 적용하며, 전략이 직접 만든 즉시 반환 응답은 치환하지 않습니다.
 - 쿠키를 돌려주지 않는 클라이언트는 미확인 클라이언트로 상한(`PATH_ALIAS_MAX_PENDING_CLIENTS`)·수명(`PATH_ALIAS_PENDING_TTL_S`)이 있고, 넘으면 enforce에서 503입니다. 쿠키가 없어도 원본 보호 경로는 허용하지 않습니다.
-- `query_routes`(경로 선택형 `/gateway?route=/api/items`)와 `action_routes`(기능 선택형 `/api.php?action=login`)를 지원합니다. 보호하지 않는 dispatcher 값은 통과하고 일반 쿼리 필드는 바이트 그대로 보존합니다. 본문 속 라우팅은 지원하지 않으며 보호 대상이면 거부·기록합니다.
+- `query_routes`(경로 선택형 `/gateway?route=/api/items`)와 `action_routes`(기능 선택형 `/api.php?action=login`)를 지원합니다. 보호하지 않는 dispatcher 값은 통과하고 일반 쿼리 필드는 바이트 그대로 보존합니다. 본문 속 라우팅은 지원하지 않으며 보호 대상이면 거부·기록합니다. 검사 한도(`PATH_ALIAS_BODY_INSPECT_BYTES`, 1 MiB)를 넘거나 해석할 수 없는 dispatcher 본문은 enforce에서 거부합니다.
 - WebSocket은 업그레이드 URL에만 같은 규칙을 적용하고 프레임은 치환하지 않습니다.
 
 경로 목록을 검토할 때는 별칭 적용 전 앱에서 `python -m defense.scripts.discover_path_alias_routes --fetch http://APP_ORIGIN --asset-dir local-assets --output route-report.json`으로 공개 JS·HTML을 자동 수집할 수 있습니다. 저장한 JS·HTML 또는 브라우저 HAR도 입력 파일로 지정할 수 있습니다. 보고서는 이미 설정된 경로와 동적 접두사, 경로를 담은 쿼리 키를 구분하며 설정 파일을 자동 변경하지 않습니다. HAR 원본에는 세션 정보가 있을 수 있으므로 로컬 임시 경로에 보관하세요.
@@ -136,7 +136,7 @@ WebSocket은 업그레이드 URL에 경로 별칭 1단계를 먼저 적용하고
 
 쿼리로 API 경로를 선택하는 웹은 `PATH_ALIAS_ROUTES_FILE`의 `query_routes`(경로 선택형, 예: `{"path":"/gateway","parameter":"route"}`) 또는 `action_routes`(기능 선택형, 예: `{"path":"/api.php","parameter":"action","actions":{"login":["POST"]}}`)를 지정한다. 보호 대상 값만 별칭으로 치환·복원하고, 원본 값·다른 사용자 별칭·보호 대상이 섞인 중복 키는 enforce에서 차단하며, 보호하지 않는 값은 그대로 통과시킨다. [설정 예시](config/query-routing-example.json)와 [설치·운영 가이드 3절](docs/path-alias-operations.md#3-경로-파일-형식)을 참고한다.
 
-기본 `juice-shop-routes.json`에는 Juice Shop 서버 코드에서 확인한 `/rest/`, `/api/`, `/b2b/` 경로 67개 패턴이 들어 있다. RUBY Market 설정은 `ruby-shop-routes.json`이며, Ruby Shop 저장소의 FastAPI `/api/` 선언 63개에서 경로 템플릿을 포함해 가져왔다. 대상에 맞는 파일을 `PATH_ALIAS_ROUTES_FILE`로 선택한다. Juice Shop 파일은 실제 스택 브라우저 검증을 기록해 `enforce_ready`이고, Ruby Shop 파일은 아직 검증 전이라 enforce를 지정해도 observe로 동작한다. Ruby Shop을 로컬에서 실행할 때는 예를 들어 `PATH_ALIAS_ROUTES_FILE=/app/config/ruby-shop-routes.json`을 지정한다. 두 목록은 각각 `juice-shop/juice-shop`의 `1618a61`과 `WHS4-RUBY/web-defense-benchmark`의 `bba11eb` 소스 기준이며, 새 API나 플러그인이 추가되면 다시 수집하고 실제 브라우저 흐름을 확인해야 한다. Ruby Shop 목록에는 취약점 모듈이 켜졌을 때만 등록되는 API 한 개도 포함한다.
+기본 `juice-shop-routes.json`에는 Juice Shop 서버 코드에서 확인한 `/rest/`, `/api/`, `/b2b/` 경로 67개 패턴이 들어 있다. RUBY Market 설정은 `ruby-shop-routes.json`이며, Ruby Shop 저장소의 FastAPI `/api/` 선언 63개에서 경로 템플릿을 포함해 가져왔다. 대상에 맞는 파일을 `PATH_ALIAS_ROUTES_FILE`로 선택한다. Juice Shop 파일은 실제 스택 브라우저 검증을 기록해 `enforce_ready`이며 `target_ids: ["juice-shop"]`이고 검증 흐름에서 쓰인 15개 경로만 enforce(나머지는 observe)입니다. 로컬 `legacy` 대상에 쓸 때는 `PATH_ALIAS_TARGET_IDS=legacy`를 지정합니다. Ruby Shop 파일은 아직 검증 전이라 enforce를 지정해도 observe로 동작한다. Ruby Shop을 로컬에서 실행할 때는 예를 들어 `PATH_ALIAS_ROUTES_FILE=/app/config/ruby-shop-routes.json`을 지정한다. 두 목록은 각각 `juice-shop/juice-shop`의 `1618a61`과 `WHS4-RUBY/web-defense-benchmark`의 `bba11eb` 소스 기준이며, 새 API나 플러그인이 추가되면 다시 수집하고 실제 브라우저 흐름을 확인해야 한다. Ruby Shop 목록에는 취약점 모듈이 켜졌을 때만 등록되는 API 한 개도 포함한다.
 
 `main`에 직접 push하지 않고 작업 브랜치에서 변경한 뒤 Pull Request를 제출합니다. 자세한 규칙은 [루트 CONTRIBUTING.md](../CONTRIBUTING.md)를 확인하세요.
 

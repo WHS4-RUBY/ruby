@@ -37,11 +37,11 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 
 | 파일 | `enforce_ready` | 근거 |
 |---|---|---|
-| `juice-shop-routes.json` | true | 2026-10-09 실제 스택 브라우저 검증(아래 7절). 검증하지 않은 기능은 파일의 `compatibility.not_verified`에 적었다 |
+| `juice-shop-routes.json` | true | 2026-10-09 실제 스택 브라우저 검증(아래 7절). `target_ids: ["juice-shop"]`. 검증 흐름에서 실제로 요청된 15개 경로만 enforce, 나머지 52개(관리자 화면 일부·2FA·결제·챗봇·업로드 등)는 `mode: observe`. 검증하지 않은 기능은 `compatibility.not_verified`에 적었다 |
 | `ruby-shop-routes.json` | false | 소스 선언에서 만든 목록. 브라우저 흐름과 갱신 방식 미검증 |
 | `query-routing-example.json` | false | 예시 |
 
-여러 대상을 고르는 배포(`TARGET_CHOICES`)에서는 경로 파일에 `"target_ids": ["juice-shop"]`을 넣어 다른 대상의 `/api/`를 막지 않게 한다. 지정하지 않으면 선택된 모든 대상에 적용된다.
+여러 대상을 고르는 배포(`TARGET_CHOICES`)에서는 경로 파일의 `target_ids`가 적용 대상을 정한다(지정하지 않으면 모든 대상). 같은 앱을 다른 대상 ID로 띄우는 환경(로컬 Compose와 실험 실행기의 `legacy`)은 `PATH_ALIAS_TARGET_IDS=legacy`로 덮어쓴다. 다른 앱(Ruby Shop)의 `/api/`가 Juice Shop 경로 파일 때문에 막히지 않는다.
 
 ## 3. 경로 파일 형식
 
@@ -64,7 +64,7 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 - `action_routes` **기능 선택형**: `/api.php?action=login`. 나열한 기능만 보호하며 별칭은 쿼리 값(`action=__ruby_alias_…`)으로 준다. 나열하지 않은 기능(`action=help`)은 통과한다. 대소문자만 다른 값(`LOGIN`)은 보호 기능의 직접 호출로 본다. 기능별 메서드를 검사한다. 액션 별칭을 경로로 쓰면 거부한다. 최대 256개.
 - 같은 dispatcher 키가 두 번 나오고 그중 하나라도 보호 대상이면 `duplicate_query_route`로 거부한다. 모두 보호 대상이 아니면 통과한다.
 - **일반 쿼리 보존**: 설정된 키의 값 하나만 바꾸고 나머지 필드의 바이트·순서·중복·빈 값·인코딩은 그대로 보낸다. 쿼리 값은 DB 키와 로그에 들어가지 않는다(로그에는 경로와 설정된 route_id만 남는다).
-- **본문 라우팅은 지원하지 않는다.** dispatcher로 오는 64 KiB 이하 form/JSON 본문에 라우팅 키가 있고 그 값이 보호 대상이면 `direct`(`reason=body_routing_unsupported`)로 처리한다(enforce에서 404, 교체 없음). 본문 키가 보호 대상이 아니면 본문을 그대로 전달한다. multipart·대용량 본문은 검사하지 않고 `rewrite_skipped=body_uninspected`로 기록한다.
+- **본문 라우팅은 지원하지 않는다.** dispatcher로 오는 본문을 `PATH_ALIAS_BODY_INSPECT_BYTES`(기본 1 MiB)까지 읽어 form·multipart·JSON 필드를 확인한다. 라우팅 키 값이 보호 대상이면 `direct`(`reason=body_routing_unsupported`)다. 한도를 넘거나(Content-Length와 무관하게 실제로 읽은 양 기준, chunked 포함) 형식을 알 수 없거나 깨진 본문은 `body_uninspectable`로, **enforce에서 거부**한다. 교체는 일으키지 않는다. observe에서는 본문을 그대로 전달하고 기록한다. 읽은 본문은 후속 전략과 대상에 그대로 다시 전달한다. 한계: enforce에서는 보호 dispatcher로 가는 1 MiB 초과 본문·알 수 없는 형식의 본문이 정상 요청이어도 거부된다. 그런 앱은 한도를 늘리거나 해당 dispatcher를 `mode: observe`로 둔다.
 - **동적 조립**: 문자열 리터럴로 기본 주소를 두고 런타임에 한 구간을 붙이는 형태(`"/rest/track-order"` + `"/"+id`, `` `/rest/continue-code/apply/` ``+code, 끝 슬래시만 있는 `` `/rest/image-captcha/` ``)는 지원한다. `URLSearchParams`로 값을 따로 만들거나 경로를 여러 변수로 조립하는 코드는 치환하지 않는다. 수집기 보고서의 `dynamic_assembly_note`·`unsupported_routing`을 확인한다.
 - 넓은 별칭(`/rest/admin/{tail*}`)에 앱이 런타임 접미사를 붙여 더 구체적인 설정 경로(`/rest/admin/application-version`)에 닿으면, v3는 `shadowed_route`로 거부하고 클라이언트 별칭을 전부 교체했다. 실제 브라우저에서 페이지가 깨졌으므로 이제 구체 경로의 메서드로 판정하고 그 경로로 기록한다. 경로 간 분리는 그만큼 약하다.
 
@@ -74,12 +74,12 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 
 | 응답 종류 | 치환하는 곳 | 치환하지 않는 곳 |
 |---|---|---|
-| JSON | 문자열 값 **전체**가 URL인 경우(`"next":"/rest/x?q=1"`, `"https://같은호스트/rest/x"`) | 설명 문장 속 경로(`"Call /rest/x to search"`, `"/rest/x is the API"`) |
-| HTML | 속성 값(`href="…"`, `action=/…`), `&quot;`로 감싼 값, 인라인 스크립트의 문자열 | 본문 텍스트(`<p>API는 /rest/x</p>`) |
-| JS | 따옴표·백틱 문자열이 경로나 **같은 출처** 절대 URL로 시작하는 경우, `` `${base}/rest/x` `` | 주석, 다른 출처 URL, 경로가 문자열 중간에 있는 경우 |
+| JSON | 문자열 **값** 전체가 URL인 경우(`"next":"/rest/x?q=1"`, `"https://같은호스트/rest/x"`) | 객체 키(`{"/rest/x": …}`), 설명 문장 속 경로(`"Call /rest/x to search"`, `"/rest/x is the API"`) |
+| HTML | 속성 값(`href="…"`, `action=/…`), `&quot;`로 감싼 값, 인라인 스크립트의 문자열 | 본문 텍스트(`<p>API는 /rest/x</p>`), `<!-- -->` 주석, 인라인 스크립트의 주석 |
+| JS | 따옴표·백틱 문자열이 경로나 **같은 출처** 절대 URL로 시작하는 경우, `` `${base}/rest/x` `` | `//`·`/* */` 주석 안의 문자열, 다른 출처 URL, 경로가 문자열 중간에 있는 경우 |
 | `Location` 헤더 | 같은 호스트 또는 상대 URL | 다른 호스트 |
 
-한계: HTML 본문 텍스트 안에 따옴표로 감싼 경로가 있으면 치환될 수 있다. 압축 응답과 8 MiB 초과 응답은 치환하지 않는다(`rewrite_skipped=too_large`). WebSocket 프레임은 치환하지 않는다.
+한계: HTML 본문 텍스트 안에 따옴표로 감싼 경로가 있으면 치환될 수 있다. JS 주석 판정은 정규식 기반이라 `//` 앞에 줄 시작·공백·`;{}(),=`가 있을 때만 주석으로 보며, 정규식 리터럴 안의 `\/\/`는 주석으로 보지 않는다. 실제 Juice Shop `main.js`의 치환 수(49)는 이 판정 추가 전후로 같았다. 압축 응답과 8 MiB 초과 응답은 치환하지 않는다(`rewrite_skipped=too_large`). WebSocket 프레임은 치환하지 않는다.
 
 ## 5. 교체·만료·여러 탭
 
@@ -96,6 +96,7 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 - `PATH_ALIAS_ROTATE_ON`은 사유별로 지정한다. `reject`는 모든 거부 사유의 묶음이다. `stale_alias`·`revoked_alias`는 지정할 수 없다. 오래 열어 둔 탭이 교체를 연쇄로 일으키지 않게 하기 위해서다.
 - `PATH_ALIAS_ROTATE_MIN_INTERVAL_S`(기본 5초) 안의 추가 교체는 `rotation=suppressed`로 기록하고 쓰기를 하지 않는다.
 - **자동 복구는 GET/HEAD만** 한다. POST·결제·작성 요청은 재전송하거나 리다이렉트하지 않고 404로 끝나며, 사용자가 새로고침한 뒤 다시 보내야 한다. 이벤트로 폐기된 별칭은 공격자가 이전 별칭으로 새 별칭을 얻지 못하도록 자동 연결하지 않는다.
+- 자동 복구 주소는 **복원된 원본 경로**로 다시 만든다. 넓은 별칭(`/api/{tail*}`)에 `/items`를 붙인 요청이 더 구체적인 경로로 해석됐다면, 그 경로의 현재 별칭으로 보내고 `/items`를 다시 붙이지 않는다.
 - 폐기·만료된 행은 원래 만료 시각 뒤 한 수명 동안 tombstone으로 남는다. 덕분에 오래된 탭(`stale`/`revoked`)과 위조 별칭(`unknown`)을 구분한다.
 - 같은 쿠키를 쓰는 여러 탭은 같은 별칭을 공유한다. 쿠키 없이 동시에 열린 첫 방문 탭들은 서로 다른 미확인 클라이언트를 받는다. 브라우저에는 마지막 쿠키만 남는다. 다른 탭의 별칭이 미확인 클라이언트 것이면 `adopted`로 허용하므로 깨지지 않는다(아래 6절).
 
@@ -112,7 +113,7 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 ### 6.2 별칭 쪽 정책
 
 - 별칭 쿠키를 돌려주지 않는 클라이언트(curl·에이전트·쿠키 차단)는 응답마다 **미확인(pending) 클라이언트**를 새로 받는다. 같은 쿠키로 다음 요청이 오면 확인(confirmed) 상태가 된다.
-- 미확인 클라이언트의 별칭은 쿠키 없이도 쓸 수 있다(`alias_state=adopted`). 별칭을 받은 쪽이 그 쿠키도 같이 받았으므로 귀속 검사로 얻는 것이 없고, 막으면 도구 한계만 측정하게 된다. 확인된 클라이언트의 별칭은 다른 쿠키·쿠키 없음에서 `foreign_alias`로 거부된다.
+- 미확인 클라이언트의 별칭은 쿠키 없이도 쓸 수 있다(`alias_state=adopted`). 별칭을 받은 쪽이 그 쿠키도 같이 받았으므로 귀속 검사로 얻는 것이 없고, 막으면 도구 한계만 측정하게 된다. 이 사용은 `PATH_ALIAS_PENDING_TTL_S`가 지나면 **조회 시점에** 끝난다(정리 작업 실행 여부와 무관, `stale_alias`·교체 없음). 같은 쿠키를 돌려주는 브라우저는 그때 확인 상태가 되어 계속 쓴다. 행 삭제는 별도 정리 주기가 한다. 확인된 클라이언트의 별칭은 다른 쿠키·쿠키 없음에서 `foreign_alias`로 거부된다.
 - **쿠키가 없다는 이유로 원본 보호 경로를 허용하지 않는다.** 쿠키 유무와 무관하게 원본 경로는 enforce에서 404다.
 - 쿠키 부재 자체는 점수·차단 근거가 아니다. 공유 IP·지문을 신원으로 쓰지 않는다. 별칭 단계는 IP를 보지 않는다.
 - 사전에 명시한 쿠키 없는 API 채널(`cookieless_channels`)은 별칭 쿠키가 없고 지정 헤더가 있는 요청에 한해 원본 경로를 허용한다(`kind=channel`). Detection·CRS·후속 전략은 그대로 적용된다. 헤더는 누구나 붙일 수 있으므로, 이 설정은 해당 경로의 별칭 보호를 포기한다는 운영 결정이다.
@@ -162,16 +163,16 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 
 | 항목 | 결과 |
 |---|---|
-| 단위·통합 테스트 | Defense 190개 통과(그중 PostgreSQL 테이블 테스트 19개는 실제 PostgreSQL 16 컨테이너에서 별도 실행해 통과), 수집기 Node 6개, Detection 230개(실행만, 코드 변경 없음) 모두 통과 |
+| 단위·통합 테스트 | Defense 175개, 수집기·대시보드 Node 18개, Detection 230개(실행만, 코드 변경 없음) 모두 통과 |
 | HTTP 매트릭스 (enforce) | 17/17. 쿠키 반환 로그인·검색 별칭이 Juice까지 전달, 원본·대소문자·인코딩 변형 6종 404, 직접 호출 뒤 이전 별칭 404·새 별칭 동작, JSON 상품 설명 46건 무변경, 쿠키 없는 도구도 미확인 별칭 사용 가능, 원본 경로는 쿠키 없어도 404 |
 | 모드×쿠키 매트릭스 | off·audit: 응답 무변경(`main.js`의 `/rest/` 42곳 그대로)·쿠키 없음·원본 200. observe: 별칭 49종 치환(남은 `/rest/` 4곳은 CHeaT가 넣은 미끼 주석)·쿠키 발급·원본 200. enforce: 원본 404·별칭 200(쿠키 유무 모두). `enforce_ready` 없는 파일 + enforce: observe와 동일 |
-| 브라우저 (off/observe/enforce 각 1회) | 회원가입·로그인·검색·장바구니 담기·리뷰 작성·두 번째 탭·뒤로/앞으로·새로고침 9단계 모두 통과. enforce에서 별칭 요청 73건 전부 2xx, 원본 보호 경로 요청 0, 4xx/5xx 0, 페이지 오류 0, 교체 0 |
-| 만료 (epoch 20초, 45초 대기) | 14/14. 열린 페이지의 만료 별칭 GET 2건이 307로 복구, 새로고침 후 장바구니 POST 성공, 시간 교체 1회 |
+| 브라우저 (off/observe/enforce 각 2회, 엄격 판정) | 회원가입·로그인·검색·장바구니 담기·리뷰 작성·두 번째 탭·뒤로/앞으로·새로고침 9단계와 네트워크 검사 모두 통과(10/10). 단계 실패, 같은 출처 4xx/5xx, 실패한 요청, 페이지 오류, (별칭 켬) 원본 보호 경로 요청 중 하나라도 있으면 실패 종료한다. enforce에서 별칭 요청 74건 전부 2xx, 위 항목 모두 0, 교체 0. Juice Shop 리뷰 창이 스스로 취소하는 요청(`ERR_ABORTED`)은 별칭을 끈 상태에서도 같아 실패와 따로 기록한다 |
+| 만료 (epoch 20초, 45초 대기, 엄격 판정) | 14/14. 열린 페이지의 만료 별칭 GET 2건이 307로 복구, 새로고침 후 장바구니 POST 성공, 시간 교체 1회, 4xx/5xx 0 |
 | 재시작 | 같은 별칭이 Defense 재시작 전후 모두 200 |
-| 경로형·기능형 dispatcher (실제 HTTP 에코 앱) | 별칭 복원과 다른 필드 바이트 보존(`&x=1&x=&y`), 비보호 값 통과, 원본·상대 경로·대소문자 변형·잘못된 메서드·본문 라우팅 404, 비보호 본문 키는 본문 그대로 전달, 일반 쿼리 `b=2&a=1&a=1&empty=&flag&enc=%2F%41+x` 그대로 |
+| 경로형·기능형 dispatcher (실제 HTTP 에코 앱) | 별칭 복원과 다른 필드 바이트 보존(`&x=1&x=&y`), 비보호 값 통과, 원본·상대 경로·대소문자 변형·잘못된 메서드·본문 라우팅 404, 일반 쿼리 `b=2&a=1&a=1&empty=&flag&enc=%2F%41+x` 그대로. 교차 검증에서 지적된 큰 본문 우회: enforce에서 65,553바이트·1 MiB 초과(일반·chunked)·`text/plain` 본문의 `action=login`은 모두 404로 전달되지 않음, 작은 비보호 본문은 전달. observe에서는 모든 본문이 바이트 그대로 전달 |
 | WebSocket | Juice socket.io 업그레이드 정상, 원본 보호 경로·위조 별칭 업그레이드 403 |
 
-검증 중 발견해 고친 호환성 문제: 런타임 접미사 리터럴과 끝 슬래시 경로 미치환(3곳), `shadowed_route` 교체로 페이지 전체 별칭 무효화, 로컬 Compose `overlay-alternate` 기본 키 길이 오류, 실험 실행기의 보호 접두사(`/b2b/`) 누락.
+검증 중 발견해 고친 문제: 런타임 접미사 리터럴과 끝 슬래시 경로 미치환(3곳), `shadowed_route` 교체로 페이지 전체 별칭 무효화, 로컬 Compose `overlay-alternate` 기본 키 길이 오류, 실험 실행기의 보호 접두사(`/b2b/`) 누락. 교차 검증(GPT)에서 지적된 큰 본문으로 dispatcher 보호 우회, 넓은 별칭의 만료 복구 실패, JSON 키·주석 치환, 미확인 TTL의 조회 시 미적용, 검증 범위보다 넓은 enforce, 실패를 놓치는 브라우저 스크립트도 고치고 위 결과를 다시 측정했다.
 
 ### 7.2 SQLite 부하 (Defense 4 worker, 한 파일, Detection 없이 직접)
 
@@ -187,7 +188,7 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 
 - 쿠키 미반환 공격이 실제 Juice Shop에서 `suspected` 미끼 단계까지 가는 경로(위 6.3). 미끼 실행 자체는 계획 헤더를 직접 넣어 확인했다.
 - 서비스 워커: Juice Shop은 등록하지 않아 확인할 수 없었다.
-- 관리자·2FA·결제·챗봇·파일 업로드 화면, Ruby Shop 전체 흐름.
+- 관리자·2FA·결제·챗봇·파일 업로드 화면, Ruby Shop 전체 흐름(해당 경로는 observe로 두었다).
 - 여러 호스트 배포(SQLite로는 지원하지 않음), 장시간(30분 이상) 탭 유지.
 - 실제 PHP 등 기능 선택형 dispatcher 앱(에코 앱으로만 확인).
 
@@ -239,6 +240,7 @@ SQLite는 쓰기 잠금이 DB 전체 단위라 서로 다른 사용자의 발급
 |---|---|---|
 | `PATH_ALIAS_MODE` | `off` | off / audit / observe / enforce |
 | `PATH_ALIAS_ROUTES_FILE` | Compose: juice-shop | 경로 파일 |
+| `PATH_ALIAS_TARGET_IDS` | 비어 있음(파일의 `target_ids`) | 경로 파일을 적용할 대상 ID 덮어쓰기 (로컬·실험: `legacy`) |
 | `PATH_ALIAS_PREFIXES` | `/rest/,/api/,/b2b/` | 직접 호출을 보는 보호 접두사. 경로 파일의 모든 경로가 이 안에 있어야 함 |
 | `PATH_ALIAS_DB_PATH` | Compose: `/app/alias-data/path-alias.sqlite3` | SQLite 파일 (`PATH_ALIAS_DB_URL`이 있으면 시작 실패) |
 | `PATH_ALIAS_EPOCH_S`, `PATH_ALIAS_GRACE_EPOCHS` | 1800, 1 | 시간 교체와 유예 |
@@ -247,5 +249,6 @@ SQLite는 쓰기 잠금이 DB 전체 단위라 서로 다른 사용자의 발급
 | `PATH_ALIAS_STALE_REDIRECT` | true | 만료된 자기 별칭 GET/HEAD 307 |
 | `PATH_ALIAS_PENDING_TTL_S`, `PATH_ALIAS_MAX_PENDING_CLIENTS`, `PATH_ALIAS_MAX_CLIENTS` | 300, 10000, 100000 | 쿠키 미반환 발급 상한 |
 | `PATH_ALIAS_MAX_REWRITE_BYTES` | 8 MiB | 치환할 최대 응답 |
+| `PATH_ALIAS_BODY_INSPECT_BYTES` | 1 MiB | dispatcher 본문 검사 한도. 넘으면 enforce에서 거부 |
 | `PATH_ALIAS_APP_ID` | 비어 있음 | 같은 DB에서 실험·앱 분리 |
 | `PATH_ALIAS_COOKIE_SECURE` | false | HTTPS 배포에서 true |
