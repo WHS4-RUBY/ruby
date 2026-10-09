@@ -101,8 +101,8 @@ jobs:
           PAYLOAD_FINGERPRINT_KEY: ${{ secrets.PAYLOAD_FINGERPRINT_KEY }}
           DCID_HMAC_SECRET: ${{ secrets.DCID_HMAC_SECRET }}
           ACCOUNT_ID_HASH_KEY: ${{ secrets.ACCOUNT_ID_HASH_KEY }}
-          # No longer required (SQLite is the default alias store). Still passed when the
-          # secret exists so a rollback to a compose file from before the switch can start.
+          # Not used by the current compose file (the alias table is SQLite). Still passed when
+          # the secret exists so a rollback to a compose file from before the switch can start.
           PATH_ALIAS_DB_PASSWORD: ${{ secrets.PATH_ALIAS_DB_PASSWORD }}
           TRUST_PROXY: loopback,linklocal,uniquelocal
         with:

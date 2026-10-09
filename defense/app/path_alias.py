@@ -22,7 +22,6 @@ import re
 import secrets
 import sqlite3
 import sys
-import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, field, replace
@@ -368,8 +367,6 @@ class PathAliasConfig:
     db_path: str = ""
     rotate_on: tuple[str, ...] = DEFAULT_ROTATE_ON
     cookie_secure: bool = False
-    db_url: str = ""  # postgresql://... ; optional scale-out backend, takes precedence over db_path
-    db_pool_size: int = 10
     query_routes: tuple[QueryRoute, ...] = ()
     action_routes: tuple[ActionRoute, ...] = ()
     channels: tuple[Channel, ...] = ()
@@ -393,16 +390,14 @@ class PathAliasConfig:
             epoch_s = int(environ.get("PATH_ALIAS_EPOCH_S", "1800"))
             grace = int(environ.get("PATH_ALIAS_GRACE_EPOCHS", "1"))
             max_bytes = int(environ.get("PATH_ALIAS_MAX_REWRITE_BYTES", str(8 * 1024 * 1024)))
-            pool_size = int(environ.get("PATH_ALIAS_DB_POOL_SIZE", "10"))
             min_interval = float(environ.get("PATH_ALIAS_ROTATE_MIN_INTERVAL_S", "5"))
             pending_ttl = int(environ.get("PATH_ALIAS_PENDING_TTL_S", "300"))
             max_pending = int(environ.get("PATH_ALIAS_MAX_PENDING_CLIENTS", "10000"))
             max_clients = int(environ.get("PATH_ALIAS_MAX_CLIENTS", "100000"))
         except ValueError as exc:
             raise ValueError("Path alias numeric settings must be numbers") from exc
-        if epoch_s < 1 or not 0 <= grace <= 10 or max_bytes < 1 or pool_size < 1:
-            raise ValueError("Path alias requires epoch >= 1, grace 0..10, a positive size limit "
-                             "and a positive pool size")
+        if epoch_s < 1 or not 0 <= grace <= 10 or max_bytes < 1:
+            raise ValueError("Path alias requires epoch >= 1, grace 0..10 and a positive size limit")
         if min_interval < 0 or pending_ttl < 1 or max_pending < 1 or max_clients < max_pending:
             raise ValueError("Path alias needs a non-negative rotation interval, a positive pending "
                              "TTL and max_clients >= max_pending_clients >= 1")
@@ -412,15 +407,13 @@ class PathAliasConfig:
             if not any(route.path.lower() == p.rstrip("/") or route.path.lower().startswith(p) for p in prefixes):
                 raise ValueError(f"Route {route.path!r} is outside protected prefixes")
         app_id = environ.get("PATH_ALIAS_APP_ID", "").strip()
-        db_url = environ.get("PATH_ALIAS_DB_URL", "").strip()
+        if environ.get("PATH_ALIAS_DB_URL", "").strip():
+            # Fail loudly instead of silently using a different store than the operator expects.
+            raise ValueError("PATH_ALIAS_DB_URL is no longer supported: the alias table is the "
+                             "SQLite file in PATH_ALIAS_DB_PATH")
         db_path = environ.get("PATH_ALIAS_DB_PATH", "").strip()
-        if mode != "audit":
-            if db_url:
-                if not db_url.startswith(("postgresql://", "postgres://")):
-                    raise ValueError("PATH_ALIAS_DB_URL must be a postgresql:// URL")
-            elif not db_path or db_path == ":memory:":
-                raise ValueError("Set PATH_ALIAS_DB_PATH (persistent SQLite file) or "
-                                 "PATH_ALIAS_DB_URL (PostgreSQL)")
+        if mode != "audit" and (not db_path or db_path == ":memory:"):
+            raise ValueError("Set PATH_ALIAS_DB_PATH to a persistent SQLite file")
         rotate_on = _parse_triggers(environ.get("PATH_ALIAS_ROTATE_ON", ",".join(DEFAULT_ROTATE_ON)))
         flags = {}
         for name, default in (("PATH_ALIAS_COOKIE_SECURE", "false"), ("PATH_ALIAS_STALE_REDIRECT", "true")):
@@ -430,7 +423,7 @@ class PathAliasConfig:
             flags[name] = value == "true"
         _configure_logger()
         return cls(mode, epoch_s, grace, prefixes, document.routes, max_bytes, app_id, db_path,
-                   rotate_on, flags["PATH_ALIAS_COOKIE_SECURE"], db_url, pool_size,
+                   rotate_on, flags["PATH_ALIAS_COOKIE_SECURE"],
                    document.query_routes, document.action_routes, document.channels,
                    document.target_ids, document.enforce_ready, min_interval, pending_ttl,
                    max_pending, max_clients, flags["PATH_ALIAS_STALE_REDIRECT"])
@@ -520,12 +513,6 @@ _SCHEMA = (
 )
 
 
-def _lock_key(*parts: str) -> int:
-    """Signed 64-bit key for PostgreSQL advisory locks."""
-    digest = hashlib.sha256("\0".join(parts).encode()).digest()
-    return int.from_bytes(digest[:8], "big", signed=True)
-
-
 class _SQLiteStore:
     """One database file shared by the workers of one host; writes take the database-wide lock."""
 
@@ -534,7 +521,7 @@ class _SQLiteStore:
         self.path = path
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
-            self.begin_write(db, "schema")
+            self.begin_write(db)
             try:
                 for statement in _SCHEMA:
                     db.execute(statement)
@@ -553,94 +540,8 @@ class _SQLiteStore:
             db.execute("PRAGMA synchronous=NORMAL")
             yield db
 
-    def begin_write(self, db, key: str) -> None:
+    def begin_write(self, db) -> None:
         db.execute("BEGIN IMMEDIATE")
-
-    def try_begin_sweep(self, db, app_id: str) -> bool:
-        db.execute("BEGIN IMMEDIATE")
-        return True
-
-
-class _PostgresConnection:
-    """sqlite3-shaped facade so table code runs unchanged: qmark placeholders, explicit BEGIN."""
-
-    def __init__(self, conn):
-        self._conn = conn
-
-    def execute(self, sql: str, params: tuple = ()):
-        return self._conn.execute(sql.replace("?", "%s"), params)
-
-    def commit(self) -> None:
-        self._conn.execute("COMMIT")
-
-    def rollback(self) -> None:
-        self._conn.execute("ROLLBACK")
-
-
-_PG_POOLS: dict[tuple[str, int], object] = {}
-_PG_POOLS_LOCK = threading.Lock()
-
-
-class _PostgresStore:
-    """Optional shared server database for several hosts. Writers serialize per client."""
-
-    def __init__(self, url: str, pool_size: int):
-        try:
-            from psycopg.rows import dict_row
-            from psycopg_pool import ConnectionPool
-        except ImportError as exc:  # pragma: no cover - depends on the image
-            raise ValueError("PATH_ALIAS_DB_URL needs the optional PostgreSQL packages "
-                             "(defense/requirements-postgres.txt)") from exc
-
-        with _PG_POOLS_LOCK:  # one pool per process, however many tables share the URL
-            pool = _PG_POOLS.get((url, pool_size))
-            if pool is None:
-                pool = ConnectionPool(url, min_size=1, max_size=pool_size, open=True,
-                                      kwargs={"autocommit": True, "row_factory": dict_row},
-                                      name="path-alias")
-                _PG_POOLS[(url, pool_size)] = pool
-        self._pool = pool
-        with self.connect() as db:
-            self.begin_write(db, "schema")  # concurrent CREATE IF NOT EXISTS can still collide
-            try:
-                for statement in _SCHEMA:
-                    db.execute(statement)
-                db.commit()
-            except Exception:
-                db.rollback()
-                raise
-
-    @contextmanager
-    def connect(self) -> Iterator[_PostgresConnection]:
-        with self._pool.connection() as conn:
-            yield _PostgresConnection(conn)
-
-    def begin_write(self, db: _PostgresConnection, key: str) -> None:
-        db.execute("BEGIN")
-        db.execute("SELECT pg_advisory_xact_lock(?)", (_lock_key("path_alias", key),))
-
-    def try_begin_sweep(self, db: _PostgresConnection, app_id: str) -> bool:
-        """Only one worker sweeps at a time; two concurrent bulk deletes could deadlock."""
-        db.execute("BEGIN")
-        row = db.execute("SELECT pg_try_advisory_xact_lock(?) AS locked",
-                         (_lock_key("path_alias_sweep", app_id),)).fetchone()
-        if not row["locked"]:
-            db.rollback()
-        return row["locked"]
-
-
-def _store_errors() -> tuple[type[BaseException], ...]:
-    errors: list[type[BaseException]] = [sqlite3.Error]
-    try:
-        import psycopg
-        import psycopg_pool
-        errors += [psycopg.Error, psycopg_pool.PoolTimeout]
-    except ImportError:
-        pass
-    return tuple(errors)
-
-
-_STORE_ERRORS = _store_errors()
 
 
 def _guard(method):
@@ -650,7 +551,7 @@ def _guard(method):
             return method(self, *args, **kwargs)
         except AliasStoreError:
             raise
-        except _STORE_ERRORS as exc:
+        except sqlite3.Error as exc:
             raise AliasStoreError(type(exc).__name__) from exc
     wrapper.__name__ = method.__name__
     wrapper.__doc__ = method.__doc__
@@ -673,8 +574,8 @@ class _Collect:
 class PathAliasTable:
     """Authoritative table of per-client aliases in a database shared by every worker.
 
-    A SQLite file (``PATH_ALIAS_DB_PATH``) is the default for one host. PostgreSQL
-    (``PATH_ALIAS_DB_URL``) is the optional backend for several hosts or heavy writes.
+    The table is one SQLite file (``PATH_ALIAS_DB_PATH``, WAL) shared by the workers of one
+    host. Several hosts cannot share it; see docs/path-alias-operations.md.
 
     Each client (identified by the ``ruby_alias_client`` cookie) owns at most one alias per
     configured route, issued lazily when a response first needs it. A client stays *pending*
@@ -730,12 +631,9 @@ class PathAliasTable:
         self._next_sweep = 0.0
         self._store = None
         if cfg.rewrites:
-            if cfg.db_url:
-                self._store = _PostgresStore(cfg.db_url, cfg.db_pool_size)
-            elif cfg.db_path and cfg.db_path != ":memory:":
-                self._store = _SQLiteStore(cfg.db_path)
-            else:
-                raise ValueError("Active path aliases require a persistent SQLite file or PostgreSQL")
+            if not cfg.db_path or cfg.db_path == ":memory:":
+                raise ValueError("Active path aliases require a persistent SQLite file")
+            self._store = _SQLiteStore(cfg.db_path)
 
     # ----------------------------------------------------------------- applicability
     def applies_to(self, target_id: str | None) -> bool:
@@ -748,11 +646,11 @@ class PathAliasTable:
                 "routes": len(self.cfg.routes), "query_routes": len(self.cfg.query_routes),
                 "action_routes": len(self.cfg.action_routes), "channels": [c.name for c in self.cfg.channels],
                 "target_ids": list(self.cfg.target_ids), "rotate_on": list(self.cfg.rotate_on),
-                "backend": "postgresql" if self.cfg.db_url else ("sqlite" if self._store else "none")}
+                "backend": "sqlite" if self._store else "none"}
 
     # ----------------------------------------------------------------- storage
     def _write_lock(self, db, client_id: str) -> None:
-        self._store.begin_write(db, f"{self.cfg.app_id}\0{client_id}")
+        self._store.begin_write(db)
 
     def _client(self, db, client_id: str):
         return db.execute("""SELECT generation, issued_at, config_hash, confirmed, last_event_at
@@ -821,8 +719,7 @@ class PathAliasTable:
                 continue
             while True:
                 alias = "/" + _ALIAS_MARKER + _random_token()
-                # DO NOTHING instead of catching the error: in PostgreSQL a failed statement
-                # aborts the whole transaction.
+                # DO NOTHING instead of catching the error keeps the transaction usable.
                 inserted = db.execute("""INSERT INTO path_alias_alias_rows
                     (alias_route, app_id, client_id, route_path, generation, issued_at, expires_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(alias_route) DO NOTHING""",
@@ -884,8 +781,7 @@ class PathAliasTable:
 
     def _sweep(self, db, now: float) -> None:
         """Drop rows past their tombstone period, idle clients and expired pending clients."""
-        if not self._store.try_begin_sweep(db, self.cfg.app_id):
-            return
+        self._store.begin_write(db)
         try:
             db.execute("DELETE FROM path_alias_alias_rows WHERE app_id=? AND expires_at<=?",
                        (self.cfg.app_id, now - self._tombstone))

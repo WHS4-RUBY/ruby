@@ -4,7 +4,7 @@
 
 별칭 키는 **앱 × 사용자(Defense 쿠키) × API 경로 × 세대**다. 현재 `path_alias_clients`는 `(app_id, client_id)`의 세대를, `path_alias_client_rows`는 각 경로의 실제 별칭과 만료 시각을 저장한다. 같은 사용자의 다른 API는 서로 다른 별칭이고, 다른 사용자의 같은 API도 별개다. 화면마다 같은 API의 별칭을 다시 발급하지 않는다. 브라우저의 여러 탭이 한 사용자의 쿠키와 별칭을 공유할 수 있어야 하기 때문이다.
 
-v4(2026-10-09)부터 테이블은 `path_alias_client_state`(세대·미확인 여부)와 `path_alias_alias_rows`(별칭·만료·폐기 사유)이며, 응답에 실제로 나온 경로만 발급한다. 기본 저장소는 SQLite이고 PostgreSQL은 다중 호스트용 선택 사항이다([설치·운영 가이드](path-alias-operations.md)).
+v4(2026-10-09)부터 테이블은 `path_alias_client_state`(세대·미확인 여부)와 `path_alias_alias_rows`(별칭·만료·폐기 사유)이며, 응답에 실제로 나온 경로만 발급한다. 저장소는 SQLite 하나다(PostgreSQL 지원은 제거)([설치·운영 가이드](path-alias-operations.md)).
 
 SQLite의 [WAL 모드](https://www.sqlite.org/wal.html)는 같은 호스트의 여러 프로세스에서 읽기와 쓰기를 병행하는 데 맞다. 쓰기 트랜잭션은 한 번에 하나이므로 발급·교체는 짧게 끝내고, 사용자 수와 쓰기량이 커지면 측정 후 중앙 DB로 옮긴다. WAL 파일을 네트워크 파일 시스템에 두고 여러 서버가 공유하는 구성은 SQLite 문서의 지원 범위를 벗어난다. 현재의 `UNIQUE(app_id, client_id, route_path, generation)`은 사용자별 경로 별칭 중복을 막고, `alias_route` 기본 키는 역방향 조회에 사용된다. 복합 키와 인덱스는 [SQLite 스키마 문서](https://www.sqlite.org/lang_createtable.html)를 기준으로 한다.
 

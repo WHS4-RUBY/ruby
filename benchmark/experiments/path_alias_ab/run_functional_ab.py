@@ -158,7 +158,7 @@ def main():
                 "browserImage": BROWSER_IMAGE, "dockerVersion": execute(["docker", "--version"]),
                 "gitHead": execute(["git", "rev-parse", "HEAD"]), "sourceSha256": hashes,
                 "limits": ["Functional checks only; no autonomous attack execution",
-                           "SQLite storage; PostgreSQL performance is not covered",
+                           "SQLite storage",
                            "Anonymous users; authenticated shopping and cart flows are not covered",
                            "One window per scenario and arm; no statistical replication",
                            "Epoch 1800 seconds; 900-second windows do not measure time-based expiry"]}

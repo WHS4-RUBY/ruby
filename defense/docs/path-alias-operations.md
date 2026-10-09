@@ -1,8 +1,8 @@
 # 경로 별칭 설치·운영 가이드 (v4, 2026-10-09)
 
-경로 별칭은 **검증된 사이트에 선택적으로 켜는 기능**이다. 기본값은 `PATH_ALIAS_MODE=off`이고, 저장소는 별도 서비스가 필요 없는 SQLite 파일이다. 이 문서는 설치·모드·경로 파일·쿠키 미반환 정책·PostgreSQL 전환 기준을 정리한다. 연구 설계와 실험 기록은 [path-alias-plan.md](path-alias-plan.md), 경로 수집은 [route-discovery-design.md](route-discovery-design.md)에 있다.
+경로 별칭은 **검증된 사이트에 선택적으로 켜는 기능**이다. 기본값은 `PATH_ALIAS_MODE=off`이고, 저장소는 별도 서비스가 필요 없는 SQLite 파일 하나다. 이 문서는 설치·모드·경로 파일·쿠키 미반환 정책·기존 PostgreSQL 설치의 전환을 정리한다. 연구 설계와 실험 기록은 [path-alias-plan.md](path-alias-plan.md), 경로 수집은 [route-discovery-design.md](route-discovery-design.md)에 있다.
 
-## 1. 설치: SQLite 기본
+## 1. 설치: SQLite
 
 두 Compose(`docker-compose.yml`, `docker-compose.local.yml`)는 다음을 쓴다.
 
@@ -12,9 +12,9 @@
 | 볼륨 | `defense-alias-data:/app/alias-data` (재시작·재배포 후에도 유지) |
 | 저널 | WAL, `synchronous=NORMAL`, `busy_timeout=10s` |
 | 쓰기 | 발급·교체는 `BEGIN IMMEDIATE` 트랜잭션. 같은 호스트의 여러 worker가 한 파일을 공유 |
-| 필요한 비밀값 | 없음 (`PATH_ALIAS_DB_PASSWORD`는 더 이상 필수가 아님) |
+| 필요한 비밀값 | 없음 (`PATH_ALIAS_DB_PASSWORD`·`PATH_ALIAS_DB_URL`은 더 이상 쓰지 않음) |
 
-PostgreSQL 드라이버는 기본 이미지에 없다. 다중 호스트가 필요할 때만 `docker build --build-arg WITH_POSTGRES=true ./defense`로 빌드하고 `PATH_ALIAS_DB_URL=postgresql://...`을 지정한다. URL이 있으면 SQLite보다 우선한다.
+PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유해야 하는 시점의 기준은 9절에 있다.
 
 **DB 오류는 원본 우회로 이어지지 않는다.** 별칭 조회가 실패하면 503(`Retry-After`)을 반환하고 백엔드로 보내지 않는다. 응답 치환 중 DB가 실패하거나 클라이언트 상한에 걸리면 enforce에서는 503, observe에서는 원본 응답을 그대로 보내고 `rewrite_skipped=db_error|capacity`를 기록한다(observe는 원래 원본 경로를 막지 않는다). 교체 쓰기만 실패하면 요청 판정(404)은 그대로이고 로그에 `rotation=failed`가 남는다.
 
@@ -127,7 +127,7 @@ PostgreSQL 드라이버는 기본 이미지에 없다. 다중 호스트가 필�
 | `PATH_ALIAS_MAX_CLIENTS` | 100000 | 전체 상한 |
 | 초과 시 | enforce: 503 `Retry-After: 5`, 쿠키 없음 / observe: 원본 응답, `rewrite_skipped=capacity` | 원본 경로로 우회시키지 않음 |
 
-상한은 앱 전체 기준이다. 쿠키를 돌려주지 않는 요청이 몰리면 새 방문자도 같은 503을 받을 수 있다. PostgreSQL에서는 클라이언트별 잠금이라 동시 발급 시 상한을 약간 넘을 수 있다. SQLite 파일은 행을 지워도 줄어들지 않고 빈 페이지를 재사용한다.
+상한은 앱 전체 기준이다. 쿠키를 돌려주지 않는 요청이 몰리면 새 방문자도 같은 503을 받을 수 있다. SQLite 파일은 행을 지워도 줄어들지 않고 빈 페이지를 재사용한다.
 
 ### 6.3 Detection 정책과의 관계 (Detection 코드는 변경하지 않음)
 
@@ -188,7 +188,7 @@ PostgreSQL 드라이버는 기본 이미지에 없다. 다중 호스트가 필�
 - 쿠키 미반환 공격이 실제 Juice Shop에서 `suspected` 미끼 단계까지 가는 경로(위 6.3). 미끼 실행 자체는 계획 헤더를 직접 넣어 확인했다.
 - 서비스 워커: Juice Shop은 등록하지 않아 확인할 수 없었다.
 - 관리자·2FA·결제·챗봇·파일 업로드 화면, Ruby Shop 전체 흐름.
-- 여러 호스트 PostgreSQL 배포와 그 부하, 장시간(30분 이상) 탭 유지.
+- 여러 호스트 배포(SQLite로는 지원하지 않음), 장시간(30분 이상) 탭 유지.
 - 실제 PHP 등 기능 선택형 dispatcher 앱(에코 앱으로만 확인).
 
 ## 8. 주소가 각 단계에서 어떻게 보이나 (실측 예)
@@ -203,37 +203,35 @@ PostgreSQL 드라이버는 기본 이미지에 없다. 다중 호스트가 필�
 
 Detection은 별칭 경로를 본다. 별칭이 클라이언트마다 달라 Detection의 엔드포인트별 통계·업무 로직 태그는 실제 경로 기준으로 묶이지 않는다. 공격 페이로드 검사(CRS)에는 영향이 없었다(별칭 경로의 SQLi도 403). Detection이 복원 경로를 알아야 한다면 Defense가 복원 결과를 Detection에 알려 주는 별도 연동이 필요하다(Detection 담당 범위).
 
-## 9. PostgreSQL: 언제 전환하고 어떻게 옮기나
+## 9. 저장소: SQLite 단일 구성, 기존 PostgreSQL 설치의 전환·롤백
 
-### 9.1 전환 기준
+v4는 SQLite만 지원한다. PostgreSQL 코드·드라이버·CI job은 제거했고, `PATH_ALIAS_DB_URL`이 설정돼 있으면 Defense가 시작하지 않는다(다른 저장소를 쓰고 있다고 착각하지 않도록).
 
-SQLite를 유지하는 조건은 **Defense 호스트가 하나**인 것이다. 다음 중 하나가 생기면 PostgreSQL(`PATH_ALIAS_DB_URL`)로 옮긴다.
+### 9.1 SQLite의 한계와 향후 확장 방향
+
+SQLite로 충분한 조건은 **Defense 호스트가 하나**인 것이다. 다음이 생기면 공유 DB가 필요하며, 그때 저장소 계층을 다시 설계한다(PostgreSQL 등). 현재 코드에는 그 경로가 없다.
 
 1. Defense를 두 대 이상의 호스트에 띄우고 고정 세션(sticky) 없이 분산한다. SQLite 파일과 WAL은 네트워크 파일시스템에서 공유할 수 없다.
 2. 로그에 `db_error`(SQLite 잠금 시간 초과)가 반복되거나, 교체·발급 p95가 7.2절 측정치(교체 p95 321 ms)보다 계속 크게 나온다.
 3. 확인된 클라이언트가 `PATH_ALIAS_MAX_CLIENTS`에 가까워지거나 쿠키 반환 사용자의 신규 발급률이 높아져 쓰기 잠금 대기가 사용자 지연으로 보인다.
 4. 백업·복제·장애 조치를 DB 수준에서 해야 한다.
 
-PostgreSQL은 클라이언트별 advisory lock을 써서 서로 다른 사용자의 쓰기가 서로 기다리지 않는다. CI의 `defense-postgres-compat` job이 같은 테이블 테스트를 실제 PostgreSQL로 계속 실행한다.
+SQLite는 쓰기 잠금이 DB 전체 단위라 서로 다른 사용자의 발급·교체도 순서대로 처리된다. 7.2절의 측정은 이 조건에서 했다.
 
-### 9.2 기존 PostgreSQL 설치에서 SQLite로 전환
+### 9.2 기존 PostgreSQL 설치에서 전환
 
-1. 서버 `.env`의 `PATH_ALIAS_MODE`를 확인한다. `off`(기본)이면 별칭 DB를 쓰지 않으므로 사용자 영향이 없다.
+1. 서버 `.env`의 `PATH_ALIAS_MODE`를 확인한다. `off`(기본)이면 별칭 DB를 쓰지 않으므로 사용자 영향이 없다. `.env`에 `PATH_ALIAS_DB_URL`이 있으면 지운다(남아 있으면 시작 실패).
 2. 새 버전을 배포한다. Compose에 `path-alias-db`가 없으므로 기존 PostgreSQL 컨테이너는 고아 컨테이너로 남는다(배포는 `--remove-orphans` 없이 올린다). 볼륨 `path-alias-pg`는 지우지 않는다.
 3. Defense 로그의 `path_alias_config`에서 `"backend":"sqlite"`를 확인한다.
-4. 롤백 기간이 지나면 `docker stop <project>-path-alias-db-1`로 멈춘다. 볼륨과 GitHub Secret `PATH_ALIAS_DB_PASSWORD`는 롤백 가능성이 없어질 때까지 남겨 둔다.
+4. 롤백 기간이 지나면 `docker stop <project>-path-alias-db-1`로 멈춘다. 볼륨과 GitHub Secret `PATH_ALIAS_DB_PASSWORD`는 롤백 가능성이 없어질 때까지 남겨 둔다. 그 뒤 컨테이너·볼륨·Secret을 지운다.
 
-**기존 별칭 영향**: v4는 새 테이블(`path_alias_client_state`, `path_alias_alias_rows`)을 쓰고 기존 행을 옮기지 않는다. 전환 순간 열려 있던 탭의 별칭은 `unknown_alias`가 된다. enforce에서는 그 탭의 API 호출이 404가 되고 새로고침하면 복구된다. 쿠키 값이 같아도 새 DB에는 클라이언트가 없어 교체 쓰기는 일어나지 않는다. PostgreSQL을 유지하면서 v4로 올려도 테이블 이름이 바뀌므로 영향은 같다. 사용자가 적은 시간에 하거나 전환 동안 `observe`로 낮춘다.
+**기존 별칭 영향**: v4는 새 테이블(`path_alias_client_state`, `path_alias_alias_rows`)을 SQLite 파일에 만들고 기존 PostgreSQL 행을 옮기지 않는다. 전환 순간 열려 있던 탭의 별칭은 `unknown_alias`가 된다. enforce에서는 그 탭의 API 호출이 404가 되고 새로고침하면 복구된다. 쿠키 값이 같아도 새 DB에는 클라이언트가 없어 교체 쓰기는 일어나지 않는다. 사용자가 적은 시간에 하거나 전환 동안 `observe`로 낮춘다.
 
 ### 9.3 롤백
 
-- 배포 workflow의 자동 롤백은 이전 `docker-compose.yml`과 이미지 태그로 되돌린다. 이전 Compose는 `PATH_ALIAS_DB_PASSWORD`를 요구하므로 workflow는 이 비밀값이 있으면 계속 전달한다. 기존 `path-alias-pg` 볼륨의 v3 행이 그대로 쓰인다.
+- 배포 workflow의 자동 롤백은 이전 `docker-compose.yml`과 이미지 태그로 되돌린다. 이전 Compose는 `PATH_ALIAS_DB_PASSWORD`를 요구하므로 workflow는 이 비밀값이 있으면 계속 전달한다. 남겨 둔 `path-alias-pg` 볼륨의 v3 행이 그대로 쓰인다.
 - 수동 롤백: 이전 Compose 파일과 `IMAGE_TAG`로 `docker compose up -d`, `.env`에 `PATH_ALIAS_DB_PASSWORD`를 넣는다.
 - 롤백 뒤 SQLite에서 발급된 별칭은 사라지므로 열린 탭은 한 번 새로고침해야 한다.
-
-### 9.4 PostgreSQL로 옮기기 (확장)
-
-이미지를 `WITH_POSTGRES=true`로 빌드하고 `PATH_ALIAS_DB_URL`을 외부 PostgreSQL로 지정한다. 테이블은 시작 시 만들어진다. SQLite 행은 옮기지 않으므로 영향은 9.2와 같다. 더 이상 쓰지 않는 v3 테이블은 `DROP TABLE path_alias_client_rows, path_alias_clients;`로 지울 수 있다.
 
 ## 10. 설정 요약
 
@@ -242,7 +240,7 @@ PostgreSQL은 클라이언트별 advisory lock을 써서 서로 다른 사용자
 | `PATH_ALIAS_MODE` | `off` | off / audit / observe / enforce |
 | `PATH_ALIAS_ROUTES_FILE` | Compose: juice-shop | 경로 파일 |
 | `PATH_ALIAS_PREFIXES` | `/rest/,/api/,/b2b/` | 직접 호출을 보는 보호 접두사. 경로 파일의 모든 경로가 이 안에 있어야 함 |
-| `PATH_ALIAS_DB_PATH` / `PATH_ALIAS_DB_URL` | SQLite 파일 / 비어 있음 | URL이 있으면 PostgreSQL |
+| `PATH_ALIAS_DB_PATH` | Compose: `/app/alias-data/path-alias.sqlite3` | SQLite 파일 (`PATH_ALIAS_DB_URL`이 있으면 시작 실패) |
 | `PATH_ALIAS_EPOCH_S`, `PATH_ALIAS_GRACE_EPOCHS` | 1800, 1 | 시간 교체와 유예 |
 | `PATH_ALIAS_ROTATE_ON` | `direct,unknown_alias,foreign_alias,invalid_alias_arguments` | 사유별 즉시 교체 |
 | `PATH_ALIAS_ROTATE_MIN_INTERVAL_S` | 5 | 클라이언트별 교체 최소 간격 |

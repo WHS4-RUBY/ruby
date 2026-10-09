@@ -70,7 +70,7 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 
 - `PATH_ALIAS_ROUTES_FILE`의 경로마다 **클라이언트별** 난수 별칭을 응답에 실제로 나온 것만 발급하고, Defense가 발급하는 `ruby_alias_client` 쿠키에 묶습니다. 별칭은 원래 경로로 복원해 후속 전략과 대상에 전달합니다.
 - 모드: `off`(기본) / `audit`(응답을 바꾸지 않고 집계만) / `observe`(응답 치환·쿠키 발급, 원본도 전달) / `enforce`(원본 404). **enforce는 경로 파일이 `enforce_ready`와 검증한 흐름·갱신 방식을 기록해야 적용되며, 없으면 observe로 동작합니다.** 경로별 `"mode":"observe"`, 대상별 `target_ids`로 범위를 좁힐 수 있습니다.
-- 저장소 기본값은 **SQLite 파일**(`PATH_ALIAS_DB_PATH`, `defense-alias-data` 볼륨, WAL)입니다. 별도 DB 서비스나 비밀번호가 필요 없습니다. 여러 호스트가 별칭을 공유해야 할 때만 PostgreSQL(`PATH_ALIAS_DB_URL`, `WITH_POSTGRES=true`로 빌드)을 씁니다. 전환 기준·절차·롤백은 가이드 9절을 보세요. DB 오류는 원본 우회가 아니라 503으로 끝납니다.
+- 저장소는 **SQLite 파일 하나**(`PATH_ALIAS_DB_PATH`, `defense-alias-data` 볼륨, WAL)입니다. 별도 DB 서비스나 비밀번호가 필요 없고, PostgreSQL 지원은 제거했습니다. 기존 PostgreSQL 설치의 전환·롤백과 여러 호스트가 필요해지는 기준은 가이드 9절을 보세요. DB 오류는 원본 우회가 아니라 503으로 끝납니다.
 - 교체는 사유별(`PATH_ALIAS_ROTATE_ON`)이며 만료·폐기된 자기 별칭은 교체를 일으키지 않습니다. 만료된 자기 별칭의 GET/HEAD는 현재 별칭으로 307 연결하고, POST 등은 재전송하지 않습니다.
 - 치환은 URL 문맥(JSON 값 전체, HTML 속성, JS 문자열, 같은 출처 절대 URL)에만 적용하고 설명 문장·주석·다른 출처는 건드리지 않습니다. 후속 전략의 응답 변형 뒤에 적용하며, 전략이 직접 만든 즉시 반환 응답은 치환하지 않습니다.
 - 쿠키를 돌려주지 않는 클라이언트는 미확인 클라이언트로 상한(`PATH_ALIAS_MAX_PENDING_CLIENTS`)·수명(`PATH_ALIAS_PENDING_TTL_S`)이 있고, 넘으면 enforce에서 503입니다. 쿠키가 없어도 원본 보호 경로는 허용하지 않습니다.

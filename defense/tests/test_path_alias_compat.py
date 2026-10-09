@@ -69,6 +69,9 @@ class ConfigFileTests(unittest.TestCase):
                 pa.PathAliasConfig.from_env(env)
             env["PATH_ALIAS_DB_PATH"] = str(Path(directory) / "aliases.sqlite3")
             self.assertEqual(pa.PathAliasTable(pa.PathAliasConfig.from_env(env)).describe()["backend"], "sqlite")
+            env["PATH_ALIAS_DB_URL"] = "postgresql://ruby@db/ruby"  # removed backend: refuse to start
+            with self.assertRaisesRegex(ValueError, "no longer supported"):
+                pa.PathAliasConfig.from_env(env)
 
     def test_shipped_route_files(self):
         config = Path(__file__).resolve().parents[1] / "config"

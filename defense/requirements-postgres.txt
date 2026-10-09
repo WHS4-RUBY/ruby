@@ -1,3 +1,0 @@
-# Optional: only for PATH_ALIAS_DB_URL (multi-host alias table). SQLite is the default.
-psycopg[binary]==3.3.6
-psycopg-pool==3.3.3

@@ -2,8 +2,6 @@ import asyncio
 import hashlib
 import hmac
 import json
-import os
-import secrets
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -287,41 +285,6 @@ class TableTests(unittest.TestCase):
                          "other")
 
 
-
-PG_TEST_URL = os.environ.get("PATH_ALIAS_TEST_DB_URL", "")
-
-
-@unittest.skipUnless(PG_TEST_URL, "set PATH_ALIAS_TEST_DB_URL=postgresql://... to run")
-class PostgresTableTests(TableTests):
-    """Every table test again, against a throwaway schema in a real PostgreSQL server."""
-
-    def make_cfg(self):
-        import psycopg
-
-        schema = "path_alias_test_" + secrets.token_hex(6)
-        with psycopg.connect(PG_TEST_URL, autocommit=True) as conn:
-            conn.execute(f"CREATE SCHEMA {schema}")
-
-        def drop():
-            with psycopg.connect(PG_TEST_URL, autocommit=True) as conn:
-                conn.execute(f"DROP SCHEMA {schema} CASCADE")
-
-        self.addCleanup(drop)
-        url = f"{PG_TEST_URL}{'&' if '?' in PG_TEST_URL else '?'}options=-csearch_path%3D{schema}"
-        cfg = replace(CFG, db_url=url)
-        self.addCleanup(lambda: (pool := pa._PG_POOLS.pop((url, cfg.db_pool_size), None)) and pool.close())
-        return cfg
-
-    def test_writers_lock_per_client_not_database_wide(self):
-        self.a("/rest/products/search")
-        store = self.table._store
-        with store.connect() as db:
-            self.table._write_lock(db, ALICE)  # held until rollback
-            try:
-                bob = self.a("/rest/products/search", client=BOB)  # would block under BEGIN IMMEDIATE
-                self.assertEqual(self.table.resolve(bob, "GET", NOW, BOB).kind, "alias")
-            finally:
-                db.rollback()
 
 class _AsyncBody(httpx.AsyncByteStream):
     def __init__(self, body):

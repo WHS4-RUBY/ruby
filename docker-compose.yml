@@ -101,9 +101,6 @@ services:
       - PATH_ALIAS_ROUTES_FILE=${PATH_ALIAS_ROUTES_FILE:-/app/config/juice-shop-routes.json}
       # Default alias table: one SQLite file (WAL) on a named volume, shared by this host's workers.
       - PATH_ALIAS_DB_PATH=/app/alias-data/path-alias.sqlite3
-      # Optional scale-out backend (several hosts). Needs an image built with WITH_POSTGRES=true.
-      - PATH_ALIAS_DB_URL=${PATH_ALIAS_DB_URL:-}
-      - PATH_ALIAS_DB_POOL_SIZE=${PATH_ALIAS_DB_POOL_SIZE:-10}
       - PATH_ALIAS_MAX_REWRITE_BYTES=${PATH_ALIAS_MAX_REWRITE_BYTES:-8388608}
       - PATH_ALIAS_APP_ID=${PATH_ALIAS_APP_ID:-}
       - PATH_ALIAS_ROTATE_ON=${PATH_ALIAS_ROTATE_ON:-direct,unknown_alias,foreign_alias,invalid_alias_arguments}

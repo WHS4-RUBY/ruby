@@ -73,40 +73,6 @@ jobs:
       - name: Test browser API request capture
         run: node --test defense/tests/capture_api_requests.test.cjs
 
-  # SQLite is the default alias store. This job keeps the optional PostgreSQL backend
-  # (PATH_ALIAS_DB_URL, multi-host scale-out) working with the same table tests.
-  defense-postgres-compat:
-    runs-on: ubuntu-26.04
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: ruby
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: ruby
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ruby -d ruby"
-          --health-interval 2s --health-timeout 3s --health-retries 15
-    env:
-      PATH_ALIAS_TEST_DB_URL: postgresql://ruby:ci@127.0.0.1:5432/ruby
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Defense with optional PostgreSQL driver
-        run: pip install -r defense/requirements.txt -r defense/requirements-postgres.txt
-
-      - name: Test alias table on PostgreSQL
-        run: python -m unittest defense.tests.test_path_alias.PostgresTableTests -v
-
-      - name: Build Defense image with PostgreSQL extras
-        run: docker build --build-arg WITH_POSTGRES=true -t defense:ci-postgres ./defense
-
   decoy-check:
     runs-on: ubuntu-26.04
     steps:
@@ -152,7 +118,7 @@ jobs:
 
   integration-check:
     runs-on: ubuntu-26.04
-    needs: [detection-check, python-check, defense-postgres-compat, decoy-check, overlay-check]
+    needs: [detection-check, python-check, decoy-check, overlay-check]
     env:
       DETECTION_DASHBOARD_PASSWORD: integration-password
       DEFENSE_DASHBOARD_PASSWORD: integration-password
