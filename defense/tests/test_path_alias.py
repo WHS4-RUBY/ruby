@@ -176,6 +176,22 @@ class TableTests(unittest.TestCase):
         self.assertEqual(clients, {ALICE})
         self.assertEqual(bob_rows, 0)
 
+    def test_full_capacity_reclaims_idle_confirmed_clients_without_sweep(self):
+        self.cfg = replace(self.cfg, max_clients=1, max_pending_clients=1)
+        self.table = pa.PathAliasTable(self.cfg)
+        old = self.a("/rest/products/search")
+        self.confirm()
+        self.table._next_sweep = NOW + 3600
+        # Keep the owner while its stale aliases can still be recovered.
+        with self.assertRaises(pa.AliasCapacityError) as failure:
+            self.a("/rest/products/search", NOW + 39, BOB)
+        self.assertEqual(str(failure.exception), "total")
+        self.assertEqual(self.table.resolve(old, "GET", NOW + 39, ALICE).reason, "stale_alias")
+        new = self.a("/rest/products/search", NOW + 41, BOB)
+        self.assertEqual(self.table.resolve(new, "GET", NOW + 41, BOB).kind, "alias")
+        self.assertEqual(self.sql("SELECT client_id FROM path_alias_client_state"), [(BOB,)])
+        self.assertEqual(self.sql("SELECT COUNT(*) FROM path_alias_alias_rows WHERE client_id=?", (ALICE,)), [(0,)])
+
     def test_sweep_runs_at_most_once_per_interval(self):
         clients = lambda: {row[0] for row in self.sql("SELECT client_id FROM path_alias_client_state")}
         self.a("/rest/products/search", client=BOB)

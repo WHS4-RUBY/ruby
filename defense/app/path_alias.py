@@ -711,8 +711,10 @@ class PathAliasTable:
             FROM path_alias_client_state WHERE app_id=?""", (self.cfg.app_id,)).fetchone()
         if row["pending"] < self.cfg.max_pending_clients and row["total"] < self.cfg.max_clients:
             return
-        # Expired pending clients are free capacity; reclaim them before refusing.
+        # Housekeeping after issuance cannot run when the table is full. Reclaim
+        # expired owners here under the caller's write lock before refusing.
         self._delete_pending(db, now)
+        self._delete_idle(db, now)
         row = db.execute("""SELECT COUNT(*) AS total,
             COALESCE(SUM(CASE WHEN confirmed=0 THEN 1 ELSE 0 END), 0) AS pending
             FROM path_alias_client_state WHERE app_id=?""", (self.cfg.app_id,)).fetchone()
@@ -726,6 +728,14 @@ class PathAliasTable:
             WHERE app_id=? AND confirmed=0 AND created_at<=?)""", (self.cfg.app_id, self.cfg.app_id, cutoff))
         db.execute("""DELETE FROM path_alias_client_state
             WHERE app_id=? AND confirmed=0 AND created_at<=?""", (self.cfg.app_id, cutoff))
+
+    def _delete_idle(self, db, now: float) -> None:
+        idle = now - self._lifetime - self._tombstone
+        db.execute("""DELETE FROM path_alias_alias_rows WHERE app_id=? AND client_id IN (
+            SELECT client_id FROM path_alias_client_state WHERE app_id=? AND issued_at<=?)""",
+                   (self.cfg.app_id, self.cfg.app_id, idle))
+        db.execute("DELETE FROM path_alias_client_state WHERE app_id=? AND issued_at<=?",
+                   (self.cfg.app_id, idle))
 
     def _issue(self, db, client_id: str, now: float, needed: tuple[str, ...],
                returned: bool) -> tuple[dict[str, str], dict | None]:
@@ -827,12 +837,7 @@ class PathAliasTable:
         try:
             db.execute("DELETE FROM path_alias_alias_rows WHERE app_id=? AND expires_at<=?",
                        (self.cfg.app_id, now - self._tombstone))
-            idle = now - self._lifetime - self._tombstone
-            db.execute("""DELETE FROM path_alias_alias_rows WHERE app_id=? AND client_id IN (
-                SELECT client_id FROM path_alias_client_state WHERE app_id=? AND issued_at<=?)""",
-                       (self.cfg.app_id, self.cfg.app_id, idle))
-            db.execute("DELETE FROM path_alias_client_state WHERE app_id=? AND issued_at<=?",
-                       (self.cfg.app_id, idle))
+            self._delete_idle(db, now)
             self._delete_pending(db, now)
             db.commit()
         except Exception:

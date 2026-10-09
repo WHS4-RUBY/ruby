@@ -341,6 +341,28 @@ class AliasPolicyIntegrationTests(IntegrationTests):
         stats = self.table.stats()
         self.assertEqual((stats["clients"], stats["pending_clients"]), (2, 2))
 
+    def test_confirmed_client_cap_recovers_after_idle_expiry(self):
+        self.configure(max_pending_clients=1, max_clients=1)
+        page, owner, alias = self.open_page()
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(self.client.get(alias).status_code, 200)  # confirm the owner
+        self.table._next_sweep = NOW + 3600
+        self.client.cookies.clear()
+        self.upstream = self.PAGE
+        with patch.object(main.time, "time", return_value=NOW + 39):
+            self.assertEqual(self.client.get("/").status_code, 503)
+            self.assertEqual(self.logs()[-1]["rewrite_skipped"], "total")
+        with patch.object(main.time, "time", return_value=NOW + 41):
+            recovered = self.client.get("/")
+            self.assertEqual(recovered.status_code, 200)
+            newcomer = self.client.cookies.get(pa.COOKIE_NAME)
+            self.assertNotEqual(newcomer, owner)
+            fresh = self.table.current_aliases(NOW + 41, newcomer)["/rest/products/search"]
+            self.assertIn(fresh, recovered.text)
+            self.upstream = self.JSON
+            self.assertEqual(self.client.get(fresh).status_code, 200)
+        self.assertEqual(self.table.stats()["clients"], 1)
+
     def test_database_failure_fails_closed(self):
         _, _, alias = self.open_page()
         before = len(self.calls)
