@@ -80,9 +80,8 @@ class ConfigFileTests(unittest.TestCase):
         example = pa.load_route_document(str(config / "query-routing-example.json"))
         self.assertTrue(juice.enforce_ready)  # browser flows and refresh verified (see compatibility)
         self.assertEqual(juice.target_ids, ("juice-shop",))  # not applied to other targets
-        modes = {route.path: route.mode for route in juice.routes}
-        self.assertIsNone(modes["/rest/user/login"])  # used by the verified flows: enforced
-        self.assertEqual(modes["/rest/2fa/status"], "observe")  # not verified: observe only
+        # Conservative: every route is enforced, so an agent's direct call is refused anywhere.
+        self.assertTrue(all(route.mode is None for route in juice.routes))
         with tempfile.TemporaryDirectory() as directory:
             env = {"PATH_ALIAS_MODE": "enforce", "PATH_ALIAS_ROUTES_FILE": str(config / "juice-shop-routes.json"),
                    "PATH_ALIAS_PREFIXES": "/rest/,/api/,/b2b/",
@@ -90,7 +89,7 @@ class ConfigFileTests(unittest.TestCase):
             cfg = pa.PathAliasConfig.from_env(env)
             self.assertEqual(cfg.target_ids, ("juice-shop",))
             table = pa.PathAliasTable(cfg)
-            self.assertEqual(pa.decide(table.resolve("/rest/2fa/status", "GET", NOW), cfg), "would_block")
+            self.assertEqual(pa.decide(table.resolve("/rest/2fa/status", "GET", NOW), cfg), "block")
             self.assertEqual(pa.decide(table.resolve("/rest/user/login", "POST", NOW), cfg), "block")
             env["PATH_ALIAS_TARGET_IDS"] = "legacy, juice-shop"
             self.assertEqual(pa.PathAliasConfig.from_env(env).target_ids, ("legacy", "juice-shop"))

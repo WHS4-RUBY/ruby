@@ -32,231 +32,75 @@
       "data export",
       "service worker (the app registers none)"
     ],
-    "enforced_routes": "Only routes requested during the verified flows are enforced; every other route is mode=observe (rewritten, original still forwarded) until its flow is verified."
+    "enforced_routes": "All routes are enforced (conservative: an agent calling an original route is refused). Normal flows rely on response rewriting; see verified_flows and the extra screen checks in docs/path-alias-operations.md."
   },
   "routes": [
-    {
-      "path": "/api/Addresss/{tail*}",
-      "mode": "observe"
-    },
+    "/api/Addresss/{tail*}",
     "/api/BasketItems/{tail*}",
-    {
-      "path": "/api/Cards/{tail*}",
-      "mode": "observe"
-    },
+    "/api/Cards/{tail*}",
     "/api/Challenges/{tail*}",
-    {
-      "path": "/api/Complaints/{tail*}",
-      "mode": "observe"
-    },
-    {
-      "path": "/api/Deliverys/{tail*}",
-      "mode": "observe"
-    },
-    {
-      "path": "/api/Feedbacks/{tail*}",
-      "mode": "observe"
-    },
-    {
-      "path": "/api/Hints/{tail*}",
-      "mode": "observe"
-    },
-    {
-      "path": "/api/PrivacyRequests/{tail*}",
-      "mode": "observe"
-    },
+    "/api/Complaints/{tail*}",
+    "/api/Deliverys/{tail*}",
+    "/api/Feedbacks/{tail*}",
+    "/api/Hints/{tail*}",
+    "/api/PrivacyRequests/{tail*}",
     "/api/Products/{tail*}",
     "/api/Quantitys/{tail*}",
-    {
-      "path": "/api/Recycles/{tail*}",
-      "mode": "observe"
-    },
+    "/api/Recycles/{tail*}",
     "/api/SecurityAnswers/{tail*}",
     "/api/SecurityQuestions/{tail*}",
     "/api/Users/{tail*}",
-    {
-      "path": "/b2b/v2/orders",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/2fa/disable",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/2fa/setup",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/2fa/status",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/2fa/verify",
-      "mode": "observe"
-    },
+    "/b2b/v2/orders",
+    "/rest/2fa/disable",
+    "/rest/2fa/setup",
+    "/rest/2fa/status",
+    "/rest/2fa/verify",
     "/rest/admin/application-configuration",
     "/rest/admin/application-version",
-    {
-      "path": "/rest/admin/{tail*}",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/basket",
-      "mode": "observe"
-    },
+    "/rest/admin/{tail*}",
+    "/rest/basket",
     "/rest/basket/{id}",
-    {
-      "path": "/rest/basket/{id}/checkout",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/basket/{id}/coupon/{coupon}",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/basket/{id}/order",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/captcha",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/chat",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/continue-code",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/continue-code-findIt",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/continue-code-findIt/apply/{continueCode}",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/continue-code-fixIt",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/continue-code-fixIt/apply/{continueCode}",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/continue-code/apply/{continueCode}",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/country-mapping",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/deluxe-membership",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/image-captcha",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/image-captcha/{id}",
-      "mode": "observe"
-    },
+    "/rest/basket/{id}/checkout",
+    "/rest/basket/{id}/coupon/{coupon}",
+    "/rest/basket/{id}/order",
+    "/rest/captcha",
+    "/rest/chat",
+    "/rest/continue-code",
+    "/rest/continue-code-findIt",
+    "/rest/continue-code-findIt/apply/{continueCode}",
+    "/rest/continue-code-fixIt",
+    "/rest/continue-code-fixIt/apply/{continueCode}",
+    "/rest/continue-code/apply/{continueCode}",
+    "/rest/country-mapping",
+    "/rest/deluxe-membership",
+    "/rest/image-captcha",
+    "/rest/image-captcha/{id}",
     "/rest/languages",
-    {
-      "path": "/rest/memories",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/order-history",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/order-history/orders",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/order-history/{id}/delivery-status",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/products/reviews",
-      "mode": "observe"
-    },
+    "/rest/memories",
+    "/rest/order-history",
+    "/rest/order-history/orders",
+    "/rest/order-history/{id}/delivery-status",
+    "/rest/products/reviews",
     "/rest/products/search",
     "/rest/products/{id}/reviews",
-    {
-      "path": "/rest/products/{tail*}",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/repeat-notification",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/saveLoginIp",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/track-order/{id}",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/user/authentication-details",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/user/change-password",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/user/data-export",
-      "mode": "observe"
-    },
+    "/rest/products/{tail*}",
+    "/rest/repeat-notification",
+    "/rest/saveLoginIp",
+    "/rest/track-order/{id}",
+    "/rest/user/authentication-details",
+    "/rest/user/change-password",
+    "/rest/user/data-export",
     "/rest/user/login",
-    {
-      "path": "/rest/user/reset-password",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/user/security-question",
-      "mode": "observe"
-    },
+    "/rest/user/reset-password",
+    "/rest/user/security-question",
     "/rest/user/whoami",
-    {
-      "path": "/rest/user/{tail*}",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/wallet/balance",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/web3/nftMintListen",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/web3/nftUnlocked",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/web3/submitKey",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/web3/walletExploitAddress",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/web3/walletNFTVerify",
-      "mode": "observe"
-    },
-    {
-      "path": "/rest/web3/{tail*}",
-      "mode": "observe"
-    }
+    "/rest/user/{tail*}",
+    "/rest/wallet/balance",
+    "/rest/web3/nftMintListen",
+    "/rest/web3/nftUnlocked",
+    "/rest/web3/submitKey",
+    "/rest/web3/walletExploitAddress",
+    "/rest/web3/walletNFTVerify",
+    "/rest/web3/{tail*}"
   ]
 }
