@@ -40,6 +40,36 @@ class RouteDiscoveryTests(unittest.TestCase):
         self.assertEqual(report["incomplete_runtime_captures"], [])
         self.assertEqual(partial_report["incomplete_runtime_captures"], [capture.name])
 
+    def test_runtime_dispatchers_are_classified_and_body_routing_reported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            capture = Path(directory) / "php.runtime.json"
+            capture.write_text(json.dumps({
+                "format": "ruby-runtime-requests-v1", "origin": "http://shop.example",
+                "route_keys": ["route", "action"],
+                "requests": [
+                    {"path": "/gateway", "method": "GET", "resource_type": "fetch", "protected": False,
+                     "query_keys": ["q", "route"], "response_status": 200,
+                     "route_selectors": [{"key": "route", "kind": "path", "value": "/api/items"}]},
+                    {"path": "/api.php", "method": "GET", "resource_type": "xhr", "protected": False,
+                     "query_keys": ["action"], "response_status": 200,
+                     "route_selectors": [{"key": "action", "kind": "action", "value": "search"}]},
+                    {"path": "/api.php", "method": "POST", "resource_type": "fetch", "protected": False,
+                     "query_keys": [], "response_status": 302, "body_selector_keys": ["action"]},
+                    {"path": "/cart/update", "method": "POST", "resource_type": "fetch", "protected": False,
+                     "query_keys": ["sid"], "response_status": 204},
+                ], "steps": [{"passed": True}],
+            }), encoding="utf-8")
+            report = inventory([capture], origin="http://shop.example")
+        dispatchers = {(d["dispatcher_path"], d["parameter"]): d for d in report["routing_dispatchers"]}
+        self.assertEqual(dispatchers[("/gateway", "route")]["suggested_config"], "query_routes")
+        self.assertTrue(dispatchers[("/api.php", "action")]["suggested_config"].startswith("unsupported"))
+        self.assertEqual(dispatchers[("/api.php", "action")]["actions"], ["search"])
+        self.assertEqual(report["unsupported_routing"],
+                         [{"dispatcher_path": "/api.php", "parameter": "action", "reason": "body_routing"}])
+        outside = {item["path"]: item for item in report["same_origin_api_outside_prefixes"]}
+        self.assertEqual(outside["/cart/update"]["response_statuses"], [204])
+        self.assertEqual(outside["/cart/update"]["query_keys"], ["sid"])
+
     def test_fetches_same_origin_scripts_and_lazy_chunks(self):
         payloads = {
             "http://shop.example/": ("text/html", b'<script src="/main.js"></script>'

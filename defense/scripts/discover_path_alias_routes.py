@@ -113,6 +113,28 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
     query_paths: dict[tuple[str, str], set[str]] = defaultdict(set)
     query_evidence: dict[tuple[str, str, str], dict] = {}
     incomplete_runtime_captures: list[str] = []
+    # Operator-declared routing keys (--route-keys in the capture): (dispatcher, key) -> evidence
+    dispatchers: dict[tuple[str, str], dict] = {}
+    outside: dict[str, dict] = {}
+    statuses: dict[str, set[int]] = defaultdict(set)
+
+    def add_selector(path: str, key: str, kind: str, value: str | None, method: str,
+                     status, source: str, in_body: bool = False):
+        entry = dispatchers.setdefault((path, key), {
+            "dispatcher_path": path, "parameter": key, "kinds": set(), "path_targets": set(),
+            "actions": set(), "observed_methods": set(), "response_statuses": set(),
+            "body_routing": False, "sources": set()})
+        entry["kinds"].add(kind)
+        if kind == "path" and value:
+            entry["path_targets"].add(value)
+        elif kind == "action" and value:
+            entry["actions"].add(value)
+        if re.fullmatch(r"[A-Z]+", method):
+            entry["observed_methods"].add(method)
+        if isinstance(status, int) and not isinstance(status, bool):
+            entry["response_statuses"].add(status)
+        entry["body_routing"] |= in_body
+        entry["sources"].add(source)
 
     def add_query(dispatcher: str | None, key: str, value: str, source: str,
                   method: str = "", status: int | None = None, runtime: bool = False):
@@ -159,6 +181,25 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
                     capture.get("page_error_count", 0)):
                 incomplete_runtime_captures.append(file.name)
             for entry in capture.get("requests", []):
+                method = entry.get("method", "").upper()
+                status = entry.get("response_status")
+                for item in entry.get("route_selectors", []):
+                    kind = item.get("kind") if item.get("kind") in {"path", "action", "opaque"} else "opaque"
+                    add_selector(entry.get("path", ""), item.get("key", ""), kind, item.get("value"),
+                                 method, status, file.name)
+                for key in entry.get("body_selector_keys", []):
+                    add_selector(entry.get("path", ""), key, "body", None, method, status, file.name, True)
+                if (not entry.get("protected") and entry.get("resource_type") in {"fetch", "xhr"}
+                        and not protected_path(entry.get("path", ""), prefixes)):
+                    item = outside.setdefault(entry.get("path", ""), {
+                        "path": entry.get("path", ""), "observed_methods": set(),
+                        "response_statuses": set(), "query_keys": set(), "sources": set()})
+                    if re.fullmatch(r"[A-Z]+", method):
+                        item["observed_methods"].add(method)
+                    if isinstance(status, int) and not isinstance(status, bool):
+                        item["response_statuses"].add(status)
+                    item["query_keys"].update(k for k in entry.get("query_keys", []) if isinstance(k, str))
+                    item["sources"].add(file.name)
                 for item in entry.get("query_path_candidates", []):
                     add_query(entry.get("path"), item.get("key", ""), item.get("path", ""),
                               file.name, entry.get("method", "").upper(), entry.get("response_status"), True)
@@ -166,9 +207,10 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
                 if not path:
                     continue
                 found[path].add(file.name)
-                method = entry.get("method", "").upper()
                 if re.fullmatch(r"[A-Z]+", method):
                     observed_methods[path].add(method)
+                if isinstance(status, int) and not isinstance(status, bool):
+                    statuses[path].add(status)
         elif file.suffix.lower() == ".har":
             har = json.loads(file.read_text(encoding="utf-8"))
             for entry in har.get("log", {}).get("entries", []):
@@ -204,7 +246,21 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
                            "covered_by": covered,
                            "dynamic_prefix_of": dynamic_prefix if not covered else [],
                            "observed_methods": sorted(observed_methods[path]),
+                           "response_statuses": sorted(statuses[path]),
                            "sources": sorted(sources)})
+
+    def dispatcher_report(entry: dict) -> dict:
+        kinds = entry["kinds"] - {"body"}
+        if entry["body_routing"]:
+            suggestion = "unsupported: routing key in request body (cannot be aliased; enforce blocks protected values)"
+        elif kinds == {"path"}:
+            suggestion = "query_routes"
+        elif kinds == {"action"}:
+            suggestion = "action_routes (list only the actions to protect, with methods)"
+        else:
+            suggestion = "manual review: mixed or opaque selector values"
+        return {**{name: sorted(value) if isinstance(value, set) else value for name, value in entry.items()},
+                "suggested_config": suggestion}
     return {
         "note": "Candidates require human review before enabling enforcement.",
         "har_origin_filter": origin,
@@ -215,6 +271,17 @@ def inventory(inputs: list[Path], routes_file: Path | None = None,
             {"key": key, "path": path, "sources": sorted(sources)}
             for (key, path), sources in sorted(query_paths.items())
         ],
+        "routing_dispatchers": [dispatcher_report(entry) for _, entry in sorted(dispatchers.items())],
+        "unsupported_routing": [
+            {"dispatcher_path": entry["dispatcher_path"], "parameter": entry["parameter"],
+             "reason": "body_routing" if entry["body_routing"] else "opaque_selector"}
+            for _, entry in sorted(dispatchers.items())
+            if entry["body_routing"] or "opaque" in entry["kinds"]],
+        "same_origin_api_outside_prefixes": [
+            {name: sorted(value) if isinstance(value, set) else value for name, value in item.items()}
+            for _, item in sorted(outside.items())],
+        "dynamic_assembly_note": ("Paths assembled at runtime from variables (string concatenation, "
+                                  "URLSearchParams) are only visible in runtime captures, not in bundles."),
         "query_routing_evidence": [
             {"id": hashlib.sha256("\0".join(key).encode()).hexdigest()[:16],
              **{name: sorted(value) if isinstance(value, set) else value
