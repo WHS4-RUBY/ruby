@@ -138,6 +138,29 @@ class RewriteContextTests(unittest.TestCase):
         self.assertIn(b"// see /rest/user/whoami", output)
         self.assertIn(b"fetch('" + self.alias("/rest/user/whoami").encode() + b"')", output)
 
+    def test_runtime_prefix_literals_and_trailing_slash(self):
+        cfg = replace(self.cfg, routes=(pa.Route("/rest/track-order/{id}"), pa.Route("/rest/captcha"),
+                                        pa.Route("/rest/captcha/{id}"), pa.Route("/rest/apply/{code}", ("PUT",))),
+                      action_routes=(), query_routes=())
+        table = pa.PathAliasTable(cfg)
+        body = (b'host=this.hostServer+"/rest/track-order";'
+                b'put(this.hostServer+`/rest/apply/`+e,{});get(this.hostServer+`/rest/captcha/`)')
+        output, count = table.rewrite_body(body, NOW, ALICE)
+        aliases = table.current_aliases(NOW, ALICE)
+        self.assertEqual(count, 3)
+        self.assertIn(b'"' + aliases["/rest/track-order/{id}"].encode() + b'"', output)
+        self.assertIn(b"`" + aliases["/rest/apply/{code}"].encode() + b"/`", output)
+        captcha = aliases["/rest/captcha/{id}"]
+        self.assertIn(b"`" + captcha.encode() + b"/`", output)
+        # what the app then requests at runtime
+        self.assertEqual(table.resolve(aliases["/rest/track-order/{id}"] + "/7", "GET", NOW, ALICE).upstream_path,
+                         "/rest/track-order/7")
+        self.assertEqual(table.resolve(aliases["/rest/apply/{code}"] + "/abc", "PUT", NOW, ALICE).upstream_path,
+                         "/rest/apply/abc")
+        empty = table.resolve(captcha + "/", "GET", NOW, ALICE)
+        self.assertEqual((empty.upstream_path, empty.route_id), ("/rest/captcha/", "/rest/captcha"))
+        self.assertEqual(table.resolve(captcha + "/9", "GET", NOW, ALICE).upstream_path, "/rest/captcha/9")
+
     def test_lazy_issuance_only_for_routes_in_the_response(self):
         self.table.rewrite_body(b'fetch("/rest/user/whoami")', NOW, BOB)
         with self.table._store.connect() as db:

@@ -705,6 +705,21 @@ class PathAliasTable:
         prefixes = b"|".join(re.escape(p.rstrip("/").encode("ascii")) for p in cfg.prefixes)
         self._body_candidates = re.compile(rb"(?:" + prefixes + rb")", re.I)
         self._body_patterns = [(route, route.body_pattern()) for route in cfg.routes]
+        # String literals that end where the app appends one runtime segment:
+        # `/rest/track-order` + "/" + id, `/rest/continue-code/apply/` + code, `/rest/image-captcha/`.
+        # With a trailing slash the template is chosen (the app appends a segment); without one,
+        # a static route of the same path wins. A template alias + "/" alone restores the static
+        # route + "/" (see resolve).
+        self._static_routes = {route.path.lower(): route for route in cfg.routes if not route.variables}
+        self._template_prefixes = {}
+        for route in cfg.routes:
+            variables = route.variables
+            if len(variables) == 1 and not variables[0].group(2) and _VAR.fullmatch(route.parts[-1]):
+                self._template_prefixes.setdefault(("/" + "/".join(route.parts[:-1])).lower(), route)
+        literals = set(self._static_routes) | set(self._template_prefixes)
+        self._prefix_pattern = re.compile(
+            rb"(" + b"|".join(re.escape(p.encode()) for p in sorted(literals, key=len, reverse=True))
+            + rb")(/?)(?=[\x22\x27`])", re.I) if literals else None
         self._real_patterns = {route.path: route.real_pattern() for route in cfg.routes}
         dispatchers = sorted({r.path for r in cfg.query_routes + cfg.action_routes}, key=len, reverse=True)
         self._dispatch_patterns = [re.compile(re.escape(d.encode()) + _DISPATCH_TAIL)
@@ -1000,6 +1015,12 @@ class PathAliasTable:
             if not route.allows(method):
                 return Resolution("reject", path, reason="method_not_allowed", route_id=route.path, mode=mode)
             suffix = path[len(base):]
+            static = self._static_routes.get(("/" + "/".join(route.parts[:-1])).lower()) \
+                if suffix == "/" and len(route.variables) == 1 else None
+            if static is not None and not route.variables[0].group(2):
+                route = static  # `/x/` from a template prefix literal is the static `/x/`
+                if not route.allows(method):
+                    return Resolution("reject", path, reason="method_not_allowed", route_id=route.path, mode=mode)
             real = self._restore(route, suffix)
             if real is None:
                 return Resolution("reject", path, reason="invalid_alias_arguments", route_id=route.path, mode=mode)
@@ -1027,7 +1048,8 @@ class PathAliasTable:
     def _restore(self, route: Route, suffix: str) -> str | None:
         variables = route.variables
         if not variables:
-            return None if suffix else route.path
+            # A trailing slash is the same resource for most routers (`/rest/image-captcha/`).
+            return route.path + "/" if suffix == "/" else (None if suffix else route.path)
         pieces = suffix.lstrip("/").split("/") if suffix.startswith("/") else []
         wildcard = bool(variables[-1].group(2))
         if len(pieces) < len(variables) - wildcard or (not wildcard and len(pieces) != len(variables)):
@@ -1253,6 +1275,14 @@ class PathAliasTable:
                     found.append((start, match.end(), route, match.group(1)))
                     copied_until = match.end()
                 break
+            else:
+                match = self._prefix_pattern.match(body, start) if self._prefix_pattern else None
+                if match and self._context_ok(body, start, match.end(), kind, origins)[0]:
+                    base, slash = match.group(1).decode().lower(), match.group(2)
+                    route = (self._template_prefixes.get(base) or self._static_routes.get(base)) if slash \
+                        else (self._static_routes.get(base) or self._template_prefixes.get(base))
+                    found.append((start, match.end(), route, b"\0prefix" + slash))
+                    copied_until = match.end()
         return sorted(found, key=lambda item: item[0])
 
     def count_references(self, body: bytes, kind: str = "js", origins: tuple[bytes, ...] = ()) -> int:
@@ -1303,6 +1333,9 @@ class PathAliasTable:
                 replacement = self._rewrite_dispatch(matched, lookup)
                 if replacement == matched:
                     continue
+            elif matched.startswith(b"\0prefix"):
+                # keep the literal's own trailing slash; the app appends the rest at runtime
+                replacement = aliases[route.path].encode("ascii") + matched[len(b"\0prefix"):]
             else:
                 replacement = aliases[route.path].encode("ascii")
                 if route.variables and not route.variables[-1].group(2):
