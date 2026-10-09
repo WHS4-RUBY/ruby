@@ -34,6 +34,8 @@ from . import target_selection, path_alias, token_gate
 TOKEN_GATE = token_gate.TokenGateConfig.from_env()
 PATH_ALIAS = path_alias.PathAliasConfig.from_env()
 PATH_ALIAS_TABLE = path_alias.PathAliasTable(PATH_ALIAS)
+if PATH_ALIAS.mode != "off":
+    path_alias.emit(PATH_ALIAS_TABLE.describe())
 from .target_selection import TargetSelectionError, resolve_target_url
 
 
@@ -418,41 +420,100 @@ def _log_gate(request: Request, decision: token_gate.GateDecision | None,
     ))
 
 
-def _log_alias(request: Request, resolution: path_alias.Resolution, decision: str,
+def _log_alias(request: Request | WebSocket, resolution: path_alias.Resolution, decision: str,
                upstream_status: int | None = None, rewrites: int = 0,
                skipped: str | None = None, alias_client: str | None = None,
-               rotation: str | None = None) -> None:
-    if PATH_ALIAS.mode == "off" or (resolution.kind == "other" and not rewrites and skipped is None):
+               rotation: str | None = None, *, method: str | None = None,
+               target_id: str | None = None, would_rewrite: int = 0) -> None:
+    if PATH_ALIAS.mode == "off" or (resolution.kind == "other" and not rewrites and not would_rewrite
+                                    and skipped is None):
         return
-    path_alias.emit(path_alias.build_log(
-        resolution, decision, now=time.time(), mode=PATH_ALIAS.mode, method=request.method,
-        path=request.url.path, headers=request.headers, upstream_status=upstream_status,
-        rewrites=rewrites, rewrite_skipped=skipped,
+    log = path_alias.build_log(
+        resolution, decision, now=time.time(), mode=PATH_ALIAS.mode,
+        method=method or request.method, path=request.url.path, headers=request.headers,
+        upstream_status=upstream_status, rewrites=rewrites, rewrite_skipped=skipped,
         ua_family=token_gate.ua_family(request.headers.get("user-agent")),
         alias_client=alias_client, rotation=rotation,
-    ))
+        cookie_returned=path_alias.COOKIE_NAME in request.cookies, target_id=target_id,
+    )
+    if would_rewrite:
+        log["would_rewrite"] = would_rewrite
+    path_alias.emit(log)
 
 
-async def _alias_db(call, *args):
+async def _alias_db(call, *args, **kwargs):
     """Alias table calls block on the database; keep them off the event loop."""
-    if PATH_ALIAS.mode == "off":
-        return call(*args)
-    return await asyncio.to_thread(call, *args)
+    if not PATH_ALIAS.rewrites:
+        return call(*args, **kwargs)
+    return await asyncio.to_thread(call, *args, **kwargs)
 
 
 async def _rotate_on_event(resolution: path_alias.Resolution, alias_client: str | None) -> str | None:
-    """Replace a client's aliases as soon as it hits a real route or a bad alias."""
-    if resolution.kind not in PATH_ALIAS.rotate_on or alias_client is None:
+    """Replace a client's aliases when it hits a real route or a bad alias (per reason).
+
+    Stale and revoked aliases never rotate: an old tab or the back button produces them.
+    A rotation that fails is reported, but the request decision stays the same.
+    """
+    reason = path_alias.rotation_reason(resolution)
+    if reason not in PATH_ALIAS.rotate_on or alias_client is None:
         return None
-    if PATH_ALIAS.mode != "enforce":
+    if path_alias.effective_mode(resolution, PATH_ALIAS) != "enforce":
         return "would_rotate"
-    rotated = await _alias_db(PATH_ALIAS_TABLE.rotate_client, alias_client, time.time(), resolution.kind)
-    return "rotated" if rotated else None
+    try:
+        return await _alias_db(PATH_ALIAS_TABLE.rotate_client, alias_client, time.time(), reason)
+    except path_alias.AliasStoreError:
+        return "failed"
 
 
 def _alias_not_found() -> Response:
     return Response(content=b'{"error":"not_found"}', status_code=404,
                     media_type="application/json", headers={"Cache-Control": "no-store"})
+
+
+def _alias_unavailable(capacity: bool = False) -> Response:
+    """The alias store failed or is full. Never fall back to forwarding original routes."""
+    return Response(content=b'{"error":"temporarily_unavailable"}', status_code=503,
+                    media_type="application/json",
+                    headers={"Cache-Control": "no-store", "Retry-After": "5" if capacity else "1"})
+
+
+def _replay_receive(body: bytes):
+    sent = False
+
+    async def receive():
+        nonlocal sent
+        if not sent:
+            sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return {"type": "http.disconnect"}
+
+    return receive
+
+
+async def _body_routing(request: Request, alias: path_alias.Resolution,
+                        alias_client: str | None) -> tuple[path_alias.Resolution, bytes | None, str | None]:
+    """Check a configured dispatcher's form/JSON body for a routing selector.
+
+    Returns (resolution, buffered body or None, note). Bodies that cannot be inspected are
+    forwarded unchanged and reported as ``body_uninspected``.
+    """
+    dispatchers = {r.path for r in PATH_ALIAS.query_routes + PATH_ALIAS.action_routes}
+    if (request.method in {"GET", "HEAD", "OPTIONS"} or alias.kind in ("direct", "reject", "channel")
+            or alias.upstream_path not in dispatchers):
+        return alias, None, None
+    content_type = request.headers.get("content-type", "")
+    try:
+        length = int(request.headers.get("content-length", ""))
+    except ValueError:
+        length = -1
+    media = content_type.split(";", 1)[0].strip().lower()
+    if (length < 0 or length > path_alias.BODY_ROUTING_LIMIT or not (
+            media in ("application/x-www-form-urlencoded", "application/json") or media.endswith("+json"))):
+        return alias, None, "body_uninspected"
+    body = await request.body()
+    found = await _alias_db(PATH_ALIAS_TABLE.body_selector, alias.upstream_path, content_type, body,
+                            request.method, time.time(), alias_client)
+    return (found or alias), body, None
 
 
 async def _replay_body(consumed: list[bytes], rest, upstream: httpx.Response, on_complete=None):
@@ -472,10 +533,19 @@ async def _replay_body(consumed: list[bytes], rest, upstream: httpx.Response, on
 
 
 async def alias_proxy_response(upstream: httpx.Response, request: Request,
-                               alias_client: str | None, *, target_url: str | None = None, on_complete=None) -> tuple[Response, int, str | None]:
-    """Serve an upstream response with configured routes replaced by this client's aliases."""
-    rewrites, skipped = 0, None
+                               alias_client: str | None, *, target_url: str | None = None,
+                               on_complete=None) -> tuple[Response, int, str | None, int]:
+    """Serve an upstream response with configured routes replaced by this client's aliases.
+
+    Returns (response, rewrites, skipped reason, references counted in audit mode). In audit
+    mode the body is only scanned. If the alias store fails while enforcing, AliasStoreError
+    propagates so the caller answers 503; in observe the original body is served unchanged.
+    """
+    rewrites, skipped, would_rewrite = 0, None, 0
     client_id = alias_client or path_alias.new_client_id()
+    returned = alias_client is not None
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    content_type = upstream.headers.get("content-type", "")
     if not path_alias.rewritable(upstream.headers.get("content-type", ""),
                                  upstream.headers.get("content-encoding", ""),
                                  upstream.status_code, request.method):
@@ -493,8 +563,21 @@ async def alias_proxy_response(upstream: httpx.Response, request: Request,
             response = streaming_proxy_response(upstream, request, target_url=target_url, body=_replay_body(consumed, stream, upstream, on_complete))
         else:
             await upstream.aclose()
-            body, rewrites = await _alias_db(PATH_ALIAS_TABLE.rewrite_body, b"".join(consumed),
-                                             time.time(), client_id)
+            body = b"".join(consumed)
+            kind = path_alias.media_kind(content_type)
+            origins = path_alias.public_origins(host)
+            if PATH_ALIAS.mode == "audit":
+                would_rewrite = PATH_ALIAS_TABLE.count_references(body, kind, origins)
+            else:
+                try:
+                    body, rewrites = await _alias_db(PATH_ALIAS_TABLE.rewrite_body, body, time.time(),
+                                                     client_id, kind=kind, origins=origins,
+                                                     returned=returned)
+                except path_alias.AliasStoreError as exc:
+                    if PATH_ALIAS.enforcing:
+                        raise
+                    skipped = ("capacity" if isinstance(exc, path_alias.AliasCapacityError)
+                               else "db_error")
             skip = _REWRITTEN_RESPONSE_SKIP if rewrites else _RESPONSE_SKIP
             response = Response(content=body, status_code=upstream.status_code)
             for key, value in upstream.headers.multi_items():
@@ -508,13 +591,17 @@ async def alias_proxy_response(upstream: httpx.Response, request: Request,
                 )
             if rewrites:
                 response.headers["cache-control"] = "no-store"
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
     raw_headers, location_rewritten = [], False
     for key, value in response.raw_headers:
-        if key.lower() == b"location":
+        if key.lower() == b"location" and PATH_ALIAS.rewrites:
             original = value.decode("latin-1")
-            rewritten = await _alias_db(PATH_ALIAS_TABLE.rewrite_location, original, host,
-                                        time.time(), client_id)
+            try:
+                rewritten = await _alias_db(PATH_ALIAS_TABLE.rewrite_location, original, host,
+                                            time.time(), client_id, returned=returned)
+            except path_alias.AliasStoreError:
+                if PATH_ALIAS.enforcing:
+                    raise
+                rewritten, skipped = original, skipped or "db_error"
             location_rewritten |= rewritten != original
             value = rewritten.encode("latin-1")
         raw_headers.append((key, value))
@@ -527,7 +614,7 @@ async def alias_proxy_response(upstream: httpx.Response, request: Request,
         response.headers["cache-control"] = "no-store"
     if not isinstance(response, StreamingResponse) and on_complete is not None:
         on_complete("forwarded")
-    return response, rewrites, skipped
+    return response, rewrites, skipped, would_rewrite
 
 
 def _websocket_target(full_path: str, query: str, target_url: str | None = None) -> str:
@@ -625,6 +712,34 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
         return
     metadata = _event_metadata(websocket, selected)
     plan = parse_plan(websocket.headers.get("x-defense-plan"))
+    ws_path, ws_query = full_path, websocket.url.query
+    if PATH_ALIAS_TABLE.applies_to(selected.target_id):
+        # Same stage-1 rules as HTTP for the upgrade URL. Frames are never rewritten.
+        alias_client = path_alias.valid_client_id(websocket.cookies.get(path_alias.COOKIE_NAME))
+        try:
+            alias = await _alias_db(PATH_ALIAS_TABLE.resolve_request, websocket.url.path,
+                                    websocket.scope.get("query_string", b""), "GET", time.time(),
+                                    alias_client, websocket.headers)
+        except path_alias.AliasStoreError:
+            event_store.record(method="WEBSOCKET", path=websocket.url.path, status=503,
+                               strategies=["path_alias"], outcome="error",
+                               duration_ms=(time.perf_counter() - started_at) * 1000, **metadata)
+            await websocket.close(code=1013, reason="route check unavailable")
+            return
+        decision = path_alias.decide(alias, PATH_ALIAS, "GET")
+        rotation = await _rotate_on_event(alias, alias_client)
+        _log_alias(websocket, alias, decision, alias_client=alias_client, rotation=rotation,
+                   method="WEBSOCKET", target_id=selected.target_id)
+        if decision in ("block", "redirect"):  # an upgrade cannot follow a redirect
+            event_store.record(method="WEBSOCKET", path=websocket.url.path, status=404,
+                               strategies=["path_alias"], outcome="blocked",
+                               duration_ms=(time.perf_counter() - started_at) * 1000, **metadata)
+            await websocket.close(code=1008, reason="not found")
+            return
+        if alias.upstream_path != websocket.url.path:
+            ws_path = alias.upstream_path.lstrip("/")
+        if alias.query_string is not None:
+            ws_query = alias.query_string.decode("latin-1")
     try:
         overlay_route = await _overlay_route(websocket, selected, plan)
     except OverlayRouteError:
@@ -704,7 +819,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
     upgraded = False
     try:
         async with websockets.connect(
-            _websocket_target(full_path, websocket.url.query, selected.url),
+            _websocket_target(ws_path, ws_query, selected.url),
             extra_headers=_websocket_headers(websocket, extra_headers),
             subprotocols=requested_protocols or None,
             max_size=None,
@@ -783,13 +898,32 @@ async def catch_all(request: Request, full_path: str):
     plan = parse_plan(request.headers.get("x-defense-plan"))
     metadata = _event_metadata(request, selected)
     alias_client = path_alias.valid_client_id(request.cookies.get(path_alias.COOKIE_NAME))
-    alias = await _alias_db(PATH_ALIAS_TABLE.resolve_request, request.url.path,
-                            request.scope.get("query_string", b""), request.method,
-                            time.time(), alias_client)
-    alias_decision = path_alias.decide(alias, PATH_ALIAS)
-    rotation = await _rotate_on_event(alias, alias_client)
-    translated = (alias.kind == "alias" or
-                  (alias.query_string is not None and alias.upstream_path != request.url.path))
+    # Stage 1 of the pipeline: restore a valid alias (or refuse) before any later strategy.
+    # The decision depends only on configuration, the route and the alias cookie; Detection's
+    # risk scores never switch an ongoing session into enforcement.
+    alias_active = PATH_ALIAS_TABLE.applies_to(selected.target_id)
+    alias = path_alias.Resolution("other", request.url.path)
+    body_note, buffered_body = None, None
+    if alias_active:
+        try:
+            alias = await _alias_db(PATH_ALIAS_TABLE.resolve_request, request.url.path,
+                                    request.scope.get("query_string", b""), request.method,
+                                    time.time(), alias_client, request.headers)
+            alias, buffered_body, body_note = await _body_routing(request, alias, alias_client)
+        except path_alias.AliasStoreError as exc:
+            # Fail closed: an alias that cannot be checked is never forwarded as the original.
+            _log_alias(request, alias, "error", skipped=str(exc) or "db_error",
+                       alias_client=alias_client, target_id=selected.target_id)
+            event_store.record(method=request.method, path=request.url.path, status=503,
+                               strategies=["path_alias"], outcome="error",
+                               duration_ms=(time.perf_counter() - started_at) * 1000, **metadata)
+            return _alias_unavailable()
+    alias_decision = path_alias.decide(alias, PATH_ALIAS, request.method)
+    rotation = await _rotate_on_event(alias, alias_client) if alias_active else None
+    translated = alias_decision not in ("block", "redirect") and (
+        alias.upstream_path != request.url.path or (
+            alias.query_string is not None
+            and alias.query_string != request.scope.get("query_string", b"")))
     record_path = alias.upstream_path if translated else request.url.path
 
     gate = None
@@ -810,8 +944,8 @@ async def catch_all(request: Request, full_path: str):
                                 "full_path": scope["path"].lstrip("/")}
         if alias.query_string is not None:
             scope["query_string"] = alias.query_string
-        strategy_request = Request(scope, request.receive)
-
+        receive = _replay_receive(buffered_body) if buffered_body is not None else request.receive
+        strategy_request = Request(scope, receive)
 
     def record(
         status: int, outcome: str, names: list[str], signal: str | None = None,
@@ -829,9 +963,31 @@ async def catch_all(request: Request, full_path: str):
             **metadata,
         )
 
+    def log_alias(decision: str = alias_decision, *args, **kwargs) -> None:
+        kwargs.setdefault("skipped", body_note)
+        _log_alias(request, alias, decision, *args, alias_client=alias_client, rotation=rotation,
+                   target_id=selected.target_id, **kwargs)
+
+    if alias_decision == "redirect":
+        # Auto-recovery for an expired alias of this same client (old tab, back button).
+        # Only GET/HEAD reach here; unsafe methods are never replayed or redirected.
+        try:
+            target = await _alias_db(PATH_ALIAS_TABLE.redirect_target, alias, time.time(), alias_client)
+        except path_alias.AliasStoreError:
+            target = None
+        if target is not None:
+            _log_gate(request, gate)
+            log_alias()
+            record(307, "redirected", ["path_alias"])
+            raw_query = request.scope.get("query_string", b"").decode("latin-1")
+            return Response(status_code=307, headers={
+                "Location": target + ("?" + raw_query if raw_query else ""),
+                "Cache-Control": "no-store"})
+        alias_decision = "block"
+
     if alias_decision == "block":
         _log_gate(request, gate)
-        _log_alias(request, alias, alias_decision, alias_client=alias_client, rotation=rotation)
+        log_alias(alias_decision)
         record(404, "blocked", ["path_alias"])
         return _alias_not_found()
 
@@ -839,7 +995,7 @@ async def catch_all(request: Request, full_path: str):
         overlay_route = await _overlay_route(strategy_request, selected, plan)
     except OverlayRouteError:
         _log_gate(request, gate)
-        _log_alias(request, alias, alias_decision, alias_client=alias_client, rotation=rotation)
+        log_alias()
         record(503, "error", [])
         return Response(status_code=503)
 
@@ -851,7 +1007,7 @@ async def catch_all(request: Request, full_path: str):
         applied = await _apply_plan(plan, strategy_request, selected)
     except Exception:
         _log_gate(request, gate)
-        _log_alias(request, alias, alias_decision, alias_client=alias_client, rotation=rotation)
+        log_alias()
         record(500, "error", overlay_strategy, decoy_action_name=action_name)
         return Response(status_code=500)
 
@@ -859,6 +1015,10 @@ async def catch_all(request: Request, full_path: str):
         applied.names.insert(0, "path_alias")
     applied_header = ",".join(applied.names) or "none"
     if applied.short_circuit is not None:
+        # Policy: a response produced by a later strategy itself (block, 429, decoy page) is
+        # returned as is. It carries no application routes, so it is neither rewritten nor
+        # given an alias cookie. Only upstream responses (including sidecars) are rewritten.
+        log_alias()
         response = applied.short_circuit
         for key, value in applied.headers.items():
             response.headers[key] = value
@@ -912,7 +1072,7 @@ async def catch_all(request: Request, full_path: str):
         if raw_query:
             upstream_url = upstream_url.copy_with(query=raw_query)
 
-    if PATH_ALIAS.mode != "off":
+    if alias_active and PATH_ALIAS.rewrites:
         headers = {key: value for key, value in headers.items()
                    if key.lower() not in _CONDITIONAL_REQUEST_HEADERS}
 
@@ -935,7 +1095,7 @@ async def catch_all(request: Request, full_path: str):
         return Response(status_code=status)
     except httpx.RequestError:
         _log_gate(request, gate)
-        _log_alias(request, alias, alias_decision, alias_client=alias_client, rotation=rotation)
+        log_alias()
         record(502, "error", attempted_strategies, decoy_action_name=action_name)
         return Response(status_code=502)
 
@@ -967,13 +1127,14 @@ async def catch_all(request: Request, full_path: str):
                     raise TypeError("response_transform must return a buffered Response")
                 if len(response.body) > TRANSFORM_BODY_LIMIT:
                     raise TransformBodyLimitError
-            if PATH_ALIAS.mode != "off":
+            if alias_active:
+                # Final stage: aliases are substituted after every response transform.
                 buffered = httpx.Response(response.status_code, headers=response.raw_headers,
                                           stream=httpx.ByteStream(response.body))
-                response, rewrites, skipped = await alias_proxy_response(
+                response, rewrites, skipped, counted = await alias_proxy_response(
                     buffered, request, alias_client, target_url=selected.url)
-                _log_alias(request, alias, alias_decision, upstream.status_code, rewrites, skipped,
-                           alias_client, rotation)
+                log_alias(alias_decision, upstream.status_code, rewrites,
+                          skipped=skipped or body_note, would_rewrite=counted)
             if gate is not None and gate.issue_cookie and upstream.status_code < 500:
                 response.raw_headers.append((
                     b"set-cookie", token_gate.build_set_cookie(TOKEN_GATE, time.time()).encode("latin-1")
@@ -987,6 +1148,10 @@ async def catch_all(request: Request, full_path: str):
         except (httpx.RequestError, TransformBodyLimitError):
             record(502, "error", attempted_strategies, decoy_action_name=action_name)
             return Response(status_code=502)
+        except path_alias.AliasStoreError as exc:
+            log_alias("error", upstream.status_code, skipped=str(exc) or "db_error")
+            record(503, "error", attempted_strategies, decoy_action_name=action_name)
+            return _alias_unavailable(isinstance(exc, path_alias.AliasCapacityError))
         except Exception:
             record(500, "error", attempted_strategies, decoy_action_name=action_name)
             return Response(status_code=500)
@@ -999,16 +1164,23 @@ async def catch_all(request: Request, full_path: str):
         recorded_strategies,
         decoy_action_name=action_name,
     )
-    if PATH_ALIAS.mode != "off":
+    if alias_active:
         try:
-            response, rewrites, skipped = await alias_proxy_response(
+            response, rewrites, skipped, counted = await alias_proxy_response(
                 upstream, request, alias_client, target_url=selected.url, on_complete=on_complete)
+        except path_alias.AliasStoreError as exc:
+            # Enforcing and the alias store is down or full: the page would only work with
+            # original routes, which enforcement refuses. Report instead of serving it broken.
+            await upstream.aclose()
+            log_alias("error", upstream.status_code, skipped=str(exc) or "db_error")
+            record(503, "error", attempted_strategies, decoy_action_name=action_name)
+            return _alias_unavailable(isinstance(exc, path_alias.AliasCapacityError))
         except Exception:
             await upstream.aclose()
             record(502, "error", attempted_strategies, decoy_action_name=action_name)
             return Response(status_code=502)
-        _log_alias(request, alias, alias_decision, upstream.status_code, rewrites, skipped,
-                   alias_client, rotation)
+        log_alias(alias_decision, upstream.status_code, rewrites,
+                  skipped=skipped or body_note, would_rewrite=counted)
     else:
         response = streaming_proxy_response(upstream, request, on_complete=on_complete,
                                             target_url=selected.url)
