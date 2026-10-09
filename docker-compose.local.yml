@@ -96,11 +96,19 @@ services:
       PATH_ALIAS_GRACE_EPOCHS: ${PATH_ALIAS_GRACE_EPOCHS:-1}
       PATH_ALIAS_PREFIXES: ${PATH_ALIAS_PREFIXES:-/rest/,/api/,/b2b/}
       PATH_ALIAS_ROUTES_FILE: ${PATH_ALIAS_ROUTES_FILE:-/app/config/juice-shop-routes.json}
-      PATH_ALIAS_DB_URL: postgresql://ruby:${PATH_ALIAS_DB_PASSWORD:-ruby-local}@path-alias-db:5432/ruby
+      # Default alias table: one SQLite file (WAL) on a named volume.
+      PATH_ALIAS_DB_PATH: /app/alias-data/path-alias.sqlite3
+      # Optional scale-out backend; needs the postgres extras in the image.
+      PATH_ALIAS_DB_URL: ${PATH_ALIAS_DB_URL:-}
       PATH_ALIAS_DB_POOL_SIZE: ${PATH_ALIAS_DB_POOL_SIZE:-10}
       PATH_ALIAS_MAX_REWRITE_BYTES: ${PATH_ALIAS_MAX_REWRITE_BYTES:-8388608}
       PATH_ALIAS_APP_ID: ${PATH_ALIAS_APP_ID:-}
-      PATH_ALIAS_ROTATE_ON: ${PATH_ALIAS_ROTATE_ON:-direct,reject}
+      PATH_ALIAS_ROTATE_ON: ${PATH_ALIAS_ROTATE_ON:-direct,unknown_alias,foreign_alias,invalid_alias_arguments,shadowed_route}
+      PATH_ALIAS_ROTATE_MIN_INTERVAL_S: ${PATH_ALIAS_ROTATE_MIN_INTERVAL_S:-5}
+      PATH_ALIAS_PENDING_TTL_S: ${PATH_ALIAS_PENDING_TTL_S:-300}
+      PATH_ALIAS_MAX_PENDING_CLIENTS: ${PATH_ALIAS_MAX_PENDING_CLIENTS:-10000}
+      PATH_ALIAS_MAX_CLIENTS: ${PATH_ALIAS_MAX_CLIENTS:-100000}
+      PATH_ALIAS_STALE_REDIRECT: ${PATH_ALIAS_STALE_REDIRECT:-true}
       PATH_ALIAS_COOKIE_SECURE: ${PATH_ALIAS_COOKIE_SECURE:-false}
       DEFENSE_DASHBOARD_ENABLED: ${DEFENSE_DASHBOARD_ENABLED:-true}
       DECOY_UPSTREAM_CHOICES: legacy=http://cheat-legacy:3012,alternate=http://cheat-alternate:3012
@@ -119,6 +127,7 @@ services:
       - ./defense/config:/app/config:ro
       - detection-data:/app/target-data:ro
       - defense-overlay-data:/app/overlay-state
+      - defense-alias-data:/app/alias-data
     depends_on:
       cheat-legacy:
         condition: service_healthy
@@ -128,8 +137,6 @@ services:
         condition: service_healthy
       overlay-alternate:
         condition: service_healthy
-      path-alias-db:
-        condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload --no-proxy-headers
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
@@ -138,22 +145,6 @@ services:
       retries: 15
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    networks:
-      - ai-defense-net
-
-  path-alias-db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ruby
-      POSTGRES_DB: ruby
-      POSTGRES_PASSWORD: ${PATH_ALIAS_DB_PASSWORD:-ruby-local}
-    volumes:
-      - path-alias-pg:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "ruby", "-d", "ruby"]
-      interval: 2s
-      timeout: 3s
-      retries: 15
     networks:
       - ai-defense-net
 
@@ -256,7 +247,7 @@ networks:
 
 volumes:
   detection-data:
-  path-alias-pg:
+  defense-alias-data:
   defense-overlay-data:
   overlay-legacy-data:
   overlay-alternate-data:
