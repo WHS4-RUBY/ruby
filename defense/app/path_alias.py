@@ -43,11 +43,16 @@ _RANK = {mode: index for index, mode in enumerate(MODES)}
 # Reasons an alias request is refused. ``stale_alias`` (expired or replaced by time/config)
 # and ``revoked_alias`` (replaced by an event) are deliberately absent: an old tab or the
 # back button produces them, and rotating on them would cascade across a user's tabs.
-REJECT_REASONS = ("unknown_alias", "foreign_alias", "method_not_allowed",
+REJECT_REASONS = ("unknown_alias", "malformed_alias", "foreign_alias", "method_not_allowed",
                   "invalid_alias_arguments", "shadowed_route",
                   "invalid_query_route", "duplicate_query_route")
 ROTATION_REASONS = ("direct",) + REJECT_REASONS
-DEFAULT_ROTATE_ON = ("direct", "unknown_alias", "foreign_alias", "invalid_alias_arguments")
+# Refused (404) but not rotating by default, because normal pages produce them:
+# - unknown_alias: a well-formed alias that is not in the table. Guessing a 130-bit alias is not
+#   realistic; in practice it is an old tab whose tombstone was swept, or a restarted store.
+# - invalid_alias_arguments: a URL the app spells differently than expected.
+# Rotating on either revoked every other alias on the user's page.
+DEFAULT_ROTATE_ON = ("direct", "malformed_alias", "foreign_alias")
 _ALIAS_MARKER = "__ruby_alias_"
 _TOKEN_LEN = 26
 _ALIAS_PATH = re.compile(r"^(/" + _ALIAS_MARKER + r"[a-z2-7]{26})(/.*)?$")
@@ -389,6 +394,13 @@ class PathAliasConfig:
     max_clients: int = 100_000
     stale_redirect: bool = True
     body_inspect_limit: int = BODY_INSPECT_LIMIT
+    # 307 also for POST/PUT/... on the client's own time-expired alias. The refused request never
+    # reached the target, so the browser's single resend cannot duplicate a side effect. Off by
+    # default: enabling it means the client resends unsafe requests automatically.
+    stale_redirect_unsafe: bool = False
+    # How long an expired or replaced alias stays recognisable (stale/revoked rather than
+    # unknown), so an idle tab can still be redirected. 0 = one alias lifetime.
+    tombstone_s: int = 0
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] = os.environ) -> "PathAliasConfig":
@@ -406,9 +418,10 @@ class PathAliasConfig:
             max_pending = int(environ.get("PATH_ALIAS_MAX_PENDING_CLIENTS", "10000"))
             max_clients = int(environ.get("PATH_ALIAS_MAX_CLIENTS", "100000"))
             body_limit = int(environ.get("PATH_ALIAS_BODY_INSPECT_BYTES", str(BODY_INSPECT_LIMIT)))
+            tombstone = int(environ.get("PATH_ALIAS_TOMBSTONE_S", "21600"))
         except ValueError as exc:
             raise ValueError("Path alias numeric settings must be numbers") from exc
-        if epoch_s < 1 or not 0 <= grace <= 10 or max_bytes < 1 or body_limit < 1:
+        if epoch_s < 1 or not 0 <= grace <= 10 or max_bytes < 1 or body_limit < 1 or tombstone < 0:
             raise ValueError("Path alias requires epoch >= 1, grace 0..10 and a positive size limit")
         if min_interval < 0 or pending_ttl < 1 or max_pending < 1 or max_clients < max_pending:
             raise ValueError("Path alias needs a non-negative rotation interval, a positive pending "
@@ -435,7 +448,8 @@ class PathAliasConfig:
                 raise ValueError("PATH_ALIAS_TARGET_IDS must be comma-separated target IDs")
         rotate_on = _parse_triggers(environ.get("PATH_ALIAS_ROTATE_ON", ",".join(DEFAULT_ROTATE_ON)))
         flags = {}
-        for name, default in (("PATH_ALIAS_COOKIE_SECURE", "false"), ("PATH_ALIAS_STALE_REDIRECT", "true")):
+        for name, default in (("PATH_ALIAS_COOKIE_SECURE", "false"), ("PATH_ALIAS_STALE_REDIRECT", "true"),
+                              ("PATH_ALIAS_STALE_REDIRECT_UNSAFE", "false")):
             value = environ.get(name, default).strip().lower()
             if value not in {"true", "false"}:
                 raise ValueError(f"{name} must be true or false")
@@ -445,7 +459,8 @@ class PathAliasConfig:
                    rotate_on, flags["PATH_ALIAS_COOKIE_SECURE"],
                    document.query_routes, document.action_routes, document.channels,
                    target_ids, document.enforce_ready, min_interval, pending_ttl,
-                   max_pending, max_clients, flags["PATH_ALIAS_STALE_REDIRECT"], body_limit)
+                   max_pending, max_clients, flags["PATH_ALIAS_STALE_REDIRECT"], body_limit,
+                   flags["PATH_ALIAS_STALE_REDIRECT_UNSAFE"], tombstone)
 
     @property
     def default_mode(self) -> str:
@@ -613,7 +628,7 @@ class PathAliasTable:
                                for rule in cfg.action_routes for name, _ in rule.actions}
         self._issuable = tuple(self._routes_by_path) + tuple(self._actions_by_id)
         self._lifetime = (cfg.grace_epochs + 1) * cfg.epoch_s
-        self._tombstone = self._lifetime
+        self._tombstone = max(self._lifetime, cfg.tombstone_s)
         config_data = {
             "epoch_s": cfg.epoch_s, "grace_epochs": cfg.grace_epochs,
             "prefixes": sorted(cfg.prefixes),
@@ -949,9 +964,10 @@ class PathAliasTable:
             # The restored path then belongs to the most specific configured route: use its methods
             # and report it as that route. (v3 refused this as shadowed_route and rotated the client,
             # which broke every other alias on the page.)
+            bare = real[:-1] if len(real) > 1 and real.endswith("/") else real
             specific = next((other for other in self.cfg.routes
                              if other.specificity > route.specificity and other.path != route.path
-                             and self._real_patterns[other.path].fullmatch(real)), None)
+                             and self._real_patterns[other.path].fullmatch(bare)), None)
             if specific is not None:
                 if not specific.allows(method):
                     return Resolution("reject", path, reason="method_not_allowed",
@@ -966,8 +982,8 @@ class PathAliasTable:
             return Resolution("alias", real, alias_state=state if owner == "owner" else "adopted",
                               route_id=route.path, generation=row["generation"], mode=mode)
         canonical = _canonical(path)
-        if _ALIAS_MARKER in canonical:  # any spelling of the reserved namespace
-            return Resolution("reject", path, reason="unknown_alias", mode=default_mode)
+        if _ALIAS_MARKER in canonical:  # another spelling of the reserved namespace (case, %-escape, ...)
+            return Resolution("reject", path, reason="malformed_alias", mode=default_mode)
         for prefix in self.cfg.prefixes:
             if canonical == prefix.rstrip("/") or canonical.startswith(prefix):
                 route = self._match_route(canonical)
@@ -977,6 +993,11 @@ class PathAliasTable:
 
     def _restore(self, route: Route, suffix: str) -> str | None:
         variables = route.variables
+        # One trailing slash is part of how apps spell a URL ("/rest/user" + "/authentication-
+        # details/"), not an extra argument: restore without it and put it back at the end.
+        if len(suffix) > 1 and suffix.endswith("/") and not suffix.endswith("//"):
+            real = self._restore(route, suffix[:-1])
+            return real + "/" if real is not None else None
         if not variables:
             # A trailing slash is the same resource for most routers (`/rest/image-captcha/`).
             return route.path + "/" if suffix == "/" else (None if suffix else route.path)
@@ -1041,7 +1062,7 @@ class PathAliasTable:
             return Resolution("alias", path, alias_state=state if owner == "owner" else "adopted",
                               route_id=route_id, generation=row["generation"], mode=mode), action
         if _ALIAS_MARKER in value:
-            return Resolution("reject", path, reason="unknown_alias", mode=self.cfg.default_mode), None
+            return Resolution("reject", path, reason="malformed_alias", mode=self.cfg.default_mode), None
         action = rule.find(value)
         if action is not None:
             return Resolution("direct", path, route_id=rule.route_id(action),
@@ -1417,7 +1438,7 @@ def decide(resolution: Resolution, cfg: PathAliasConfig, method: str = "GET") ->
         if mode != "enforce":
             return "translate"  # observe would forward the original route anyway
         if (cfg.stale_redirect and resolution.owner_ok and resolution.reason == "stale_alias"
-                and method.upper() in ("GET", "HEAD")):
+                and (method.upper() in ("GET", "HEAD") or cfg.stale_redirect_unsafe)):
             return "redirect"
         return "block"
     if resolution.kind in ("direct", "reject"):

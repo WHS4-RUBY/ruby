@@ -375,6 +375,73 @@ class AliasPolicyIntegrationTests(IntegrationTests):
             self.assertIsNone(self.logs()[-1]["rotation"])
         self.assertTrue(self.calls[-1]["url"].endswith("/rest/user/whoami?x=1"))
 
+    def test_trailing_slash_after_alias_suffix_is_not_an_invalid_argument(self):
+        # Juice Shop admin: this.hostServer + "/rest/user" + "/authentication-details/"
+        self.client.cookies.set(pa.COOKIE_NAME, ALICE)
+        aliases = self.table.current_aliases(NOW, ALICE, returned=True)
+        user, checkout = aliases["/rest/user/{tail*}"], aliases["/rest/basket/{id}/checkout"]
+        details = self.table.resolve(user + "/whoami/", "GET", NOW, ALICE)
+        self.assertEqual((details.kind, details.upstream_path, details.route_id),
+                         ("alias", "/rest/user/whoami/", "/rest/user/whoami"))
+        self.assertEqual(self.table.resolve(checkout + "/5/", "POST", NOW, ALICE).upstream_path,
+                         "/rest/basket/5/checkout/")
+        for bad in (user + "/whoami//", checkout + "/5/x/", checkout + "//"):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.table.resolve(bad, "GET", NOW, ALICE).reason, "invalid_alias_arguments")
+        before = len(self.calls)
+        self.assertEqual(self.client.get(user + "/authentication-details/").status_code, 200)
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/user/authentication-details/"))
+        self.assertEqual(len(self.calls), before + 1)
+
+    def test_invalid_arguments_are_refused_without_rotation_by_default(self):
+        _, client, alias = self.open_page()
+        self.assertEqual(self.client.get(alias).status_code, 200)
+        self.assertEqual(self.client.get(alias + "/unexpected").status_code, 404)
+        self.assertEqual((self.logs()[-1]["reason"], self.logs()[-1]["rotation"]),
+                         ("invalid_alias_arguments", None))
+        self.assertEqual(self.client.get(alias).status_code, 200)  # other aliases keep working
+
+    def test_swept_old_tab_alias_does_not_rotate_but_malformed_spelling_does(self):
+        _, client, alias = self.open_page()
+        self.assertEqual(self.client.get(alias).status_code, 200)  # confirmed
+        much_later = NOW + 50  # lifetime 20 s + tombstone 20 s: the old row is swept
+        with patch.object(main.time, "time", return_value=much_later):
+            self.table._next_sweep = 0
+            self.table.current_aliases(much_later, BOB)  # runs the sweep
+            fresh = self.table.current_aliases(much_later, client)["/rest/products/search"]
+            self.assertEqual(self.client.get(alias).status_code, 404)
+            self.assertEqual((self.logs()[-1]["reason"], self.logs()[-1]["rotation"]), ("unknown_alias", None))
+            self.assertEqual(self.client.get(fresh).status_code, 200)  # the reloaded page keeps working
+            self.assertEqual(self.client.get(fresh.upper()).status_code, 404)
+            self.assertEqual((self.logs()[-1]["reason"], self.logs()[-1]["rotation"]), ("malformed_alias", "rotated"))
+
+    def test_tombstone_keeps_idle_tab_recoverable(self):
+        self.configure(tombstone_s=3600)
+        _, client, alias = self.open_page()
+        self.assertEqual(self.client.get(alias).status_code, 200)
+        later = NOW + 600  # far past the 20 s lifetime, inside the tombstone
+        with patch.object(main.time, "time", return_value=later):
+            self.table._next_sweep = 0
+            self.table.current_aliases(later, BOB)  # sweep runs but keeps the tombstone
+            response = self.client.get(alias + "?q=1")
+            self.assertEqual(response.status_code, 307)
+            self.assertEqual(self.client.get(response.headers["location"]).status_code, 200)
+
+    def test_unsafe_stale_redirect_is_opt_in(self):
+        _, client, _ = self.open_page()
+        login = self.table.current_aliases(NOW, client)["/rest/user/login"]
+        self.client.get(self.table.current_aliases(NOW, client)["/rest/products/search"])  # confirm
+        later = NOW + 25
+        with patch.object(main.time, "time", return_value=later):
+            self.assertEqual(self.client.post(login, content=b"{}").status_code, 404)
+            self.configure(stale_redirect_unsafe=True)
+            before = len(self.calls)
+            response = self.client.post(login + "?x=1", content=b'{"email":"a"}')
+            self.assertEqual(response.status_code, 307)
+            fresh = self.table.current_aliases(later, client)["/rest/user/login"]
+            self.assertEqual(response.headers["location"], fresh + "?x=1")
+            self.assertEqual(len(self.calls), before)  # the refused request never reached the target
+
     def test_event_revoked_alias_is_not_redirected_and_does_not_cascade(self):
         _, client, alias = self.open_page()
         self.assertEqual(self.client.get(alias).status_code, 200)
