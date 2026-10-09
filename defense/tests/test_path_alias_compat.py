@@ -80,6 +80,8 @@ class ConfigFileTests(unittest.TestCase):
         example = pa.load_route_document(str(config / "query-routing-example.json"))
         self.assertTrue(juice.enforce_ready)  # browser flows and refresh verified (see compatibility)
         self.assertEqual(juice.target_ids, ("juice-shop",))  # not applied to other targets
+        self.assertTrue(juice.stale_redirect_unsafe)  # verified for this app only
+        self.assertFalse(ruby.stale_redirect_unsafe)
         # Conservative: every route is enforced, so an agent's direct call is refused anywhere.
         self.assertTrue(all(route.mode is None for route in juice.routes))
         with tempfile.TemporaryDirectory() as directory:
@@ -98,6 +100,18 @@ class ConfigFileTests(unittest.TestCase):
                 pa.PathAliasConfig.from_env(env)
         self.assertFalse(ruby.enforce_ready)  # source-only route list: stays at observe
         self.assertFalse(example.enforce_ready)
+
+    def test_unsafe_stale_redirect_is_per_app_opt_in(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = {"routes": ["/rest/a"]}
+            self.assertFalse(pa.PathAliasConfig.from_env(self.env(directory, base)).stale_redirect_unsafe)
+            opted = {**base, "stale_redirect_unsafe": True}
+            self.assertTrue(pa.PathAliasConfig.from_env(self.env(directory, opted)).stale_redirect_unsafe)
+            for value, expected in (("false", False), ("true", True)):  # explicit env wins
+                env = self.env(directory, opted, PATH_ALIAS_STALE_REDIRECT_UNSAFE=value)
+                self.assertEqual(pa.PathAliasConfig.from_env(env).stale_redirect_unsafe, expected)
+            with self.assertRaises(ValueError):
+                pa.PathAliasConfig.from_env(self.env(directory, {**base, "stale_redirect_unsafe": "yes"}))
 
     def test_rotation_reasons_are_granular(self):
         self.assertEqual(pa._parse_triggers("reject"), pa.REJECT_REASONS)

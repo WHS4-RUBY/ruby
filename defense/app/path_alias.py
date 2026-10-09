@@ -299,6 +299,7 @@ class RouteDocument:
     channels: tuple[Channel, ...] = ()
     target_ids: tuple[str, ...] = ()
     enforce_ready: bool = False
+    stale_redirect_unsafe: bool = False
 
 
 def _str_list(value, name: str) -> list[str]:
@@ -349,6 +350,10 @@ def load_route_document(file_name: str) -> RouteDocument:
     enforce_ready = document.get("enforce_ready", False)
     if not isinstance(enforce_ready, bool):
         raise ValueError("enforce_ready must be true or false")
+    # Per-app opt-in, set only after the app's unsafe requests were verified through a 307.
+    unsafe = document.get("stale_redirect_unsafe", False)
+    if not isinstance(unsafe, bool):
+        raise ValueError("stale_redirect_unsafe must be true or false")
     if enforce_ready:
         compatibility = document.get("compatibility")
         if (not isinstance(compatibility, dict)
@@ -359,7 +364,7 @@ def load_route_document(file_name: str) -> RouteDocument:
                              "and compatibility.refresh_verified=true")
     return RouteDocument(tuple(sorted(routes, key=lambda r: r.specificity, reverse=True)),
                          tuple(query_routes), tuple(action_routes), tuple(channels),
-                         target_ids, enforce_ready)
+                         target_ids, enforce_ready, unsafe)
 
 
 def _load_routes(file_name: str) -> tuple[Route, ...]:
@@ -449,8 +454,11 @@ class PathAliasConfig:
         rotate_on = _parse_triggers(environ.get("PATH_ALIAS_ROTATE_ON", ",".join(DEFAULT_ROTATE_ON)))
         flags = {}
         for name, default in (("PATH_ALIAS_COOKIE_SECURE", "false"), ("PATH_ALIAS_STALE_REDIRECT", "true"),
-                              ("PATH_ALIAS_STALE_REDIRECT_UNSAFE", "false")):
+                              ("PATH_ALIAS_STALE_REDIRECT_UNSAFE", "")):
             value = environ.get(name, default).strip().lower()
+            if name == "PATH_ALIAS_STALE_REDIRECT_UNSAFE" and value == "":
+                flags[name] = document.stale_redirect_unsafe  # unset: the route file decides
+                continue
             if value not in {"true", "false"}:
                 raise ValueError(f"{name} must be true or false")
             flags[name] = value == "true"

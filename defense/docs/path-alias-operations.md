@@ -37,7 +37,7 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 
 | 파일 | `enforce_ready` | 근거 |
 |---|---|---|
-| `juice-shop-routes.json` | true | 2026-10-09 실제 스택 브라우저 검증(아래 7절). `target_ids: ["juice-shop"]`. **67개 경로 모두 enforce**(보수적 운영: 에이전트가 원본 경로를 직접 부르면 어느 경로든 거부). 핵심 흐름 외 화면 18개도 별칭만으로 동작함을 확인했다. 직접 조작까지 검증하지 않은 기능은 `compatibility.not_verified`에 적었다 |
+| `juice-shop-routes.json` | true | 2026-10-09 실제 스택 브라우저 검증(아래 7절). `target_ids: ["juice-shop"]`. **67개 경로 모두 enforce**(보수적 운영: 에이전트가 원본 경로를 직접 부르면 어느 경로든 거부). 핵심 흐름 외 화면 18개도 별칭만으로 동작함을 확인했다. 만료된 탭의 POST 307 복구(`stale_redirect_unsafe`)는 검증 후 켰다. 직접 조작까지 검증하지 않은 기능은 `compatibility.not_verified`에 적었다 |
 | `ruby-shop-routes.json` | false | 소스 선언에서 만든 목록. 브라우저 흐름과 갱신 방식 미검증 |
 | `query-routing-example.json` | false | 예시 |
 
@@ -96,7 +96,7 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 
 - `PATH_ALIAS_ROTATE_ON`은 사유별로 지정한다. 기본은 `direct,malformed_alias,foreign_alias`. `reject`는 모든 거부 사유의 묶음이다. `stale_alias`·`revoked_alias`는 지정할 수 없다. 정상 페이지에서도 생기는 사유로 교체하면 그 사용자의 다른 탭·요청이 연쇄로 깨지기 때문이다.
 - `PATH_ALIAS_ROTATE_MIN_INTERVAL_S`(기본 5초) 안의 추가 교체는 `rotation=suppressed`로 기록하고 쓰기를 하지 않는다.
-- **자동 복구는 기본적으로 GET/HEAD만** 한다. POST·결제·작성 요청은 404로 끝나고 사용자가 새로고침해야 한다. `PATH_ALIAS_STALE_REDIRECT_UNSAFE=true`이면 같은 조건(자기 클라이언트, 시간·설정으로 만료, 이벤트 폐기 아님)에서 POST 등도 307로 보내 브라우저가 한 번 다시 보낸다. 거부된 요청은 대상에 전달되지 않았으므로 중복 실행은 생기지 않지만, 클라이언트가 자동으로 재전송한다는 점 때문에 기본값은 끔이다. 이벤트로 폐기된 별칭은 공격자가 이전 별칭으로 새 별칭을 얻지 못하도록 자동 연결하지 않는다.
+- **자동 복구는 기본적으로 GET/HEAD만** 한다. POST·결제·작성 요청은 404로 끝나고 사용자가 새로고침해야 한다. POST 등도 307로 보내려면 경로 파일에 `"stale_redirect_unsafe": true`를 넣는다(앱별 선택). 환경변수 `PATH_ALIAS_STALE_REDIRECT_UNSAFE`가 비어 있으면 경로 파일을 따르고, `true`/`false`면 경로 파일보다 우선한다. 조건은 자기 클라이언트·시간이나 설정으로 만료·이벤트 폐기 아님이다. 거부된 첫 요청은 대상에 전달되지 않았으므로 307을 따라 보낸 요청만 실행된다. 다만 결제 같은 작업 전반의 "정확히 한 번" 보장은 아니다. 307을 따르지 않는 클라이언트, 네트워크 재시도, 중복 클릭은 앱이 다뤄야 하며(RFC 9110은 상태를 바꾸는 요청의 자동 이동에 주의를 요구한다), 그래서 전역 기본값은 끔이고 실제 브라우저로 확인한 앱에만 켠다. 이벤트로 폐기된 별칭은 공격자가 이전 별칭으로 새 별칭을 얻지 못하도록 자동 연결하지 않는다.
 - 자동 복구 주소는 **복원된 원본 경로**로 다시 만든다. 넓은 별칭(`/api/{tail*}`)에 `/items`를 붙인 요청이 더 구체적인 경로로 해석됐다면, 그 경로의 현재 별칭으로 보내고 `/items`를 다시 붙이지 않는다.
 - 폐기·만료된 행은 원래 만료 시각 뒤 `PATH_ALIAS_TOMBSTONE_S`(기본 6시간, 최소 한 수명) 동안 tombstone으로 남는다. 이 기간 안의 오래된 탭은 `stale`로 인식돼 GET이 307로 복구된다. 지나면 `unknown_alias`(404, 교체 없음)가 되어 새로고침이 필요하다. 행 수는 활동 중인 클라이언트당 `(tombstone/epoch) × 사용 경로 수` 정도 늘어난다.
 - 같은 쿠키를 쓰는 여러 탭은 같은 별칭을 공유한다. 쿠키 없이 동시에 열린 첫 방문 탭들은 서로 다른 미확인 클라이언트를 받는다. 브라우저에는 마지막 쿠키만 남는다. 다른 탭의 별칭이 미확인 클라이언트 것이면 `adopted`로 허용하므로 깨지지 않는다(아래 6절).
@@ -164,12 +164,13 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 
 | 항목 | 결과 |
 |---|---|
-| 단위·통합 테스트 | Defense 180개, 수집기·대시보드 Node 18개, Detection 230개(실행만, 코드 변경 없음) 모두 통과 |
+| 단위·통합 테스트 | Defense 181개, 수집기·대시보드 Node 18개, Detection 230개(실행만, 코드 변경 없음) 모두 통과 |
 | HTTP 매트릭스 (enforce) | 17/17. 쿠키 반환 로그인·검색 별칭이 Juice까지 전달, 원본·대소문자·인코딩 변형 6종 404, 직접 호출 뒤 이전 별칭 404·새 별칭 동작, JSON 상품 설명 46건 무변경, 쿠키 없는 도구도 미확인 별칭 사용 가능, 원본 경로는 쿠키 없어도 404 |
 | 모드×쿠키 매트릭스 | off·audit: 응답 무변경(`main.js`의 `/rest/` 42곳 그대로)·쿠키 없음·원본 200. observe: 별칭 49종 치환(남은 `/rest/` 4곳은 CHeaT가 넣은 미끼 주석)·쿠키 발급·원본 200. enforce: 원본 404·별칭 200(쿠키 유무 모두). `enforce_ready` 없는 파일 + enforce: observe와 동일 |
 | 브라우저 (off/observe/enforce 각 2회, 엄격 판정) | 회원가입·로그인·검색·장바구니 담기·리뷰 작성·두 번째 탭·뒤로/앞으로·새로고침 9단계와 네트워크 검사 모두 통과(10/10). 단계 실패, 같은 출처 4xx/5xx, 실패한 요청, 페이지 오류, (별칭 켬) 원본 보호 경로 요청 중 하나라도 있으면 실패 종료한다. enforce에서 별칭 요청 74건 전부 2xx, 위 항목 모두 0, 교체 0. Juice Shop 리뷰 창이 스스로 취소하는 요청(`ERR_ABORTED`)은 별칭을 끈 상태에서도 같아 실패와 따로 기록한다 |
 | 추가 화면 (전체 경로 enforce) | 일반 사용자로 2FA·딜럭스·지갑·챗봇·불만 접수·데이터 내보내기·비밀번호 변경·주소·결제수단·주문 내역·재활용·포토월·스코어보드·문의·주문 추적·장바구니·비밀번호 찾기 18개 화면을 열었다. API 요청 30건 전부 별칭·200, 원본 보호 경로 요청 0, Defense 404 0, 페이지 오류 0, 교체 0(별칭 끔에서도 같은 화면 모두 200). 화면 열기까지이며 각 기능의 제출 동작은 검증하지 않았다 |
 | 관리자 화면·검토자 흐름 (전체 경로 enforce) | 외부 검토(2026-10-09, 228a531)에서 관리자 화면이 `"/rest/user"` + `"/authentication-details/"`(끝 슬래시)를 `invalid_alias_arguments`로 거부하고 교체해 목록·새로고침이 깨지는 회귀가 재현됐다. 수정 후 검토자의 스크립트를 그대로 off·enforce 각 2회 실행: 관리자 로그인·사용자/피드백 목록·사용자 상세·북마크 새로고침, 가입·장바구니·주소·결제수단·결제·주문 내역 모두 off와 같은 결과, HTTP 4xx/5xx 0, Defense 차단은 스크립트의 의도된 원본 경로 호출 1건뿐. 남은 실패 2건은 off에서도 실패하는 주소 문구 확인과, hash만 바꿔 네트워크 요청이 생기지 않는 스크립트 한계 |
+| 만료된 탭의 POST (Juice Shop, `stale_redirect_unsafe`) | epoch 30초·유예 0·35초 방치·새로고침 없음. 켬: 장바구니 추가와 주문 완료가 각각 307 → 200, Defense가 대상에 전달한 POST 각 1회, 장바구니 1개·주문 내역 1건(8/8). 끔(대조): 같은 장바구니 POST가 404이고 대상에 전달되지 않음(3/3). 이 결과로 Juice Shop 경로 파일에만 켰다 |
 | 만료 (epoch 20초, 45초 대기, 엄격 판정) | 14/14. 열린 페이지의 만료 별칭 GET 2건이 307로 복구, 새로고침 후 장바구니 POST 성공, 시간 교체 1회, 4xx/5xx 0 |
 | 재시작 | 같은 별칭이 Defense 재시작 전후 모두 200 |
 | 경로형·기능형 dispatcher (실제 HTTP 에코 앱) | 별칭 복원과 다른 필드 바이트 보존(`&x=1&x=&y`), 비보호 값 통과, 원본·상대 경로·대소문자 변형·잘못된 메서드·본문 라우팅 404, 일반 쿼리 `b=2&a=1&a=1&empty=&flag&enc=%2F%41+x` 그대로. 교차 검증에서 지적된 큰 본문 우회: enforce에서 65,553바이트·1 MiB 초과(일반·chunked)·`text/plain` 본문의 `action=login`은 모두 404로 전달되지 않음, 작은 비보호 본문은 전달. observe에서는 모든 본문이 바이트 그대로 전달 |
@@ -250,7 +251,7 @@ SQLite는 쓰기 잠금이 DB 전체 단위라 서로 다른 사용자의 발급
 | `PATH_ALIAS_ROTATE_ON` | `direct,malformed_alias,foreign_alias` | 사유별 즉시 교체 |
 | `PATH_ALIAS_ROTATE_MIN_INTERVAL_S` | 5 | 클라이언트별 교체 최소 간격 |
 | `PATH_ALIAS_STALE_REDIRECT` | true | 만료된 자기 별칭 GET/HEAD 307 |
-| `PATH_ALIAS_STALE_REDIRECT_UNSAFE` | false | true면 POST 등도 같은 조건에서 307 (브라우저가 한 번 재전송) |
+| `PATH_ALIAS_STALE_REDIRECT_UNSAFE` | 비어 있음(경로 파일의 `stale_redirect_unsafe`, 기본 false) | true면 POST 등도 같은 조건에서 307. Juice Shop 파일은 검증 후 true |
 | `PATH_ALIAS_TOMBSTONE_S` | 21600 | 만료·폐기 별칭을 알아보는 기간. 이 안의 오래된 탭은 GET 307로 복구 |
 | `PATH_ALIAS_PENDING_TTL_S`, `PATH_ALIAS_MAX_PENDING_CLIENTS`, `PATH_ALIAS_MAX_CLIENTS` | 300, 10000, 100000 | 쿠키 미반환 발급 상한 |
 | `PATH_ALIAS_MAX_REWRITE_BYTES` | 8 MiB | 치환할 최대 응답 |

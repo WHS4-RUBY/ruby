@@ -42,6 +42,7 @@ Windows Git Bash에서는 `MSYS_NO_PATHCONV=1`을 먼저 export한다(경로 형
 | `run_modes.sh` + `mode_matrix.py` | off/audit/observe/enforce와 준비되지 않은 경로 파일(`defense/config/juice-unready.tmp.json`, `juice-shop-routes.json`에서 `enforce_ready=false`로 만든 임시 복사본)을 쿠키 반환 여부와 교차 |
 | `browser_flows.cjs <label> [base] [--mode off\|observe\|enforce] [--wait-expiry 초]` | Playwright 정상 사용자 흐름. 단계 실패·같은 출처 4xx/5xx·실패 요청·페이지 오류·(별칭 켬) 원본 보호 경로 요청이 하나라도 있으면 종료 코드 1. 앱이 스스로 취소한 요청(`ERR_ABORTED`)은 `cancelled_requests`로 따로 기록. `ruby-token-gate-browser` 이미지 등 `/runner/node_modules/playwright`가 있는 컨테이너에서 실행: `docker run --rm -v $PWD/benchmark/experiments/path_alias_compat:/verify <image> node /verify/browser_flows.cjs enforce` |
 | `browser_screens.cjs <label> [base] [--mode …]` | 핵심 흐름 밖 18개 화면을 일반 사용자로 열고 화면별 API 요청·원본 경로 요청·Defense 404·오류를 보고. 하나라도 문제가 있으면 종료 코드 1 |
+| `browser_expired_post.cjs <label> <base> <대기초> <redirect\|refuse>` | 만료된 탭에서 장바구니 추가·주문 완료 POST. 307은 중간 단계로 보고 최종 응답·장바구니 수·주문 수로 판정. 실행 뒤 Defense 로그에서 POST별 전달 횟수를 확인 |
 | `cookieless_attack.py` | 쿠키 미반환 공격·같은 NAT·지문 변경·DCID 변조/재발급 단계별 Defense 이벤트(정책 출처·위험도·전략). `VERIFY_DASHBOARD_PASSWORD` 필요 |
 | `restart_load.sh KEY=VALUE…` + `load_sqlite.py <label> <요청> <동시> [경로] [nocookie\|cookie\|rotate]` | 4 worker Defense + 한 SQLite 파일 부하. `ruby-verify-defense` 이미지와 Juice Shop을 쓴다 |
 | `dispatcher_app.py`, `dispatcher-routes.json` | 경로형·기능형 dispatcher 에코 대상(가이드 7.1의 dispatcher 행) |
