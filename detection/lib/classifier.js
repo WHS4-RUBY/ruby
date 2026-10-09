@@ -206,6 +206,11 @@ function weightedScore(breakdown, weights) {
   );
 }
 
+function pointBreakdown(breakdown, weights) {
+  return Object.fromEntries(Object.entries(weights).map(([name, weight]) =>
+    [name, Number((breakdown[name] * weight * 100).toFixed(2))]));
+}
+
 function scoreReflectedXss(features) {
   const attack = features.attack;
   if (!attack.xssHits) return 0;
@@ -256,6 +261,18 @@ function classify(features) {
     attackEvidenceBonus: scoreRepeatedAttackEvidence(features),
     automationBreakdown,
     attackBreakdown,
+    automationPointBreakdown: pointBreakdown(automationBreakdown, AUTOMATION_WEIGHTS),
+    attackPointBreakdown: {
+      ...pointBreakdown(attackBreakdown, ATTACK_WEIGHTS),
+      repeatedEvidenceBonus: Number((scoreRepeatedAttackEvidence(features) * 100).toFixed(2)),
+    },
+    scoreMaximumPoints: {
+      automation: pointBreakdown(Object.fromEntries(Object.keys(AUTOMATION_WEIGHTS).map(name => [name, 1])), AUTOMATION_WEIGHTS),
+      attack: {
+        ...pointBreakdown(Object.fromEntries(Object.keys(ATTACK_WEIGHTS).map(name => [name, 1])), ATTACK_WEIGHTS),
+        repeatedEvidenceBonus: 30,
+      },
+    },
     honeyBreakdown: {
       automation: automationHoney,
       attack: attackHoney,

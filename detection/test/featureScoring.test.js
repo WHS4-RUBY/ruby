@@ -60,6 +60,30 @@ test("Payload Signature는 Attack Score만 올리고 Automation Score에는 영�
   assert.deepEqual(Object.keys(ATTACK_WEIGHTS), Object.keys(attack.attackBreakdown));
 });
 
+test("표시 배점은 정규화 값이 아닌 최종 점수 기여분이며 허니 상한과 가산점을 구분한다", () => {
+  const features = buildFeatures(["sqli"]);
+  features.deception = {
+    distinctSignals: ["trap_trigger", "no_asset_loading", "watermark_reuse", "writable_file_write"],
+    coverageEligible: true,
+    recentUniqueApiPaths: 20,
+  };
+  features.attack.repeatedEvidence = { count: 8 };
+  const result = classify(features);
+  assert.equal(result.automationBreakdown.headerAnomaly, 1);
+  assert.equal(result.automationPointBreakdown.headerAnomaly, 15);
+  assert.equal(result.automationPointBreakdown.automationHoney, 35);
+  assert.equal(result.honeyBreakdown.attack.totalPoints, 35);
+  assert.equal(result.attackPointBreakdown.attackHoney, 17);
+  assert.equal(result.attackPointBreakdown.repeatedEvidenceBonus, 10);
+  assert.equal(result.attackEvidenceBonus, 0.1);
+  assert.equal(result.scoreMaximumPoints.attack.attackHoney, 17);
+  assert.equal(result.scoreMaximumPoints.automation.headerAnomaly, 15);
+  const automationTotal = Object.values(result.automationPointBreakdown).reduce((a, b) => a + b, 0);
+  const attackTotal = Object.values(result.attackPointBreakdown).reduce((a, b) => a + b, 0);
+  assert.ok(Math.abs(automationTotal - result.automationScore * 100) <= 0.1);
+  assert.ok(Math.abs(Math.min(100, attackTotal) - result.attackScore * 100) <= 0.1);
+});
+
 test("신규 Attack 서브스코어 4개를 독립적으로 계산한다", () => {
   const requests = Array.from({ length: 10 }, (_, index) => ({
     ts: index * 100,
