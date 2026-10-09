@@ -237,7 +237,11 @@ class TableTests(unittest.TestCase):
         self.assertEqual(self.table.resolve(product + "/", "GET", NOW, ALICE).upstream_path,
                          "/api/Products/")
         user = self.a("/rest/user/{tail*}")
-        self.assertEqual(self.table.resolve(user + "/login", "POST", NOW, ALICE).reason, "shadowed_route")
+        # base alias + runtime suffix reaching a more specific route: that route's rules apply
+        login = self.table.resolve(user + "/login", "POST", NOW, ALICE)
+        self.assertEqual((login.kind, login.upstream_path, login.route_id),
+                         ("alias", "/rest/user/login", "/rest/user/login"))
+        self.assertEqual(self.table.resolve(user + "/login", "GET", NOW, ALICE).reason, "method_not_allowed")
 
     def test_malformed_alias_paths_are_rejected(self):
         login = self.a("/rest/user/login")

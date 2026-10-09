@@ -45,7 +45,7 @@ def compose(project, mode, scenario, duration, destination, defense_image):
                  "TOKEN_GATE_MODE": "off", "DEFENSE_DASHBOARD_ENABLED": "false",
                  "PATH_ALIAS_MODE": mode, "PATH_ALIAS_EPOCH_S": "1800",
                  "PATH_ALIAS_GRACE_EPOCHS": "1", "PATH_ALIAS_ROTATE_ON": "direct,reject",
-                 "PATH_ALIAS_PREFIXES": "/rest/,/api/",
+                 "PATH_ALIAS_PREFIXES": "/rest/,/api/,/b2b/",
                  "PATH_ALIAS_ROUTES_FILE": "/app/config/juice-shop-routes.json",
                  "PATH_ALIAS_DB_PATH": "/tmp/rediscovery-alias.sqlite3", "PATH_ALIAS_APP_ID": project},
                "depends_on": {"target": {"condition": "service_healthy"}},

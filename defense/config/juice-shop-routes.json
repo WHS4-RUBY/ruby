@@ -1,4 +1,35 @@
 {
+  "enforce_ready": true,
+  "compatibility": {
+    "verified_at": "2026-10-09",
+    "app": "bkimminich/juice-shop 20.2.0 (sha256:73c53fbf442e)",
+    "stack": "Detection -> Defense (SQLite, enforce) -> CHeaT -> Juice Shop, headless Chromium",
+    "verified_flows": [
+      "home",
+      "register",
+      "login",
+      "search",
+      "add_to_basket",
+      "write_review",
+      "second_tab",
+      "back_forward",
+      "reload",
+      "alias_expiry_get_auto_recovery",
+      "restart_persistence"
+    ],
+    "refresh": "reload (main.js is re-fetched); expired aliases of the same client: GET/HEAD 307 to the current alias",
+    "refresh_verified": true,
+    "not_verified": [
+      "admin pages",
+      "2FA",
+      "deluxe membership",
+      "wallet/payment",
+      "chatbot",
+      "file upload/complaint",
+      "data export",
+      "service worker (the app registers none)"
+    ]
+  },
   "routes": [
     "/api/Addresss/{tail*}",
     "/api/BasketItems/{tail*}",

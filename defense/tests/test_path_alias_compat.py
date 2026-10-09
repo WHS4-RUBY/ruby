@@ -70,6 +70,15 @@ class ConfigFileTests(unittest.TestCase):
             env["PATH_ALIAS_DB_PATH"] = str(Path(directory) / "aliases.sqlite3")
             self.assertEqual(pa.PathAliasTable(pa.PathAliasConfig.from_env(env)).describe()["backend"], "sqlite")
 
+    def test_shipped_route_files(self):
+        config = Path(__file__).resolve().parents[1] / "config"
+        juice = pa.load_route_document(str(config / "juice-shop-routes.json"))
+        ruby = pa.load_route_document(str(config / "ruby-shop-routes.json"))
+        example = pa.load_route_document(str(config / "query-routing-example.json"))
+        self.assertTrue(juice.enforce_ready)  # browser flows and refresh verified (see compatibility)
+        self.assertFalse(ruby.enforce_ready)  # source-only route list: stays at observe
+        self.assertFalse(example.enforce_ready)
+
     def test_rotation_reasons_are_granular(self):
         self.assertEqual(pa._parse_triggers("reject"), pa.REJECT_REASONS)
         self.assertEqual(pa._parse_triggers("direct,foreign_alias"), ("direct", "foreign_alias"))

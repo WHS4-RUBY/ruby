@@ -45,8 +45,7 @@ REJECT_REASONS = ("unknown_alias", "foreign_alias", "method_not_allowed",
                   "invalid_alias_arguments", "shadowed_route",
                   "invalid_query_route", "duplicate_query_route")
 ROTATION_REASONS = ("direct",) + REJECT_REASONS
-DEFAULT_ROTATE_ON = ("direct", "unknown_alias", "foreign_alias",
-                     "invalid_alias_arguments", "shadowed_route")
+DEFAULT_ROTATE_ON = ("direct", "unknown_alias", "foreign_alias", "invalid_alias_arguments")
 _ALIAS_MARKER = "__ruby_alias_"
 _TOKEN_LEN = 26
 _ALIAS_PATH = re.compile(r"^(/" + _ALIAS_MARKER + r"[a-z2-7]{26})(/.*)?$")
@@ -474,6 +473,7 @@ class Resolution:
 
 
 def _ambiguous(path: str) -> bool:
+    # ``path`` is already percent-decoded by the server: a remaining "%" is double encoding.
     return bool(re.search(r"[%\\;\x00-\x20]", path) or path in {".", ".."} or path.endswith("."))
 
 
@@ -1024,9 +1024,18 @@ class PathAliasTable:
             real = self._restore(route, suffix)
             if real is None:
                 return Resolution("reject", path, reason="invalid_alias_arguments", route_id=route.path, mode=mode)
-            if any(other.path != route.path and other.specificity > route.specificity
-                   and self._real_patterns[other.path].fullmatch(real) for other in self.cfg.routes):
-                return Resolution("reject", path, reason="shadowed_route", route_id=route.path, mode=mode)
+            # Apps compose a broad alias with a runtime suffix ("/rest/admin" + "/application-version").
+            # The restored path then belongs to the most specific configured route: use its methods
+            # and report it as that route. (v3 refused this as shadowed_route and rotated the client,
+            # which broke every other alias on the page.)
+            specific = next((other for other in self.cfg.routes
+                             if other.specificity > route.specificity and other.path != route.path
+                             and self._real_patterns[other.path].fullmatch(real)), None)
+            if specific is not None:
+                if not specific.allows(method):
+                    return Resolution("reject", path, reason="method_not_allowed",
+                                      route_id=specific.path, mode=mode)
+                route = specific
             if state in ("stale", "revoked"):
                 return Resolution("stale", real, reason=f"{state}_alias", route_id=route.path,
                                   generation=row["generation"], mode=mode, owner_ok=owner == "owner",
