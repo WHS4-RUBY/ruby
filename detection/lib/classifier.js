@@ -207,8 +207,16 @@ function weightedScore(breakdown, weights) {
 }
 
 function pointBreakdown(breakdown, weights) {
-  return Object.fromEntries(Object.entries(weights).map(([name, weight]) =>
-    [name, Number((breakdown[name] * weight * 100).toFixed(2))]));
+  return Object.fromEntries(
+    Object.entries(weights).map(([name, weight]) => {
+      const value = Number(breakdown[name] ?? 0);
+
+      return [
+        name,
+        Number((Math.max(0, Math.min(value, 1)) * weight * 100).toFixed(2)),
+      ];
+    })
+  );  
 }
 
 function scoreReflectedXss(features) {
