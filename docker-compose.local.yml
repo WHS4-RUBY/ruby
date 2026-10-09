@@ -113,7 +113,7 @@ services:
       PATH_ALIAS_COOKIE_SECURE: ${PATH_ALIAS_COOKIE_SECURE:-false}
       DEFENSE_DASHBOARD_ENABLED: ${DEFENSE_DASHBOARD_ENABLED:-true}
       DECOY_UPSTREAM_CHOICES: legacy=http://cheat-legacy:3012,alternate=http://cheat-alternate:3012
-      OVERLAY_UPSTREAM_CHOICES: legacy=http://overlay-legacy:8080,alternate=http://overlay-alternate:8080
+      OVERLAY_UPSTREAM_CHOICES: ${OVERLAY_UPSTREAM_CHOICES:-legacy=http://overlay-legacy:8080}
       OVERLAY_DETECTOR_KEY: ${OVERLAY_DETECTOR_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
       DEFENSE_OVERLAY_STATE_DB: /app/overlay-state/routes.sqlite3
       DEFENSE_DASHBOARD_PASSWORD: ${DEFENSE_DASHBOARD_PASSWORD:-}

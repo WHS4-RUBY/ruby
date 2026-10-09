@@ -388,6 +388,56 @@ test("표시 점수가 임계값 아래의 원점수를 반올림해 넘기지 �
   assert.equal(ui.scoreNumber(0.796), 79.6);
 });
 
+test("Socket.IO 오류도 기본 타임라인에서 숨기고 명시적인 보기나 검색으로 복원한다", () => {
+  const ui = loadPresentation();
+  const background = (id, status, extra = {}) => ({
+    requestId: `request:${id}`, sessionId: "session:one", ts: 1000 + status,
+    method: "GET", url: `/socket.io/?transport=polling&sid=${id}`, status,
+    backgroundTraffic: { isBackground: true, category: "socket_io_polling" }, ...extra,
+  });
+  const detail = { requests: [
+    background("poll-ok", 200), background("poll-bad", 400), background("poll-gateway", 502),
+    background("poll-stream", 200, { responseTransportOutcome: "error" }),
+    background("poll-attack", 200, { tags: ["sqli"] }),
+    background("poll-xss", 200, { xssTags: ["xss:reflected"] }),
+    { requestId: "request:ordinary-error", sessionId: "session:one", ts: 2000,
+      method: "GET", url: "/api/products", status: 502 },
+  ] };
+  const hidden = ui.renderTimeline(detail, []);
+  for (const id of ["poll-ok", "poll-bad", "poll-gateway", "poll-stream"])
+    assert.ok(!logKeysInOrder(hidden).includes(`request:${id}`));
+  assert.ok(logKeysInOrder(hidden).includes("request:poll-attack"));
+  assert.ok(logKeysInOrder(hidden).includes("request:poll-xss"));
+  assert.ok(logKeysInOrder(hidden).includes("request:ordinary-error"));
+  assert.doesNotMatch(hidden, /class="log-group"/);
+  assert.match(hidden, /백그라운드 4건 보기/);
+  ui.state.timelineFlaggedOnly = true;
+  assert.ok(logKeysInOrder(ui.renderTimeline(detail, [])).includes("request:poll-xss"));
+  ui.state.timelineFlaggedOnly = false;
+  ui.state.timelineBackgroundExpanded = true;
+  assert.equal(logKeysInOrder(ui.renderTimeline(detail, [])).length, 7);
+  ui.state.timelineBackgroundExpanded = false;
+  ui.state.timelineQuery = "request:poll-gateway";
+  assert.deepEqual(logKeysInOrder(ui.renderTimeline(detail, [])), ["request:poll-gateway"]);
+  assert.equal(detail.requests.length, 7, "표시 필터는 원본 요청을 삭제하지 않는다");
+});
+
+test("상세 모달도 배경 오류 요청을 닫힌 보기 안에 두고 공격 신호는 기본 목록에 남긴다", () => {
+  const ui = loadPresentation();
+  const requests = [
+    { requestId: "request:background", sessionId: "s", ts: 1, method: "GET", url: "/socket.io/", status: 502,
+      backgroundTraffic: { isBackground: true } },
+    { requestId: "request:attack", sessionId: "s", ts: 2, method: "GET", url: "/socket.io/", status: 200,
+      backgroundTraffic: { isBackground: true }, attackDetection: { hits: [{ ruleId: 1 }] } },
+  ];
+  const html = ui.renderRequests(requests);
+  const [visible, background] = html.split('<details class="modal-disclosure">');
+  assert.deepEqual(logKeysInOrder(visible), ["request:attack"]);
+  assert.deepEqual(logKeysInOrder(background), ["request:background"]);
+  assert.match(background, /백그라운드 1건 보기/);
+  assert.doesNotMatch(html, /<details[^>]*\bopen\b/);
+});
+
 test("요청 ID 검색 결과에서는 백그라운드 요청을 접지 않는다", () => {
   const ui = loadPresentation();
   const detail = { requests: [{
@@ -396,7 +446,8 @@ test("요청 ID 검색 결과에서는 백그라운드 요청을 접지 않는�
     backgroundTraffic: { isBackground: true, category: "socket_io_polling" },
   }] };
   const nodes = [{ sessionId: "session:one", timelineAvailable: true, index: 1, color: "#123456", requestCount: 1 }];
-  assert.match(ui.renderTimeline(detail, nodes), /Socket\.IO polling 1건/);
+  assert.match(ui.renderTimeline(detail, nodes), /백그라운드 1건 보기/);
+  assert.deepEqual(logKeysInOrder(ui.renderTimeline(detail, nodes)), []);
   ui.state.timelineQuery = "request:polling";
   const result = ui.renderTimeline(detail, nodes);
   assert.match(result, /class="log-entry[^"]*expanded"[^>]*data-log-key="request:polling"/, "요청 ID를 그대로 검색하면 해당 행을 펼친다");
@@ -422,12 +473,111 @@ test("부분 응답 오류와 스트리밍 본문 미검사를 성공 응답과 
   assert.match(rowFor("request:partial"), />200<\/span>[\s\S]*>전송 오류<\/span>/);
   assert.match(rowFor("request:events"), />본문 미검사<\/span>/);
   assert.doesNotMatch(rowFor("request:events"), /전송 오류/);
-  assert.match(ui.renderLogDetail(detail.requests[0]), /200<\/span> <span class="kv-warn">응답 전달 중 오류\(본문 불완전\)/);
-  assert.match(ui.renderLogDetail(detail.requests[1]), /응답 본문 검사 생략\(스트리밍·크기 제한\)/);
+  assert.match(ui.renderLogDetail(detail.requests[0]), /조회 · 응답 전달 중 오류/);
+  assert.match(ui.renderLogDetail(detail.requests[0]), /응답 내용 전달을 완료하지 못했습니다/);
+  assert.match(ui.renderLogDetail(detail.requests[1]), /응답 내용 검사는 생략했습니다/);
   ui.state.timelineFlaggedOnly = true;
   const flagged = ui.renderTimeline(detail, nodes);
   assert.match(flagged, /request:partial/);
   assert.doesNotMatch(flagged, /request:events/);
+});
+
+test("요청 상세는 결과를 먼저 설명하고 집계 근거와 내부 코드는 접어서 제공한다", () => {
+  const ui = loadPresentation();
+  const request = {
+    requestId: "request:plain", sessionId: "session:private", ts: 1000,
+    method: "GET", url: "/", status: 200, ip: "::ffff:172.24.0.1",
+    responseTransportOutcome: "complete", responseBodyInspected: true,
+    policyDecision: { source: "actor-candidate-fallback", automationScore: 0.25,
+      attackScore: 0, riskScore: 0.25, confirmedAttackScore: 0, strategies: [] },
+    detectionResult: { source: "provisional-client-observation", automationScore: 0.3, effectiveAttackScore: 0.1 },
+    attackDetection: { available: true, crsVersion: "4.25.1", anomalyScore: 0, hits: [] },
+    responseContentType: "text/html", responseContentLength: null, responseBodyBytes: 9393,
+    targetId: "legacy", targetRunId: "run:private",
+  };
+  const html = ui.renderLogDetail(request);
+  const summary = html.split('<details class="request-disclosure')[0];
+  assert.match(summary, /메인 페이지 조회 · 정상 응답/);
+  assert.match(summary, /추가 방어 전략을 선택하지 않음/);
+  assert.match(summary, /자동화 의심<strong>25점 \/ 100점/);
+  assert.match(summary, /공격 신호<strong>0점 \/ 100점/);
+  assert.doesNotMatch(summary, /해당 클라이언트 기록을 집계한 점수이며|요청 처리 후에는/);
+  assert.match(summary, /규칙 일치 없음/);
+  assert.doesNotMatch(summary, /actor-candidate-fallback|provisional-client-observation|session:private|run:private|request:plain|안전함|공격 성공/);
+  assert.match(html, /비슷한 IP·요청 헤더로 묶은 관찰 후보/);
+  assert.doesNotMatch(html, /요청 처리 후 갱신된 점수|갱신 점수의 계산 대상|요청 처리 후 클라이언트 점수|30점 \/ 100점/);
+  assert.match(html, /provisional-client-observation/);
+  assert.match(html, /기본 연결 서비스/);
+  assert.doesNotMatch(html, /· 대상 코드|명시된 크기|실제 수신 크기|규칙 검사 원점수|ModSecurity \/ OWASP CRS/);
+  assert.match(html, /data-copy="172\.24\.0\.1"/);
+  assert.match(html, /text\/html/);
+  assert.match(html, /내부 네트워크 주소/);
+  for (const id of ["request:plain", "session:private", "run:private"]) assert.ok(html.includes(id));
+  const disclosures = [...html.matchAll(/<details[^>]*>/g)].map(match => match[0]);
+  assert.equal(disclosures.length, 3);
+  for (const tag of disclosures) assert.doesNotMatch(tag, /\bopen\b/);
+  ui.state.requestDisclosures.add("request:plain:why");
+  const refreshed = ui.renderLogDetail(request);
+  assert.match(refreshed, /data-request-disclosure="request:plain:why" open/);
+  assert.doesNotMatch(refreshed, /data-request-disclosure="request:plain:technical" open/);
+});
+
+test("방어 판단 기록이 없으면 처리 후 점수를 대신 표시하지 않고 원본만 보존한다", () => {
+  const ui = loadPresentation();
+  const request = { requestId: 'request:separate-score', ts: 1000, method: 'POST', url: '/file-upload', status: 415,
+    detectionResult: { source: 'provisional-client-observation', automationScore: .25, effectiveAttackScore: .063 } };
+  const html = ui.renderLogDetail(request);
+  const visible = html.split('<details class="log-json"')[0];
+  assert.doesNotMatch(visible, /request-scores|request-score-title|25점|6\.3점|요청 처리 후 갱신된 점수|갱신 점수의 계산 대상/);
+  assert.match(visible, /방어 판단 기록 없음/);
+  assert.match(visible, /요청 오류 응답/);
+  assert.match(html, /detectionResult/);
+  assert.match(html, /0\.063/);
+  assert.equal(request.detectionResult.effectiveAttackScore, .063);
+});
+
+test("관찰된 모든 IP는 읽기 쉬운 전체 주소와 복사 버튼으로 표시한다", () => {
+  const ui = loadPresentation();
+  const flow = {
+    clientFlowId: 'client-flow:ips', observedIps: ['::ffff:172.24.0.1', '198.51.100.20', '2001:db8::1234', '172.24.0.1'],
+    candidateIds: [], sessionIds: [], flowLinked: true, totalRequests: 1, firstSeen: 1000, lastSeen: 2000,
+  };
+  ui.state.users = ui.buildUserRows([], [], [flow]);
+  ui.renderUserList();
+  const list = ui.elements.get('userList').innerHTML;
+  assert.match(list, /172\.24\.0\.1 외 2개/);
+  for (const ip of ['172.24.0.1', '198.51.100.20', '2001:db8::1234']) {
+    assert.ok(list.includes(`data-copy="${ip}"`));
+    assert.ok(ui.renderModalDetail(flow, 'client-flows', flow.clientFlowId).includes(`data-copy="${ip}"`));
+  }
+  assert.equal((list.match(/data-copy="172.24.0.1"/g) || []).length, 1);
+  assert.doesNotMatch(list, /::ffff:/);
+  ui.state.selected = { kind: 'client-flows', id: flow.clientFlowId };
+  ui.state.userDetail = { ...flow, requests: [{ ip: '203.0.113.42', ts: 2000, method: 'GET', url: '/', status: 200 }] };
+  ui.renderUserDetail();
+  const detail = ui.elements.get('userDetail').innerHTML;
+  assert.match(detail, /관찰된 IP 4개/);
+  assert.match(detail, /data-copy="203.0.113.42"/);
+  const unsafe = ui.renderModalDetail({ ip: '<img src=x>', requests: [] }, 'actors', 'actor:unsafe');
+  assert.doesNotMatch(unsafe, /<img/);
+  assert.match(unsafe, /data-copy="&lt;img src=x&gt;"/);
+});
+
+test("검사 불가·공격 신호·방어 계획을 성공이나 안전으로 단정하지 않는다", () => {
+  const ui = loadPresentation();
+  const request = {
+    requestId: "request:attack", ts: 1000, method: "POST", url: "/login", status: 200,
+    policyDecision: { strategies: ["account_overlay_medium"], source: "confirmed-resolved-actor" },
+    tags: ["sqli"], attackDetection: { available: false },
+  };
+  const html = ui.renderLogDetail(request);
+  assert.match(html, /규칙 검사 미확인/);
+  assert.doesNotMatch(html, /규칙 일치 없음/);
+  assert.match(html, /중위험 계정 응답에 미끼 정보 추가/);
+  assert.match(html, /요청 전달 전에 선택한 계획/);
+  assert.match(html, /자동화 의심<strong>기록 없음/);
+  assert.match(html, /추가 관찰 신호 1개/);
+  assert.doesNotMatch(html.split('<details class="request-disclosure')[0], /공격 성공|안전함/);
 });
 
 test("A 상세 응답이 B 선택 뒤 늦게 도착해도 B 상세를 덮지 않는다", async () => {
@@ -509,18 +659,15 @@ test("요청 로그와 상세 모달 타임라인은 최신 요청을 맨 위에
   assert.equal(requests[0].requestId, "request:old", "원본 요청 배열 순서는 바꾸지 않는다");
 });
 
-test("접힌 백그라운드 묶음의 시간 범위는 최신순에서도 오래된 시각부터 표시한다", () => {
+test("백그라운드 보기를 켜면 개별 요청을 원본 시간에 따라 최신순으로 표시한다", () => {
   const ui = loadPresentation();
   const poll = (id, ts) => ({ requestId: id, sessionId: "session:one", ts, method: "GET", url: "/socket.io/?EIO=4", status: 200,
     backgroundTraffic: { isBackground: true, category: "socket_io_polling" } });
-  const entries = ui.buildLogEntries([poll("b", 2000), poll("a", 1000)]);
-  assert.equal(entries.length, 1);
-  assert.equal(entries[0].requests.length, 2);
   const nodes = [{ sessionId: "session:one", timelineAvailable: true, index: 1, color: "#123456", requestCount: 2 }];
+  ui.state.timelineBackgroundExpanded = true;
   const html = ui.renderTimeline({ requests: [poll("a", 1000), poll("b", 2000)] }, nodes);
-  const first = new Date(1000).toLocaleTimeString();
-  const last = new Date(2000).toLocaleTimeString();
-  assert.ok(html.includes(`${first}–${last}`), "시간 범위가 거꾸로 표시되면 안 된다");
+  assert.deepEqual(logKeysInOrder(html), ["b", "a"]);
+  assert.doesNotMatch(html, /class="log-group"/);
 });
 
 test("검색은 field:value 필터와 일반 검색어를 함께 해석한다", () => {
@@ -657,11 +804,13 @@ test("상세 재렌더는 펼침 버튼의 키보드 포커스와 화면 위치�
   }
 });
 
-test("상세 모달은 요청을 먼저 표시하고 모든 계산·이력·연결·특성을 접어서 보존한다", () => {
+test("상세 모달은 계산·이력·연결·특성을 요청 목록 위에 접어서 표시한다", () => {
   const ui = loadPresentation();
   const data = {
     continuityConfirmed: true, totalRequests: 2, automationScore: 0.2, attackScore: 0.1,
     automationBreakdown: { timingRegularity: 0.123 }, attackBreakdown: { csrf: 0.456 },
+    automationPointBreakdown: { timingRegularity: 0.62 }, attackPointBreakdown: { csrf: 4.1 },
+    scoreMaximumPoints: { automation: { timingRegularity: 5 }, attack: { csrf: 9 } },
     honeyBreakdown: { automation: { contributions: { "honey-marker": 7 } } },
     attackHistory: { attackCategories: ["attack-marker"] },
     deceptionHistory: { distinctSignals: ["deception-marker"] },
@@ -676,12 +825,16 @@ test("상세 모달은 요청을 먼저 표시하고 모든 계산·이력·연�
   const disclosures = [...html.matchAll(/<details class="modal-disclosure"[^>]*>/g)].map(match => match[0]);
   assert.equal(disclosures.length, 4);
   for (const disclosure of disclosures) assert.doesNotMatch(disclosure, /\bopen\b/);
-  assert.ok(html.indexOf('data-log-key="request:one"') < html.indexOf('id="modalScores"'));
+  assert.ok(html.indexOf('id="modalScores"') < html.indexOf('data-log-key="request:one"'));
+  assert.ok(html.indexOf('id="modalFeatures"') < html.indexOf('id="modalRequests"'));
   for (const marker of ["honey-marker", "attack-marker", "deception-marker", "connection-marker",
     "sequence-marker", "exploration-marker", "client-marker", "honey-feature-marker",
     "attack-feature-marker", "agentic-marker"]) assert.ok(html.includes(marker), marker);
-  assert.match(html, /0\.12/);
-  assert.match(html, /0\.46/);
+  assert.match(html, /class="value">0\.62점/);
+  assert.match(html, /class="value">4\.1점/);
+  assert.match(html, /최대 5점/);
+  assert.match(html, /최대 9점/);
+  assert.doesNotMatch(html, /class="value">0\.12|class="value">0\.46/);
   assert.match(html, /111\.00/);
   assert.match(html, /id="modalJsonButton"/);
 });
