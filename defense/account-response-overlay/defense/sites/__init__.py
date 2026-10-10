@@ -1,5 +1,7 @@
 """A fixed local account decoy whose identity comes from the site profile."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from ..decoy_paths import LEGACY
 
 
 @dataclass(frozen=True)
@@ -9,7 +11,7 @@ class ProfileSite:
     name: str = 'account_decoy'
     title: str = 'Account access'
     home_label: str = 'Account'
-    docs_path: str = '/ftp'
+    docs_path: str = field(default_factory=lambda: LEGACY)
     bridge_version: str = '2.4.0'
 
     def fallback(self, ctx):

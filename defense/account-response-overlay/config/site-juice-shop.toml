@@ -10,6 +10,8 @@ api_prefixes = ["/api", "/rest", "/swagger", "/openapi"]
 ordinary_api_prefixes = ["/api/products", "/rest/products", "/api/quantitys"]
 ordinary_api_exact = ["/api/challenges", "/rest/languages", "/rest/admin/application-configuration", "/rest/admin/application-version"]
 origin_auth_cookies = ["token"]
+# 미끼가 차지하는 경로 네임스페이스. robots 단서와 로그인 경로 검증의 기준이다.
+decoy_namespaces = ["/ftp", "/ops"]
 robots_disallow = ["/ftp", "/ops/recovery/accounts", "/ops/service/manifest"]
 decoy_brand = "Internal Administration"
 decoy_admin_email = "administrator@internal.invalid"

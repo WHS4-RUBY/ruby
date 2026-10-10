@@ -1,9 +1,12 @@
 """Site-specific entry points and presentation, loaded from one TOML profile."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
+import os
 from pathlib import Path
 import re
 import tomllib
+
+from .decoy_paths import OVERLAY_ROOTS, prefixed
 
 
 @dataclass(frozen=True)
@@ -24,10 +27,13 @@ class SiteProfile:
     decoy_admin_email: str
     decoy_service: str
     decoy_profile_image: str
+    # 이 사이트에서 미끼가 차지하는 경로 네임스페이스. 선언하지 않으면 공용 카탈로그의
+    # 값을 쓴다. 코드에 /ftp·/ops 를 박아두는 대신 프로파일이 선언한다.
+    decoy_namespaces: tuple[str, ...] = field(default_factory=lambda: OVERLAY_ROOTS)
 
     def __post_init__(self):
         path_lists = (self.login_paths, self.recon_html_paths, self.api_prefixes, self.ordinary_api_prefixes,
-                      self.ordinary_api_exact, self.robots_disallow)
+                      self.ordinary_api_exact, self.robots_disallow, self.decoy_namespaces)
         if not self.login_paths or any(not p.startswith('/') or '//' in p or '\\' in p
                                        or '\r' in p or '\n' in p for group in path_lists for p in group):
             raise ValueError('site profile paths must be absolute and canonical')
@@ -42,11 +48,13 @@ class SiteProfile:
                (self.decoy_brand, self.decoy_admin_email, self.decoy_service,
                 self.decoy_profile_image)):
             raise ValueError('invalid decoy identity')
-        if any(p == '/ftp' or p.startswith('/ftp/') or p == '/ops' or p.startswith('/ops/')
-               for p in self.login_paths):
+        if not self.decoy_namespaces:
+            raise ValueError('site profile must declare at least one decoy namespace')
+        if any(prefixed(p, namespace) for p in self.login_paths
+               for namespace in self.decoy_namespaces):
             raise ValueError('login path must not overlap the decoy namespace')
-        if any(not (p == '/ftp' or p.startswith('/ftp/') or
-                    p == '/ops' or p.startswith('/ops/')) for p in self.robots_disallow):
+        if any(not any(prefixed(p, namespace) for namespace in self.decoy_namespaces)
+               for p in self.robots_disallow):
             raise ValueError('robots clues must target the local decoy')
 
     @property
@@ -65,11 +73,13 @@ def load_site_profile(path: str) -> SiteProfile:
     data = tomllib.loads(Path(path).read_text())
     for key in ('login_paths', 'account_terms', 'recon_segments', 'recon_html_paths', 'api_prefixes',
                 'ordinary_api_prefixes', 'ordinary_api_exact', 'origin_auth_cookies',
-                'robots_disallow'):
-        data[key] = tuple(data[key])
+                'robots_disallow', 'decoy_namespaces'):
+        if key in data:
+            data[key] = tuple(data[key])
     return SiteProfile(**data)
 
 
 def default_site_profile() -> SiteProfile:
-    return load_site_profile(str(Path(__file__).resolve().parent.parent /
-                                 'config/site-juice-shop.toml'))
+    configured = os.environ.get('DEFAULT_SITE_PROFILE', '').strip()
+    return load_site_profile(configured or str(Path(__file__).resolve().parent.parent /
+                                               'config/site-juice-shop.toml'))

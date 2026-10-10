@@ -140,6 +140,39 @@ class SiteProfilesStayInsideTheDecoyNamespace(unittest.TestCase):
                     self.assertFalse(decoy_paths.is_overlay_decoy(login_path), login_path)
 
 
+class DecoyNamespaceIsDeclaredByTheProfile(unittest.TestCase):
+    """사이트 추가가 프로파일 작성만으로 끝나는지 — 코드에 /ftp·/ops 분기가 없어야 한다."""
+
+    def _juice_fields(self) -> dict:
+        profile = load_site_profile(str(OVERLAY_ROOT / 'config/site-juice-shop.toml'))
+        return dict(vars(profile))
+
+    def test_every_shipped_profile_declares_its_namespace(self):
+        for name in SITE_PROFILES:
+            with self.subTest(profile=name):
+                profile = load_site_profile(str(OVERLAY_ROOT / 'config' / name))
+                self.assertEqual(tuple(decoy_paths.OVERLAY_ROOTS), profile.decoy_namespaces)
+
+    def test_a_site_may_relocate_the_decoy_namespace(self):
+        site_profile = importlib.import_module('overlay_pkg.site_profile')
+        relocated = site_profile.SiteProfile(**{**self._juice_fields(),
+                                                'decoy_namespaces': ('/archive',),
+                                                'robots_disallow': ('/archive/accounts',)})
+        self.assertEqual(('/archive',), relocated.decoy_namespaces)
+
+    def test_the_declared_namespace_still_gates_robots_and_login_paths(self):
+        site_profile = importlib.import_module('overlay_pkg.site_profile')
+        fields = self._juice_fields()
+        for label, override in (
+                ('robots clue outside the namespace', {'robots_disallow': ('/elsewhere',)}),
+                ('login path inside the namespace', {'login_paths': ('/ops/login',)}),
+                ('no namespace at all', {'decoy_namespaces': ()}),
+                ('relative namespace', {'decoy_namespaces': ('ops',)})):
+            with self.subTest(case=label):
+                with self.assertRaises(ValueError):
+                    site_profile.SiteProfile(**{**fields, **override})
+
+
 class PathPredicatePrecondition(unittest.TestCase):
     """판별식은 정규화된 경로를 전제한다. 그 전제를 테스트로 적어 둔다."""
 
