@@ -241,7 +241,8 @@ npm test
 | `ADMIN_PORT` | 없음 | 분리된 관리 리스너 포트. 운영 Compose에서는 컨테이너 `8080`을 서버 루프백 `8088`에 연결 |
 | `POLICY_CONFIG_PATH` | `config/policy.json` | 위험도 구간별 방어 전략 정의 |
 | `DETECTION_LEVEL` | `medium` | `low` 0.3, `medium` 0.5, `high` 0.7 |
-| `SCHEMA_LEARNING_FILE` | 없음 | 승인된 스키마 학습 결과 저장 경로 |
+| `DETECTION_STORE_DB` | `data/detection.sqlite3` | Detection 의 모든 SQLite 상태(XSS 후보·확정 증거·reflected 증거·스키마 학습). `detection-data` 볼륨 |
+| `XSS_STORE` | `sqlite` | `memory` 로 두면 영속화 없이 인메모리만 사용 |
 | `CRS_ENABLED` | `true` | ModSecurity/OWASP CRS 활성화 |
 | `CRS_MODE` | `observe` (로컬 Compose: `enforce`) | `off` / `observe` / `enforce` |
 | `CRS_BLOCK_THRESHOLD` | `5` | 현재 요청의 공격 규칙 점수 차단 기준 |
@@ -260,6 +261,38 @@ Detection 입력에서 제거하며, Detection과 Defense 모두 HTTP·WebSocket
 재생성하지 않습니다. 게이트웨이 뒤의 Detection에는 게이트웨이 IP가 기록됩니다.
 서명된 Client ID 기반 식별은 유지되며, 과거 X-Forwarded-For를 이용한 IP 변경 실험은
 현재 설정에서 재현되지 않습니다.
+
+## 미끼 경로 적중 신호 (2026-10-11)
+
+Detection 은 Defense 앞단이라 Defense 가 만든 미끼 경로 요청을 먼저 봅니다. 그
+경로들은 보호 대상의 기능이 아니라 방어가 심은 것이므로 정상 사용자가 접근할 이유가
+없고, 적중을 공격 쪽 신호 `decoy_path_hit` 으로 씁니다.
+
+대상 네임스페이스는 `config/decoy-catalog.json` 이 정합니다(원본은
+`shared/decoy-catalog.json`, `scripts/sync-shared.sh` 로 동기화).
+`detectionSignal: true` 인 네임스페이스만 신호가 됩니다.
+
+| 네임스페이스 | 판정 | 신호 |
+| --- | --- | --- |
+| 계정 오버레이 `/ftp`, `/ops` | 세그먼트 경계 접두어 | 발생 |
+| CHeaT 미로 진입 경로 | 정확 일치 하나만 | 발생 |
+| CHeaT 미로 루트(`/internal` 등) | — | 발생하지 않음. 사이트의 정상 경로와 겹칠 수 있다 |
+| Detection 자체 트랩 `/rest/internal` | — | 발생하지 않음. `trap_trigger`·`script_hint_access` 로 이미 채점된다 |
+| 미끼가 주입하는 자산 `/assets/*` | — | 발생하지 않음. 브라우저가 자동으로 받아온다 |
+
+대소문자·이중 슬래시·뒤 슬래시·한 번의 퍼센트 인코딩으로는 회피할 수 없습니다.
+
+배점은 공격 허니 8점이며 `ATTACK_HONEY_MAX_POINTS` 상한 35점과
+`ATTACK_WEIGHTS.attackHoney` 0.17 은 그대로입니다 — 허니가 공격 점수에 더할 수 있는
+최대치가 변하지 않으므로 0.5/0.8/0.95 구간 자체는 달라지지 않고, 같은 요청이 더 빨리
+구간에 닿을 수 있습니다. 한 번 적중의 기여는 `8/35 × 0.17 ≈ 0.039` 입니다.
+
+배점은 `config/policy.json` 의 `detection.deception.points` 로 조정합니다. 표는
+신호 단위로 병합되므로 하나만 적어도 나머지 배점은 남습니다. 이 신호를 끄려면:
+
+```jsonc
+{ "detection": { "deception": { "points": { "attack": { "decoy_path_hit": 0 } } } } }
+```
 
 ## Fingerprint Client Flow 집계
 
@@ -295,9 +328,18 @@ POST/PUT/PATCH의 작성 요청 식별자를 보관하고, 나중 응답에서 �
 이미 만료되었으면 복원하지 않습니다. 탐지된 작성 요청의 후보만 제거하므로 다른
 작성자의 같은 값과 합치지 않습니다.
 
-10주차 로컬 발표의 XSS SQLite 파일 저장은 이 런타임에 병합되지 않았습니다.
-현재 후보는 인메모리로 기본 1시간·2,000건·4MiB 중 먼저 닿는 상한까지 유지되며,
-Detection 재시작 시 미확정 후보와 확정된 요청·점수 기록이 모두 사라집니다.
+XSS 후보와 확정·reflected 증거, 스키마 학습 결과는 모두 `DETECTION_STORE_DB`
+(기본 `data/detection.sqlite3`, `detection-data` 볼륨) 한 파일에 있습니다. 후보는
+기본 1시간·2,000건·4MiB 중 먼저 닿는 상한까지 유지하고, 상한과 TTL 은
+`XSS_CANDIDATE_TTL_MS`·`XSS_MAX_CANDIDATES`·`XSS_MAX_CANDIDATE_BYTES` 로 조절합니다.
+재시작해도 남습니다. `XSS_STORE=memory` 로 두거나 `node:sqlite` 를 쓸 수 없으면
+인메모리로 내려가고 그때는 재시작 시 사라집니다.
+
+예전에는 파일이 네 개였습니다(`xss-candidates.db`, `xss-confirmed.db`,
+`xss-reflected.db`, `schema-learning.json`). 구 파일이 남아 있으면 한 번만
+`node scripts/migrate-stores.js` 로 옮깁니다 — 구 파일이 없으면 아무것도 하지 않고,
+재실행해도 안전합니다. 스키마는 `schema_migrations(component, version, applied_at)`
+으로 관리하며 컴포넌트별로 독립적으로 버전이 올라갑니다.
 단위 시험은 개수·바이트·TTL 축출과 재생성 후 유실을 확인했습니다. 장기 보존이 필요한
 운영에는 별도 영속 저장소와 볼륨·마이그레이션·삭제 정책이 필요합니다.
 

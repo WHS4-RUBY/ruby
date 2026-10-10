@@ -60,6 +60,8 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 - `app/dashboard_auth.py`: 로그인 제한과 세션 수명 관리
 - `app/strategies/`: 방어 전략 구현과 Registry
 - `app/monitoring.py`: 상한이 있는 요청 이벤트와 집계
+- `app/store.py`: SQLite 연결·트랜잭션·마이그레이션 공용 계층
+  (원본은 `shared/py/store.py`, `scripts/sync-shared.sh` 로 동기화)
 - `app/public/dashboard.html`: Detection 대시보드와 같은 형태의 운영 화면
 
 공식 Defense 전략은 `DefenseStrategy`를 구현해 Registry에 등록합니다. CHeaT 기만 전략은 비공개 sidecar에서 실행하고, Defense가 sidecar의 실제 적용 전략과 동작을 대시보드에 집계합니다. 계정 오버레이 계획은 Defense가 확정 공격 점수와 함께 검증해 서명·라우팅하며, 실제 오버레이 경로를 사용한 경우만 대시보드에 기록합니다.
@@ -151,6 +153,34 @@ scripts/sync-decoy-catalog.sh --check  # 불일치 확인
 CHeaT sidecar의 미로 경로는 별개 장치인 `defense_proxy_v2/profiles.py`의 프리셋(`TARGET_PRESET`, `TARGET_PROFILE`)으로 정한다. 카탈로그는 그 진입 경로를 선언만 하고, 두 값의 일치는 계약 테스트가 강제한다.
 
 **이 절차의 범위는 Defense(계정 오버레이·CHeaT)까지다.** Detection의 비즈니스 로직 탐지 7개 모듈(`businessLogicSignatures.js`, `roleGatedAccess.js`, `priceIntegrity.js`, `priceTampering.js`, `loginBruteForce.js`, `passwordResetAbuse.js`, `identityMismatch.js`)은 아직 Juice Shop의 라우트·JWT 클레임·쿠키 이름에 묶여 있고 `detection/config/policy.json`에 이를 바꿀 설정 항목이 없다. 즉 **새 사이트를 붙여도 Defense의 미끼·오버레이는 동작하지만 Detection의 비즈니스 로직 탐지는 그 사이트에서 조용히 무력화된다.** 현황은 [리팩토링 인벤토리 1-D](../docs/refactor-inventory.md#1-d-juice-shop-하드코딩-목록)에 모듈별로 정리했고, 설정화는 후속 작업이다.
+
+## 영속 저장소 (2026-10-11)
+
+컨테이너마다 자기 파일을 쓴다. 스키마는 모두
+`schema_migrations(component, version, applied_at)` 로 관리하고, 한 파일이 여러
+컴포넌트를 담아도 각자 독립적으로 버전이 올라간다. 재배포 때 아래 볼륨은 보존해야 한다.
+
+| 컨테이너 | 파일 | 환경변수 | 내용 |
+| --- | --- | --- | --- |
+| `defense` | `path-alias.sqlite3` | `PATH_ALIAS_DB_PATH` | 경로 별칭 클라이언트 상태와 별칭 행 |
+| `defense` | `routes.sqlite3` | `DEFENSE_OVERLAY_STATE_DB` | 영속 오버레이 경로(중·고위험 sticky) |
+| `overlay-*` | `security.sqlite3` | `DEFENSE_SECURITY_DB` | 계정 격리와 재생 방지 nonce |
+| `overlay-*` | `telemetry.sqlite3` | `DEFENSE_TELEMETRY_DB` | 감사 링 + 미끼 적중 링 |
+| `cheat-*` | `defense.db` | `DEFENSE_DB` | sidecar 실행·요청 기록 |
+
+**왜 더 합치지 않았나.** `routes.sqlite3` 와 `security.sqlite3` 는 fail-closed 저장소다.
+`app/main.py` 는 `OverlayRouteError` 를 503 으로 돌려주고 `core.py` 는 감사 쓰기 실패를
+503 으로 돌려준다. 요청마다 쓰는 경로 별칭이나 텔레메트리와 파일을 공유하면 그쪽 쓰기
+락이 격리·라우팅 결정을 `SQLITE_BUSY` 로 떨어뜨려 정상 요청이 503 이 된다. 그래서
+접근 계층은 공용으로 통일하되(`store.connect` 의 `create=False`·`private=True` 가 바로
+이 fail-closed 성질을 위해 있다) 파일 경계는 보안 경계에 맞춰 유지한다.
+
+구 파일에서 한 번 옮기기 (멱등, 구 파일이 없으면 아무것도 하지 않는다):
+
+```bash
+docker compose exec overlay-juice python -m defense.cli \
+    --config /app/config/decoy-production-juice-v2.toml migrate-telemetry
+```
 
 ## 전략 계약과 요청 추적
 

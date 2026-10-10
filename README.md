@@ -9,7 +9,17 @@ RUBY/
 ├── benchmark/   # 실험 대상, 실행 환경, 결과 및 재현 자료
 ├── defense/     # 차단·변환·지연·기만 등 방어 계층
 ├── detection/   # Node.js 탐지 프록시, ModSecurity/CRS, 대시보드, Policy
+├── docs/        # 저장소 전체에 걸친 설계·리팩토링 기록
+├── shared/      # Detection·Defense 가 함께 쓰는 편집 원본 (미끼 카탈로그, 이벤트 스키마, SQLite 계층)
+└── scripts/     # shared/ 사본 동기화
 ```
+
+`shared/` 가 원본이고 각 서비스 트리에 사본을 함께 커밋한다. 네 이미지의 빌드
+컨텍스트가 모두 하위 디렉터리라 Docker 가 `COPY ../` 를 금지하기 때문이다. 원본을
+고치면 `scripts/sync-shared.sh` 를 돌리고, 동일성은
+`defense/tests/test_shared_sources.py` 가 CI 에서 강제한다.
+
+서비스 간 계약 문서는 [`INTEGRATION.md`](INTEGRATION.md)에 있다.
 
 ### `benchmark/`
 
@@ -84,6 +94,9 @@ Docker Desktop을 실행한 뒤, 아래 명령으로 로컬 소스를 빌드해 
 docker compose -f docker-compose.local.yml up --build
 ```
 
+두 Compose 는 Detection·Defense 의 공통 환경변수를 `docker-compose.common.yml` 의
+base 서비스에서 `extends` 로 가져온다. 각 파일에는 배포별로 **값이 다른** 항목만 있다.
+
 먼저 보호할 애플리케이션을 이 호스트의 포트에서 실행합니다. 기본 포트는 `3000`이며 `.env`나 셸의 `TARGET_PORT`로 바꿀 수 있습니다. 예를 들어 Juice Shop은 `docker run -d -p 3000:3000 bkimminich/juice-shop`으로 띄울 수 있습니다. 로컬 Compose는 이 대상 앞에 비공개 CHeaT와 계정 오버레이를 띄웁니다. 브라우저에서 `http://localhost:8081`로 접속하거나 다음처럼 정상 요청 경로를 확인합니다.
 
 ```bash
@@ -99,6 +112,23 @@ curl -I http://localhost:8081
 ```bash
 docker compose -f docker-compose.local.yml down
 ```
+
+## 영속 저장소
+
+컨테이너마다 자기 SQLite 파일을 쓰고, 재배포 때 아래 볼륨은 보존해야 합니다.
+스키마는 모두 `schema_migrations(component, version, applied_at)` 로 관리합니다.
+
+| 컨테이너 | 볼륨 | 파일 |
+| --- | --- | --- |
+| `detection` | `detection-data:/app/data` | `detection.sqlite3` (XSS 후보·증거·스키마 학습), `target-selection.json` |
+| `defense` | `defense-alias-data`, `defense-overlay-data` | `path-alias.sqlite3`, `routes.sqlite3` |
+| `overlay-*` | `overlay-*-data:/app/state` | `security.sqlite3`(격리·재생 방지), `telemetry.sqlite3`(감사+미끼 링), 키 파일 |
+| `cheat-*` | `cheat-*-data:/data` | `defense.db` |
+
+`routes.sqlite3` 와 `security.sqlite3` 는 실패가 503 이 되는 fail-closed 저장소라
+요청마다 쓰는 저장소와 파일을 공유하지 않습니다. 자세한 내용과 구 파일
+마이그레이션 명령은 [`defense/README.md`](defense/README.md)의 "영속 저장소" 절과
+[`.env.example`](.env.example)에 있습니다.
 
 ## 보안 주의사항
 
