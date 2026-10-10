@@ -1213,7 +1213,7 @@ async def catch_all(request: Request, full_path: str):
     if alias_active:
         try:
             response, rewrites, skipped, counted = await alias_proxy_response(
-                upstream, request, alias_client, target_url=selected.url, on_complete=on_complete
+                upstream, request, alias_client, target_url=selected.url, on_complete=on_complete,
                 keep_server=bool(decoy_url))
         except path_alias.AliasStoreError as exc:
             # Enforcing and the alias store is down or full: the page would only work with
