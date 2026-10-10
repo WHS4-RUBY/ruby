@@ -8,14 +8,13 @@
  *
  * - 확정(stored): 심은 자(origin) 기준. detect-once로 후보에서 빠져도 증거는 영구 보존.
  * - reflected: 보낸 요청 기준의 탐지 기록(확정 개념 없음).
- * - 확정/reflected는 각각 "별도 DB 파일"로 분리 보관(confirmedDbPath / reflectedDbPath).
+ * - 확정/reflected는 한 DB 파일 안의 별도 테이블로 보관(evidence_confirmed / evidence_reflected).
  *
  * node:sqlite 미지원(예: node20) 또는 오류 시 자동으로 인메모리로 폴백한다(서버는 항상 기동).
  * xssRetention.test.js가 지적한 "재시작 시 확정 기록 소실" 문제를 해소한다.
  */
 
-let DatabaseSync = null;
-try { ({ DatabaseSync } = require('node:sqlite')); } catch (_) { /* 미지원 → 인메모리 폴백 */ }
+const store = require('./store');
 
 const DEFAULT_MAX = 1000;
 
@@ -30,27 +29,32 @@ function originRequestId(origin) {
   return origin && typeof origin.requestId === 'string' ? origin.requestId : null;
 }
 
-// ── SQLite 백엔드(파일 하나 = 한 종류) ───────────────────────────────────────
-class SqliteBackend {
-  constructor(dbPath) {
-    this.db = new DatabaseSync(dbPath);
-    if (dbPath !== ':memory:') { try { this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;'); } catch (_) {} }
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS evidence(
+// ── SQLite 백엔드 ───────────────────────────────────────────────────────────
+// 확정과 reflected 가 한 DB 파일을 공유하므로 테이블 이름으로 구분한다. 예전에는
+// 둘 다 'evidence' 라서 파일을 따로 쓸 수밖에 없었다.
+function evidenceMigrations(table) {
+  return [[1, [`CREATE TABLE IF NOT EXISTS ${table}(
         value TEXT PRIMARY KEY, parameter TEXT, severity TEXT, risk_score INTEGER,
         origin_session TEXT, origin_request TEXT, endpoint TEXT,
         first_at INTEGER, last_at INTEGER, times INTEGER,
-        status TEXT, note TEXT);`);
-    this._get = this.db.prepare('SELECT * FROM evidence WHERE value=?');
-    this._ins = this.db.prepare(`INSERT INTO evidence(value,parameter,severity,risk_score,origin_session,origin_request,endpoint,first_at,last_at,times,status,note)
+        status TEXT, note TEXT)`]]];
+}
+
+class SqliteBackend {
+  constructor(db, table, component) {
+    this.db = db;
+    this.table = table;
+    store.applyMigrations(db, component, evidenceMigrations(table));
+    this._get = this.db.prepare(`SELECT * FROM ${table} WHERE value=?`);
+    this._ins = this.db.prepare(`INSERT INTO ${table}(value,parameter,severity,risk_score,origin_session,origin_request,endpoint,first_at,last_at,times,status,note)
       VALUES(?,?,?,?,?,?,?,?,?,1,?,?)`);
-    this._bump = this.db.prepare(`UPDATE evidence SET last_at=?, times=times+1,
+    this._bump = this.db.prepare(`UPDATE ${table} SET last_at=?, times=times+1,
       risk_score=MAX(risk_score,?), severity=CASE WHEN ?>risk_score THEN ? ELSE severity END WHERE value=?`);
-    this._list = this.db.prepare('SELECT * FROM evidence ORDER BY last_at DESC');
-    this._count = this.db.prepare('SELECT COUNT(*) AS c FROM evidence');
-    this._del = this.db.prepare('DELETE FROM evidence WHERE value=?');
-    this._updMeta = this.db.prepare('UPDATE evidence SET status=COALESCE(?,status), note=COALESCE(?,note) WHERE value=?');
-    this._overflow = this.db.prepare('DELETE FROM evidence WHERE value IN (SELECT value FROM evidence ORDER BY last_at LIMIT ?)');
+    this._list = this.db.prepare(`SELECT * FROM ${table} ORDER BY last_at DESC`);
+    this._count = this.db.prepare(`SELECT COUNT(*) AS c FROM ${table}`);
+    this._del = this.db.prepare(`DELETE FROM ${table} WHERE value=?`);
+    this._updMeta = this.db.prepare(`UPDATE ${table} SET status=COALESCE(?,status), note=COALESCE(?,note) WHERE value=?`);
+    this._overflow = this.db.prepare(`DELETE FROM ${table} WHERE value IN (SELECT value FROM ${table} ORDER BY last_at LIMIT ?)`);
   }
   has(value) { return !!this._get.get(value); }
   record(row, max) {
@@ -102,21 +106,24 @@ class MapBackend {
   }
 }
 
-function openBackend(dbPath) {
-  if (dbPath && DatabaseSync) {
-    try { return new SqliteBackend(dbPath); } catch (_) { /* 폴백 */ }
+const CONFIRMED_TABLE = 'evidence_confirmed';
+const REFLECTED_TABLE = 'evidence_reflected';
+
+function openBackend(db, table, component) {
+  if (db) {
+    try { return new SqliteBackend(db, table, component); } catch (_) { /* 폴백 */ }
   }
   return new MapBackend();
 }
 
 class XssEvidenceStore {
-  constructor({ confirmedDbPath = null, reflectedDbPath = null,
-    maxConfirmed = DEFAULT_MAX, maxReflected = DEFAULT_MAX, now = Date.now } = {}) {
+  constructor({ db = null, maxConfirmed = DEFAULT_MAX, maxReflected = DEFAULT_MAX,
+    now = Date.now } = {}) {
     this._now = now;
     this.maxConfirmed = positiveInt(maxConfirmed, DEFAULT_MAX);
     this.maxReflected = positiveInt(maxReflected, DEFAULT_MAX);
-    this._confirmed = openBackend(confirmedDbPath);
-    this._reflected = openBackend(reflectedDbPath);
+    this._confirmed = openBackend(db, CONFIRMED_TABLE, 'xss_evidence_confirmed');
+    this._reflected = openBackend(db, REFLECTED_TABLE, 'xss_evidence_reflected');
     this.persistent = this._confirmed instanceof SqliteBackend && this._reflected instanceof SqliteBackend;
   }
 
@@ -161,4 +168,4 @@ class XssEvidenceStore {
   removeReflected(value) { return this._reflected.remove(value); }
 }
 
-module.exports = { XssEvidenceStore };
+module.exports = { XssEvidenceStore, CONFIRMED_TABLE, REFLECTED_TABLE, evidenceMigrations };

@@ -507,58 +507,52 @@ function prepareRequestObservation(req) {
 // Stored XSS 대조용 저장소: 쓰기 요청에서 관찰한 값을 나중 응답과 대조한다.
 // 기본은 SQLite(파일) 저장 → 재시작해도 후보 텍스트가 보존된다(/app/data 영속 볼륨).
 // node:sqlite 미지원(예: node20) 또는 오류 시 자동으로 인메모리로 폴백(서버는 항상 기동).
-// 환경변수: XSS_STORE=memory 로 인메모리 강제, XSS_DB_PATH 로 DB 경로 지정.
+// 환경변수: XSS_STORE=memory 로 인메모리 강제, DETECTION_STORE_DB 로 DB 경로 지정.
 const xssStoreOpts = {
   ttlMs: process.env.XSS_CANDIDATE_TTL_MS,
   maxEntries: process.env.XSS_MAX_CANDIDATES,
   maxBytes: process.env.XSS_MAX_CANDIDATE_BYTES,
   maxValueBytes: process.env.XSS_MAX_VALUE_BYTES,
 };
+const evidenceStoreOpts = {
+  maxConfirmed: Number(process.env.XSS_MAX_CONFIRMED) || 1000,
+  maxReflected: Number(process.env.XSS_MAX_REFLECTED) || 1000,
+};
+const useMemoryStores = String(process.env.XSS_STORE || "sqlite").toLowerCase() === "memory";
+
+// 후보·확정 증거·reflected 증거가 파일 하나를 공유한다. 예전에는 세 파일이었고 두
+// 증거 저장소의 테이블 이름이 둘 다 evidence 라서 합칠 수 없었다.
+// 구 경로 환경변수는 deprecation 경고와 함께 당분간 읽는다 — 데이터 이전은
+// scripts/migrate-stores.js 가 한다.
+let detectionDb = null;
 let xssCandidateStore;
-if (String(process.env.XSS_STORE || "sqlite").toLowerCase() === "memory") {
+let xssEvidenceStore;
+if (useMemoryStores) {
   xssCandidateStore = new XssCandidateStore(xssStoreOpts);
-  console.log("[detection] XSS candidate store: in-memory (XSS_STORE=memory)");
+  xssEvidenceStore = new XssEvidenceStore(evidenceStoreOpts);
+  console.log("[detection] XSS 저장소: 인메모리 (XSS_STORE=memory)");
 } else {
   try {
-    const fsMod = require("fs");
     const pathMod = require("path");
-    const dbPath = process.env.XSS_DB_PATH || pathMod.join(__dirname, "data", "xss-candidates.db");
-    fsMod.mkdirSync(pathMod.dirname(dbPath), { recursive: true });
-    const { XssCandidateStoreSqlite } = require("./lib/xssCandidateStoreSqlite");
-    xssCandidateStore = new XssCandidateStoreSqlite({ ...xssStoreOpts, dbPath });
-    console.log("[detection] XSS candidate store: SQLite(file) -> " + dbPath);
-  } catch (e) {
-    xssCandidateStore = new XssCandidateStore(xssStoreOpts);
-    console.warn("[detection] SQLite 사용 불가 → 인메모리 폴백:", e && e.message);
-  }
-}
-
-// XSS 증거(확정 stored / reflected) 영속 저장소 — 각각 별도 DB 파일.
-// 후보(candidate)는 detect-once로 제거되므로, 실제 탐지된 증거는 여기 별도 보존(재시작에도 유지).
-let xssEvidenceStore;
-{
-  const evOpts = {
-    maxConfirmed: Number(process.env.XSS_MAX_CONFIRMED) || 1000,
-    maxReflected: Number(process.env.XSS_MAX_REFLECTED) || 1000,
-  };
-  if (String(process.env.XSS_STORE || "sqlite").toLowerCase() === "memory") {
-    xssEvidenceStore = new XssEvidenceStore(evOpts);
-    console.log("[detection] XSS evidence store: in-memory (XSS_STORE=memory)");
-  } else {
-    try {
-      const fsMod = require("fs");
-      const pathMod = require("path");
-      const confirmedDbPath = process.env.XSS_CONFIRMED_DB_PATH || pathMod.join(__dirname, "data", "xss-confirmed.db");
-      const reflectedDbPath = process.env.XSS_REFLECTED_DB_PATH || pathMod.join(__dirname, "data", "xss-reflected.db");
-      fsMod.mkdirSync(pathMod.dirname(confirmedDbPath), { recursive: true });
-      fsMod.mkdirSync(pathMod.dirname(reflectedDbPath), { recursive: true });
-      xssEvidenceStore = new XssEvidenceStore({ ...evOpts, confirmedDbPath, reflectedDbPath });
-      console.log("[detection] XSS evidence store: SQLite -> 확정:" + confirmedDbPath + " · reflected:" + reflectedDbPath
-        + (xssEvidenceStore.persistent ? "" : " (인메모리 폴백)"));
-    } catch (e) {
-      xssEvidenceStore = new XssEvidenceStore(evOpts);
-      console.warn("[detection] XSS 증거 저장소 SQLite 불가 → 인메모리 폴백:", e && e.message);
+    const detectionStore = require("./lib/store");
+    for (const legacy of ["XSS_DB_PATH", "XSS_CONFIRMED_DB_PATH", "XSS_REFLECTED_DB_PATH"]) {
+      if (process.env[legacy]) {
+        console.warn(`[detection] ${legacy} 는 더 이상 쓰지 않는다. DETECTION_STORE_DB 로 바꾸고`
+          + " scripts/migrate-stores.js 로 기존 데이터를 옮길 것.");
+      }
     }
+    const dbPath = process.env.DETECTION_STORE_DB
+      || pathMod.join(__dirname, "data", "detection.sqlite3");
+    detectionDb = detectionStore.open(dbPath);
+    const { XssCandidateStoreSqlite } = require("./lib/xssCandidateStoreSqlite");
+    xssCandidateStore = new XssCandidateStoreSqlite({ ...xssStoreOpts, db: detectionDb });
+    xssEvidenceStore = new XssEvidenceStore({ ...evidenceStoreOpts, db: detectionDb });
+    console.log("[detection] XSS 저장소: SQLite 하나 -> " + dbPath);
+  } catch (e) {
+    detectionDb = null;
+    xssCandidateStore = new XssCandidateStore(xssStoreOpts);
+    xssEvidenceStore = new XssEvidenceStore(evidenceStoreOpts);
+    console.warn("[detection] SQLite 사용 불가 → 인메모리 폴백:", e && e.message);
   }
 }
 // payload 원문은 그대로 노출하지 않고 짧게 잘라 미리보기만.
