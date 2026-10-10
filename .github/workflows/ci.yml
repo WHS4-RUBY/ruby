@@ -105,6 +105,10 @@ jobs:
         working-directory: defense/account-response-overlay
         run: pip install -r requirements.lock pytest==9.1.1 pytest-asyncio==1.4.0 pyyaml==6.0.3
 
+      - name: Verify the release manifest
+        working-directory: defense/account-response-overlay
+        run: scripts/gen_manifest.sh --check
+
       - name: Test account overlay
         working-directory: defense/account-response-overlay
         run: python -m pytest -q
