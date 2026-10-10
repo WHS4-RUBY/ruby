@@ -2,24 +2,29 @@
 from datetime import datetime, timezone
 import hashlib
 import hmac
-import os
-from pathlib import Path
 import re
 import sqlite3
 
+from . import store
 from .decoy_paths import decoy_stage  # noqa: F401  (기존 import 경로 유지)
 
 
+COMPONENT = 'overlay_lure'
+MIGRATIONS = (
+    (1, ('CREATE TABLE IF NOT EXISTS lure_events ('
+         'id INTEGER PRIMARY KEY, time TEXT NOT NULL, actor TEXT NOT NULL, '
+         'kind TEXT NOT NULL, stage TEXT NOT NULL)',)),
+)
+
+
 class LureMetrics:
+    """Shares the telemetry database with the audit ring. Writes never change a
+    response or an isolation decision, so every SQLite error here is swallowed."""
+
     def __init__(self, path: str, secret: bytes, max_rows: int = 50000):
-        Path(path).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.db = sqlite3.connect(path, timeout=1.0, check_same_thread=False)
-        os.chmod(path, 0o600)
-        self.db.execute('PRAGMA max_page_count=16384')
-        self.db.execute('CREATE TABLE IF NOT EXISTS lure_events ('
-                        'id INTEGER PRIMARY KEY, time TEXT NOT NULL, actor TEXT NOT NULL, '
-                        'kind TEXT NOT NULL, stage TEXT NOT NULL)')
-        self.db.commit()
+        self.db = store.connect(path, timeout=1.0, journal_mode=None, synchronous=None,
+                                private=True, check_same_thread=False, max_page_count=16384)
+        store.apply_migrations(self.db, COMPONENT, MIGRATIONS)
         self.secret = secret
         self.max_rows = max_rows
 

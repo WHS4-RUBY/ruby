@@ -6,7 +6,7 @@ origin_policy = "sealed"
 secure_cookie = false
 detector_required = true
 run_id = "juice-overlay-v2"
-audit_path = "/app/state/events.sqlite3"
+audit_path = "/app/state/telemetry.sqlite3"
 
 [limits]
 session_ttl = 21600

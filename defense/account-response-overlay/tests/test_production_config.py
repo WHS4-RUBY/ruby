@@ -24,7 +24,7 @@ def _test_settings(tmp_path, name):
     settings = load_overlay(str(ROOT / 'config' / name))
     decoy = load_decoy_config(settings.decoy_config)
     assert decoy.detector_required and not decoy.secure_cookie
-    assert decoy.audit_path == '/app/state/events.sqlite3'
+    assert decoy.audit_path == '/app/state/telemetry.sqlite3'
     assert decoy.site_adapter == ('generic' if 'ruby' in name else 'juice_shop')
     assert settings.origin_url == ('http://ruby-web-target:8080' if 'ruby' in name
                                    else 'http://juice-shop-target:3000')

@@ -5,7 +5,7 @@ origin_policy = "sealed"
 secure_cookie = true
 detector_required = true
 run_id = "overlay-v1-decoy"
-audit_path = "state/events.sqlite3"
+audit_path = "state/telemetry.sqlite3"
 
 [limits]
 session_ttl = 21600

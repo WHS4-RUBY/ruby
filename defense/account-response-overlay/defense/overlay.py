@@ -203,7 +203,8 @@ def create_overlay_app(settings: OverlaySettings, session_secret: bytes, detecto
                              security_db=security_db)
     high_risk = HighRiskIsolation(decoy, profile, detector_secret, script)
     verifier = DetectorVerifier(detector_secret, store_path=security_db)
-    metrics = LureMetrics(str(Path(security_db).with_name('lure-events.sqlite3')), detector_secret)
+    # 감사 링과 같은 텔레메트리 DB 를 쓴다. 보안 저장소와는 파일을 공유하지 않는다.
+    metrics = LureMetrics(decoy_settings.audit_path, detector_secret)
     semaphore = asyncio.Semaphore(8)
 
     @asynccontextmanager

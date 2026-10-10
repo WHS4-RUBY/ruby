@@ -20,4 +20,4 @@ RUBY의 실제 로그인 경로는 `/api/auth/login`이다. 프런트엔드는 �
 
 통합 검증에서는 정상 사용자가 오버레이를 거치지 않는지, 고위험 요청이 어떤 경로에서도 origin 로그에 남지 않는지, Agent의 비 HTML 원본 응답 본문이 같은지, 401/403·403/404·2xx에서 서로 다른 헤더와 화면 카드가 선택되는지, `/ftp`와 `/ops/...` 및 Agent 로그인 시도가 원본 로그에 남지 않는지 확인한다.
 
-다른 사이트에서는 overlay TOML의 `origin_url`과 `site_profile`을 변경한다. 프로필은 로그인 경로와 DOM 선택자, 미끼 선택 분류·제외 목록, decoy 표시명·계정을 담는다. Agent의 `robots.txt`는 기존 원본 내용을 보존하면서 로컬 decoy 경로를 덧붙이고, 원본 404이면 Agent에게만 새 텍스트 파일을 제공한다. 별도 `state/lure-events.sqlite3`는 가명화한 actor·미끼 종류·decoy 단계만 최대 5만 행 기록한다. 원본 인증 정보나 전체 URL은 저장하지 않는다.
+다른 사이트에서는 overlay TOML의 `origin_url`과 `site_profile`을 변경한다. 프로필은 로그인 경로와 DOM 선택자, 미끼 선택 분류·제외 목록, decoy 표시명·계정을 담는다. Agent의 `robots.txt`는 기존 원본 내용을 보존하면서 로컬 decoy 경로를 덧붙이고, 원본 404이면 Agent에게만 새 텍스트 파일을 제공한다. `state/telemetry.sqlite3`의 `lure_events` 테이블은 가명화한 actor·미끼 종류·decoy 단계만 최대 5만 행 기록한다. 원본 인증 정보나 전체 URL은 저장하지 않는다.

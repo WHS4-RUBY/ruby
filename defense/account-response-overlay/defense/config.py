@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 import math
 import re
@@ -101,6 +102,10 @@ def load(path: str) -> Settings:
         profile_path = Path(profile_path)
         data['profile'] = load_site_profile(str(profile_path if profile_path.is_absolute()
                                                 else source.parent / profile_path))
+    # 감사·미끼 링이 공유하는 텔레메트리 DB. 보안 저장소와는 파일을 공유하지 않는다.
+    telemetry = os.environ.get('DEFENSE_TELEMETRY_DB', '').strip()
+    if telemetry:
+        data['audit_path'] = telemetry
     data["limits"] = Limits(**data.get("limits", {}))
     data["engagement"] = EngagementConfig(**data.get("engagement", {}))
     data["cycle"] = CycleConfig(**data.get("cycle", {}))

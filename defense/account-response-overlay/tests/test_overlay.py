@@ -25,8 +25,8 @@ def make_app(tmp_path, policy='v2', origin=None):
     initialize_security_store(str(security))
     config = Path('config') / f'decoy-{policy}.toml'
     decoy = tmp_path / config.name
-    decoy.write_text(config.read_text().replace('state/events.sqlite3',
-                                                 str(tmp_path / 'events.sqlite3'))
+    decoy.write_text(config.read_text().replace('state/telemetry.sqlite3',
+                                                 str(tmp_path / 'telemetry.sqlite3'))
                      .replace('session_bytes = 67108864',
                               'session_bytes = 67108864\npeer_rpm = 10000\nglobal_rpm = 20000'))
     settings = OverlaySettings('http://origin.invalid', str(decoy))
@@ -559,7 +559,7 @@ async def test_other_site_profile_changes_login_and_decoy_identity(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_lure_metrics_are_separate_bounded_and_do_not_store_raw_actor_or_token(tmp_path):
+async def test_lure_metrics_share_the_telemetry_db_and_hide_the_actor(tmp_path):
     import sqlite3
     origin = FastAPI()
 
@@ -578,10 +578,20 @@ async def test_lure_metrics_are_separate_bounded_and_do_not_store_raw_actor_or_t
             assert (await client.get(first)).status_code == 200
             assert (await client.get('/ops/service/manifest')).status_code == 200
             assert (await client.post('/rest/user/login', json={'password': 'secret'})).status_code == 401
-    db = sqlite3.connect(tmp_path / 'lure-events.sqlite3')
+    # 미끼 링과 감사 링은 텔레메트리 DB 하나를 공유한다(보안 저장소는 별도 파일).
+    assert not (tmp_path / 'lure-events.sqlite3').exists()
+    telemetry = tmp_path / 'telemetry.sqlite3'
+    db = sqlite3.connect(telemetry)
     rows = db.execute('SELECT actor,kind,stage FROM lure_events ORDER BY id').fetchall()
+    tables = {row[0] for row in
+              db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    components = {row[0] for row in db.execute('SELECT component FROM schema_migrations')}
     db.close()
+    assert {'lure_events', 'events', 'schema_migrations'} <= tables, tables
+    assert {'overlay_audit', 'overlay_lure'} <= components, components
     assert [row[1] for row in rows] == ['robots', 'decoy_entry', 'decoy_step', 'decoy_entry', 'login']
     assert rows[2][2] == 'recovery:accounts:1'
     assert len({row[0] for row in rows}) == 1
     assert 'actor-a' not in str(rows) and 'secret' not in str(rows)
+    # 보안 저장소는 여전히 자기 파일이다 — 격리 판단이 텔레메트리 락과 다투지 않게.
+    assert (tmp_path / 'security.sqlite3').exists()

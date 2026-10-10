@@ -19,7 +19,7 @@
   "site_profile_configurable": true,
   "agent_robots_lure": true,
   "spa_recon_html_lure": true,
-  "lure_metrics": "state/lure-events.sqlite3",
+  "lure_metrics": "state/telemetry.sqlite3",
   "risk_modes": [
     "medium-response-overlay",
     "high-sealed-isolation"
