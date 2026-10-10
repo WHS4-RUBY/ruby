@@ -550,6 +550,10 @@ class Observer:
                 item['raw'], item['seen'], item['buffered'] = bytearray(raw[:room]), len(raw), True
                 del raw, data
                 item['capture'] = 'cdp_response_body_after_finish'
+            except asyncio.CancelledError:
+                # Browsing ended while the body was being fetched; record the gap, then let the cancel proceed.
+                store({**event, 'errorText': 'body_fetch_cancelled'}, item)
+                raise
             except Exception as error:
                 event = {**event, 'errorText': 'body_unavailable_after_finish:' + type(error).__name__}
             store(event, item)
