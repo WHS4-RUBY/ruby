@@ -357,7 +357,8 @@ class Observer:
         if 'working_notes' in decision:
             self.working_notes = decision['working_notes']
         self.decisions.append({'source': 'model', **decision})
-        tool = decision.get('tool')
+        # A read or find request runs instead of the named tool, so the event records what actually ran.
+        tool = 'read_sample' if '_read_sample' in decision else 'find' if '_find' in decision else decision.get('tool')
         allowed = ACTION_SCHEMA['properties']['tool']['enum']
         route = None
         try:
