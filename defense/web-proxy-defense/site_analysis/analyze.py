@@ -485,6 +485,12 @@ async def answer_group(model, observer, catalog, group, deadline, state=None, ch
                 requested = response.get('_read_sample')
                 # One batch may fill at most a third of the context, so what it shows stays in view together.
                 batch_chars, not_read = 0, []
+                failed_items = []
+                def request_error(kind, request, error):
+                    # A failing item is reported and the rest of the list is still processed.
+                    failed_items.append(error)
+                    tool_feedback.setdefault('read_errors', []).append({kind: request, 'error': type(error).__name__,
+                                                                        'detail': str(error)})
                 for window in (requested if isinstance(requested, list) else [requested] if requested else []):
                     wanted = window.get('ref') if isinstance(window, dict) else None
                     # Each window is cut to the room left in this batch; base64 and metadata take up to a quarter more.
@@ -495,8 +501,13 @@ async def answer_group(model, observer, catalog, group, deadline, state=None, ch
                     sources = observer.readable_sources(reads)
                     if wanted in sources:
                         asked = window.get('limit')
-                        window = {**window, 'limit': min(asked, room) if type(asked) is int and asked > 0 else room}
-                        batch_chars += len(serialized(observer.read_sample(window, reads)))
+                        try:
+                            read = observer.read_sample({**window, 'limit': min(asked, room) if type(asked) is int
+                                                         and asked > 0 else room}, reads)
+                        except Exception as error:
+                            request_error('read_sample', window, error)
+                        else:
+                            batch_chars += len(serialized(read))
                     else:
                         tool_feedback.setdefault('read_errors', []).append(
                             unknown_ref_feedback(model, 'group:' + group, wanted, sources))
@@ -507,12 +518,23 @@ async def answer_group(model, observer, catalog, group, deadline, state=None, ch
                                   'more are read, so answer or record notes from what was read before requesting these'}
                 if '_find' in response:
                     wanted = response['_find']
-                    tool_feedback['find'] = ([observer.find(item, reads) for item in wanted] if isinstance(wanted, list)
-                                             else observer.find(wanted, reads))
+                    results = []
+                    for item in (wanted if isinstance(wanted, list) else [wanted]):
+                        try:
+                            results.append(observer.find(item, reads))
+                        except Exception as error:
+                            request_error('find', item, error)
+                    if results or isinstance(wanted, list):
+                        tool_feedback['find'] = results if isinstance(wanted, list) else results[0]
                     # An unknown ref in a search counts toward the same repeat limit as an unknown read.
-                    for found in (tool_feedback['find'] if isinstance(tool_feedback['find'], list) else [tool_feedback['find']]):
+                    for found in results:
                         for missing in found.get('unknown_refs', []):
                             unknown_ref_feedback(model, 'group:' + group, missing, observer.readable_sources(reads))
+                # A response with a failed item still counts once toward the group's same-failure limit, as a
+                # failed response did before; reaching it fails the whole response and ends the group.
+                if failed_items and observer.failures.add('group:' + group, getattr(failed_items[0], 'code',
+                                                                                    type(failed_items[0]).__name__)):
+                    raise failed_items[0]
                 correction = tool_feedback or None
                 await persist()
                 continue
@@ -1060,7 +1082,7 @@ def dry_plan(args, catalog, output, limits):
                       'analysis_read_memory_check': 'passed', 'model_read_choice_check': 'passed',
                       'common_cost_context_check': 'passed', 'group_retry_boundary_check': 'passed',
                       'merge_read_memory_check': 'passed', 'privacy_read_memory_check': 'passed',
-                      'merge_row_protocol_check': 'passed',
+                      'merge_row_protocol_check': 'passed', 'read_window_error_check': 'passed',
                       'merge_rules': {key: value['merge'] for key, value in catalog['groups'].items()},
                       'login_values_read': False, 'network_requests': 0, 'model_calls': 0, 'files_written': 0},
                      ensure_ascii=False, indent=2))
@@ -1376,6 +1398,19 @@ async def dry_analysis_check(catalog):
             or index['route_bodies'][0]['retained_size'] != 22010
             or '_private_request_ref' in serialized(observer.publication())):
         raise ValueError('합성 색인, 표본 참조, final, 도구 우선순위 또는 중복 창 실패')
+    model = Offline([{'_read_sample': [{'ref': 'source-1', 'offset': -1}, {'ref': 'bytes-1', 'encoding': 'synthetic-codec'},
+                                       {'ref': 'screen-2', 'limit': 100}],
+                      '_find': [{'text': ''}, {'text': 'tail-token', 'refs': ['source-1']}]}, complete])
+    observer.model = model
+    observer.buffers['bytes-1'] = b'synthetic bytes'
+    answers, errors = await answer_group(model, observer, catalog, group, deadline, {})
+    correction = model.seen[1][1].get('correction') or {}
+    read_errors = correction.get('read_errors') or []
+    if (errors or answers != complete or [row['error'] for row in read_errors] != ['ValueError', 'LookupError', 'ValueError']
+            or [row['detail'] for row in read_errors][::2] != ['InvalidSampleRange', 'FindTextEmpty']
+            or [row['offsets'] for found in correction.get('find') or [] for row in found['results']] != [[22000]]
+            or [window['requested_ref'] for window in model.seen[1][1]['read_windows']] != ['screen-2']):
+        raise ValueError('합성 목록 읽기의 창별 오류 격리 실패: ' + serialized(correction))
     # A later group receives no previous group windows or find feedback.
     following = Observer(observer.origin, model, Budget(sample_chars=16000))
     following.budget.begin()
