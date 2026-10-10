@@ -2231,7 +2231,9 @@ async def dry_session_prepare_check(session_file):
     account = config.with_name('synthetic-account-unused.json')
     docs = {config: {'login_path': '/synthetic-login', 'user_field': 'login-name', 'password_field': 'login-secret',
                      'account_file': account.name},
-            account: {'username': 'synthetic-username', 'password': 'synthetic-password'}}
+            account: {'username': 'synthetic-username', 'password': 'synthetic-password'},
+            Path(session_file): {'cookies': [{'value': 'synthetic-cookie', 'expires': -1}],
+                                 'origins': [{'localStorage': ['synthetic-local-secret']}]}}
     writes, contexts, launches, requests, fills, guards = [], [], [], [], [], []
     def read(path, *a, **kw):
         if path not in docs or kw.get('encoding') != 'utf-8-sig':

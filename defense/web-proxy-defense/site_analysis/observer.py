@@ -2,6 +2,7 @@
 import asyncio
 import base64
 from dataclasses import dataclass
+from pathlib import Path
 import json
 import os
 import inspect
@@ -13,6 +14,19 @@ from .model import ModelError
 from .prompts import NAVIGATE
 from .record import Failures, isolated, isolated_async, measured, now, public_facts, ref
 from .windows import ReadMemory, feedback_state, find_text, pack_context, serialized
+
+
+def session_summary(path):
+    """Counts only: how many cookies the prepared session holds, how many have expired, local storage origins."""
+    state = json.loads(Path(path).read_text(encoding='utf-8-sig'))
+    cookies = state.get('cookies') or []
+    timed = [cookie for cookie in cookies if (cookie.get('expires') or -1) > 0]
+    expired = [cookie for cookie in timed if cookie['expires'] < time.time()]
+    origins = state.get('origins') or []
+    return {'cookies': len(cookies), 'session_cookies': len(cookies) - len(timed), 'expired_cookies': len(expired),
+            'local_storage_origins': len(origins),
+            'expired': bool(cookies) and len(expired) == len(cookies) and not origins}
+
 
 SECRET_HEADERS = {'cookie', 'set-cookie', 'authorization', 'proxy-authorization',
                   'authentication-info', 'proxy-authentication-info'}
@@ -216,7 +230,8 @@ class Observer:
                 'available_tools': ['open', 'read_sample', 'find', 'stop'] if self.backend == 'http_client'
                     else ['open', 'click', 'inspect_form', 'read_sample', 'find', 'select_page', 'stop'],
                 'authority': {'mode': self.authority_mode, 'operator_prepared_session': self.session_file is not None,
-                              'login_sent': False, 'login_submission_allowed': False},
+                              'login_sent': False, 'login_submission_allowed': False,
+                              'session_state': getattr(self, 'session_state', None)},
                 'working_notes': self.working_notes,
                 'samples': self.samples, 'responses': self.responses, 'attempts': self.attempts,
                 'response_bodies': self.response_bodies, 'form_attempts': self.form_attempts,
@@ -803,6 +818,11 @@ class Observer:
                 browser = await playwright.chromium.launch(headless=True, timeout=max(1, self.budget.remaining() * 1000),
                                                            **({'proxy': {'server': relay}} if relay else {}))
                 try:
+                    if self.session_file is not None:
+                        self.session_state = session_summary(self.session_file)
+                        if self.session_state['expired']:
+                            # Every cookie in the prepared session has expired: browsing would silently be anonymous.
+                            raise ModelError('operator_session_expired', self.session_state)
                     # SW bypasses context.route, so blocking it preserves the method boundary.
                     context = await browser.new_context(service_workers='block', accept_downloads=True,
                                 **({'storage_state': str(self.session_file)} if self.session_file is not None else {}))
