@@ -910,6 +910,9 @@ class Observer:
                     except Exception as error:
                         self.error('browser_close', error)
         except Exception as error:
+            if getattr(error, 'code', None) == 'operator_session_expired':
+                # A run-level stop: neither anonymous browsing nor the HTTP fallback replaces the prepared session.
+                raise
             self.error('browser_transport', error)
             if not self.budget.exhausted() and not self.model.stopped() and not self.failures.stopped and not self.model_done and not self.browse_finished():
                 await self.http_run()

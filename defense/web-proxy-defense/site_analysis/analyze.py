@@ -630,9 +630,16 @@ async def one_run(index, args, catalog, limits, model, login, checkpoint, store,
         await persist(analysis=True)
     observer.checkpoint = browse_checkpoint
     if not state.get('observation_complete'):
+        if state.pop('stop_reason', None) is not None:
+            run['browse_stop_reason'] = None
         try:
             await observer.run()
         except Exception as error:
+            if getattr(error, 'code', None) == 'operator_session_expired':
+                # Run-level stop before any model call: no analysis, privacy or merge is spent on this run.
+                state['stop_reason'] = run['browse_stop_reason'] = error.code
+                await browse_checkpoint()
+                raise
             observer.error('observation_run', error)
         observer.browse_finished()
         run['browse_stop_reason'] = observer.browse_stop_reason or ('model_stop' if observer.model_done else
@@ -994,6 +1001,7 @@ def dry_plan(args, catalog, output, limits):
     asyncio.run(dry_fix4_check(catalog))
     asyncio.run(dry_cost_context_check(catalog))
     session_checks = asyncio.run(dry_session_notes_check(catalog))
+    session_expired_check = asyncio.run(dry_session_expired_check(catalog))
     supplement = copy_supplement(args.copy_supplement)
     rate_status = '실행 때 --rates와 비용 상한 필요'
     resumed_budget = saved_resume = None
@@ -1008,7 +1016,8 @@ def dry_plan(args, catalog, output, limits):
                       'structure_fix_synthetic_checks': 'passed',
                       'session_runs': args.session_runs, 'session_file_supplied': args.session_file is not None,
                       'observation_runs': [{'run': index, 'authority': mode} for index, mode in run_specs(args)],
-                      'session_notes_checks': session_checks, 'budget_per_run': limits,
+                      'session_notes_checks': session_checks, 'session_expired_stop_check': session_expired_check,
+                      'budget_per_run': limits,
                       'context_chars': args.context_chars, 'same_failure_limit': args.same_failure_limit,
                       'cost_policy': 'total_ceiling_only; model decides spending',
                       'stage_seconds': {'browse': args.browse_seconds or limits['seconds'],
@@ -2223,6 +2232,97 @@ async def dry_session_notes_check(catalog):
             'session_file_values_read': False, 'session_prepare': prepare_checks}
 
 
+async def dry_session_expired_check(catalog):
+    """Synthetic session states and local substitutes only; no browser, provider or file output."""
+    from contextlib import asynccontextmanager, redirect_stdout, redirect_stderr
+    from io import StringIO
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    catalog = {**catalog, 'axes': [next(axis for axis in catalog['axes'] if axis['group'] == group)
+                                   for group in catalog['groups']]}
+    session_file = session_path(Path(os.environ['LOCALAPPDATA']) / 'ruby-site-analysis' / 'sessions' / 'synthetic-expired-unused.json')
+    args = parser().parse_args(['--origin-url', 'http://example.invalid/', '--out',
+                               str(Path(__file__).with_name('expired-dry-unused.json')),
+                               '--runs', '2', '--session-runs', '1', '--session-file', str(session_file)])
+    limits = {'requests': 20, 'pages': 10, 'seconds': 60, 'sample_chars': 600000}
+    template = empty_axes(catalog, 'synthetic observation')
+    sessions = {'expired': {'cookies': [{'name': 'synthetic', 'expires': 1}], 'origins': []},
+                'prepared': {'cookies': [{'name': 'synthetic', 'expires': -1}], 'origins': []}}
+    current, seen, outputs, contexts = ['expired'], [], [], []
+
+    class MemoryStore(ResumeStore):
+        def __init__(self):
+            super().__init__(args.out, args.origin_url, catalog, True)
+            self.state['session'] = 'synthetic'
+            self.files = {}
+        def write(self, name, value, tagged=False):
+            self.files[name] = restored_copy(value)
+
+    class Offline(Codex):
+        def _call(self, purpose, prompt, context, schema, timeout):
+            seen.append((purpose, context.get('run'), (context.get('authority') or {}).get('requested')))
+            if purpose == 'publication_privacy':
+                return {'fields': [{'id': item['value']['id'], 'safe': True} for item in context['included_samples']
+                                   if item['ref'].startswith('privacy:cell:')]}
+            if purpose.startswith('merge_'):
+                return {key: {'agreement': True, 'answer': template[key]} for key in schema['properties']}
+            return {key: template[key] for key in schema['properties']}
+
+    class Browser:
+        async def new_context(self, **kw):
+            contexts.append(kw)
+            raise ValueError('만료 세션으로 브라우저 문맥을 만듦')
+        async def close(self): pass
+    async def launch(**kw):
+        return Browser()
+    @asynccontextmanager
+    async def playwright():
+        yield SimpleNamespace(chromium=SimpleNamespace(launch=launch))
+    real_run, real_read_text, real_read_bytes = Observer.run, Path.read_text, Path.read_bytes
+    async def observe(observer):
+        if observer.session_file is not None and current[0] == 'expired':
+            # The real session check in Observer.run with a synthetic browser.
+            await real_run(observer)
+        observer.model_done = True
+        observer.current_http_url = observer.origin
+    def read_text(path, *a, **kw):
+        return serialized(sessions[current[0]]) if path == session_file else real_read_text(path, *a, **kw)
+    def read_bytes(path):
+        return serialized(sessions[current[0]]).encode('utf-8') if path == session_file else real_read_bytes(path)
+
+    with patch(__name__ + '.Codex', Offline), patch.object(Observer, 'run', observe), \
+         patch(__name__ + '.cost_settings', lambda *a: ({'base': {'input': 1, 'output': 1}}, number(25))), \
+         patch.object(Path, 'read_text', read_text), patch.object(Path, 'read_bytes', read_bytes), \
+         patch.dict(sys.modules, {'playwright.async_api': SimpleNamespace(async_playwright=playwright)}), \
+         patch(__name__ + '.write_json', lambda path, value: outputs.append(restored_copy(value))), \
+         redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+        store = MemoryStore()
+        await execute_locked(args, catalog, args.out, limits, store)
+        stopped, first = outputs[-1], list(seen)
+        saved = restored_copy(store.files['state.json'])
+        if (stopped.get('run_errors') != [{'run': 3, 'status': '못 얻음', 'error': 'operator_session_expired'}]
+                or stopped['runs'][2]['browse_stop_reason'] != 'operator_session_expired' or contexts
+                or saved['runs']['3'].get('stop_reason') != 'operator_session_expired'
+                or saved['runs']['3'].get('observation_complete') or saved['runs']['3']['groups'] or saved['runs']['3']['privacy']
+                or not saved['runs']['1']['complete'] or not saved['runs']['2']['complete']
+                or not saved['merge_by_authority']['anonymous'].get('complete')
+                or {run for purpose, run, _ in first if purpose.startswith('group_')} != {1, 2}
+                or {mode for purpose, _, mode in first if purpose.startswith('merge_')} != {'anonymous'}
+                or stopped.get('resume_pending') != {'run': 3, 'stage': 'observation', 'has_partial_observation': True}):
+            raise ValueError('만료 세션 회차의 단독 중단 또는 다른 회차 진행 실패')
+        # The operator prepares the session again and reruns the same command.
+        current[0] = 'prepared'
+        store.state = restored_copy(saved)
+        await execute_locked(args, catalog, args.out, limits, store)
+        resumed, later = outputs[-1], seen[len(first):]
+    if (resumed.get('run_errors') or resumed.get('resume_pending') or not store.state['runs']['3']['complete']
+            or 'stop_reason' in store.state['runs']['3'] or resumed['runs'][2]['browse_stop_reason'] != 'model_stop'
+            or {run for purpose, run, _ in later if purpose.startswith('group_')} != {3}
+            or any(purpose.startswith('merge_') for purpose, _, _ in later)):
+        raise ValueError('다시 준비한 세션으로 같은 명령 재개 실패')
+    return 'passed'
+
+
 async def dry_session_prepare_check(session_file):
     """Drive the operator login and session browser wiring with a fake Playwright surface."""
     from contextlib import asynccontextmanager, redirect_stdout
@@ -2367,7 +2467,13 @@ async def execute_locked(args, catalog, output, limits, store):
         # Bind resumed observations to this exact prepared state, without retaining its contents.
         from hashlib import sha256
         session_source = sha256(args.session_file.read_bytes()).hexdigest()
-        if store.state.get('session_source_sha256') not in (None, session_source):
+        def bound(saved):
+            # A run stopped by an expired session before observing anything holds nothing of that session.
+            fields = saved.get('observation', {}).get('fields', {})
+            return bool(saved) and not (saved.get('stop_reason') == 'operator_session_expired' and not any(
+                fields.get(key) for key in ('attempts', 'responses', 'samples', 'decisions')))
+        if (store.state.get('session_source_sha256') not in (None, session_source)
+                and any(bound(store.state['runs'].get(str(index), {})) for index, mode in specs if mode == 'session')):
             raise ValueError('준비 세션이 바뀜: --fresh로 새로 시작해야 함')
         store.state['session_source_sha256'] = session_source
     rate, ceiling = cost_settings(args.rates, args.model, args.max_cost_usd)
@@ -2458,7 +2564,8 @@ async def execute_locked(args, catalog, output, limits, store):
             raise
         except Exception as error:
             # Already released cells and checkpoints survive a later item failure.
-            record.setdefault('run_errors', []).append({'run': index, 'status': '못 얻음', 'error': type(error).__name__})
+            record.setdefault('run_errors', []).append({'run': index, 'status': '못 얻음',
+                                                        'error': getattr(error, 'code', type(error).__name__)})
             save()
         if model.stopped():
             break
@@ -2474,7 +2581,8 @@ async def execute_locked(args, catalog, output, limits, store):
             save()
             raise
         except Exception as error:
-            record.setdefault('run_errors', []).append({'run': index, 'status': '못 얻음', 'error': type(error).__name__})
+            record.setdefault('run_errors', []).append({'run': index, 'status': '못 얻음',
+                                                        'error': getattr(error, 'code', type(error).__name__)})
             save()
         if model.stopped():
             break
