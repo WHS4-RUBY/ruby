@@ -18,7 +18,7 @@ from .record import (Failures, empty_axes, merge, merge_by_authority, runs_by_au
                      json_safe, now, private_path, ref, write_json)
 from .resume import CheckpointError, ResumeStore, restored_copy
 from .session_prepare import session_path
-from .windows import (ReadMemory, feedback_state, find_text, pack_context, replace_leaves, replace_leaves_counted, unknown_ref,
+from .windows import (ReadMemory, feedback_state, find_text, pack_context, replace_leaves_counted, unknown_ref,
                       sample_window, serialized)
 
 
