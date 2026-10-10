@@ -217,9 +217,13 @@ jobs:
               },
             });
             const body = await response.text();
-            if (response.status !== 200 || !body ||
-                !response.headers.get('x-defense-applied')?.includes('decoy_maze') ||
-                response.headers.has('x-ruby-decoy-action')) {
+            const applied = response.headers.get('x-defense-applied') ?? '';
+            if (
+                response.status !== 200 ||
+                !body ||
+                applied .includes('decoy_maze') ||
+                response.headers.has('x-ruby-decoy-action')
+            ) {
               throw new Error(`decoy response ${response.status}: ${body.slice(0, 160)}`);
             }
           })().catch(error => { console.error(error); process.exitCode = 1; });

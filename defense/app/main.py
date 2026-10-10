@@ -341,14 +341,15 @@ def _rewrite_response_header(
 
 def proxy_response(
     upstream: httpx.Response, request: Request | None = None, content: bytes | None = None,
-    *, target_url: str | None = None,
+    *, target_url: str | None = None, keep_server: bool = False,
 ) -> Response:
     response = Response(
         content=upstream.content if content is None else content,
         status_code=upstream.status_code,
     )
+    skip = _RESPONSE_SKIP - {"server"} if keep_server else _RESPONSE_SKIP
     for key, value in upstream.headers.multi_items():
-        if key.lower() in _RESPONSE_SKIP or key.lower().startswith("x-defense-"):
+        if key.lower() in skip or key.lower().startswith("x-defense-"):
             continue
         response.raw_headers.append(
             (
@@ -392,11 +393,13 @@ async def _buffer_transform_body(upstream: httpx.Response) -> bytes:
 
 
 def streaming_proxy_response(
-    upstream: httpx.Response, request: Request, on_complete=None, *, target_url: str | None = None, body=None
+    upstream: httpx.Response, request: Request, on_complete=None, *, target_url: str | None = None, body=None,
+    keep_server: bool = False,
 ) -> StreamingResponse:
     response = StreamingResponse(body if body is not None else _stream_body(upstream, on_complete), status_code=upstream.status_code)
+    skip = _STREAM_RESPONSE_SKIP - {"server"} if keep_server else _STREAM_RESPONSE_SKIP
     for key, value in upstream.headers.multi_items():
-        if key.lower() in _STREAM_RESPONSE_SKIP or key.lower().startswith("x-defense-"):
+        if key.lower() in skip or key.lower().startswith("x-defense-"):
             continue
         response.raw_headers.append(
             (
@@ -472,14 +475,16 @@ async def _replay_body(consumed: list[bytes], rest, upstream: httpx.Response, on
 
 
 async def alias_proxy_response(upstream: httpx.Response, request: Request,
-                               alias_client: str | None, *, target_url: str | None = None, on_complete=None) -> tuple[Response, int, str | None]:
+                               alias_client: str | None, *, target_url: str | None = None, on_complete=None,
+                               keep_server: bool = False) -> tuple[Response, int, str | None]:
     """Serve an upstream response with configured routes replaced by this client's aliases."""
     rewrites, skipped = 0, None
     client_id = alias_client or path_alias.new_client_id()
     if not path_alias.rewritable(upstream.headers.get("content-type", ""),
                                  upstream.headers.get("content-encoding", ""),
                                  upstream.status_code, request.method):
-        response = streaming_proxy_response(upstream, request, on_complete=on_complete, target_url=target_url)
+        response = streaming_proxy_response(upstream, request, on_complete=on_complete, target_url=target_url,
+                                            keep_server=keep_server)
     else:
         consumed, size = [], 0
         stream = upstream.aiter_raw()
@@ -490,12 +495,15 @@ async def alias_proxy_response(upstream: httpx.Response, request: Request,
                 break
         if size > PATH_ALIAS.max_rewrite_bytes:
             skipped = "too_large"
-            response = streaming_proxy_response(upstream, request, target_url=target_url, body=_replay_body(consumed, stream, upstream, on_complete))
+            response = streaming_proxy_response(upstream, request, target_url=target_url, keep_server=keep_server,
+                                                body=_replay_body(consumed, stream, upstream, on_complete))
         else:
             await upstream.aclose()
             body, rewrites = await _alias_db(PATH_ALIAS_TABLE.rewrite_body, b"".join(consumed),
                                              time.time(), client_id)
             skip = _REWRITTEN_RESPONSE_SKIP if rewrites else _RESPONSE_SKIP
+            if keep_server:
+                skip = skip - {"server"}
             response = Response(content=body, status_code=upstream.status_code)
             for key, value in upstream.headers.multi_items():
                 if key.lower() in skip or key.lower().startswith("x-defense-"):
@@ -943,7 +951,8 @@ async def catch_all(request: Request, full_path: str):
     sidecar_strategies = applied_decoy_strategies(upstream.headers) if decoy_url else []
     recorded_strategies = applied.names + sidecar_strategies + overlay_strategy
     applied_header = ",".join(recorded_strategies) or "none"
-    public_applied_header = (",".join(applied.names) or "none") if overlay_route else applied_header
+    # 공개 응답에는 공식 전략 이름만 싣는다 — decoy_* 이름은 곧 "이 응답은 미끼"라는 신호라서(기록용 recorded_strategies 는 그대로).
+    public_applied_header = ",".join(applied.names) or "none"
     if overlay_route:
         sidecar_outcome = (
             "error" if upstream.status_code < 200 or upstream.status_code >= 500
@@ -958,7 +967,8 @@ async def catch_all(request: Request, full_path: str):
         # Body transforms require a complete response before headers are sent.
         try:
             body = await _buffer_transform_body(upstream)
-            response = proxy_response(upstream, request, body, target_url=selected.url)
+            response = proxy_response(upstream, request, body, target_url=selected.url,
+                                      keep_server=bool(decoy_url))
             for transform in applied.transforms:
                 response = transform(response)
                 if not isinstance(response, Response):
@@ -971,7 +981,7 @@ async def catch_all(request: Request, full_path: str):
                 buffered = httpx.Response(response.status_code, headers=response.raw_headers,
                                           stream=httpx.ByteStream(response.body))
                 response, rewrites, skipped = await alias_proxy_response(
-                    buffered, request, alias_client, target_url=selected.url)
+                    buffered, request, alias_client, target_url=selected.url, keep_server=bool(decoy_url))
                 _log_alias(request, alias, alias_decision, upstream.status_code, rewrites, skipped,
                            alias_client, rotation)
             if gate is not None and gate.issue_cookie and upstream.status_code < 500:
@@ -1002,7 +1012,8 @@ async def catch_all(request: Request, full_path: str):
     if PATH_ALIAS.mode != "off":
         try:
             response, rewrites, skipped = await alias_proxy_response(
-                upstream, request, alias_client, target_url=selected.url, on_complete=on_complete)
+                upstream, request, alias_client, target_url=selected.url, on_complete=on_complete,
+                keep_server=bool(decoy_url))
         except Exception:
             await upstream.aclose()
             record(502, "error", attempted_strategies, decoy_action_name=action_name)
@@ -1011,7 +1022,7 @@ async def catch_all(request: Request, full_path: str):
                    alias_client, rotation)
     else:
         response = streaming_proxy_response(upstream, request, on_complete=on_complete,
-                                            target_url=selected.url)
+                                            target_url=selected.url, keep_server=bool(decoy_url))
     if gate is not None and gate.issue_cookie and upstream.status_code < 500:
         response.raw_headers.append((b"set-cookie", token_gate.build_set_cookie(TOKEN_GATE, time.time()).encode("latin-1")))
         response.headers["cache-control"] = "no-store"
