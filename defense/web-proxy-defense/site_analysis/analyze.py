@@ -258,7 +258,8 @@ async def privacy_cells(model, cells, deadline, state=None, checkpoint=None):
                 pass
             else:
                 for cell in batch:
-                    errors[cell['id']] = model.stop_reason or 'time_budget'
+                    if cell['id'] not in released:
+                        errors[cell['id']] = model.stop_reason or 'time_budget'
                 await persist()
                 return
         try:
@@ -293,8 +294,10 @@ async def privacy_cells(model, cells, deadline, state=None, checkpoint=None):
             failure = getattr(error, 'code', type(error).__name__)
             feedback = {'error': failure, 'detail': getattr(error, 'detail', None)}
             if failure in ('time_budget', 'cost_budget', 'cost_usage_unknown'):
+                # A released cell keeps its decision; only undecided cells carry the stop reason.
                 for cell in batch:
-                    errors[cell['id']] = failure
+                    if cell['id'] not in released:
+                        errors[cell['id']] = failure
                 await persist()
                 return
         else:
@@ -376,7 +379,8 @@ async def privacy_cells(model, cells, deadline, state=None, checkpoint=None):
                 model.failures.clear('privacy-read:' + serialized(tool_args))
             state['feedback'] = feedback
             await persist()
-            return pending or batch, feedback
+            # Cells decided in this answer are not sent again with the tool result.
+            return (pending, feedback) if pending else None
         if not pending:
             await persist()
             return
