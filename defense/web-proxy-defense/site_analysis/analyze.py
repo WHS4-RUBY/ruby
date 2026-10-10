@@ -2253,6 +2253,9 @@ async def dry_session_prepare_check(session_file):
             page.url = 'http://example.invalid/synthetic-result'
     class Field:
         def __init__(self, selector): self.selector = selector
+        @property
+        def first(self): return self
+        async def element_handle(self): return self
         async def fill(self, value): fills.append((self.selector, value))
         def locator(self, selector): return Form()
         async def wait_for(self, **kw): pass
@@ -2316,13 +2319,15 @@ async def dry_session_prepare_check(session_file):
         await page.request('GET', 'http://external.invalid/')
         if observer.model_context()['authority']['mode'] != 'session' or 'synthetic-cookie' in serialized(observer.snapshot()):
             raise ValueError('세션 권한 문맥 또는 쿠키 값 격리 오류')
-    if (result != 0 or len(fills) != 2 or len(writes) != 1 or writes[0][1]['origins']
+    if (result != 0 or len(fills) != 2 or len(writes) != 1
+            or writes[0][1]['origins'] != [{'localStorage': ['synthetic-local-secret']}]
             or writes[0][2].get('private') is not True or writes[0][1]['cookies'][0]['value'] != 'synthetic-cookie'
             or [row[2] for row in requests[:4]] != [True, True, False, False]
             or [row[2] for row in requests[-3:]] != [True, False, False]
             or contexts[-1].get('storage_state') != str(session_file) or not guards
             or any(kw['proxy']['server'] != 'http://127.0.0.1:18090' for kw in launches)
-            or any(value in captured.getvalue() for value in ('synthetic-username', 'synthetic-password', 'synthetic-cookie'))):
+            or any(value in captured.getvalue() for value in ('synthetic-username', 'synthetic-password', 'synthetic-cookie',
+                                                               'synthetic-local-secret'))):
         raise ValueError('운영자 폼 제출, 중계, 비공개 저장 또는 세션 관찰 경계 오류')
     for path in (Path(__file__).with_name('session-forbidden.json'), session_file.parent, session_file.parent / '..' / 'outside.json'):
         try:
