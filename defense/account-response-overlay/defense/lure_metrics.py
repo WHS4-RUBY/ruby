@@ -7,6 +7,8 @@ from pathlib import Path
 import re
 import sqlite3
 
+from .decoy_paths import decoy_stage  # noqa: F401  (기존 import 경로 유지)
+
 
 class LureMetrics:
     def __init__(self, path: str, secret: bytes, max_rows: int = 50000):
@@ -39,14 +41,3 @@ class LureMetrics:
 
     def close(self):
         self.db.close()
-
-
-def decoy_stage(path: str) -> str:
-    """Record only the path family and numeric step, never tokens or payloads."""
-    match = re.match(r'^/ops/(recovery|archive|service)(?:/([^/]+))?(?:/([^/]+))?', path)
-    if match:
-        family, branch, step = match.groups()
-        if branch == 'accounts' and step and step.isdecimal():
-            return f'{family}:accounts:{step[:9]}'
-        return f'{family}:{branch}' if branch and re.fullmatch(r'[a-zA-Z_-]+', branch) else family
-    return 'ftp' if path.startswith('/ftp') else 'decoy'

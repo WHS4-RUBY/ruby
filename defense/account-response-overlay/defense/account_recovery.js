@@ -6,24 +6,26 @@
   const helpId = 'defense-login-help'
   const menuId = 'defense-operations-menu'
   const initialContext = document.currentScript?.dataset.deception || ''
+  // 경로와 단서 헤더 이름은 주입된 설정(미끼 카탈로그)에서 받는다. 여기서 다시
+  // 선언하면 서버와 어긋날 수 있다. 문구만 이 파일에 둔다.
   const lures = {
     recovery: {
       title: 'Legacy account recovery',
       description: 'This sign-in may belong to an earlier account migration. Review the retained recovery records to continue.',
       action: 'Open account recovery records',
-      path: '/ops/recovery/accounts'
+      ...config.lures.recovery
     },
     legacy: {
       title: 'Legacy file service',
       description: 'This endpoint is unavailable here. Older records may still be available in the legacy file archive.',
       action: 'Open legacy archive',
-      path: '/ftp'
+      ...config.lures.legacy
     },
     service: {
       title: 'Service manifest available',
       description: 'This API references a retained service manifest with related internal endpoints.',
       action: 'Open service manifest',
-      path: '/ops/service/manifest'
+      ...config.lures.service
     }
   }
   let activeLure = ''
@@ -46,11 +48,11 @@
       return 'recovery'
     }
     if ((status === 401 || status === 403) &&
-        header('X-Recovery-API') === lures.recovery.path) return 'recovery'
+        header(lures.recovery.header) === lures.recovery.path) return 'recovery'
     if ((status === 403 || status === 404 || (status >= 200 && status < 300)) &&
-        header('X-Legacy-Storage') === lures.legacy.path) return 'legacy'
+        header(lures.legacy.header) === lures.legacy.path) return 'legacy'
     if (status >= 200 && status < 300 &&
-        header('X-Internal-API') === lures.service.path) return 'service'
+        header(lures.service.header) === lures.service.path) return 'service'
     return ''
   }
 

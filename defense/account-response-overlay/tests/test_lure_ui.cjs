@@ -5,10 +5,15 @@ const { test } = require('node:test')
 const vm = require('node:vm')
 
 const template = readFileSync(path.join(__dirname, '../defense/account_recovery.js'), 'utf8')
+// 미끼 경로와 단서 헤더 이름은 서버와 같은 카탈로그에서 읽는다 (여기서 다시 선언하면 어긋난다).
+const catalog = JSON.parse(readFileSync(path.join(__dirname, '../config/decoy-catalog.json'), 'utf8'))
+const lures = Object.fromEntries(Object.entries(catalog.clueHeaders).map(([kind, spec]) =>
+  [kind, { path: catalog.overlayPaths[spec.pathKey], header: spec.header }]))
 const defaultConfig = {
   loginPaths: ['/rest/user/login'], loginFormSelector: '#login-form',
   recoveryAnchorSelector: 'a[href="#/forgot-password"]',
-  menuSelector: 'mat-sidenav mat-nav-list'
+  menuSelector: 'mat-sidenav mat-nav-list',
+  lures
 }
 
 class Element {
@@ -192,7 +197,7 @@ test('direct HTML errors can carry an initial scenario', () => {
 
 test('a different site profile changes login path and DOM selectors without changing script', () => {
   const config = { loginPaths: ['/api/auth/login'], loginFormSelector: 'form[data-login]',
-    recoveryAnchorSelector: 'a[href="/forgot-password"]', menuSelector: 'nav.main' }
+    recoveryAnchorSelector: 'a[href="/forgot-password"]', menuSelector: 'nav.main', lures }
   const state = createContext({ login: true, config })
   assert.equal(state.document.getElementById('defense-login-help').href, '/ops/recovery/accounts')
   state.responses.push({ status: 401, headers: {} })
@@ -205,7 +210,7 @@ test('a different site profile changes login path and DOM selectors without chan
 test('RUBY login form without a recovery anchor still offers the signed-Agent lure', () => {
   const config = { loginPaths: ['/api/auth/login'],
     loginFormSelector: '.masthead .session form.inline',
-    recoveryAnchorSelector: "a[href='#/account']", menuSelector: 'nav.primary' }
+    recoveryAnchorSelector: "a[href='#/account']", menuSelector: 'nav.primary', lures }
   const state = createContext({ login: true, recoveryAnchor: false, config })
   const help = state.document.getElementById('defense-login-help')
   assert.equal(help.href, '/ops/recovery/accounts')

@@ -1,0 +1,42 @@
+{
+  "_source": "shared/decoy-catalog.json — 사본은 scripts/sync-decoy-catalog.sh 로만 갱신한다",
+  "schemaVersion": 1,
+  "namespaces": {
+    "overlay": {
+      "roots": ["/ftp", "/ops"],
+      "assets": ["/assets/operations.css", "/assets/account-recovery.js"],
+      "detectionSignal": true
+    },
+    "detection": {
+      "roots": ["/rest/internal"],
+      "detectionSignal": false
+    },
+    "cheat": {
+      "entryPath": "/internal/ops/runbook",
+      "detectionSignal": true
+    }
+  },
+  "overlayPaths": {
+    "legacy": "/ftp",
+    "recovery": "/ops/recovery/accounts",
+    "manifest": "/ops/service/manifest",
+    "audit": "/ops/service/audit",
+    "archive": "/ops/archive",
+    "service": "/ops/service",
+    "operationsCss": "/assets/operations.css",
+    "lureScript": "/assets/account-recovery.js"
+  },
+  "overlayEntries": ["/ftp", "/ops/recovery/accounts", "/ops/service/manifest"],
+  "sessionAliasRoot": "/ops/service/session",
+  "stageFamilies": ["recovery", "archive", "service"],
+  "clueHeaders": {
+    "recovery": { "header": "X-Recovery-API", "title": "Account recovery records", "pathKey": "recovery" },
+    "legacy": { "header": "X-Legacy-Storage", "title": "Legacy file service", "pathKey": "legacy" },
+    "service": { "header": "X-Internal-API", "title": "Service manifest", "pathKey": "manifest" }
+  },
+  "decoyCookies": { "session": "defense_session", "auth": "defense_auth" },
+  "identity": {
+    "service": "Internal Account Registry",
+    "consoleBrand": "Internal Operations Console"
+  }
+}

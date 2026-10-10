@@ -133,6 +133,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read the decoy entry path from the shared catalog
+        run: |
+          set -Eeuo pipefail
+          python3 -c 'import json,os,pathlib; \
+            path = json.loads(pathlib.Path("shared/decoy-catalog.json").read_text())["namespaces"]["cheat"]["entryPath"]; \
+            pathlib.Path(os.environ["GITHUB_ENV"]).open("a").write(f"DECOY_ENTRY_PATH={path}\n")'
+
       - name: Start target on host port
         run: |
           set -Eeuo pipefail
@@ -188,9 +195,10 @@ jobs:
       - name: Verify a planned decoy reaches the selected sidecar
         run: |
           set -Eeuo pipefail
-          docker compose -f docker-compose.local.yml exec -T detection node - <<'JS'
+          docker compose -f docker-compose.local.yml exec -T \
+            -e DECOY_ENTRY_PATH="$DECOY_ENTRY_PATH" detection node - <<'JS'
           (async () => {
-            const response = await fetch('http://defense:8080/internal/ops/runbook', {
+            const response = await fetch(`http://defense:8080${process.env.DECOY_ENTRY_PATH}`, {
               headers: {
                 'X-Client-Id': 'integration-decoy-client',
                 'X-Defense-Plan': JSON.stringify([
@@ -216,7 +224,7 @@ jobs:
           JS
           curl --fail --silent --show-error -b defense.cookies \
             http://127.0.0.1:18088/__defense/api/requests \
-            | python3 -c 'import json,sys; assert any(item["path"] == "/internal/ops/runbook" and item["targetId"] == "alternate" and item["runId"] and item["decoyAction"].startswith("maze") and "decoy_maze" in item["strategies"] for item in json.load(sys.stdin)["requests"])'
+            | python3 -c 'import json,sys; assert any(item["path"] == sys.argv[1] and item["targetId"] == "alternate" and item["runId"] and item["decoyAction"].startswith("maze") and "decoy_maze" in item["strategies"] for item in json.load(sys.stdin)["requests"])' "$DECOY_ENTRY_PATH"
 
       - name: Verify account overlay signatures, tiers, and dashboard events
         run: |

@@ -20,21 +20,21 @@ from starlette.responses import Response
 
 from .config import load as load_decoy_config
 from .core import create_app as create_decoy_app, METHODS
+from . import decoy_paths
 from .deception_headers import select_deception_headers
+from .decoy_paths import (HOP_HEADERS, clue_headers, decoy_stage, is_entry, is_overlay_decoy,
+                          robots_body, session_aliases)
 from .detector import DetectorVerifier, sign_headers
 from .gateway_contract import isolation_headers
 from .high_risk import HighRiskIsolation
-from .lure_metrics import LureMetrics, decoy_stage
+from .lure_metrics import LureMetrics
 from .security_store import SecurityStoreError
 from .site_profile import SiteProfile, load_site_profile
 
 
-HOP_HEADERS = frozenset({'connection', 'proxy-connection', 'keep-alive', 'proxy-authenticate',
-                         'proxy-authorization', 'te', 'trailer', 'transfer-encoding',
-                         'upgrade', 'host'})
-LURE_SCRIPT_PATH = '/assets/account-recovery.js'
-RECOVERY_PATH = '/ops/recovery/accounts'
-RECOVERY_LINK = '</ops/recovery/accounts>; rel="related"; title="Account recovery records"'
+LURE_SCRIPT_PATH = decoy_paths.LURE_SCRIPT
+RECOVERY_PATH = decoy_paths.RECOVERY
+RECOVERY_LINK = clue_headers('recovery')['Link']
 LURE_SCRIPT_TEMPLATE = Path(__file__).with_name('account_recovery.js').read_bytes()
 DEFAULT_PROFILE_PATH = str(Path(__file__).resolve().parent.parent / 'config/site-juice-shop.toml')
 
@@ -90,12 +90,6 @@ def _target(request: Request) -> str:
             or len(raw) + len(query) > 8192):
         raise ValueError('noncanonical request target')
     return path + ('?' + suffix if query else '')
-
-
-def _is_decoy(path: str) -> bool:
-    return (path == '/ftp' or path.startswith('/ftp/')
-            or path == '/ops' or path.startswith('/ops/')
-            or path == '/assets/operations.css')
 
 
 def _header_pairs(request: Request) -> list[tuple[str, str]]:
@@ -174,16 +168,12 @@ def _login_lure_response() -> Response:
 
 
 def _agent_robots(body: bytes, profile: SiteProfile) -> bytes:
-    base = body.rstrip(b'\r\n')
-    if base:
-        base += b'\n\n'
-    lines = ['# Retained service locations', 'User-agent: *']
-    lines.extend('Disallow: ' + path for path in profile.robots_disallow)
-    return base + ('\n'.join(lines) + '\n').encode('utf-8')
+    return robots_body(profile.robots_disallow, origin=body)
 
 
 def _script_for(profile: SiteProfile) -> bytes:
-    config = json.dumps(profile.js_config(), ensure_ascii=True, separators=(',', ':'))
+    config = json.dumps({**profile.js_config(), 'lures': decoy_paths.lure_script_config()},
+                        ensure_ascii=True, separators=(',', ':'))
     return LURE_SCRIPT_TEMPLATE.replace(b'__LURE_CONFIG_JSON__', config.encode('ascii'))
 
 
@@ -269,12 +259,10 @@ def create_overlay_app(settings: OverlaySettings, session_secret: bytes, detecto
                 # return a real origin token to an already-classified Agent.
                 metrics.emit(actor, 'login')
                 return _login_lure_response()
-            if _is_decoy(request.url.path):
+            if is_overlay_decoy(request.url.path):
                 # Re-sign for the inner verifier. The outer nonce was consumed.
                 inner_target = target
-                aliases = {'/ops/service/session/login': profile.login_path,
-                           '/ops/service/session/whoami': profile.login_path.rsplit('/', 1)[0] + '/whoami',
-                           '/ops/service/session/logout': profile.login_path.rsplit('/', 1)[0] + '/logout'}
+                aliases = session_aliases(profile.login_path)
                 if mapped := aliases.get(request.url.path):
                     inner_target = mapped + ('?' + target.split('?', 1)[1] if '?' in target else '')
                 signed = sign_headers(detector_secret, actor, request.method, inner_target, bytes(body))
@@ -287,8 +275,7 @@ def create_overlay_app(settings: OverlaySettings, session_secret: bytes, detecto
                                              trust_env=False, follow_redirects=False) as client:
                     result = await client.request(request.method, inner_target, headers=forwarded,
                                                   content=bytes(body))
-                metrics.emit(actor, 'decoy_entry' if request.url.path in {'/ftp', '/ftp/',
-                             '/ops/recovery/accounts', '/ops/service/manifest'} else 'decoy_step',
+                metrics.emit(actor, 'decoy_entry' if is_entry(request.url.path) else 'decoy_step',
                              decoy_stage(request.url.path))
                 return _response(result, result.content, head=request.method == 'HEAD')
             url = httpx.URL(settings.origin_url).copy_with(raw_path=target.encode('ascii'))

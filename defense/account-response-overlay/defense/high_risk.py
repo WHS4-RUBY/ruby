@@ -6,29 +6,26 @@ from fastapi import Request
 from starlette.responses import JSONResponse, Response
 
 from .deception_headers import _recon
+from .decoy_paths import (ARCHIVE, AUDIT, HOP_HEADERS, IDENTITY, LEGACY, LURE_SCRIPT, MANIFEST,
+                          RECOVERY, SERVICE, is_overlay_decoy, prefixed, robots_body,
+                          session_aliases)
 from .detector import sign_headers
 from .gateway_contract import isolation_headers
 from .model import page
 from .site_profile import SiteProfile
 
-HOP_HEADERS = frozenset({'connection', 'proxy-connection', 'keep-alive', 'proxy-authenticate',
-                         'proxy-authorization', 'te', 'trailer', 'transfer-encoding',
-                         'upgrade', 'host'})
-RECOVERY = '/ops/recovery/accounts'
-MANIFEST = '/ops/service/manifest'
-LEGACY = '/ftp'
-AUDIT = '/ops/service/audit'
 CONSOLE_CARDS = (
     ('Account Registry', RECOVERY, 'Review account records and pending access references.'),
     ('Legacy Storage', LEGACY, 'Browse retained files and older service records.'),
-    ('Backup Management', '/ops/archive', 'Inspect archived source documents and revisions.'),
+    ('Backup Management', ARCHIVE, 'Inspect archived source documents and revisions.'),
     ('Service Manifest', MANIFEST, 'View the internal service inventory and references.'),
     ('Audit Logs', AUDIT, 'Review the retained operations event index.'),
 )
+CONSOLE_BRAND = IDENTITY['consoleBrand']
 
 
 def _local_page(title: str, body: str, *, head: bool) -> Response:
-    response = page(title, body, brand='Internal Operations Console',
+    response = page(title, body, brand=CONSOLE_BRAND,
                     home_label='Dashboard', docs_path=LEGACY)
     response.headers.update({
         'Cache-Control': 'no-store, private',
@@ -65,14 +62,14 @@ def _console(*, head: bool) -> Response:
         'records and pending references.</p><nav class="console-grid" aria-label="Operations modules">'
         + cards + '</nav>'
     )
-    return _local_page('Internal Operations Console', body, head=head)
+    return _local_page(CONSOLE_BRAND, body, head=head)
 
 
 def _audit_index(*, head: bool) -> Response:
     # Synthetic index only. The defender's private audit database is never read here.
     rows = (
         ('Account reconciliation', RECOVERY, 'Pending review'),
-        ('Archived source verification', '/ops/archive', 'Reference available'),
+        ('Archived source verification', ARCHIVE, 'Reference available'),
         ('Service inventory check', MANIFEST, 'Reference available'),
     )
     table = ''.join('<tr><td>' + escape(event) + '</td><td>' + escape(status) +
@@ -82,11 +79,6 @@ def _audit_index(*, head: bool) -> Response:
             '<table><thead><tr><th>Event</th><th>Status</th><th>Reference</th></tr></thead>'
             '<tbody>' + table + '</tbody></table>')
     return _local_page('Audit Logs', body, head=head)
-
-
-def _is_local_decoy(path: str) -> bool:
-    return (path == '/ftp' or path.startswith('/ftp/') or path == '/ops'
-            or path.startswith('/ops/') or path == '/assets/operations.css')
 
 
 def _inner_response(result: httpx.Response, *, head: bool) -> Response:
@@ -120,9 +112,7 @@ class HighRiskIsolation:
     async def _decoy(self, request: Request, actor: str, target: str, body: bytes,
                      *, mapped: str | None = None) -> Response:
         path = request.url.path
-        aliases = {'/ops/service/session/login': self.profile.login_path,
-                   '/ops/service/session/whoami': self.profile.login_path.rsplit('/', 1)[0] + '/whoami',
-                   '/ops/service/session/logout': self.profile.login_path.rsplit('/', 1)[0] + '/logout'}
+        aliases = session_aliases(self.profile.login_path)
         inner_target = mapped or aliases.get(path) or target
         signed = sign_headers(self.detector_secret, actor, request.method, inner_target, body)
         pairs = [(name.decode('latin-1'), value.decode('latin-1'))
@@ -145,18 +135,17 @@ class HighRiskIsolation:
     async def handle(self, request: Request, actor: str, target: str, body: bytes) -> Response:
         path, method = request.url.path, request.method
         head = method == 'HEAD'
-        if method in {'GET', 'HEAD'} and path in {'/', '/index.html', '/ops/service', '/ops/service/'}:
+        if method in {'GET', 'HEAD'} and path in {'/', '/index.html', SERVICE, SERVICE + '/'}:
             return _console(head=head)
         if method in {'GET', 'HEAD'} and path in {AUDIT, AUDIT + '/'}:
             return _audit_index(head=head)
-        if _is_local_decoy(path):
+        if is_overlay_decoy(path):
             return await self._decoy(request, actor, target, body)
-        if path == '/assets/account-recovery.js' and method in {'GET', 'HEAD'}:
+        if path == LURE_SCRIPT and method in {'GET', 'HEAD'}:
             return Response(b'' if head else self.script, media_type='application/javascript',
                             headers={'Cache-Control': 'no-store, private'})
         if path == '/robots.txt' and method in {'GET', 'HEAD'}:
-            content = ('# Retained service locations\nUser-agent: *\n' +
-                       ''.join('Disallow: ' + item + '\n' for item in self.profile.robots_disallow))
+            content = robots_body(self.profile.robots_disallow).decode('utf-8')
             return Response('' if head else content, media_type='text/plain',
                             headers={'Cache-Control': 'no-store, private'})
         login_path = path in self.profile.login_paths or path in {'/login', '/signin', '/sign-in'}
@@ -171,7 +160,7 @@ class HighRiskIsolation:
         if _recon(lowered, self.profile):
             return _html_error(404, 'Resource not found', LEGACY, 'Open legacy storage',
                                head=head)
-        api = any(lowered == prefix or lowered.startswith(prefix + '/') or
+        api = any(prefixed(lowered, prefix) or
                   (prefix in {'/swagger', '/openapi'} and lowered.startswith(prefix))
                   for prefix in self.profile.api_prefixes)
         if api:
