@@ -1,7 +1,0 @@
-# Agent-only reverse proxy. Override with OVERLAY_ORIGIN_URL for the real site.
-origin_url = "http://127.0.0.1:3000"
-site_profile = "site-juice-shop.toml"
-decoy_config = "decoy-server-v2.toml"
-max_request_bytes = 1048576
-max_response_bytes = 16777216
-timeout_seconds = 10.0

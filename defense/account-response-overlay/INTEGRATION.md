@@ -12,7 +12,7 @@
 
 고위험 핸들러는 원본 URL을 사용하지 않는다. `/ftp`와 `/ops/*`는 같은 decoy 인스턴스로, `/login`과 설정된 로그인 경로는 복구 페이지/401로, `/admin`은 기존 Legacy Storage 페이지로, `/api/*`와 나머지 경로는 로컬 JSON/HTML 401·404 또는 manifest로 응답한다. 고위험 `/`와 `/ops/service`는 전용 Internal Operations Console을 반환한다. `/ops/service/audit`은 고위험 전용 합성 이벤트 목록이며 실제 방어 감사 기록을 읽지 않는다. 기존 중위험 `/ops/service`와 기타 decoy 경로는 그대로 유지된다. 고위험 요청의 직접 원본 전달 경로는 없다.
 
-Docker 배포 예시는 `deploy/compose.yaml`이다. 오버레이 컨테이너는 탐지팀 전용 네트워크와 원본 전용 네트워크에 연결되고 호스트 공개 포트는 없다. `deploy/.env.example`의 원본 주소·네트워크·V1/V2 설정을 실제 배포에 맞게 채운다. `init-security` 프로필을 처음 한 번 실행하고 detector.key를 상태 볼륨에 공급한다. `overlay-server-v1.toml`과 `overlay-server-v2.toml`은 TLS 게이트웨이 뒤에서 사용할 Secure 가짜 인증 쿠키 설정이다.
+Docker 배포 예시는 `deploy/compose.yaml`이다. 오버레이 컨테이너는 탐지팀 전용 네트워크와 원본 전용 네트워크에 연결되고 호스트 공개 포트는 없다. `deploy/.env.example`의 원본 주소·네트워크·V1/V2 설정을 실제 배포에 맞게 채운다. `init-security` 프로필을 처음 한 번 실행하고 detector.key를 상태 볼륨에 공급한다. TLS 게이트웨이 뒤에서는 `OVERLAY_SECURE_COOKIE=true`로 가짜 인증 쿠키를 Secure 로 만든다. 예전에는 이 값 하나 때문에 `decoy-server-v1/v2`와 `overlay-server-v1/v2` 네 파일이 따로 있었다.
 
 현재 HTTP `:80` 운영 Compose에서는 대상별 사설 오버레이에 `OVERLAY_CONFIG=/app/config/overlay-production-juice-v2.toml` 또는 `/app/config/overlay-production-ruby-v2.toml`을 지정한다. `OVERLAY_ORIGIN_URL`은 각각 `http://juice-shop-target:3000`과 `http://ruby-web-target:8080`으로 고정한다. `OVERLAY_DETECTOR_KEY`는 Defense 서명기와 같은 64자리 hex 문자열을 **문자열 바이트 그대로** 제공한다. `overlay_bootstrap`이 각 영속 볼륨의 `detector.key`, `session.key`, `security.sqlite3`를 최초 생성하고 재시작 때 일치와 무결성을 검증한다. 기존 키와 다른 값을 주거나 DB만 없어진 상태에서는 격리 기록을 초기화하지 않고 시작에 실패한다. 가짜 세션 키만 분실하면 해당 가짜 세션을 무효화하고 재생성한다. 이미 detector key와 DB를 따로 준비한 기존 배포는 환경변수 없이도 시작할 수 있다. 비공개 `:8080`의 TCP 연결로 컨테이너 상태를 확인한다. HTTP 요청은 모두 서명 검증을 받아 무서명 `/healthz`도 403이다.
 

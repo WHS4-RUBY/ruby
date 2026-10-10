@@ -64,7 +64,7 @@ def migrate_telemetry(target_path: str, source_dir: Path, *, dry_run: bool = Fal
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='config/default.toml')
+    parser.add_argument('--config', default='config/decoy-v2.toml')
     sub = parser.add_subparsers(dest='command', required=True)
     init = sub.add_parser('init')
     init.add_argument('--key', default='state/session.key')

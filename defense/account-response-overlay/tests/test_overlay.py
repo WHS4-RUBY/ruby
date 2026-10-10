@@ -27,8 +27,9 @@ def make_app(tmp_path, policy='v2', origin=None):
     decoy = tmp_path / config.name
     decoy.write_text(config.read_text().replace('state/telemetry.sqlite3',
                                                  str(tmp_path / 'telemetry.sqlite3'))
-                     .replace('session_bytes = 67108864',
-                              'session_bytes = 67108864\npeer_rpm = 10000\nglobal_rpm = 20000'))
+                     # 설정에서 [limits] 가 사라졌으므로(전부 dataclass 기본값이었다)
+                     # 테스트용 상한은 블록을 덧붙여 올린다.
+                     + '\n[limits]\npeer_rpm = 10000\nglobal_rpm = 20000\n')
     settings = OverlaySettings('http://origin.invalid', str(decoy))
     transport = (origin if isinstance(origin, httpx.AsyncBaseTransport) else
                  httpx.ASGITransport(app=origin) if origin else None)

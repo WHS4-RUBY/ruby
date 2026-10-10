@@ -6,17 +6,3 @@ secure_cookie = false
 detector_required = true
 run_id = "overlay-v1-decoy"
 audit_path = "state/telemetry.sqlite3"
-
-[limits]
-session_ttl = 21600
-session_requests = 1000
-session_bytes = 67108864
-
-[engagement]
-rounds = 8
-stages = 4
-candidates = 3
-
-[cycle]
-candidates = 3
-history = 3
