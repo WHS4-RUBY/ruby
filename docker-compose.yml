@@ -99,11 +99,20 @@ services:
       - PATH_ALIAS_GRACE_EPOCHS=${PATH_ALIAS_GRACE_EPOCHS:-1}
       - PATH_ALIAS_PREFIXES=${PATH_ALIAS_PREFIXES:-/rest/,/api/,/b2b/}
       - PATH_ALIAS_ROUTES_FILE=${PATH_ALIAS_ROUTES_FILE:-/app/config/juice-shop-routes.json}
-      - PATH_ALIAS_DB_URL=postgresql://ruby:${PATH_ALIAS_DB_PASSWORD:?Set PATH_ALIAS_DB_PASSWORD}@path-alias-db:5432/ruby
-      - PATH_ALIAS_DB_POOL_SIZE=${PATH_ALIAS_DB_POOL_SIZE:-10}
+      # Targets the route file applies to; empty uses the file's target_ids.
+      - PATH_ALIAS_TARGET_IDS=${PATH_ALIAS_TARGET_IDS:-}
+      # Default alias table: one SQLite file (WAL) on a named volume, shared by this host's workers.
+      - PATH_ALIAS_DB_PATH=/app/alias-data/path-alias.sqlite3
       - PATH_ALIAS_MAX_REWRITE_BYTES=${PATH_ALIAS_MAX_REWRITE_BYTES:-8388608}
       - PATH_ALIAS_APP_ID=${PATH_ALIAS_APP_ID:-}
-      - PATH_ALIAS_ROTATE_ON=${PATH_ALIAS_ROTATE_ON:-direct,reject}
+      - PATH_ALIAS_ROTATE_ON=${PATH_ALIAS_ROTATE_ON:-malformed_alias,foreign_alias}
+      - PATH_ALIAS_ROTATE_MIN_INTERVAL_S=${PATH_ALIAS_ROTATE_MIN_INTERVAL_S:-5}
+      - PATH_ALIAS_PENDING_TTL_S=${PATH_ALIAS_PENDING_TTL_S:-300}
+      - PATH_ALIAS_MAX_PENDING_CLIENTS=${PATH_ALIAS_MAX_PENDING_CLIENTS:-10000}
+      - PATH_ALIAS_MAX_CLIENTS=${PATH_ALIAS_MAX_CLIENTS:-100000}
+      - PATH_ALIAS_STALE_REDIRECT=${PATH_ALIAS_STALE_REDIRECT:-true}
+      - PATH_ALIAS_STALE_REDIRECT_UNSAFE=${PATH_ALIAS_STALE_REDIRECT_UNSAFE:-}
+      - PATH_ALIAS_TOMBSTONE_S=${PATH_ALIAS_TOMBSTONE_S:-21600}
       - PATH_ALIAS_COOKIE_SECURE=${PATH_ALIAS_COOKIE_SECURE:-false}
       - DEFENSE_DASHBOARD_ENABLED=${DEFENSE_DASHBOARD_ENABLED:-true}
       - DECOY_UPSTREAM_CHOICES=juice-shop=http://cheat-juice:3012,ruby-shop=http://cheat-ruby:3012
@@ -126,6 +135,7 @@ services:
     volumes:
       - detection-data:/app/target-data:ro
       - defense-overlay-data:/app/overlay-state
+      - defense-alias-data:/app/alias-data
     depends_on:
       cheat-juice:
         condition: service_healthy
@@ -135,28 +145,8 @@ services:
         condition: service_healthy
       overlay-ruby:
         condition: service_healthy
-      path-alias-db:
-        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    restart: unless-stopped
-    networks:
-      - ai-defense-net
-
-  # Shared alias table for every Defense worker/host. Not published outside the compose network.
-  path-alias-db:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_USER=ruby
-      - POSTGRES_DB=ruby
-      - POSTGRES_PASSWORD=${PATH_ALIAS_DB_PASSWORD:?Set PATH_ALIAS_DB_PASSWORD}
-    volumes:
-      - path-alias-pg:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "ruby", "-d", "ruby"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
     restart: unless-stopped
     networks:
       - ai-defense-net
@@ -263,4 +253,4 @@ volumes:
   defense-overlay-data:
   overlay-juice-data:
   overlay-ruby-data:
-  path-alias-pg:
+  defense-alias-data:

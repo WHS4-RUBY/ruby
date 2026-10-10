@@ -1,0 +1,44 @@
+{
+ "routes": [
+  {
+   "path": "/api/items",
+   "methods": [
+    "GET"
+   ]
+  },
+  {
+   "path": "/api/items/{id}",
+   "methods": [
+    "GET"
+   ]
+  }
+ ],
+ "query_routes": [
+  {
+   "path": "/gateway",
+   "parameter": "route"
+  }
+ ],
+ "action_routes": [
+  {
+   "path": "/api.php",
+   "parameter": "action",
+   "actions": {
+    "login": [
+     "POST"
+    ],
+    "search": [
+     "GET"
+    ]
+   }
+  }
+ ],
+ "enforce_ready": true,
+ "compatibility": {
+  "verified_flows": [
+   "dispatcher-verification"
+  ],
+  "refresh": "reload",
+  "refresh_verified": true
+ }
+}

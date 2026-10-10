@@ -1,4 +1,41 @@
 {
+  "target_ids": [
+    "juice-shop"
+  ],
+  "enforce_ready": true,
+  "stale_redirect_unsafe": true,
+  "compatibility": {
+    "verified_at": "2026-10-09",
+    "app": "bkimminich/juice-shop 20.2.0 (sha256:73c53fbf442e)",
+    "stack": "Detection -> Defense (SQLite, enforce) -> CHeaT -> Juice Shop, headless Chromium",
+    "verified_flows": [
+      "home",
+      "register",
+      "login",
+      "search",
+      "add_to_basket",
+      "write_review",
+      "second_tab",
+      "back_forward",
+      "reload",
+      "alias_expiry_get_auto_recovery",
+      "restart_persistence"
+    ],
+    "refresh": "reload (main.js is re-fetched); expired aliases of the same client: GET/HEAD 307 to the current alias",
+    "refresh_verified": true,
+    "not_verified": [
+      "admin pages",
+      "2FA",
+      "deluxe membership",
+      "wallet/payment",
+      "chatbot",
+      "file upload/complaint",
+      "data export",
+      "service worker (the app registers none)"
+    ],
+    "enforced_routes": "All routes are enforced (conservative: an agent calling an original route is refused). Normal flows rely on response rewriting; see verified_flows and the extra screen checks in docs/path-alias-operations.md.",
+    "stale_redirect_unsafe_verified": "2026-10-09: expired tab (epoch 30 s, grace 0, 35 s idle, no reload) in headless Chromium. Add to basket and place order each went 307 -> 200; Defense forwarded each POST exactly once; basket 1 item, order history 1 order. With the option off the same POST ended in 404 and was not forwarded."
+  },
   "routes": [
     "/api/Addresss/{tail*}",
     "/api/BasketItems/{tail*}",

@@ -101,6 +101,8 @@ jobs:
           PAYLOAD_FINGERPRINT_KEY: ${{ secrets.PAYLOAD_FINGERPRINT_KEY }}
           DCID_HMAC_SECRET: ${{ secrets.DCID_HMAC_SECRET }}
           ACCOUNT_ID_HASH_KEY: ${{ secrets.ACCOUNT_ID_HASH_KEY }}
+          # Not used by the current compose file (the alias table is SQLite). Still passed when
+          # the secret exists so a rollback to a compose file from before the switch can start.
           PATH_ALIAS_DB_PASSWORD: ${{ secrets.PATH_ALIAS_DB_PASSWORD }}
           TRUST_PROXY: loopback,linklocal,uniquelocal
         with:
@@ -116,7 +118,7 @@ jobs:
             mkdir -p "$DEPLOY_DIR"
             cd "$DEPLOY_DIR"
 
-            for name in DEFENSE_DASHBOARD_PASSWORD DETECTION_DASHBOARD_PASSWORD PAYLOAD_FINGERPRINT_KEY DCID_HMAC_SECRET ACCOUNT_ID_HASH_KEY PATH_ALIAS_DB_PASSWORD; do
+            for name in DEFENSE_DASHBOARD_PASSWORD DETECTION_DASHBOARD_PASSWORD PAYLOAD_FINGERPRINT_KEY DCID_HMAC_SECRET ACCOUNT_ID_HASH_KEY; do
               if [ -z "${!name:-}" ]; then
                 echo "Required deployment secret is missing: $name" >&2
                 exit 1

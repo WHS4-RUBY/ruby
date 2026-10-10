@@ -2,8 +2,6 @@ import asyncio
 import hashlib
 import hmac
 import json
-import os
-import secrets
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -107,6 +105,10 @@ class TableTests(unittest.TestCase):
     def a(self, route, now=NOW, client=ALICE):
         return self.table.current_aliases(now, client)[route]
 
+    def confirm(self, client=ALICE, now=NOW):
+        """The browser returned its cookie: a pending client becomes confirmed."""
+        self.table.current_aliases(now, client, returned=True)
+
     def sql(self, query, params=()):
         with self.table._store.connect() as db:
             return [tuple(row.values()) if isinstance(row, dict) else tuple(row)
@@ -126,6 +128,7 @@ class TableTests(unittest.TestCase):
     def test_aliases_are_bound_to_one_client(self):
         alice = self.a("/rest/products/search")
         bob = self.a("/rest/products/search", client=BOB)
+        self.confirm(ALICE)
         self.assertNotEqual(alice, bob)
         self.assertEqual(self.table.resolve(alice, "GET", NOW, BOB).reason, "foreign_alias")
         self.assertEqual(self.table.resolve(alice, "GET", NOW, None).reason, "foreign_alias")
@@ -134,8 +137,9 @@ class TableTests(unittest.TestCase):
     def test_event_rotation_is_immediate_and_per_client(self):
         old = self.a("/rest/products/search")
         bob = self.a("/rest/products/search", client=BOB)
-        self.assertTrue(self.table.rotate_client(ALICE, NOW + 1, "direct"))
-        self.assertEqual(self.table.resolve(old, "GET", NOW + 1, ALICE).reason, "unknown_alias")
+        self.assertEqual(self.table.rotate_client(ALICE, NOW + 1, "direct"), "rotated")
+        # A tombstone tells an event-replaced alias apart from a forged one (no new rotation).
+        self.assertEqual(self.table.resolve(old, "GET", NOW + 1, ALICE).reason, "revoked_alias")
         new = self.a("/rest/products/search", NOW + 1)
         self.assertNotEqual(old, new)
         self.assertEqual(self.table.resolve(new, "GET", NOW + 1, ALICE).alias_state, "current")
@@ -151,7 +155,7 @@ class TableTests(unittest.TestCase):
         self.assertNotEqual(old, new)
         self.assertEqual(self.table.resolve(old, "GET", NOW + 10, ALICE).alias_state, "grace")
         self.assertEqual(self.table.resolve(new, "GET", NOW + 10, ALICE).alias_state, "current")
-        self.assertEqual(self.table.resolve(old, "GET", NOW + 20, ALICE).reason, "unknown_alias")
+        self.assertEqual(self.table.resolve(old, "GET", NOW + 20, ALICE).reason, "stale_alias")
         self.assertEqual(self.table.resolve(new, "GET", NOW + 20, ALICE).alias_state, "grace")
 
     def test_event_rotation_drops_grace_rows_too(self):
@@ -160,23 +164,42 @@ class TableTests(unittest.TestCase):
         self.assertNotEqual(old, grace)
         self.table.rotate_client(ALICE, NOW + 11, "reject")
         for alias in (old, grace):
-            self.assertEqual(self.table.resolve(alias, "GET", NOW + 11, ALICE).reason, "unknown_alias")
+            self.assertEqual(self.table.resolve(alias, "GET", NOW + 11, ALICE).reason, "revoked_alias")
 
     def test_idle_clients_are_cleaned_up(self):
         self.a("/rest/products/search", client=BOB)
-        self.a("/rest/products/search", NOW + 25)  # a new client triggers housekeeping
-        clients = {row[0] for row in self.sql("SELECT client_id FROM path_alias_clients")}
-        bob_rows = self.sql("SELECT COUNT(*) FROM path_alias_client_rows WHERE client_id=?", (BOB,))[0][0]
+        self.confirm(BOB)
+        # idle = lifetime (20s) + tombstone (20s) after the last issue
+        self.a("/rest/products/search", NOW + 45)  # a new client triggers housekeeping
+        clients = {row[0] for row in self.sql("SELECT client_id FROM path_alias_client_state")}
+        bob_rows = self.sql("SELECT COUNT(*) FROM path_alias_alias_rows WHERE client_id=?", (BOB,))[0][0]
         self.assertEqual(clients, {ALICE})
         self.assertEqual(bob_rows, 0)
 
+    def test_full_capacity_reclaims_idle_confirmed_clients_without_sweep(self):
+        self.cfg = replace(self.cfg, max_clients=1, max_pending_clients=1)
+        self.table = pa.PathAliasTable(self.cfg)
+        old = self.a("/rest/products/search")
+        self.confirm()
+        self.table._next_sweep = NOW + 3600
+        # Keep the owner while its stale aliases can still be recovered.
+        with self.assertRaises(pa.AliasCapacityError) as failure:
+            self.a("/rest/products/search", NOW + 39, BOB)
+        self.assertEqual(str(failure.exception), "total")
+        self.assertEqual(self.table.resolve(old, "GET", NOW + 39, ALICE).reason, "stale_alias")
+        new = self.a("/rest/products/search", NOW + 41, BOB)
+        self.assertEqual(self.table.resolve(new, "GET", NOW + 41, BOB).kind, "alias")
+        self.assertEqual(self.sql("SELECT client_id FROM path_alias_client_state"), [(BOB,)])
+        self.assertEqual(self.sql("SELECT COUNT(*) FROM path_alias_alias_rows WHERE client_id=?", (ALICE,)), [(0,)])
+
     def test_sweep_runs_at_most_once_per_interval(self):
-        clients = lambda: {row[0] for row in self.sql("SELECT client_id FROM path_alias_clients")}
+        clients = lambda: {row[0] for row in self.sql("SELECT client_id FROM path_alias_client_state")}
         self.a("/rest/products/search", client=BOB)
-        self.table._next_sweep = NOW + 26  # as if another client had just swept
-        self.a("/rest/products/search", NOW + 25)
+        self.confirm(BOB)
+        self.table._next_sweep = NOW + 46  # as if another client had just swept
+        self.a("/rest/products/search", NOW + 45)
         self.assertEqual(clients(), {ALICE, BOB})  # BOB expired, but the interval has not passed
-        self.a("/rest/products/search", NOW + 26, client="c" * 26)
+        self.a("/rest/products/search", NOW + 46, client="c" * 26)
         self.assertEqual(clients(), {ALICE, "c" * 26})
 
     def test_sweep_failure_does_not_fail_issuance(self):
@@ -191,12 +214,13 @@ class TableTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=6) as pool:
             aliases = list(pool.map(lambda table: table.current_aliases(NOW, ALICE), tables))
         self.assertTrue(all(item == aliases[0] for item in aliases))
-        rows = self.sql("SELECT COUNT(*) FROM path_alias_client_rows WHERE client_id=?", (ALICE,))[0][0]
+        rows = self.sql("SELECT COUNT(*) FROM path_alias_alias_rows WHERE client_id=?", (ALICE,))[0][0]
         self.assertEqual(rows, len(self.cfg.routes))
 
     def test_config_change_invalidates_existing_aliases(self):
         old = self.a("/rest/products/search")
         updated = pa.PathAliasTable(replace(self.cfg, routes=(pa.Route("/rest/new"),)))
+        # The old row's route is no longer configured, so nothing can restore it.
         self.assertEqual(updated.resolve(old, "GET", NOW, ALICE).reason, "unknown_alias")
         new = updated.current_aliases(NOW, ALICE)["/rest/new"]
         self.assertEqual(updated.resolve(new, "GET", NOW, ALICE).kind, "alias")
@@ -227,7 +251,11 @@ class TableTests(unittest.TestCase):
         self.assertEqual(self.table.resolve(product + "/", "GET", NOW, ALICE).upstream_path,
                          "/api/Products/")
         user = self.a("/rest/user/{tail*}")
-        self.assertEqual(self.table.resolve(user + "/login", "POST", NOW, ALICE).reason, "shadowed_route")
+        # base alias + runtime suffix reaching a more specific route: that route's rules apply
+        login = self.table.resolve(user + "/login", "POST", NOW, ALICE)
+        self.assertEqual((login.kind, login.upstream_path, login.route_id),
+                         ("alias", "/rest/user/login", "/rest/user/login"))
+        self.assertEqual(self.table.resolve(user + "/login", "GET", NOW, ALICE).reason, "method_not_allowed")
 
     def test_malformed_alias_paths_are_rejected(self):
         login = self.a("/rest/user/login")
@@ -263,7 +291,7 @@ class TableTests(unittest.TestCase):
 
     def test_bodies_without_routes_create_no_client(self):
         self.assertEqual(self.table.rewrite_body(b'{"rest":"/restaurant"}', NOW, BOB)[1], 0)
-        self.assertEqual(self.sql("SELECT COUNT(*) FROM path_alias_clients")[0][0], 0)
+        self.assertEqual(self.sql("SELECT COUNT(*) FROM path_alias_client_state")[0][0], 0)
 
     def test_observe_and_off(self):
         direct = self.table.resolve("/rest/user/login", "POST", NOW, ALICE)
@@ -273,41 +301,6 @@ class TableTests(unittest.TestCase):
                          "other")
 
 
-
-PG_TEST_URL = os.environ.get("PATH_ALIAS_TEST_DB_URL", "")
-
-
-@unittest.skipUnless(PG_TEST_URL, "set PATH_ALIAS_TEST_DB_URL=postgresql://... to run")
-class PostgresTableTests(TableTests):
-    """Every table test again, against a throwaway schema in a real PostgreSQL server."""
-
-    def make_cfg(self):
-        import psycopg
-
-        schema = "path_alias_test_" + secrets.token_hex(6)
-        with psycopg.connect(PG_TEST_URL, autocommit=True) as conn:
-            conn.execute(f"CREATE SCHEMA {schema}")
-
-        def drop():
-            with psycopg.connect(PG_TEST_URL, autocommit=True) as conn:
-                conn.execute(f"DROP SCHEMA {schema} CASCADE")
-
-        self.addCleanup(drop)
-        url = f"{PG_TEST_URL}{'&' if '?' in PG_TEST_URL else '?'}options=-csearch_path%3D{schema}"
-        cfg = replace(CFG, db_url=url)
-        self.addCleanup(lambda: (pool := pa._PG_POOLS.pop((url, cfg.db_pool_size), None)) and pool.close())
-        return cfg
-
-    def test_writers_lock_per_client_not_database_wide(self):
-        self.a("/rest/products/search")
-        store = self.table._store
-        with store.connect() as db:
-            self.table._write_lock(db, ALICE)  # held until rollback
-            try:
-                bob = self.a("/rest/products/search", client=BOB)  # would block under BEGIN IMMEDIATE
-                self.assertEqual(self.table.resolve(bob, "GET", NOW, BOB).kind, "alias")
-            finally:
-                db.rollback()
 
 class _AsyncBody(httpx.AsyncByteStream):
     def __init__(self, body):
@@ -496,6 +489,7 @@ class IntegrationTests(unittest.TestCase):
         self.configure_query_routes()
         _, client, alias = self.open_page()
         foreign = self.table.current_aliases(NOW, BOB)["/rest/products/search"]
+        self.table.current_aliases(NOW, BOB, returned=True)  # BOB is a confirmed browser
         for query in ("route=%2Frest%2Fproducts%2Fsearch", "route=" + foreign,
                       "route=" + alias + "&%72oute=" + alias, "route=" + alias):
             with self.subTest(query=query):
@@ -503,7 +497,7 @@ class IntegrationTests(unittest.TestCase):
                 response = self.client.get("/gateway?" + query)
                 self.assertEqual(response.status_code, 404)
                 self.assertEqual(len(self.calls), before)
-        self.assertEqual(self.table.resolve(alias, "GET", NOW, client).kind, "reject")
+        self.assertEqual(self.table.resolve(alias, "GET", NOW, client).reason, "revoked_alias")
 
     def test_query_route_method_and_dynamic_suffix(self):
         self.configure_query_routes()
@@ -532,6 +526,7 @@ class IntegrationTests(unittest.TestCase):
 
     def test_alias_without_its_cookie_is_refused(self):
         _, _, alias = self.open_page()
+        self.assertEqual(self.client.get(alias).status_code, 200)  # cookie returned: confirmed
         self.client.cookies.clear()
         self.assertEqual(self.client.get(alias).status_code, 404)
         self.assertEqual(self.logs()[-1]["reason"], "foreign_alias")
@@ -633,7 +628,8 @@ class IntegrationTests(unittest.TestCase):
     def test_direct_hit_rotates_that_clients_aliases(self):
         _, client_id, alias = self.open_page()
         backend_calls = len(self.calls)
-        self.assertEqual(self.client.get("/rest/products/search").status_code, 404)
+        with patch.object(main, "PATH_ALIAS", replace(self.cfg, rotate_on=("direct",))):
+            self.assertEqual(self.client.get("/rest/products/search").status_code, 404)
         self.assertEqual(self.logs()[-1]["rotation"], "rotated")
         self.assertEqual(self.client.get(alias).status_code, 404)
         self.assertEqual(len(self.calls), backend_calls)
@@ -660,7 +656,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
         log = self.logs()[-1]
-        self.assertEqual((log["decision"], log["rotation"]), ("would_block", "would_rotate"))
+        self.assertEqual((log["decision"], log["rotation"]), ("would_block", None))
         self.assertEqual(self.client.get(alias).status_code, 200)
 
     def test_rotation_triggers_can_be_disabled(self):
@@ -669,6 +665,17 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(self.client.get("/rest/products/search").status_code, 404)
         self.assertIsNone(self.logs()[-1]["rotation"])
         self.assertEqual(self.client.get(alias).status_code, 200)
+
+    def test_default_direct_hit_blocks_without_invalidating_open_tabs(self):
+        _, client_id, alias = self.open_page()
+        before = len(self.calls)
+        self.assertEqual(self.client.get("/rest/products/search").status_code, 404)
+        self.assertEqual(len(self.calls), before)
+        self.assertEqual(self.logs()[-1]["decision"], "block")
+        self.assertIsNone(self.logs()[-1]["rotation"])
+        self.assertEqual(self.client.get(alias).status_code, 200)
+        _, same_client, current = self.open_page()
+        self.assertEqual((same_client, current), (client_id, alias))
 
     def test_oversized_stream_and_off(self):
         body = b'"/rest/products/search"' * 10
