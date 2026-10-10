@@ -121,6 +121,37 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 `docs/token-gate-plan.md`와 새벽 테스트 기록은 이전 설계의 이력입니다.
 이후 검증 결과는 [진행 기록](docs/token-gate-docker-progress.md)에 이어 기록합니다.
 
+## 새 사이트 추가 (미끼 경로 카탈로그, 2026-10-11)
+
+미끼 경로는 `shared/decoy-catalog.json` 한 곳에서만 고친다. 루트 `shared/`는 네 이미지의 빌드 컨텍스트가 모두 하위 디렉터리라 Docker `COPY`로 가져올 수 없으므로, 서비스 트리의 사본을 함께 커밋하고 `scripts/sync-decoy-catalog.sh`로 갱신한다. 사본을 손으로 고치면 `defense/tests/test_decoy_catalog_contract.py`가 CI에서 실패한다.
+
+```bash
+# 카탈로그를 고친 뒤
+scripts/sync-decoy-catalog.sh          # 원본 -> 사본 복사
+scripts/sync-decoy-catalog.sh --check  # 불일치 확인
+```
+
+카탈로그에는 **사이트와 무관한** 미끼의 모양만 둔다: 네임스페이스와 자산, 진입·단계 경로, 세션 별칭 루트, 단서 헤더, 미끼 쿠키·신원. `namespaces.*.detectionSignal`이 Detection의 `decoy_path_hit` 공격 신호 대상을 정한다.
+
+**사이트별 차이는 프로파일 1개로 끝난다.** `config/site-generic-example.toml`을 복사해 아래를 채우고 오버레이의 `site_profile`이 그 파일을 가리키게 한다.
+
+| 키 | 뜻 |
+| --- | --- |
+| `login_paths` | 실제 로그인 엔드포인트. 첫 항목이 기준이 된다 |
+| `login_form_selector`, `recovery_anchor_selector`, `menu_selector` | 미끼 스크립트가 붙을 DOM 위치 |
+| `account_terms`, `recon_segments`, `recon_html_paths` | 계정·정찰 경로 판별 어휘 |
+| `api_prefixes`, `ordinary_api_prefixes`, `ordinary_api_exact` | API 접두어와 단서를 붙이지 않을 정상 API |
+| `origin_auth_cookies` | 격리 클라이언트에게 원본으로 넘기지 않을 인증 쿠키 |
+| `decoy_namespaces` | **이 사이트에서 미끼가 차지할 경로 네임스페이스.** 생략하면 카탈로그 값을 쓴다 |
+| `robots_disallow` | robots.txt에 남길 단서. 전부 `decoy_namespaces` 안이어야 한다 |
+| `decoy_brand`, `decoy_admin_email`, `decoy_service`, `decoy_profile_image` | 미끼 화면의 신원 |
+
+프로파일 검증은 로드 시점에 실패한다: 모든 경로는 절대경로여야 하고 `//`·`\`·개행을 포함할 수 없으며, `robots_disallow`는 전부 선언한 네임스페이스 안에 있어야 하고 `login_paths`는 네임스페이스와 겹칠 수 없다. 코드에는 `juice`/`ruby` 분기도 `/ftp`·`/ops` 리터럴도 없다.
+
+CHeaT sidecar의 미로 경로는 별개 장치인 `defense_proxy_v2/profiles.py`의 프리셋(`TARGET_PRESET`, `TARGET_PROFILE`)으로 정한다. 카탈로그는 그 진입 경로를 선언만 하고, 두 값의 일치는 계약 테스트가 강제한다.
+
+**이 절차의 범위는 Defense(계정 오버레이·CHeaT)까지다.** Detection의 비즈니스 로직 탐지 7개 모듈(`businessLogicSignatures.js`, `roleGatedAccess.js`, `priceIntegrity.js`, `priceTampering.js`, `loginBruteForce.js`, `passwordResetAbuse.js`, `identityMismatch.js`)은 아직 Juice Shop의 라우트·JWT 클레임·쿠키 이름에 묶여 있고 `detection/config/policy.json`에 이를 바꿀 설정 항목이 없다. 즉 **새 사이트를 붙여도 Defense의 미끼·오버레이는 동작하지만 Detection의 비즈니스 로직 탐지는 그 사이트에서 조용히 무력화된다.** 현황은 [리팩토링 인벤토리 1-D](../docs/refactor-inventory.md#1-d-juice-shop-하드코딩-목록)에 모듈별로 정리했고, 설정화는 후속 작업이다.
+
 ## 전략 계약과 요청 추적
 
 Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사용합니다. Defense 이벤트는 이전 완료 요청 기반 Automation·Attack·확정 Attack·Risk 점수, 정책 출처, `X-Ruby-Defense-Tier`의 `confirmed`/`suspected` 단계, 대상 ID·실행 ID, 실제 실행 전략과 기만 동작, 백엔드 HTTP 상태 및 `forwarded`·`blocked`·`error` 결과를 기록합니다. `X-Ruby-Candidate-Id`와 `X-Ruby-Client-Flow-Id`는 방어 대시보드의 관찰 흐름 표시용으로만 기록하고 전략 선택에는 쓰지 않습니다. Detection은 쿠키를 돌려주지 않는 요청의 후보·한 IP 흐름 이력으로 위험 점수 0.8 이상을 확인하면 `suspected` 단계의 `decoy_maze`만 선택할 수 있습니다. 확정 공격 점수 0.5/0.8/0.95 구간의 계정 오버레이·속도 제한은 반환·검증된 signed DCID 이력이 필요합니다. Defense는 CHeaT에 `X-Defense-Plan`의 기만 전략만 전달하고 속도 제한을 자체 실행합니다. 오버레이 계획은 위험 점수와 확정 공격 점수의 구간이 일치할 때만 처리하고, 대상·실행 ID·클라이언트에서 만든 가명 actor에 원본 경로·쿼리·본문을 HMAC으로 서명합니다. 속도 제한이 429를 반환하면 오버레이나 sidecar로 전달하지 않습니다. 현재 공통 정책은 점수에 따른 일괄 지연을 선택하지 않습니다. Sidecar와 오버레이는 내부 제어 헤더를 Target으로 전달하지 않습니다. 응답의 `X-Ruby-Decoy-Action`·`X-Ruby-Decoy-Strategies`는 Defense가 기록한 뒤 클라이언트 응답에서 제거합니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
