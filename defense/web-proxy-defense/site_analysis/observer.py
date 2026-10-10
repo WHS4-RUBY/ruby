@@ -532,10 +532,14 @@ class Observer:
                     if 'finished' in item:
                         finish(item['finished'])
             except Exception as error:
-                item = self.active_bodies.pop(key, None)
+                # Streaming could not start (for example, loading already finished). Keep the item unstreamed so
+                # the finished body goes through the bounded getResponseBody path, and keep why streaming failed.
+                item = self.active_bodies.get(key)
                 if item is not None:
-                    self.response_bodies.append({'ref': 'stream-unavailable-' + key, 'route': item['route'],
-                                                 'body': measured(status='못 얻음', error=type(error).__name__)})
+                    item['buffered'] = True
+                    item['stream_error'] = (type(error).__name__ + ': ' + str(error)).splitlines()[0]
+                    if 'finished' in item:
+                        finish(item['finished'])
 
         def received(event):
             key = prefix + event['requestId']
@@ -598,6 +602,11 @@ class Observer:
                                 capture_error='retention_limit' if len(item['raw']) < item['seen'] else None)
             if event.get('errorText'):
                 body['body'].update(truncated=True, completion_status='못 얻음', error=event['errorText'])
+            if item.get('stream_error') and not item.get('capture'):
+                # Streaming never started and no finished body was fetched: nothing of the body was observed.
+                body['body'].update(status='못 얻음', truncated=True, completion_status='못 얻음',
+                                    error='; '.join(filter(None, [event.get('errorText'),
+                                                                  'stream_unavailable: ' + item['stream_error']])))
             self.response_bodies.append(body)
         session.on('Network.responseReceived', lambda event: self.spawn(begin(event)))
         session.on('Network.dataReceived', received)
@@ -887,6 +896,9 @@ class Observer:
                         body = self.store_body(bytes(item['raw']), item['route'])
                         body['body'].update(truncated=True, completion_status='못 얻음',
                                             error='stream_closed_before_completion', original_size=item['seen'])
+                        if item.get('stream_error'):
+                            body['body'].update(status='못 얻음', error='stream_closed_before_completion; '
+                                                'stream_unavailable: ' + item['stream_error'])
                         self.response_bodies.append(body)
                     try:
                         await browser.close()
