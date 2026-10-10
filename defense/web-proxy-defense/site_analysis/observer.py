@@ -15,6 +15,9 @@ from .prompts import NAVIGATE
 from .record import Failures, isolated, isolated_async, measured, now, public_facts, ref
 from .windows import ReadMemory, feedback_state, find_text, pack_context, serialized
 
+# Bounded wait for scripts to finish filling a page before it is sampled.
+RENDER_WAIT_MS = 3000
+
 
 def session_summary(path):
     """Counts only: how many cookies the prepared session holds, how many have expired, local storage origins."""
@@ -623,13 +626,22 @@ class Observer:
         for page in self.pages:
             if page.is_closed():
                 continue
+            # Scripts may still be filling the page; wait a bounded time for the network to go quiet and say so.
+            try:
+                await page.wait_for_load_state('networkidle', timeout=RENDER_WAIT_MS)
+                render_wait = 'network_idle'
+            except Exception:
+                render_wait = 'timeout'
             if not self.in_scope(page.url):
                 # A redirect can land outside the origin; that document is not sampled or kept.
                 self.block(page.url, '보지 않음(범위 밖으로 이동함)', 'navigation')
                 await page.goto('about:blank')
                 continue
+            last = self.decisions[-1] if self.decisions else {}
             item = {'ref': 'sample-' + str(len(self.samples) + 1), 'timestamp': now(),
-                    'url': page.url, 'route': ref(page.url)}
+                    'url': page.url, 'route': ref(page.url), 'render_wait': render_wait,
+                    'after_tool': ('read_sample' if '_read_sample' in last else 'find' if '_find' in last
+                                   else last.get('tool'))}
             # Bound the browser-to-Python transfer too, before storing a preview.
             for key, expression in (('screen', 'document.documentElement.innerText'),
                                     ('source', 'document.documentElement.outerHTML')):
@@ -642,6 +654,8 @@ class Observer:
                     item[key]['value'] = captured['value']
                     item[key]['original_size'] = captured['total']
                     item[key]['capture_truncated'] = len(captured['value']) < captured['total']
+            if isinstance(item['screen'].get('value'), str):
+                item['screen_sha256'] = ref(item['screen']['value'])
             for key in ('screen', 'source'):
                 value = item[key]['value']
                 if isinstance(value, str):
@@ -1064,6 +1078,8 @@ class Observer:
                 'responses': self.responses, 'unopened': self.unopened,
                 'navigations': self.navigations,
                 'screens': [{'ref': item['ref'], 'timestamp': item['timestamp'], 'url': item['url'], 'route': item['route'],
+                             'render_wait': item.get('render_wait'), 'after_tool': item.get('after_tool'),
+                             'screen_sha256': item.get('screen_sha256'),
                              'screen_status': item['screen']['status'], 'source_status': item['source']['status']}
                             for item in self.samples],
                 'sent_external_hosts': measured(hosts(True)), 'attempted_external_hosts': measured(hosts(False)),

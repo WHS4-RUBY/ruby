@@ -79,8 +79,11 @@ def group_prompt(catalog, group):
         'it, and that axis is asked again. Requests to read or find keep the group open. Answer each axis as soon as you ' + \
         'have read the screens relevant to it, marking final:false if more reading could change it, instead of reading ' + \
         'everything first: windows you read earlier leave the context as you read more, and answered axes need no ' + \
-        'rereading. Keep what you extracted for unanswered axes in _notes. Samples with the same route are ' + \
-        'one screen; count screens by the distinct routes you actually read. The context begins with an index of every ' + \
+        'rereading. Keep what you extracted for unanswered axes in _notes. Samples with the same route may be the ' + \
+        'same screen captured again or different states of one address (tabs, dialogs, steps); each sample carries ' + \
+        'the tool that preceded it (after_tool) and a hash of its screen text (screen_sha256), so judge which samples ' + \
+        'are the same screen and count screens by what you actually read. render_wait=timeout on a sample means ' + \
+        'scripts may still have been filling the page when it was captured. The context begins with an index of every ' + \
         'recorded request (method, URL, status, redirects, content type, header and cookie names, body size, ref); use ' + \
         'it to find responses, headers and machine interfaces, and read their refs. ' + \
         'You may also return a value-free _notes string with what you extracted for axes not yet answered; it ' + \
@@ -89,7 +92,7 @@ def group_prompt(catalog, group):
         'The observation record keeps every screen that browsing opened; sample_refs lists them with their routes. ' + \
         'Before answering 못 봄 or 사례 부족, or describing a screen kind from another screen, read the opened ' + \
         'screens of the relevant kinds. Use 못 봄 only for what was never opened or could not be read, and say which ' + \
-        'part of a long sample you read. One screen captured twice is one screen; cite the ref you actually read. ' + \
+        'part of a long sample you read. A screen captured twice with the same content is one screen; cite the ref you actually read. ' + \
         'A list, feed or count opened after a filter or display choice may carry that choice through the session: ' + \
         'when a place looks empty or reduced, check the preceding actions and state that condition instead of ' + \
         'calling the place empty. Answer when evidence is sufficient for the axis questions. ' + \
