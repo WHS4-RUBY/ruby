@@ -51,15 +51,7 @@ cheat_profiles = _load_module(
 
 
 class DecoyCatalogCopies(unittest.TestCase):
-    def test_every_service_copy_matches_the_shared_original(self):
-        original = SHARED.read_bytes()
-        for service, copy_path in COPIES.items():
-            with self.subTest(service=service):
-                self.assertTrue(copy_path.exists(), f'{copy_path} 사본이 없다')
-                self.assertEqual(
-                    original, copy_path.read_bytes(),
-                    'scripts/sync-decoy-catalog.sh 로 사본을 다시 만들어야 한다')
-
+    # 사본 drift 자체는 test_shared_sources.py 가 모든 공용 원본에 대해 검사한다.
     def test_the_overlay_module_loads_the_copy_next_to_its_package(self):
         self.assertEqual(json.loads(COPIES['overlay'].read_text(encoding='utf-8')),
                          decoy_paths.CATALOG)
