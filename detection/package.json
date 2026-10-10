@@ -8,6 +8,9 @@
     "test": "node --test",
     "experiment:fingerprint": "node scripts/run-fingerprint-experiment.js"
   },
+  "engines": {
+    "node": ">=22.13"	
+  },
   "dependencies": {
     "cookie-parser": "^1.4.6",
     "express": "^4.19.2",
