@@ -2,6 +2,8 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const nodePath = require("node:path");
 
+const { isDecoyPath } = require("./decoyPaths");
+
 // Team source provenance:
 //   detection/proxy/detect_proxy/Detect_proxy.py @ 4e0e791
 // The Python proxy/runtime was not embedded. Its honey-signal behavior is ported
@@ -42,6 +44,9 @@ const DECEPTION_SIGNAL_CATALOG = Object.freeze({
   trap_trigger: { evidenceLevel: "supporting", scored: true, scoreTarget: "automation" },
   script_hint_access: { evidenceLevel: "supporting", scored: true, scoreTarget: "attack" },
   no_asset_loading: { evidenceLevel: "observation", scored: true, scoreTarget: "automation" },
+  // Defense 가 만든 미끼 경로(/ftp, /ops/*, 미로 진입)는 정상 기능이 아니다.
+  // 정상 사용자가 접근할 이유가 없으므로 공격 쪽 신호로 쓴다.
+  decoy_path_hit: { evidenceLevel: "medium", scored: true, scoreTarget: "attack" },
   coverage: { evidenceLevel: "observation", scored: true, scoreTarget: "automation-conditional" },
 });
 
@@ -233,6 +238,14 @@ class DeceptionEngine {
         "no_asset_loading",
         `API ${state.apiRequestCount}회 호출했지만 정적 자산 요청 0건`,
         { now }
+      ));
+    }
+
+    if (isDecoyPath(path)) {
+      events.push(eventFor(
+        "decoy_path_hit",
+        `Defense 미끼 경로에 접근함 (${String(method).toUpperCase()} ${path})`,
+        { originSessionId: sessionId, now }
       ));
     }
 

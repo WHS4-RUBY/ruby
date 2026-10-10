@@ -91,6 +91,7 @@ const ATTACK_EVIDENCE_WINDOW_MS = 60 * 60_000;
 const ATTACK_HONEY_SIGNALS = new Set([
   "watermark_reuse", "ssh_cred_reuse", "password_list_reuse",
   "writable_file_write", "writable_file_found", "script_hint_access",
+  "decoy_path_hit",
 ]);
 
 function hasAttackEvidence(request) {

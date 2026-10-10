@@ -180,3 +180,27 @@ test("같은 미끼 신호 반복은 횟수만 늘리고 고유 신호는 한 �
   assert.deepEqual(history.distinctScoredSignals, ["trap_trigger"]);
   assert.equal(history.evidenceScore, undefined);
 });
+
+test("Defense 미끼 경로 요청은 공격 쪽 미끼 신호를 만들고 정상 경로는 만들지 않는다", () => {
+  const instance = engine();
+  const hit = instance.inspectRequest({
+    sessionId: "decoy-session", method: "GET", url: "/ops/recovery/accounts?page=2",
+  });
+  const signals = hit.map((event) => event.signal);
+  assert.ok(signals.includes("decoy_path_hit"));
+  const event = hit.find((item) => item.signal === "decoy_path_hit");
+  assert.equal(event.scored, true);
+  assert.equal(event.evidenceLevel, "medium");
+
+  // 미로 진입 경로는 정확 일치일 때만 신호가 된다.
+  assert.ok(instance.inspectRequest({ sessionId: "maze", method: "GET", url: "/internal/ops/runbook" })
+    .some((item) => item.signal === "decoy_path_hit"));
+  assert.ok(!instance.inspectRequest({ sessionId: "maze", method: "GET", url: "/internal/ops/other" })
+    .some((item) => item.signal === "decoy_path_hit"));
+
+  // 정상 경로와 Detection 자신의 트랩 네임스페이스는 이 신호를 만들지 않는다.
+  for (const ordinary of ["/api/Products", "/rest/user/login", "/rest/internal/ops/alarm.sh"]) {
+    const events = instance.inspectRequest({ sessionId: "normal", method: "GET", url: ordinary });
+    assert.ok(!events.some((item) => item.signal === "decoy_path_hit"), ordinary);
+  }
+});

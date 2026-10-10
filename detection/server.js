@@ -15,7 +15,7 @@ const {
   extractResolvedActorFeatures,
   extractIpFeatures,
 } = require("./lib/featureExtractor");
-const { classify } = require("./lib/classifier");
+const { classify, configure: configureClassifier } = require("./lib/classifier");
 const { selectClientId, selectEffectiveDetection, confirmedAttackScore } = require("./lib/detectionPolicy");
 const {
   assessDetection,
@@ -35,7 +35,7 @@ const {
   computePartitionedAgenticEvidence,
 } = require("./lib/agenticEvidence");
 const { CrsScanner } = require("./lib/crsScanner");
-const { DeceptionEngine } = require("./lib/deceptionEngine");
+const { DeceptionEngine, DECEPTION_SIGNAL_CATALOG } = require("./lib/deceptionEngine");
 const { classifyBackgroundTraffic } = require("./lib/backgroundTraffic");
 const {
   analyzeBusinessLogic,
@@ -63,7 +63,7 @@ const {
 } = require("./lib/priceIntegrity");
 const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
-const { applyDefenseRule, loadPolicyRules } = require("./lib/policyEngine");
+const { applyDefenseRule, loadDeceptionPoints, loadPolicyRules } = require("./lib/policyEngine");
 const { createRunScopedPolicyAnalyzer } = require("./lib/runScopedPolicy");
 const { createProxyCore, fixRequestBody } = require("./lib/proxyCore");
 const { loadInspectionConfig, createRequestInspection, replayInspectedBody } = require("./lib/requestInspection");
@@ -142,6 +142,10 @@ const deceptionEngine = new DeceptionEngine({ enabled: process.env.DECEPTION_ENA
 const dcidManager = new DcidManager();
 const accountIdentityResolver = new AccountIdentityResolver();
 const policyRules = loadPolicyRules();
+// 미끼 신호 배점은 policy.json 의 detection.deception.points 로 조정할 수 있다.
+configureClassifier({
+  honey: loadDeceptionPoints(undefined, { knownSignals: Object.keys(DECEPTION_SIGNAL_CATALOG) }),
+});
 const runPolicy = createRunScopedPolicyAnalyzer({ level: DETECTION_LEVEL });
 
 function positiveInt(name, fallback) {
