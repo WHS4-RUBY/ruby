@@ -2,7 +2,6 @@
 import asyncio
 import base64
 from dataclasses import dataclass
-from http.cookies import SimpleCookie
 import json
 import os
 import inspect
@@ -105,21 +104,26 @@ def response_headers(headers):
 
 
 def cookie_metadata(headers):
+    """Split Set-Cookie mechanically: the first pair names the cookie, every later part is an attribute.
+    No attribute list is assumed, so new attributes (Priority, Partitioned, ...) are kept as written."""
     cookies = []
     for header in headers:
         if header['name'].lower() != 'set-cookie':
             continue
-        try:
-            jar = SimpleCookie()
-            jar.load(header['value'])
-            if not jar and header['value']:
-                raise ValueError('CookieProtocolNotParsed')
-            for name, morsel in jar.items():
-                cookies.append({'status': '관찰됨', 'name': name,
-                                'attributes': [{'name': key, 'value': value} for key, value in morsel.items()]})
-        except Exception as error:
-            # A broken cookie cannot discard another header's cookies.
-            cookies.append({'status': '못 얻음', 'name': None, 'attributes': [], 'error': type(error).__name__})
+        # Browsers join repeated Set-Cookie headers with a newline.
+        for line in str(header['value']).split('\n'):
+            parts = [part.strip() for part in line.split(';')]
+            name, separator, _ = parts[0].partition('=')
+            if not separator or not name.strip():
+                # A broken cookie cannot discard another header's cookies.
+                cookies.append({'status': '못 얻음', 'name': None, 'attributes': [], 'error': 'CookieNameMissing'})
+                continue
+            attributes = []
+            for part in parts[1:]:
+                if part:
+                    key, separator, value = part.partition('=')
+                    attributes.append({'name': key.strip().lower(), 'value': value.strip() if separator else True})
+            cookies.append({'status': '관찰됨', 'name': name.strip(), 'attributes': attributes})
     return cookies
 
 
