@@ -120,10 +120,12 @@ class ReadMemory:
         """Drop this conversation's oldest copied sources and their windows until a new source fits."""
         def size(value):
             return len(value) if isinstance(value, bytes) else len(value.encode('utf-8'))
-        total = sum(size(value) for key, value in self.buffers.items() if ':source:' in key)
+        # The limit is per conversation: copies made by another conversation sharing these buffers (for
+        # example the browsing copies carried into a group) are neither counted nor evicted here.
         own = [key for key in self.buffers if key.startswith(self.namespace + ':source:')]
-        # Refuse a source that cannot fit even after evicting everything this conversation owns, before evicting.
-        if total - sum(size(self.buffers[key]) for key in own) + incoming > self.retained_bytes:
+        total = sum(size(self.buffers[key]) for key in own)
+        # Refuse a source larger than the whole limit before evicting anything.
+        if incoming > self.retained_bytes:
             raise ValueError('ReadMemoryRetentionLimit')
         while own and total + incoming > self.retained_bytes:
             oldest = own.pop(0)
