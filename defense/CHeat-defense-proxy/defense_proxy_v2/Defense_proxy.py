@@ -413,7 +413,7 @@ MAZE_PATHS = ([p.strip() for p in os.environ["MAZE_PATHS"].split(",") if p.strip
               if os.environ.get("MAZE_PATHS", "").strip() else list(transforms.PROFILE["maze"]["paths"]))
 MAZE_ROBOTS_DISALLOW = list(MAZE_PATHS)
 _MAZE_RE = re.compile(os.environ.get("MAZE_PATTERN", "").strip()
-                      or transforms.build_maze_pattern(MAZE_PATHS), re.I)
+                      or transforms.build_maze_pattern(MAZE_PATHS, transforms.PROFILE["maze"].get("extra_pattern", "")), re.I)
 # 실제 경로와 겹칠 때 수동으로 미로에서 빼는 정규식(경로 기준 search). env MAZE_EXCLUDE > 프로필 maze.exclude.
 _MAZE_EXCLUDE_SRC = os.environ.get("MAZE_EXCLUDE", "").strip() or transforms.PROFILE["maze"]["exclude"]
 _MAZE_EXCLUDE_RE = re.compile(_MAZE_EXCLUDE_SRC, re.I) if _MAZE_EXCLUDE_SRC else None

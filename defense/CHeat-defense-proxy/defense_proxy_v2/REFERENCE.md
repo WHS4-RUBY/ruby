@@ -267,7 +267,10 @@ SPA 라우트, 비-UTF-8 페이지, robots.txt 없음)를 아래처럼 막는다
 
 입구 경로는 **한 목록**(`MAZE_PATHS` / 프로필 `maze.paths`)에서 robots.txt 의 `Disallow` 줄과 미로 판정 정규식을
 같이 만든다 — 광고한 경로가 평범한 404 가 되는 어긋남이 구조적으로 없다. 입구 문서(Link 헤더·HTML 주석이 가리키는
-`maze.entry_path`, 기본 `/internal/ops/runbook`)와 주석 문구(`maze.comment_text`)도 프로필에서 바꾼다. 시작할 때
+`maze.entry_path`, 기본 `/internal/ops/runbook`)와 주석 문구(`maze.comment_text`)도 프로필에서 바꾼다.
+미로 응답 본문은 **서버 종류와 무관한 영어 텍스트**다 — 서버 정보 줄은 프로필 배너(`server_version:`·`httpServer:`)만 쓰고 Apache 전용 항목(MPM·빌드 날짜)은 넣지 않으며,
+디렉터리 목록의 소유자는 프로필의 가짜 셸 사용자(`shell.user`)다. Apache/PHP/Spring 전용 입구 이름(`server-status`·`phpinfo`·`.htpasswd`·`actuator`)은 기본 패턴이 아니라
+그 서버 프리셋의 `maze.extra_pattern` 에만 있다(`apache-php` 만 값이 있다). 시작할 때
 `preflight` 가 설정 모순(광고 경로가 미로로 판정 안 됨·입구가 `MAZE_EXCLUDE` 에 걸림)과 실제 백엔드와의 충돌(광고 경로가
 실제로 존재/403, SPA 폴백, 진짜 robots.txt 와 겹침)을 경고한다.
 
@@ -490,7 +493,7 @@ AMBIG_TRAP=1 AMBIG_RELEASE_MIN=10 \
 | `MAZE_BASE_KB` / `MAZE_ESC_KB` / `MAZE_MAX_KB` | 30 / 250 / 900 | 미로 응답 크기 (KB) |
 | `MAZE_DELAY_MS` / `MAZE_ESC_DELAY_MS` | 2500 / 6000 | 미로 응답 지연 (ms). 에스컬레이션 후에는 `ESCALATE_DELAY_MS` 와 합산이 아니라 **둘 중 큰 값** |
 | `MAZE_ESCALATE_HITS` | 4 | 이 횟수 이상 물면 미로가 확대 |
-| `MAZE_PATHS` | 프로필 `maze.paths`(`/internal/,/backup/,/admin/,/.git/,/config/,/private/`) | 미로 입구 경로(콤마) — robots `Disallow` 줄과 미로 판정 정규식을 **같이** 만든다. 실제 앱에 있는 경로는 넣지 말 것 |
+| `MAZE_PATHS` | 프로필 `maze.paths`(`/internal/,/backup/,/admin/,/config/,/private/`) | 미로 입구 경로(콤마) — robots `Disallow` 줄과 미로 판정 정규식을 **같이** 만든다. 실제 앱에 있는 경로는 넣지 말 것 |
 | `MAZE_PATTERN` | — | 미로 판정 정규식을 통째로 교체(고급). 광고 경로와의 일관성은 preflight 가 점검 |
 | `MAZE_EXCLUDE` | 프로필 `maze.exclude`(빈 값) | 미로에서 뺄 실제 경로 정규식(예: `^/(admin\|config)(/\|$)`) |
 | `MAZE_INTERCEPT_403` | `1` | `0` 이면 백엔드 403 은 미로로 안 바꿈(진짜 보호 경로가 403 을 주는 서버용) |

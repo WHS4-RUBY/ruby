@@ -121,7 +121,8 @@ class DecoyProxyContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("x-ruby-decoy-action", captured[0].headers)
         self.assertNotIn("x-ruby-decoy-strategies", captured[0].headers)
         self.assertEqual(response.headers["location"], "http://defense/login")
-        self.assertEqual(response.headers["x-defense-applied"], "delay,rate_limit_strict,decoy_maze")
+        # 공개 응답에는 미끼 전략 이름이 없다(이벤트 기록에는 있다 — 아래 event["strategies"]).
+        self.assertEqual(response.headers["x-defense-applied"], "delay,rate_limit_strict")
         self.assertNotIn("x-ruby-decoy-action", response.headers)
         self.assertNotIn("x-ruby-decoy-strategies", response.headers)
         event = event_store.recent(1)[0]
@@ -131,6 +132,38 @@ class DecoyProxyContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event["strategies"], ["delay", "rate_limit_strict", "decoy_maze"])
         self.assertEqual(event["decoyAction"], "maze")
         self.assertEqual(event["outcome"], "forwarded")
+
+    async def test_sidecar_server_headers_reach_the_client_but_target_server_header_does_not(self):
+        def sidecar(req):
+            return httpx.Response(200, headers={
+                "Server": "Apache/2.4.49 (Unix)", "X-Powered-By": "PHP/7.4.19",
+                "X-Ruby-Decoy-Action": "transform-route", "X-Ruby-Decoy-Strategies": "decoy_t21_shell",
+            }, stream=EmptyStream())
+
+        def direct(req):
+            return httpx.Response(200, headers={"Server": "internal-origin/9.9"}, stream=EmptyStream())
+
+        plan = [{"name": "decoy_t21_shell", "params": {}}]
+        for handler, sidecars, label in ((sidecar, self.sidecars, "사이드카"), (direct, {}, "직접")):
+            upstream = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            app.state.http_client = upstream
+            async with upstream, httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://defense"
+            ) as client:
+                with patch("defense.app.target_selection.target_selector", self.selector), patch(
+                    "defense.app.main.DECOY_UPSTREAMS", sidecars
+                ):
+                    response = await client.get("/server-status", headers={
+                        "X-Ruby-Target-Id": "juice-shop", "X-Ruby-Run-Id": str(uuid.uuid4()),
+                        "X-Client-Id": "client-s", "X-Defense-Plan": json.dumps(plan),
+                    })
+            if label == "사이드카":
+                self.assertEqual(response.headers["server"], "Apache/2.4.49 (Unix)")
+                self.assertEqual(response.headers["x-powered-by"], "PHP/7.4.19")
+            else:
+                self.assertNotIn("server", response.headers)        # 대상이 직접 내는 Server 는 지금처럼 버린다
+            self.assertEqual(response.headers["x-defense-applied"], "none")
+            self.assertNotIn("decoy", ",".join(f"{k}:{v}" for k, v in response.headers.items()).lower())
 
     async def test_sidecar_block_is_recorded_but_direct_target_cannot_spoof_action(self):
         captured = []
