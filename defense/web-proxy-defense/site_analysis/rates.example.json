@@ -1,0 +1,11 @@
+{
+  "_comment": "복사해서 rates.json으로 쓰고 값을 채운다. 단가는 100만 토큰당 달러이며 운영자가 제공자 가격표를 직접 확인해 넣는다. 값을 채우지 않으면 분석기가 시작 전에 멈춘다. long은 입력 토큰이 long_input_threshold_tokens를 넘는 호출에 쓰는 단가다. max_cost_usd는 웹 하나 분석 전체의 상한이며 --max-cost-usd로 덮어쓸 수 있다.",
+  "max_cost_usd": "<웹 하나의 비용 상한, 예: 300>",
+  "model_prices": {
+    "gpt-6-sol": {
+      "long_input_threshold_tokens": "<장문 단가가 시작되는 입력 토큰 수>",
+      "base": {"input": "<입력 단가>", "cached_input": "<캐시 입력 단가>", "output": "<출력 단가>"},
+      "long": {"input": "<장문 입력 단가>", "cached_input": "<장문 캐시 입력 단가>", "output": "<장문 출력 단가>"}
+    }
+  }
+}
