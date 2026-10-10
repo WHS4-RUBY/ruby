@@ -748,6 +748,11 @@ async def one_run(index, args, catalog, limits, model, login, checkpoint, store,
     return run
 
 
+# Sent back with a merge row that breaks the answer protocol; the row is asked again, never converted.
+MERGE_ROW_EXPECTED = {'agreement': 'JSON boolean true or false, not a string',
+                      'answer': 'JSON object with status, description, evidence and confidence; extra keys are kept'}
+
+
 def merge_batch(pending, runs, limit):
     batch, size = [], 0
     for key in pending:
@@ -863,7 +868,7 @@ async def semantic_merge(model, catalog, runs, deadline, state=None, checkpoint=
                 response = await model.call('merge_' + group, MERGE, context,
                                             obj({key: MERGE_ANSWER for key in batch}), deadline=deadline, context_builder=build_context)
                 has_read = '_read_sample' in response or '_find' in response
-                remaining, valid_rows = [], {}
+                remaining, valid_rows, row_errors = [], {}, {}
                 for key in batch:
                     try:
                         row = response[key]
@@ -871,17 +876,22 @@ async def semantic_merge(model, catalog, runs, deadline, state=None, checkpoint=
                             # Keys the model put next to the answer (findings, conflicts, notes) stay with it.
                             extra = {name: value for name, value in row.items() if name not in ('agreement', 'answer')}
                             answer = row['answer']
-                            if extra:
-                                answer = ({**extra, **answer} if isinstance(answer, dict)
-                                          else {'answer': answer, **extra})
-                            row = {'agreement': row.get('agreement'), 'answer': answer}
+                            if not isinstance(answer, dict):
+                                raise ModelError('merge_answer_not_object', MERGE_ROW_EXPECTED)
+                            row = {'agreement': row.get('agreement'), 'answer': {**extra, **answer} if extra else answer}
+                        elif isinstance(row, dict):
+                            # A row without the answer key is a protocol violation; code does not reshape it.
+                            raise ModelError('merge_answer_missing', MERGE_ROW_EXPECTED)
                         else:
-                            row = ({'agreement': row.get('agreement'), 'answer': row}
-                                   if isinstance(row, dict) else {'agreement': None, 'answer': row})
+                            raise ModelError('merge_answer_not_object', MERGE_ROW_EXPECTED)
+                        if type(row['agreement']) is not bool:
+                            # A string such as "true" is a protocol violation, not a consensus decision.
+                            raise ModelError('merge_agreement_not_boolean', MERGE_ROW_EXPECTED)
                         valid_rows[key] = row
                         model.failures.clear(failure_prefix + key)
                     except Exception as error:
                         code = getattr(error, 'code', type(error).__name__)
+                        row_errors[key] = {'error': code, 'expected': MERGE_ROW_EXPECTED}
                         if not has_read and model.failures.add(failure_prefix + key, code):
                             judgments[key] = {'error': code}
                         else:
@@ -898,6 +908,10 @@ async def semantic_merge(model, catalog, runs, deadline, state=None, checkpoint=
                             reads.read(source, window, limit)
                     if '_find' in response:
                         feedback = {**(feedback or {}), 'find': find_text({**buffers, 'provided-context': raw}, response['_find'])}
+                    # Rows sent next to a read are optional, but a sent row that breaks the shape is named.
+                    sent_errors = {key: value for key, value in row_errors.items() if key in response}
+                    if sent_errors:
+                        feedback = {**(feedback or {}), 'row_errors': sent_errors}
                 else:
                     raw_rows.update(valid_rows)
                     for key in valid_rows:
@@ -905,7 +919,8 @@ async def semantic_merge(model, catalog, runs, deadline, state=None, checkpoint=
                     pending = [key for key in pending if key not in batch] + remaining
                     saved['active_batch'] = remaining
                 if not has_read and remaining:
-                    feedback = {'errors': remaining, 'partial_answer': response}
+                    feedback = {'errors': remaining, 'row_errors': {key: row_errors[key] for key in remaining},
+                                'partial_answer': response}
                 saved.update(reads=reads.snapshot(), feedback=feedback)
                 await persist()
                 if not has_read:
@@ -1045,6 +1060,7 @@ def dry_plan(args, catalog, output, limits):
                       'analysis_read_memory_check': 'passed', 'model_read_choice_check': 'passed',
                       'common_cost_context_check': 'passed', 'group_retry_boundary_check': 'passed',
                       'merge_read_memory_check': 'passed', 'privacy_read_memory_check': 'passed',
+                      'merge_row_protocol_check': 'passed',
                       'merge_rules': {key: value['merge'] for key, value in catalog['groups'].items()},
                       'login_values_read': False, 'network_requests': 0, 'model_calls': 0, 'files_written': 0},
                      ensure_ascii=False, indent=2))
@@ -1293,6 +1309,24 @@ async def dry_analysis_check(catalog):
             or len(context['read_windows']) != 2 or context['pending_axes'] != keys
             or 'merge:partial:appearance' not in {row['ref'] for row in context['sample_refs']}):
         raise ValueError('의미 합치기 읽기 창 또는 부분 답 보존 실패')
+    model = Offline([{keys[0]: {'agreement': True, 'answer': 'synthetic string answer'},
+                      keys[1]: {'agreement': 'true', 'answer': template[keys[1]]}}, judgments,
+                     {'fields': [{'id': 'merge-' + key, 'safe': True} for key in keys]}])
+    result = await semantic_merge(model, reduced, runs, deadline)
+    retry = model.seen[1][1]
+    row_errors = (retry.get('feedback') or {}).get('row_errors') or {}
+    if (retry.get('pending_axes') != keys or {key: row['error'] for key, row in row_errors.items()}
+            != {keys[0]: 'merge_answer_not_object', keys[1]: 'merge_agreement_not_boolean'}
+            or any(row['expected'] != MERGE_ROW_EXPECTED for row in row_errors.values())
+            or any(result[key]['agreement'] is not True or result[key]['answer'].get('source') != 'model' for key in keys)):
+        raise ValueError('합성 합치기 문자열 답 또는 문자열 agreement 재질문 실패')
+    model = Offline([{keys[0]: {'agreement': True, 'answer': 'synthetic string answer'}, keys[1]: judgments[keys[1]]},
+                     {'fields': [{'id': 'merge-' + keys[1], 'safe': True}]},
+                     {keys[0]: {'agreement': True, 'answer': 'synthetic string answer'}}])
+    model.failures.limit = 2
+    result = await semantic_merge(model, reduced, runs, deadline)
+    if result[keys[0]] != {'error': 'merge_answer_not_object'} or result[keys[1]]['agreement'] is not True:
+        raise ValueError('합성 합치기 반복 형식 위반의 축 오류 기록 실패')
     if model.calls or model.directory.exists():
         raise ValueError('dry-run에서 모델 호출 또는 디렉터리 생성')
 
