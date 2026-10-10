@@ -1176,17 +1176,11 @@ async def catch_all(request: Request, full_path: str):
                 # Final stage: aliases are substituted after every response transform.
                 buffered = httpx.Response(response.status_code, headers=response.raw_headers,
                                           stream=httpx.ByteStream(response.body))
-<<<<<<< HEAD
                 response, rewrites, skipped, counted = await alias_proxy_response(
-                    buffered, request, alias_client, target_url=selected.url)
+                    buffered, request, alias_client, target_url=selected.url,
+                    keep_server=bool(decoy_url))
                 log_alias(alias_decision, upstream.status_code, rewrites,
                           skipped=skipped or body_note, would_rewrite=counted)
-=======
-                response, rewrites, skipped = await alias_proxy_response(
-                    buffered, request, alias_client, target_url=selected.url, keep_server=bool(decoy_url))
-                _log_alias(request, alias, alias_decision, upstream.status_code, rewrites, skipped,
-                           alias_client, rotation)
->>>>>>> ac7de04925344bf22e4e217355091fdd30d7292c
             if gate is not None and gate.issue_cookie and upstream.status_code < 500:
                 response.raw_headers.append((
                     b"set-cookie", token_gate.build_set_cookie(TOKEN_GATE, time.time()).encode("latin-1")
@@ -1218,9 +1212,9 @@ async def catch_all(request: Request, full_path: str):
     )
     if alias_active:
         try:
-<<<<<<< HEAD
             response, rewrites, skipped, counted = await alias_proxy_response(
-                upstream, request, alias_client, target_url=selected.url, on_complete=on_complete)
+                upstream, request, alias_client, target_url=selected.url, on_complete=on_complete
+                keep_server=bool(decoy_url))
         except path_alias.AliasStoreError as exc:
             # Enforcing and the alias store is down or full: the page would only work with
             # original routes, which enforcement refuses. Report instead of serving it broken.
@@ -1228,11 +1222,6 @@ async def catch_all(request: Request, full_path: str):
             log_alias("error", upstream.status_code, skipped=str(exc) or "db_error")
             record(503, "error", attempted_strategies, decoy_action_name=action_name)
             return _alias_unavailable(isinstance(exc, path_alias.AliasCapacityError))
-=======
-            response, rewrites, skipped = await alias_proxy_response(
-                upstream, request, alias_client, target_url=selected.url, on_complete=on_complete,
-                keep_server=bool(decoy_url))
->>>>>>> ac7de04925344bf22e4e217355091fdd30d7292c
         except Exception:
             await upstream.aclose()
             record(502, "error", attempted_strategies, decoy_action_name=action_name)
