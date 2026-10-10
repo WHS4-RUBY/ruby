@@ -149,8 +149,9 @@ def candidates(facts):
         for index, item in enumerate(facts[key]):
             visit(item['url'], [key, index, 'url'])
     for index, item in enumerate(facts['form_attempts']):
-        for key in ('action', 'method', 'field_names'):
-            visit(item[key], ['form_attempts', index, key])
+        for key in ('action', 'method', 'field_names', 'fields', 'enctype'):
+            if key in item:
+                visit(item[key], ['form_attempts', index, key])
     return table
 
 

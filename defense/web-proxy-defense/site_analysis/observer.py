@@ -17,11 +17,30 @@ from .windows import ReadMemory, feedback_state, find_text, pack_context, serial
 
 SECRET_HEADERS = {'cookie', 'set-cookie', 'authorization', 'proxy-authorization',
                   'authentication-info', 'proxy-authentication-info'}
+# Form metadata without values. Attributes are read through the prototypes, so an input named "action",
+# "method" or "elements" cannot shadow the form's own properties.
+FORM_READ = """form => {
+  const attr = (node, name) => Element.prototype.getAttribute.call(node, name);
+  const has = (node, name) => Element.prototype.hasAttribute.call(node, name);
+  const elements = Array.from(Object.getOwnPropertyDescriptor(HTMLFormElement.prototype, 'elements').get.call(form));
+  const constraint = ['maxlength', 'minlength', 'pattern', 'min', 'max', 'step', 'autocomplete', 'multiple',
+                      'accept', 'inputmode', 'size', 'list'];
+  return {
+    action: new URL(attr(form, 'action') || '', document.baseURI).href,
+    method: (attr(form, 'method') || 'get').toUpperCase(),
+    enctype: attr(form, 'enctype'),
+    field_names: elements.map(element => attr(element, 'name')),
+    fields: elements.map(element => ({
+      tag: element.tagName.toLowerCase(), name: attr(element, 'name'), type: attr(element, 'type'),
+      required: has(element, 'required'), disabled: has(element, 'disabled'), readonly: has(element, 'readonly'),
+      constraints: Object.fromEntries(constraint.filter(name => has(element, name)).map(name => [name, attr(element, name)])),
+      option_count: element.tagName === 'SELECT' ? element.options.length : null
+    }))
+  };
+}"""
 FORM_GUARD = """(() => {
-  const emit = form => window.__siteAnalysisForm({
-    action: form.action, method: form.method.toUpperCase(),
-    field_names: Array.from(form.elements, element => element.name)
-  });
+  const read = """ + FORM_READ + """;
+  const emit = form => window.__siteAnalysisForm(read(form));
   for (const name of ['submit', 'requestSubmit']) {
     HTMLFormElement.prototype[name] = function() { void emit(this); };
   }
@@ -638,7 +657,8 @@ class Observer:
 
     def form_attempt(self, source, data):
         self.form_attempts.append({'source': 'browser', 'action': data['action'], 'method': data['method'],
-                                   'field_names': data['field_names'], 'sent': False, 'timestamp': now()})
+                                   'field_names': data['field_names'], 'fields': data.get('fields'),
+                                   'enctype': data.get('enctype'), 'sent': False, 'timestamp': now()})
         self.block(data['action'], '보내지 않음(폼)', 'form')
 
     async def action(self, decision):
@@ -687,10 +707,7 @@ class Observer:
         elif tool == 'inspect_form':
             required(args, 'selector')
             # Inspect native metadata without dispatching submit or exposing values.
-            data = await self.page.locator(args['selector']).evaluate("""form => ({
-                action: form.action, method: form.method.toUpperCase(),
-                field_names: Array.from(form.elements, element => element.name)
-            })""", timeout=timeout)
+            data = await self.page.locator(args['selector']).evaluate(FORM_READ, timeout=timeout)
             self.form_attempt(None, data)
             self.feedback.append({'operation': 'inspect_form', 'status': 'completed', 'result': data})
         else:
