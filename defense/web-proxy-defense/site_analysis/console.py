@@ -115,11 +115,13 @@ sys.exit(0 if error is None else 2)
 '''
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?')
 TASK_LABELS = {'playwright': 'Playwright 설치', 'chromium': '브라우저 설치', 'codex-install': 'Codex CLI 설치',
-               'codex-login': '구독으로 로그인', 'codex-key': 'API 키로 로그인', 'connection': '연결 시험',
-               'session': '세션 준비'}
+               'codex-login': '구독으로 로그인', 'codex-key': 'API 키로 로그인', 'claude-login': 'Claude 로그인',
+               'connection': '연결 시험', 'session': '세션 준비'}
 TASK_GROUPS = {'playwright': 'env', 'chromium': 'env', 'codex-install': 'ai', 'codex-login': 'ai', 'codex-key': 'ai',
-               'connection': 'ai', 'session': 'session'}
+               'claude-login': 'ai', 'connection': 'ai', 'session': 'session'}
 CODEX_PACKAGE = '@openai/codex'
+# `claude auth login --help`: the Claude subscription is the default, --console bills Anthropic Console API usage.
+CLAUDE_METHODS = {'claudeai': [], 'console': ['--console']}
 CLI_HINTS = {'codex': 'Codex CLI 설치 버튼을 누른다(npm 패키지 @openai/codex를 전역 설치)',
              'codex-npm': 'npm이 없어 이 화면에서 설치할 수 없다. nodejs.org에서 Node.js LTS를 설치한 뒤 콘솔 창을 닫고 '
                           'run-console.cmd로 다시 연다',
@@ -574,22 +576,30 @@ def pump(task):
         if pending:
             task.add([pending])
     finally:
-        task.finish(task.process.wait())
+        code = task.process.wait()
+        if task.process.stdin is not None:
+            try:
+                task.process.stdin.close()
+            except OSError:
+                pass
+        task.finish(code)
 
 
-def launch(kind, argv, env=None, stdin_text=None, hidden=()):
+def launch(kind, argv, env=None, stdin_text=None, hidden=(), keep_stdin=False):
     with LOCK:
         for other in TASKS.values():
             if TASK_GROUPS[other.kind] == TASK_GROUPS[kind] and other.code is None:
                 raise ConsoleError(f'{TASK_LABELS[other.kind]} 작업이 아직 실행 중임. 끝나거나 취소한 뒤 다시 누른다')
         try:
             process = subprocess.Popen(argv, cwd=WORKDIR, env=env or child_env(),
-                                       stdin=subprocess.DEVNULL if stdin_text is None else subprocess.PIPE,
+                                       stdin=subprocess.PIPE if keep_stdin or stdin_text is not None
+                                       else subprocess.DEVNULL,
                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **GROUP)
         except OSError as error:
             raise ConsoleError(f'{TASK_LABELS[kind]} 프로세스를 띄우지 못함({type(error).__name__})') from None
         task = TASKS[kind] = Task(kind, process, hidden)
     threading.Thread(target=pump, args=(task,), daemon=True).start()
+    # keep_stdin leaves standard input open for lines the page sends later (task_input).
     if stdin_text is not None:
         # Standard input only: the value never appears on a command line, in settings or in a log.
         try:
@@ -636,6 +646,31 @@ def task_cancel(body):
     return task_view(kind)
 
 
+def task_input(body):
+    """One line for a running Claude login: the code its browser page shows when the browser could not reach
+    the CLI's local callback. It goes only to that process's standard input and is hidden in its output."""
+    kind = task_kind(body)
+    if kind != 'claude-login':
+        raise ConsoleError('이 작업에는 입력을 보낼 수 없음')
+    code = body.get('code')
+    code = code.strip() if isinstance(code, str) else ''
+    if not code:
+        raise ConsoleError('코드 칸이 비어 있음')
+    if len(code) > 1024 or any(char.isspace() or control(char) for char in code):
+        raise ConsoleError('코드에 공백, 줄바꿈이나 제어 문자가 있음. 브라우저에 나온 코드를 그대로 붙여 넣는다')
+    with LOCK:
+        task = TASKS.get(kind)
+        if task is None or task.code is not None or task.process.stdin is None:
+            raise ConsoleError('실행 중인 Claude 로그인이 없음. Claude 로그인을 먼저 누른다')
+        task.hidden += (code,)
+    try:
+        task.process.stdin.write((code + '\n').encode('utf-8'))
+        task.process.stdin.flush()
+    except (OSError, ValueError):
+        raise ConsoleError('로그인 프로세스에 코드를 넘기지 못함. 프로세스가 이미 끝났을 수 있다') from None
+    return task_view(kind)
+
+
 def task_start(body):
     kind = task_kind(body)
     if kind == 'playwright':
@@ -662,6 +697,16 @@ def task_start(body):
         if len(key) > 512 or any(char.isspace() or control(char) for char in key):
             raise ConsoleError('API 키에 공백, 줄바꿈이나 제어 문자가 있음')
         return launch(kind, [executable, 'login', '--with-api-key'], stdin_text=key + '\n', hidden=(key,))
+    if kind == 'claude-login':
+        executable = cli_path('claude')
+        if not executable:
+            raise ConsoleError('PATH에서 Claude CLI를 찾지 못함. ' + CLI_HINTS['claude'])
+        method = body.get('method', 'claudeai')
+        if not isinstance(method, str) or method not in CLAUDE_METHODS:
+            raise ConsoleError('로그인 방식은 Claude 구독 또는 Anthropic Console 중 하나')
+        # No terminal needed: the CLI prints the address, opens the browser and waits for its local callback,
+        # and it also reads a pasted code from standard input, which therefore stays open.
+        return launch(kind, [executable, 'auth', 'login', *CLAUDE_METHODS[method]], keep_stdin=True)
     if kind == 'connection':
         values = loose(body)
         provider, model = check_provider(values['provider']), check_model(values['model'])
@@ -915,6 +960,79 @@ def account_save(body):
     write_json(folder / ACCOUNT_FILE, {key: account_id, 'password': secret}, private=True)
     write_json(folder / LOGIN_FILE, config, private=True)
     return account_view(values)
+
+
+def session_in_use(values, target):
+    if values['session_runs'] in ('', '0'):
+        return False
+    try:
+        return session_path(session_target(values)) == target
+    except (OSError, ValueError):
+        return False
+
+
+def account_delete(body):
+    """Remove what step 5 stored for one record name: its account folder and, when asked, its session file."""
+    values = loose(body)
+    name = check_name(values['name'])
+    folder = account_folder(name)
+    found = folder.resolve()
+    linked = folder.is_symlink() or getattr(folder, 'is_junction', lambda: False)()
+    # Only a real folder directly under the private accounts folder, never a place a link leads to.
+    if (linked or found.parent != private_root().resolve() / 'accounts' or found.name.casefold() != name.casefold()
+            or (found.exists() and not found.is_dir())):
+        raise ConsoleError('계정 폴더가 비공개 accounts 폴더 바로 아래의 폴더가 아니어서 지우지 않음')
+    target = None
+    if body.get('session') is True:
+        try:
+            target = session_path(session_target({**values, 'name': name}))  # inside the private sessions folder
+        except ValueError as error:
+            raise ConsoleError(f'세션 파일을 지우지 않음: {error}') from None
+        if target.exists() and not target.is_file():
+            raise ConsoleError('세션 경로가 파일이 아니어서 지우지 않음')
+    removed, kept, session_removed = [], [], False
+    with LOCK:
+        for key, job in JOBS.items():
+            if job.process.poll() is not None:
+                continue
+            if key.casefold() == name.casefold():
+                raise ConsoleError(f'이 기록 이름({key})으로 이 콘솔이 시작한 분석이 실행 중이라 지우지 않음. '
+                                   '6단계에서 멈춘 뒤 지운다')
+            if target is not None and session_in_use(job.values, target):
+                raise ConsoleError(f'다른 기록 이름({key})으로 실행 중인 분석이 이 세션 파일을 써서 지우지 않음')
+        task = TASKS.get('session')
+        if task is not None and task.code is None:
+            raise ConsoleError('세션 준비가 실행 중이라 지우지 않음. 끝나거나 취소한 뒤 지운다')
+        try:
+            if found.is_dir():
+                with os.scandir(found) as entries:
+                    for entry in entries:
+                        # Regular files only (the two saved files and any unfinished write); links are left alone.
+                        if entry.is_file(follow_symlinks=False):
+                            os.unlink(entry.path)
+                            removed.append(entry.name)
+                        else:
+                            kept.append(entry.name)
+                if not kept:
+                    found.rmdir()
+            if target is not None and target.is_file():
+                target.unlink()
+                session_removed = True
+        except OSError as error:
+            raise ConsoleError(f'지우다가 멈춤({type(error).__name__}). 이미 지운 파일: '
+                               f'{", ".join(removed) or "없음"}') from None
+        # A passed check no longer describes the stored session.
+        for key in [key for key in CHECKED if key.casefold() == name.casefold()]:
+            del CHECKED[key]
+    labels = {LOGIN_FILE: '로그인 화면 설명', ACCOUNT_FILE: '계정 값'}
+    removed.sort(key=lambda item: (item not in labels, item != LOGIN_FILE, item))
+    done = [labels.get(item, '쓰다 남은 임시 파일 ' + item) for item in removed] + (['세션 파일'] if session_removed else [])
+    message = '지움: ' + ', '.join(done) if done else '지울 저장 값이 없음'
+    if target is not None and not session_removed:
+        message += '. 세션 파일은 없었음'
+    if kept:
+        message += '. 파일이 아닌 항목이 있어 폴더는 남김: ' + ', '.join(kept)
+    return {'message': message, 'account': account_view(values)}
 
 
 def session_argv(origin, config, output, dry_run):
@@ -1415,8 +1533,9 @@ def settings_save(body):
 
 ROUTES = {'/api/state': state, '/api/settings/save': settings_save, '/api/env': environment, '/api/ai': ai_check,
           '/api/rates': rates_get, '/api/rates/save': rates_save, '/api/target/check': target_check,
-          '/api/account': account_get, '/api/account/save': account_save, '/api/session/check': session_check,
-          '/api/task/start': task_start, '/api/task': task_get, '/api/task/cancel': task_cancel,
+          '/api/account': account_get, '/api/account/save': account_save, '/api/account/delete': account_delete,
+          '/api/session/check': session_check, '/api/task/start': task_start, '/api/task': task_get,
+          '/api/task/cancel': task_cancel, '/api/task/input': task_input,
           '/api/check': dry_run, '/api/start': start, '/api/stop': stop, '/api/result': result,
           '/api/open': open_path}
 
@@ -1606,7 +1725,7 @@ label small { display: block; font-weight: 400; color: var(--muted); overflow-wr
 input, select, textarea { width: 100%; margin-top: 4px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--bg); color: var(--text); font: inherit; }
 textarea { resize: vertical; font: 13px/1.45 ui-monospace, Consolas, monospace; }
-input[type="radio"] { width: auto; margin: 0 6px 0 0; }
+input[type="radio"], input[type="checkbox"] { width: auto; margin: 0 6px 0 0; }
 fieldset { border: 0; padding: 0; margin: 10px 0; display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
 legend { font-weight: 600; font-size: 13px; padding: 0; margin-bottom: 4px; }
 .inline { display: inline-flex; align-items: center; font-weight: 400; font-size: 15px; }
@@ -1641,7 +1760,7 @@ td.num-cell, th.num-cell { text-align: right; font-variant-numeric: tabular-nums
 .muted { color: var(--muted); font-size: 13px; }
 pre { background: var(--code); padding: 10px 12px; border-radius: 6px; overflow: auto; max-height: 340px; margin: 0;
   font: 12.5px/1.45 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-.notice { padding: 8px 12px; border-radius: 6px; margin: 8px 0; background: var(--code); }
+.notice { padding: 8px 12px; border-radius: 6px; margin: 8px 0; background: var(--code); overflow-wrap: anywhere; }
 .notice.ok { background: var(--ok-bg); color: var(--ok); }
 .notice.bad { background: var(--bad-bg); color: var(--bad); }
 .notice.warn { background: var(--warn-bg); color: var(--warn); }
@@ -1735,7 +1854,17 @@ progress { width: 100%; height: 12px; accent-color: var(--accent); }
 </div>
 <div id="claude-box" hidden>
 <h3>Claude 로그인</h3>
-<p>Claude CLI 로그인은 이 화면에서 대신 하지 않는다. CLI 도움말(<code>claude auth --help</code>) 기준으로 터미널에서 <code>claude auth login</code>(Claude 구독, 기본) 또는 <code>claude auth login --console</code>(Anthropic Console, API 사용량 과금)을 한 번 실행하고 브라우저에서 로그인을 마친 뒤 위의 로그인 상태 확인을 누른다. 상태 확인은 <code>claude auth status</code>를 쓰며 메일과 조직 정보는 화면에 옮기지 않는다.</p>
+<p class="muted">Claude 로그인은 <code>claude auth login</code>(Claude 구독, 기본) 또는 <code>claude auth login --console</code>(Anthropic Console, API 사용량 과금)을 이 콘솔이 대신 실행하고 출력을 아래에 보여 준다. 브라우저가 열리면 로그인하고 접근을 허용한다. 로그인이 끝나면 상태를 자동으로 다시 확인한다. 상태 확인은 <code>claude auth status</code>를 쓰며 메일과 조직 정보는 화면에 옮기지 않는다.</p>
+<div class="grid">
+<label>로그인 방식<select id="claude-method"><option value="claudeai">Claude 구독(기본)</option><option value="console">Anthropic Console(API 사용량 과금)</option></select></label>
+</div>
+<div class="actions"><button id="claude-login" type="button" aria-describedby="why-claude">Claude 로그인</button></div>
+<div id="why-claude" class="why"></div>
+<div class="grid">
+<label class="wide">브라우저에 나온 코드(브라우저가 열리지 않았을 때만)<small>브라우저가 열리지 않으면 아래 출력의 주소를 눌러 로그인한다. 그 화면에 나온 코드를 여기에 붙여 넣고 코드 보내기를 누른다. 코드는 실행 중인 로그인 프로세스의 표준 입력으로만 넘기고 저장하지 않는다</small><input id="claude-code" type="password" autocomplete="off" spellcheck="false"></label>
+</div>
+<div class="actions"><button id="claude-code-send" type="button" aria-describedby="why-claude-code">코드 보내기</button></div>
+<div id="why-claude-code" class="why"></div>
 </div>
 <h3>연결 시험(선택, 소액 비용)</h3>
 <p class="muted">분석기의 모델 호출 코드(<code>model.Codex</code>)로 아주 작은 요청 하나를 보낸다. 누를 때만 보내며 소액 비용이 든다(구독 로그인이면 사용량에서 빠진다). 3단계 단가를 저장했다면 비용을 달러로, 아니면 토큰 수만 보여 준다.</p>
@@ -1822,6 +1951,11 @@ progress { width: 100%; height: 12px; accent-color: var(--accent); }
 <label>세션 파일 경로<small>비우면 기록 이름의 기본 경로. LOCALAPPDATA/ruby-site-analysis/sessions 아래만 허용</small><input id="session_file" autocomplete="off" spellcheck="false"></label>
 </details>
 <div id="task-account" class="task" hidden></div>
+<h3>저장한 계정 지우기</h3>
+<p class="muted">이 기록 이름으로 저장한 로그인 화면 설명과 계정 값을 이 PC의 비공개 폴더(<code>accounts/&lt;기록 이름&gt;/</code>)에서 지운다. 아래 칸을 고르면 위 세션 준비에 보이는 세션 파일도 지운다. 이 콘솔이 이 기록 이름으로 시작한 분석이 실행 중이면 지우지 않는다. 대상 웹에 만든 계정은 그대로 남는다.</p>
+<label class="inline"><input type="checkbox" id="delete-session">세션 파일도 지운다</label>
+<div class="actions"><button id="account-delete" class="danger" type="button" aria-describedby="why-account-delete">저장한 계정 지우기</button><span id="account-delete-message" class="muted" role="status"></span></div>
+<div id="why-account-delete" class="why"></div>
 <div class="next"><button type="button" data-go="run">다음: 실행</button></div>
 </section>
 
@@ -1888,7 +2022,7 @@ const STEPS = ['env', 'ai', 'cost', 'target', 'account', 'run', 'result'];
 const FIELD_IDS = ['origin', 'name', 'proxy', 'allow_origins', 'runs', 'session_runs', 'session_file', 'context_chars', 'max_pages'];
 const LOGGED = ['subscription', 'api_key', 'yes'];
 const TASK_BOX = {playwright: 'env', chromium: 'env', 'codex-install': 'ai', 'codex-login': 'ai', 'codex-key': 'ai',
-  connection: 'ai', session: 'account'};
+  'claude-login': 'ai', connection: 'ai', session: 'account'};
 const TASK_MESSAGE = {env: 'env-message', ai: 'ai-message', account: 'session-message'};
 const RATE_INPUTS = {input: 'rate-input', cached_input: 'rate-cached', output: 'rate-output', max_cost: 'rate-max',
   long_input: 'rate-long-input', long_cached_input: 'rate-long-cached', long_output: 'rate-long-output', threshold: 'rate-threshold'};
@@ -2032,7 +2166,7 @@ function renderAi() {
     return;
   }
   const loginHint = !view.found ? '' : name === 'codex' ? '아래 구독으로 로그인 또는 API 키로 로그인을 쓴다'
-    : '아래 안내대로 로그인한 뒤 로그인 상태 확인을 누른다';
+    : '아래 Claude 로그인을 누른다';
   body.replaceChildren(
     checkRow({name: name + ' CLI', ok: view.found, detail: view.found ? view.path + ', ' + view.version : 'PATH에서 찾지 못함', hint: view.hint}),
     checkRow({name: '로그인', ok: LOGGED.includes(view.login), detail: view.login_text, hint: loginHint}));
@@ -2089,11 +2223,12 @@ function renderTask(data) {
   head.append(title, el('span', data.started + ' 시작', 'muted'), cancel);
   const parts = [head];
   if (data.kind === 'connection' && data.result) parts.push(connectionView(data.result));
-  if (data.kind === 'codex-login') {
+  if (data.kind === 'codex-login' || data.kind === 'claude-login') {
     const urls = [...new Set(data.lines.flatMap((line) => line.match(/https:\/\/[^\s"'<>]+/g) || []))];
     if (urls.length) {
       const links = el('div', null, 'links');
-      links.append(el('div', 'CLI가 알려 준 주소(브라우저가 열리지 않았으면 누른다)', 'muted'));
+      links.append(el('div', data.kind === 'claude-login' ? 'CLI가 알려 준 주소(브라우저가 열리지 않았으면 누른다. ' +
+        '로그인 뒤 그 화면에 나온 코드는 위 코드 칸에 붙여 넣는다)' : 'CLI가 알려 준 주소(브라우저가 열리지 않았으면 누른다)', 'muted'));
       for (const url of urls.slice(-3)) {
         const link = el('a', url);
         link.href = url;
@@ -2150,10 +2285,27 @@ async function pollTask(kind) {
 }
 
 function finished(kind) {
+  if (kind === 'claude-login') $('claude-code').value = '';
   if (kind === 'playwright' || kind === 'chromium') checkEnv();
-  else if (kind === 'codex-install' || kind === 'codex-login' || kind === 'codex-key') checkAi();
+  else if (['codex-install', 'codex-login', 'codex-key', 'claude-login'].includes(kind)) checkAi();
   else if (kind === 'session') loadAccount();
   refresh();
+}
+
+async function sendClaudeCode() {
+  const code = $('claude-code').value.trim();
+  $('claude-code').value = '';
+  busy.claudeCode = true;
+  gate();
+  try {
+    renderTask(await api('/api/task/input', {kind: 'claude-login', code}));
+    say('ai-message', '코드를 Claude 로그인 프로세스에 넘김');
+  } catch (error) {
+    say('ai-message', error.message, true);
+  } finally {
+    busy.claudeCode = false;
+    gate();
+  }
 }
 
 async function cancelTask(kind) {
@@ -2331,6 +2483,34 @@ async function prepareSession() {
   } finally {
     busy.session = false;
     gate();
+  }
+}
+
+async function deleteAccount() {
+  const name = $('name').value.trim(), withSession = $('delete-session').checked;
+  const sessionPath = snapshot && snapshot.session && snapshot.session.path ? snapshot.session.path : '';
+  if (!confirm('기록 이름 ' + name + '로 저장한 로그인 화면 설명과 계정 값을 이 PC의 비공개 폴더에서 지운다' +
+    (withSession ? '. 세션 파일 ' + sessionPath + '도 지운다' : '. 세션 파일은 남긴다') + '. 되돌릴 수 없다. 계속할까?')) {
+    say('account-delete-message', '지우지 않음');
+    return;
+  }
+  busy.accountDelete = true;
+  say('account-delete-message', '지우는 중');
+  gate();
+  try {
+    const data = await api('/api/account/delete', Object.assign(values(), {session: withSession}));
+    account = data.account;
+    for (const id of ['login-path', 'user-target', 'password-target', 'success-selector']) $(id).value = '';
+    $('user-kind').value = $('password-kind').value = 'field';
+    $('account-key').value = 'username';
+    $('delete-session').checked = false;
+    renderAccount();
+    say('account-delete-message', data.message);
+  } catch (error) {
+    say('account-delete-message', error.message, true);
+  } finally {
+    busy.accountDelete = false;
+    await refresh();
   }
 }
 
@@ -2600,7 +2780,8 @@ function gate() {
     ['install-chromium', [...envWait, [!(playwright && playwright.ok), 'Playwright를 먼저 설치한다'],
       [Boolean(chromium && chromium.ok), '이미 설치되어 실행까지 확인됨']]]]);
   const view = ai[provider()], codex = ai.codex;
-  const aiTask = Boolean(tasks['codex-install'] || tasks['codex-login'] || tasks['codex-key'] || tasks.connection);
+  const aiTask = Boolean(tasks['codex-install'] || tasks['codex-login'] || tasks['codex-key'] || tasks['claude-login'] ||
+    tasks.connection);
   const found = Boolean(view && view.found), logged = Boolean(view && LOGGED.includes(view.login));
   const codexFound = Boolean(codex && codex.found);
   const aiWait = (current) => [[Boolean(busy.ai), '상태를 확인하는 중'], [!current, '로그인 상태 확인을 먼저 누른다'],
@@ -2611,6 +2792,11 @@ function gate() {
     ['codex-login', [...aiWait(codex), [!codexFound, 'Codex CLI를 먼저 설치한다']]]]);
   gateRow('why-codex-key', [['codex-key', [...aiWait(codex), [!codexFound, 'Codex CLI를 먼저 설치한다'],
     [!$('api-key').value.trim(), 'API 키를 칸에 넣으면 켜진다']]]]);
+  const claude = ai.claude;
+  gateRow('why-claude', [['claude-login', [...aiWait(claude),
+    [!(claude && claude.found), 'Claude CLI를 먼저 설치한다. 위 상태 표의 안내를 따른다']]]]);
+  gateRow('why-claude-code', [['claude-code-send', [[!tasks['claude-login'], 'Claude 로그인이 실행 중일 때만 쓴다'],
+    [!$('claude-code').value.trim(), '코드를 칸에 넣으면 켜진다'], [Boolean(busy.claudeCode), '보내는 중']]]]);
   gateRow('why-connection', [['connection', [...aiWait(view), [!found, 'CLI를 먼저 설치한다'], [!logged, '먼저 로그인한다'],
     [!validModel(), '모델 이름을 확인한다(영문, 숫자, 점, 밑줄, 콜론, 빗금, 붙임표)']]]]);
   const missing = [['rate-input', '입력 단가'], ['rate-cached', '캐시 입력 단가'], ['rate-output', '출력 단가'],
@@ -2627,6 +2813,13 @@ function gate() {
   gateRow('why-session', [['session-prepare', [[steps.target !== '완료', '4단계의 대상 주소와 기록 이름을 먼저 채운다'],
     [!accountSaved, '로그인 화면과 계정 값을 먼저 저장한다'], [Boolean(tasks.session), '세션 준비가 실행 중'],
     [Boolean(busy.session), 'dry-run 점검 중']]]]);
+  const stored = Boolean(account && (account.config_saved || account.id_saved || account.password_saved));
+  const sessionThere = Boolean(s.session && s.session.exists), withSession = $('delete-session').checked;
+  gateRow('why-account-delete', [['account-delete', [[!$('name').value.trim(), '4단계에서 기록 이름을 먼저 넣는다'],
+    [!account, '저장 상태를 아직 읽지 못함'], [Boolean(s.running), '이 기록 이름의 분석이 실행 중. 6단계에서 멈춘 뒤 지운다'],
+    [Boolean(tasks.session), '세션 준비가 실행 중'], [Boolean(busy.accountDelete), '지우는 중'],
+    [!stored && !(withSession && sessionThere), sessionThere ? '저장한 계정 값이 없음. 세션 파일만 지우려면 위 칸을 고른다'
+      : '지울 저장 값이 없음']]]]);
   const runWait = [[!snapshot, '상태를 읽는 중'], [Boolean(busy.run), '처리 중']];
   gateRow('why-run', [
     ['check', [...runWait, [Boolean(s.running), '분석이 실행 중'], [steps.cost !== '완료', '3. 비용 단계를 먼저 마친다'],
@@ -2714,9 +2907,10 @@ async function init() {
   for (const button of document.querySelectorAll('[data-go]')) button.addEventListener('click', () => show(button.dataset.go));
   for (const button of document.querySelectorAll('[data-open]')) button.addEventListener('click', () => openTarget(button.dataset.open));
   for (const id of Object.values(RATE_INPUTS)) $(id).addEventListener('input', () => { ratesTouched = true; gate(); });
-  for (const id of ['api-key', 'login-path', 'user-target', 'password-target', 'account-id', 'account-secret']) {
+  for (const id of ['api-key', 'claude-code', 'login-path', 'user-target', 'password-target', 'account-id', 'account-secret']) {
     $(id).addEventListener('input', gate);
   }
+  $('delete-session').addEventListener('change', gate);
   $('env-check').addEventListener('click', checkEnv);
   $('install-playwright').addEventListener('click', () => startTask('playwright'));
   $('install-chromium').addEventListener('click', () => startTask('chromium'));
@@ -2728,6 +2922,8 @@ async function init() {
     $('api-key').value = '';
     await startTask('codex-key', {api_key: key});
   });
+  $('claude-login').addEventListener('click', () => startTask('claude-login', {method: $('claude-method').value}));
+  $('claude-code-send').addEventListener('click', sendClaudeCode);
   $('connection').addEventListener('click', () => {
     if (confirm('모델에 아주 작은 요청 하나를 보낸다. 소액 비용이 든다. 계속할까?')) startTask('connection');
   });
@@ -2735,6 +2931,7 @@ async function init() {
   $('target-check').addEventListener('click', checkTarget);
   $('account-save').addEventListener('click', saveAccount);
   $('session-prepare').addEventListener('click', prepareSession);
+  $('account-delete').addEventListener('click', deleteAccount);
   $('check').addEventListener('click', () => act('check'));
   $('start').addEventListener('click', () => act('start'));
   $('stop').addEventListener('click', () => act('stop'));
