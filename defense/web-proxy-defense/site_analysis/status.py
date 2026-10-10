@@ -21,27 +21,53 @@ def folders(args):
     return sorted(base.glob(Path(args.out).name + '-*'), key=lambda path: path.stat().st_mtime)
 
 
-def report(folder, stall_minutes):
+def summary(folder, stall_minutes):
     path = folder / 'ledger.json'
     if not path.exists():
-        return f'{folder.name}: 장부 없음(아직 시작 전이거나 다른 체크포인트)'
+        return None
     ledger = json.loads(path.read_text(encoding='utf-8-sig'))
     calls = ledger.get('calls') or []
     remaining = ledger.get('remaining_stages') or []
     age = (time.time() - path.stat().st_mtime) / 60
-    errors = Counter(call.get('error') for call in calls if call.get('error'))
+    return {'folder': folder.name, 'spent_usd': float(ledger.get('spent_usd') or 0),
+            'max_cost_usd': ledger.get('max_cost_usd'), 'calls': len(calls),
+            'inflight': bool(calls and calls[-1].get('inflight')),
+            'next_stage': next_stage(remaining), 'remaining_stages': len(remaining),
+            'minutes_since_record': age, 'stalled': bool(remaining) and age > stall_minutes,
+            'failed_calls': Counter(call.get('error') for call in calls if call.get('error')).most_common(),
+            'recent_purposes': Counter(call.get('purpose') for call in calls[-20:]).most_common(),
+            # For the console's stage timeline; the command-line report does not print these.
+            'remaining': [compact(row) for row in remaining if isinstance(row, dict)],
+            'last_purpose': calls[-1].get('purpose') if calls else None}
+
+
+def compact(row):
+    """One remaining stage as stage, run, authority, scope and how many units are left."""
+    stage = row.get('stage')
+    if stage == 'privacy':
+        count = sum(row.get(key) or 0 for key in ('axis_cells', 'fact_cells', 'decision_cells', 'working_notes_cells',
+                                                  'cell_count'))
+    else:
+        count = row.get('axis_count') if stage == 'merge' else row.get('group_count')
+    return {'stage': stage, 'run': row.get('run'), 'authority': row.get('authority'), 'scope': row.get('scope'),
+            'count': count}
+
+
+def report(folder, stall_minutes):
+    view = summary(folder, stall_minutes)
+    if view is None:
+        return f'{folder.name}: 장부 없음(아직 시작 전이거나 다른 체크포인트)'
     lines = [f'{folder.name}',
-             f'  비용: {float(ledger.get("spent_usd") or 0):.2f} / {ledger.get("max_cost_usd")} 달러, 호출 {len(calls)}회'
-             f'{", 호출 진행 중" if calls and calls[-1].get("inflight") else ""}',
-             f'  다음 단계: {next_stage(remaining)}, 남은 단계 {len(remaining)}개',
-             f'  마지막 기록: {age:.0f}분 전' + (f' (남은 일이 있는데 {stall_minutes}분 넘게 기록이 없음: 멈춤 의심)'
-                                             if remaining and age > stall_minutes else '')]
-    if errors:
-        lines.append('  실패 호출: ' + ', '.join(f'{name} {count}' for name, count in errors.most_common()))
-    recent = Counter(call.get('purpose') for call in calls[-20:])
-    if recent:
-        lines.append('  최근 20회 목적: ' + ', '.join(f'{name} {count}' for name, count in recent.most_common()))
-    if not remaining:
+             f'  비용: {view["spent_usd"]:.2f} / {view["max_cost_usd"]} 달러, 호출 {view["calls"]}회'
+             f'{", 호출 진행 중" if view["inflight"] else ""}',
+             f'  다음 단계: {view["next_stage"]}, 남은 단계 {view["remaining_stages"]}개',
+             f'  마지막 기록: {view["minutes_since_record"]:.0f}분 전' + (f' (남은 일이 있는데 {stall_minutes}분 넘게 기록이 없음: 멈춤 의심)'
+                                                                     if view['stalled'] else '')]
+    if view['failed_calls']:
+        lines.append('  실패 호출: ' + ', '.join(f'{name} {count}' for name, count in view['failed_calls']))
+    if view['recent_purposes']:
+        lines.append('  최근 20회 목적: ' + ', '.join(f'{name} {count}' for name, count in view['recent_purposes']))
+    if not view['remaining_stages']:
         lines.append('  남은 단계 없음: 끝났거나 아직 계획 전')
     return '\n'.join(lines)
 
