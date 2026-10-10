@@ -128,24 +128,21 @@ def merge(catalog, runs, judgments=None):
         answers = [run["axes"].get(axis["id"], unavailable("축 누락")) for run in runs]
         judgment = judgments.get(axis["id"], {})
         agreement = judgment.get("agreement") if len(answers) > 1 else None
-        usable = [i for i, answer in enumerate(answers) if isinstance(answer, dict) and answer.get("status") == "관찰됨"]
+        # The representative answer is the model's combined answer. Code does not pick a run's answer by
+        # reading its status word; the group policy only decides whether a disagreeing consensus is withheld.
         mode = catalog["groups"][axis["group"]]["merge"]
-        if mode == "union":
-            chosen = usable or (list(range(len(answers))) if agreement is True else [])
-            disposition = "use_any_observed" if usable else "absence_agrees" if agreement else "unresolved"
-        elif mode == "consensus":
-            chosen = list(range(len(answers))) if agreement is True else []
+        if mode == "consensus":
+            chosen = agreement is True
             disposition = "agreed" if chosen else "withheld_no_consensus"
         else:
-            chosen = list(range(len(answers)))
-            disposition = "retain_per_run"
-        selected = [answers[i] for i in chosen]
+            chosen = True
+            disposition = "union_of_runs" if mode == "union" else "retain_per_run"
         axes[axis["id"]] = {"source": "record_keys", "group": axis["group"], "merge_rule": mode,
                             "agreement": agreement, "disagreement": agreement is False,
                             "disposition": disposition, "run_indices": [runs[i].get('run', i + 1) for i in range(len(answers))],
                             "answers": answers,
                             "combined_answer": judgment.get("answer"),
-                            "answer": (judgment.get("answer") or (selected[0] if len(selected) == 1 else None)) if chosen else None,
+                            "answer": judgment.get("answer") if chosen else None,
                             "merge_error": judgment.get("error"),
                             "comparison_source": "model" if judgment else "못 얻음"}
     return {"source": "record_keys_and_model", "comparison": "model semantic agreement",
