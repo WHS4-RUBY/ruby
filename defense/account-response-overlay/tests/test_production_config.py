@@ -30,7 +30,7 @@ def _test_settings(tmp_path, name):
                                    else 'http://juice-shop-target:3000')
     copy = tmp_path / 'decoy.toml'
     copy.write_text(Path(settings.decoy_config).read_text().replace(
-        '/app/state/events.sqlite3', str(tmp_path / 'events.sqlite3')))
+        '/app/state/telemetry.sqlite3', str(tmp_path / 'telemetry.sqlite3')))
     return replace(settings, origin_url='http://origin.invalid', decoy_config=str(copy))
 
 
