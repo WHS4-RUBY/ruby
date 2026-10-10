@@ -7,6 +7,7 @@ an ID and experiment metadata, never a URL supplied by an HTTP client.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -16,7 +17,9 @@ from urllib.parse import urlsplit
 import uuid
 
 
-_TARGET_ID = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
+# 경계값은 shared/target-selection.json 의 선언과 같아야 한다 —
+# defense/tests/test_target_selection_contract.py 가 강제한다.
+_TARGET_ID = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
 _MAX_SELECTION_BYTES = 8192
 
 
@@ -38,6 +41,28 @@ def resolve_target_url(env=None) -> str:
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"  # bare IPv6 literal
     return f"http://{host}:{port}"
+
+
+def _is_canonical_uuid(value) -> bool:
+    """Detection 은 crypto.randomUUID() 만 쓴다. 헤더 경로도 이미 이 규칙이다."""
+    if not isinstance(value, str):
+        return False
+    try:
+        parsed = uuid.UUID(value)
+    except ValueError:
+        return False
+    return str(parsed) == value
+
+
+def _is_iso_timestamp(value) -> bool:
+    """Detection 은 Date.toISOString() 만 쓴다. 길이만 보면 'now' 도 통과했다."""
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
 
 
 def _validate_url(value: str) -> str:
@@ -130,9 +155,9 @@ class TargetSelector:
         changed_at = value.get("changedAt")
         if not isinstance(target_id, str) or target_id not in self.choices:
             raise TargetSelectionError("target selection is outside the configured allowlist")
-        if not isinstance(run_id, str) or not 1 <= len(run_id) <= 128:
+        if not _is_canonical_uuid(run_id):
             raise TargetSelectionError("target selection has an invalid run ID")
-        if not isinstance(changed_at, str) or not 1 <= len(changed_at) <= 64:
+        if not _is_iso_timestamp(changed_at):
             raise TargetSelectionError("target selection has an invalid timestamp")
         return SelectedTarget(target_id, self.choices[target_id], run_id, changed_at)
 
@@ -148,13 +173,7 @@ class TargetSelector:
             return self.current()
         if not isinstance(target_id, str) or target_id not in self.choices:
             raise TargetSelectionError("request target is outside the configured allowlist")
-        if not isinstance(run_id, str) or len(run_id) > 128:
-            raise TargetSelectionError("request run ID is invalid")
-        try:
-            parsed_run_id = uuid.UUID(run_id)
-        except ValueError as exc:
-            raise TargetSelectionError("request run ID is invalid") from exc
-        if str(parsed_run_id) != run_id:
+        if not _is_canonical_uuid(run_id):
             raise TargetSelectionError("request run ID is invalid")
         return SelectedTarget(target_id, self.choices[target_id], run_id, None)
 

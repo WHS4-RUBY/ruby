@@ -15,7 +15,7 @@ Phase 0/1 의 조사 결과는 [`refactor-inventory.md`](refactor-inventory.md)�
 | 1. 미끼 경로 단일 출처 | `shared/decoy-catalog.json` 하나. Detection·오버레이가 같은 값을 읽고 CHeaT 는 계약 테스트로 일치를 강제. 미끼 적중을 공격 신호 `decoy_path_hit` 으로 채점 |
 | 2. 사이트 일반화 | 미끼 네임스페이스를 사이트 프로파일이 선언(`decoy_namespaces`). 코드에서 `/ftp`·`/ops` 리터럴과 `juice`/`ruby` 분기 제거. **Defense 까지만** — 아래 "하지 않은 것" 참조 |
 | 3. 중복 제거 | 인벤토리가 꼽은 중복 8건 전부. TOML 16→11(−78줄), Compose 공통 env 148줄, Detection 라우트 이중 선언 |
-| 4. DB 통일 | 공용 접근 계층 1개(언어당) + `schema_migrations` 전면 도입. Detection 4→1, 오버레이 3→2. fail-closed 저장소 2개는 의도적으로 분리 유지 |
+| 4. DB 통일 | 공용 접근 계층 1개(언어당) + `schema_migrations` 전면 도입. Detection 4→1, 오버레이 3→2. fail-closed 저장소 2개는 의도적으로 분리 유지. `target-selection.json` 은 소유자를 Detection 으로 확정하고 양쪽 검증 경계값을 통일 |
 
 ## 2. 구조로 바뀐 것
 
@@ -31,6 +31,7 @@ CI 에서 동일성을 강제한다.
 | `shared/decoy-catalog.json` | 2 | 미끼 네임스페이스·진입 경로·단서 헤더·미끼 쿠키·신원 |
 | `shared/event-schema.json` | 1 | 정본 이벤트 필드명과 저장소별 별칭 |
 | `shared/py/store.py` | 3 | SQLite 연결·트랜잭션·마이그레이션 |
+| `shared/target-selection.json` | 0 (선언만) | 대상 선택 파일의 소유자와 검증 경계값. 계약 테스트가 양쪽 구현과의 일치를 강제 |
 
 ### 저장소
 
@@ -45,6 +46,23 @@ CI 에서 동일성을 강제한다.
 컴포넌트를 독립 버전으로 담는다. 저장소 전체에서 유일했던
 `try ALTER TABLE / except OperationalError` 를 대체했고, `path_alias` 에 방치돼 있던
 v3 테이블 2개도 마이그레이션에서 DROP 한다.
+
+### 대상 선택 파일의 소유자와 경계값
+
+Detection 이 유일한 writer 이고 Defense 는 같은 named volume 을 `:ro` 로 읽는다.
+HTTP API 로 바꾸지 않았다 — Defense→Detection 런타임 의존이 새로 생기고 대시보드
+인증 경로를 거쳐야 한다.
+
+같은 파일을 양쪽이 서로 다른 규칙으로 검증하고 있었다. Detection 은 항상 canonical
+UUID 와 `toISOString()` 만 쓰고 Defense 의 **헤더** 경로는 이미 canonical UUID 를
+강제했으므로, 느슨한 쪽을 좁혀 맞췄다.
+
+| 항목 | Detection (전) | Defense (전) | 통일 후 |
+| --- | --- | --- | --- |
+| target ID | 32자 | 64자 | **32자** |
+| `runId` | `[a-zA-Z0-9:-]{1,100}` | 길이 1–128 | **canonical UUID** (헤더 경로와 동일) |
+| `changedAt` | `Date.parse` | 길이 1–64 | **파싱 가능한 ISO** |
+| 크기 상한 | 없음 | 8192 바이트 | **양쪽 8192 바이트** |
 
 ### 중복 제거 내역
 
@@ -127,6 +145,7 @@ CHeaT 와 `path_alias` 는 별도 명령이 없다 — 기동 시 기존 볼륨�
 | `64e6af0` | `decoy_path_hit` 신호 추가 | 미끼 경로 적중이 공격 점수에 `8/35×0.17 ≈ 0.039` 기여. 상한과 가중치는 불변이라 임계값 자체는 안 바뀌고 같은 요청이 더 빨리 구간에 닿는다 |
 | `e4e2757` | `generic` 사이트의 `/api/Challenges` | Juice 챌린지 JSON → 404. 내부 미끼 앱이 미끼 경로만 받으므로 배포에서는 도달하지 않는다 |
 | `7282c67` | 텔레메트리 DB 파일명 | `events.sqlite3`+`lure-events.sqlite3` → `telemetry.sqlite3` |
+| (D3) | 대상 선택 파일 검증 강화 | UUID 아닌 `runId`·파싱 안 되는 `changedAt`·8192 바이트 초과를 거부한다. Detection 이 쓰는 값은 전부 통과하므로 실제 데이터에는 영향이 없고, 손으로 만든 파일이나 32자 초과 target ID 는 거부된다 |
 
 동작 보존 커밋에서는 동일성을 기계적으로 증명했다:
 
@@ -200,9 +219,9 @@ Phase 단위로 되돌리려면 역순으로 revert 한다. Phase 3 의 저장�
 
 | 스위트 | Phase 1 기준선 | 현재 |
 | --- | --- | --- |
-| Detection `npm test` | 237 | **264** |
+| Detection `npm test` | 237 | **265** |
 | Detection CRS 바이너리 | 12 | **12** |
-| Defense `unittest` | 185 | **241** |
+| Defense `unittest` | 185 | **250** |
 | CHeaT `run_all.py` | 16~17/19 (아래 참조) | **17~18/20** (아래 참조) |
 | Overlay `pytest` | 64 | **81** |
 | Overlay lure UI | 6 | **6** |
@@ -214,4 +233,4 @@ httpx 0.27.2)와 오버레이(fastapi 0.141.1 / httpx 0.28.1)의 핀이 충돌�
 네 스위트를 동시에 돌릴 수 없다. 명령은 인벤토리의 "측정 방식" 절에 있다.
 
 CI 에 추가된 검사: 미끼 카탈로그 계약 테스트, 공용 사본 drift, 이벤트 스키마 계약,
-Compose 환경변수 중복, 릴리스 매니페스트 검증.
+대상 선택 경계값 계약, Compose 환경변수 중복, 릴리스 매니페스트 검증.

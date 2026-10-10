@@ -34,20 +34,23 @@ class TargetSelectionTests(unittest.TestCase):
             "targetId": "legacy", "runId": None, "changedAt": None,
         })
 
+        # Detection 이 실제로 쓰는 값은 crypto.randomUUID() 와 toISOString() 이다.
+        first_run = str(uuid.uuid4())
         self.write_selection({
-            "targetId": "ruby-shop", "runId": "run-001", "changedAt": "2026-10-07T11:30:00Z",
+            "targetId": "ruby-shop", "runId": first_run, "changedAt": "2026-10-07T11:30:00Z",
         })
         selected = selector.current()
         self.assertEqual(selected.url, "http://ruby-web-target:8080")
-        self.assertEqual(selected.run_id, "run-001")
+        self.assertEqual(selected.run_id, first_run)
 
+        second_run = str(uuid.uuid4())
         self.write_selection({
-            "targetId": "juice-shop", "runId": "run-002", "changedAt": "2026-10-07T11:31:00Z",
+            "targetId": "juice-shop", "runId": second_run, "changedAt": "2026-10-07T11:31:00Z",
             "url": "http://attacker.invalid",
         })
         selected = selector.current()
         self.assertEqual(selected.url, "http://juice-shop-target:3000")
-        self.assertEqual(selected.run_id, "run-002")
+        self.assertEqual(selected.run_id, second_run)
 
     def test_malformed_and_unlisted_selections_fail_closed(self):
         selector = TargetSelector.from_environment(self.environment)
@@ -56,7 +59,8 @@ class TargetSelectionTests(unittest.TestCase):
             selector.current()
 
         self.write_selection({
-            "targetId": "http://attacker.invalid", "runId": "run-003", "changedAt": "2026-10-07T11:32:00Z",
+            "targetId": "http://attacker.invalid", "runId": str(uuid.uuid4()),
+            "changedAt": "2026-10-07T11:32:00Z",
         })
         with self.assertRaises(TargetSelectionError):
             selector.current()
@@ -64,6 +68,15 @@ class TargetSelectionTests(unittest.TestCase):
         self.write_selection({"targetId": "ruby-shop", "runId": "", "changedAt": "now"})
         with self.assertRaises(TargetSelectionError):
             selector.current()
+
+        # 좁힌 경계값: UUID 가 아닌 runId 와 파싱되지 않는 changedAt 을 거부한다.
+        for bad in ({"runId": "run-001"}, {"runId": str(uuid.uuid4()).upper()},
+                    {"changedAt": "now"}, {"changedAt": ""}):
+            selection = {"targetId": "ruby-shop", "runId": str(uuid.uuid4()),
+                         "changedAt": "2026-10-07T11:30:00Z", **bad}
+            self.write_selection(selection)
+            with self.assertRaises(TargetSelectionError, msg=str(bad)):
+                selector.current()
 
     def test_request_snapshot_survives_a_global_switch(self):
         selector = TargetSelector.from_environment(self.environment)

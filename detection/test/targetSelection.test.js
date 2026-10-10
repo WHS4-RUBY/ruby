@@ -115,3 +115,43 @@ test("global target switch requires a dashboard session and same-origin write", 
   assert.equal((await selected.json()).active.targetId, "juice-shop");
   assert.equal(selection.read().targetId, "juice-shop");
 });
+
+test("선택 상태 파일은 통일된 경계값으로 검증한다", () => {
+  // 경계값의 정본은 shared/target-selection.json 이고, 그 선언과 이 파일의 리터럴이
+  // 같은지는 defense/tests/test_target_selection_contract.py 가 강제한다. 여기서는
+  // 런타임 동작만 본다 — shared/ 는 Detection 이미지에 없으므로 읽지 않는다.
+  const MAX_SELECTION_BYTES = 8192;
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "target-bounds-"));
+  try {
+    const filePath = path.join(directory, "selection.json");
+    const choices = parseTargetChoices("legacy=http://127.0.0.1:3000", "http://127.0.0.1:3000");
+    const store = new TargetSelectionStore({ choices, defaultId: "legacy", filePath });
+    const valid = store.read();
+    assert.match(valid.runId, UUID, "writer 는 canonical UUID 만 쓴다");
+
+    // runId 가 UUID 가 아니면 거부한다 (예전에는 [a-zA-Z0-9:-]{1,100} 이면 통과했다).
+    for (const runId of ["run-001", valid.runId.toUpperCase(), "", "x".repeat(36)]) {
+      fs.writeFileSync(filePath, JSON.stringify({
+        targetId: "legacy", runId, changedAt: valid.changedAt }));
+      assert.throws(() => store.read(), /invalid target selection state/, runId);
+    }
+
+    // changedAt 은 파싱 가능해야 한다.
+    for (const changedAt of ["now", "", "yesterday"]) {
+      fs.writeFileSync(filePath, JSON.stringify({
+        targetId: "legacy", runId: valid.runId, changedAt }));
+      assert.throws(() => store.read(), /invalid target selection state/, changedAt);
+    }
+
+    // 크기 상한 — 예전에는 상한이 없어 공유 볼륨의 거대한 파일을 그대로 파싱했다.
+    const padded = JSON.stringify({
+      targetId: "legacy", runId: valid.runId, changedAt: valid.changedAt,
+      padding: "p".repeat(MAX_SELECTION_BYTES) });
+    assert.ok(Buffer.byteLength(padded) > MAX_SELECTION_BYTES);
+    fs.writeFileSync(filePath, padded);
+    assert.throws(() => store.read(), /invalid target selection state/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

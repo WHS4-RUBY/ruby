@@ -79,6 +79,18 @@ Defense 가 HMAC 으로 서명한 라벨을 붙인다(`detector.sign_headers`):
 `X-Defense-Signal: rate_limited` 는 Defense 가 429 를 반환한 경우에만 되돌린다.
 대상이 보낸 같은 이름의 헤더는 제거한다.
 
+## 대상 선택 파일
+
+Detection 이 유일한 writer 다(`detection/lib/targetSelection.js`, 임시 파일 생성 후
+rename 으로 원자적). Defense 는 같은 named volume 을 `:ro` 로 다른 경로에 마운트해
+읽는다. 요청마다 `X-Ruby-Target-Id`/`X-Ruby-Run-Id` 헤더로도 전달되고, Defense 는
+**둘 다 있으면 헤더를, 없으면 파일을** 쓴다.
+
+소유자와 검증 경계값은 [`shared/target-selection.json`](shared/target-selection.json)
+에 선언하고 `defense/tests/test_target_selection_contract.py` 가 두 구현과의 일치를
+강제한다: target ID `^[a-z][a-z0-9-]{0,31}$`, `runId` canonical UUID,
+`changedAt` 파싱 가능한 ISO, 8192 바이트 상한.
+
 ## 이벤트 필드명
 
 미끼 적중·차단·전략 적용 이벤트는 네 곳에서 따로 기록된다. 정본 이름과 저장소별
