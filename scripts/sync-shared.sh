@@ -19,6 +19,7 @@ shared/decoy-catalog.json defense/account-response-overlay/config/decoy-catalog.
 shared/py/store.py defense/app/store.py
 shared/py/store.py defense/account-response-overlay/defense/store.py
 shared/py/store.py defense/CHeat-defense-proxy/defense_proxy_v2/store.py
+shared/event-schema.json detection/config/event-schema.json
 "
 
 check=0
