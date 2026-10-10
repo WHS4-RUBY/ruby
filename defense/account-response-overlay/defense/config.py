@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 import math
 import re
@@ -101,6 +102,19 @@ def load(path: str) -> Settings:
         profile_path = Path(profile_path)
         data['profile'] = load_site_profile(str(profile_path if profile_path.is_absolute()
                                                 else source.parent / profile_path))
+    # 감사·미끼 링이 공유하는 텔레메트리 DB. 보안 저장소와는 파일을 공유하지 않는다.
+    telemetry = os.environ.get('DEFENSE_TELEMETRY_DB', '').strip()
+    if telemetry:
+        data['audit_path'] = telemetry
+    # TLS 게이트웨이 뒤에서는 가짜 세션 쿠키도 Secure 여야 한다. 예전에는 이 한 값
+    # 때문에 decoy-server-v1/v2 와 overlay-server-v1/v2 네 파일이 따로 있었다.
+    secure = os.environ.get('OVERLAY_SECURE_COOKIE', '').strip().lower()
+    if secure in {'true', '1', 'yes'}:
+        data['secure_cookie'] = True
+    elif secure in {'false', '0', 'no'}:
+        data['secure_cookie'] = False
+    elif secure:
+        raise ValueError('OVERLAY_SECURE_COOKIE must be true or false')
     data["limits"] = Limits(**data.get("limits", {}))
     data["engagement"] = EngagementConfig(**data.get("engagement", {}))
     data["cycle"] = CycleConfig(**data.get("cycle", {}))

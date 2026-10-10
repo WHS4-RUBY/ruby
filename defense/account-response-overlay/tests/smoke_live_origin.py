@@ -23,7 +23,7 @@ async def main():
             root = Path(temporary)
             decoy = root / 'decoy.toml'
             decoy.write_text(Path('config/decoy-v2.toml').read_text()
-                             .replace('state/events.sqlite3', str(root / 'events.sqlite3')))
+                             .replace('state/telemetry.sqlite3', str(root / 'telemetry.sqlite3')))
             db = root / 'security.sqlite3'
             initialize_security_store(str(db))
             app = create_overlay_app(OverlaySettings(origin, str(decoy)), SESSION, KEY,

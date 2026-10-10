@@ -30,7 +30,7 @@
 
 V1은 증거 체인 끝에서 `/ops/service/session/login`으로 **가짜** 관리자 로그인을 제공한다. V2는 성공 없이 후속 참조를 계속 연결한다. 두 버전 모두 Agent의 설정된 로그인 `POST`를 실제 원본으로 전달하지 않는다. 중위험 Agent는 미끼를 따르지 않으면 다른 원본 경로의 응답을 계속 볼 수 있다. 고위험 Agent는 어떤 경로도 원본으로 전달되지 않는다.
 
-Agent별 미끼 노출 경로와 decoy 진입·단계는 `state/lure-events.sqlite3`에 별도로 기록한다. actor는 HMAC으로 가명화하며 요청 본문, 토큰, 원본 쿠키, 전체 decoy URL은 저장하지 않는다. 계측 장애는 프록시 응답을 바꾸지 않는다.
+Agent별 미끼 노출 경로와 decoy 진입·단계는 감사 링과 같은 `state/telemetry.sqlite3`의 `lure_events` 테이블에 기록한다. actor는 HMAC으로 가명화하며 요청 본문, 토큰, 원본 쿠키, 전체 decoy URL은 저장하지 않는다. 계측 장애는 프록시 응답을 바꾸지 않는다.
 
 ## 실행과 검증
 
@@ -51,7 +51,7 @@ V1은 `OVERLAY_CONFIG=config/overlay-v1.toml`을 사용한다. 상태와 키는 
 
 ## 현재 포트 80 운영 경로용 설정
 
-탐지·방어 프록시가 공개 `:80`에서 요청을 처리하고 오버레이는 Docker 사설 네트워크에서만 듣는다. 대상별 V2 설정은 `config/overlay-production-juice-v2.toml`과 `config/overlay-production-ruby-v2.toml`이다. 각각 고정 원본 `juice-shop-target:3000`, `ruby-web-target:8080`을 사용하며, 현재 HTTP 진입점에서 가짜 세션 쿠키가 동작하도록 `secure_cookie=false`인 전용 decoy 설정을 참조한다. 기존 `overlay-server-v2.toml`은 TLS 진입점용 `Secure` 쿠키 예시로 남겨둔다. 운영 설정의 감사 DB는 쓰기 가능한 `/app/state/events.sqlite3`에 둔다.
+탐지·방어 프록시가 공개 `:80`에서 요청을 처리하고 오버레이는 Docker 사설 네트워크에서만 듣는다. 대상별 V2 설정은 `config/overlay-production-juice-v2.toml`과 `config/overlay-production-ruby-v2.toml`이다. 각각 고정 원본 `juice-shop-target:3000`, `ruby-web-target:8080`을 사용하며, 현재 HTTP 진입점에서 가짜 세션 쿠키가 동작하도록 `secure_cookie=false`인 전용 decoy 설정을 참조한다. TLS 진입점에서는 `OVERLAY_SECURE_COOKIE=true`를 지정한다(`deploy/compose.yaml`의 기본값). 운영 설정의 텔레메트리 DB(감사 + 미끼 링)는 쓰기 가능한 `/app/state/telemetry.sqlite3`에 둔다. 격리·재생 방지 저장소 `security.sqlite3`는 격리 판단이 텔레메트리 쓰기 락과 다투지 않도록 별도 파일로 유지한다.
 
 각 오버레이 컨테이너에는 별도의 영속 `/app/state` 볼륨과 동일한 `OVERLAY_DETECTOR_KEY`(64자리 hex 문자열)를 제공한다. 부트스트랩은 이 문자열의 UTF-8 바이트를 `detector.key`에 처음 저장하고 보안 DB와 세션 키를 만든다. 재시작 때 공급한 키가 저장된 키와 다르거나 detector key·보안 DB 중 하나가 사라졌으면 시작을 거부한다. 가짜 세션 키만 없으면 기존 가짜 세션을 무효화하고 새 키를 만든다. 이전 독립 배포처럼 detector key·DB를 이미 준비한 경우에는 환경변수 없이도 해당 상태를 검증해 사용할 수 있다. Defense의 서명 키도 정확히 같은 바이트여야 한다. 공개 관리 경로나 무서명 `/healthz` 예외를 만들지 않았으므로 컨테이너 준비 검사는 사설 포트의 TCP 연결로 한다.
 

@@ -52,8 +52,8 @@ def make_app(tmp_path, policy, origin):
     initialize_security_store(str(security))
     template = Path('config') / f'decoy-{policy}.toml'
     decoy = tmp_path / template.name
-    decoy.write_text(template.read_text().replace('state/events.sqlite3',
-                                                  str(tmp_path / 'events.sqlite3')))
+    decoy.write_text(template.read_text().replace('state/telemetry.sqlite3',
+                                                  str(tmp_path / 'telemetry.sqlite3')))
     return create_overlay_app(OverlaySettings('http://origin.invalid', str(decoy)),
                               SESSION, KEY, security_db=str(security),
                               origin_transport=httpx.ASGITransport(app=origin))

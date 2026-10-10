@@ -17,13 +17,29 @@
  *       주기적 sweep(기본 60초)에서 수행 → all()은 순수 SELECT.
  */
 
-const { DatabaseSync } = require('node:sqlite');
+const store = require('./store');
 
 const DEFAULT_TTL_MS = 60 * 60 * 1000;            // 1시간
 const DEFAULT_MAX_ENTRIES = 2000;
 const DEFAULT_MAX_BYTES = 4 * 1024 * 1024;
 const DEFAULT_MAX_VALUE_BYTES = 4096;
 const SWEEP_INTERVAL_MS = 60 * 1000;              // TTL/상한 정리 최소 간격
+
+const COMPONENT = 'xss_candidates';
+const MIGRATIONS = [[1, [
+  `CREATE TABLE IF NOT EXISTS cand(
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        parameter TEXT,
+        source TEXT,
+        endpoint TEXT,
+        origin TEXT,
+        first_seen INTEGER,
+        last_seen INTEGER,
+        times_seen INTEGER,
+        byte_size INTEGER)`,
+  'CREATE INDEX IF NOT EXISTS idx_cand_last ON cand(last_seen)',
+]]];
 
 const ORIGIN_FIELDS = ['requestId', 'sessionId', 'actorId', 'resolvedActorId', 'authGroupId', 'clientFlowId', 'ip'];
 
@@ -53,7 +69,7 @@ function entryByteSize(entry) {
 class XssCandidateStoreSqlite {
   constructor({ ttlMs = DEFAULT_TTL_MS, maxEntries = DEFAULT_MAX_ENTRIES,
     maxBytes = DEFAULT_MAX_BYTES, maxValueBytes = DEFAULT_MAX_VALUE_BYTES,
-    dbPath = ':memory:', now = Date.now } = {}) {
+    db = null, dbPath = ':memory:', now = Date.now } = {}) {
     this.ttlMs = positiveInt(ttlMs, DEFAULT_TTL_MS);
     this.maxEntries = positiveInt(maxEntries, DEFAULT_MAX_ENTRIES);
     this.maxBytes = positiveInt(maxBytes, DEFAULT_MAX_BYTES);
@@ -61,23 +77,10 @@ class XssCandidateStoreSqlite {
     this._now = now;
     this._lastSweep = 0;
 
-    this.db = new DatabaseSync(dbPath);
-    if (dbPath !== ':memory:') {
-      try { this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;'); } catch (_) {}
-    }
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS cand(
-        key TEXT PRIMARY KEY,
-        value TEXT,
-        parameter TEXT,
-        source TEXT,
-        endpoint TEXT,
-        origin TEXT,
-        first_seen INTEGER,
-        last_seen INTEGER,
-        times_seen INTEGER,
-        byte_size INTEGER);
-      CREATE INDEX IF NOT EXISTS idx_cand_last ON cand(last_seen);`);
+    // 공유 DB 를 받으면 그걸 쓰고(통합 저장소), 없으면 자기 경로로 연다.
+    this.db = db || store.open(dbPath);
+    this.ownsDb = !db;
+    store.applyMigrations(this.db, COMPONENT, MIGRATIONS);
 
     this._get = this.db.prepare('SELECT key,value,parameter,source,endpoint,origin,first_seen,last_seen,times_seen,byte_size FROM cand WHERE key=?');
     this._ins = this.db.prepare(`INSERT INTO cand(key,value,parameter,source,endpoint,origin,first_seen,last_seen,times_seen,byte_size)
@@ -192,4 +195,5 @@ class XssCandidateStoreSqlite {
   }
 }
 
-module.exports = { XssCandidateStoreSqlite, DEFAULT_TTL_MS, DEFAULT_MAX_ENTRIES };
+module.exports = { XssCandidateStoreSqlite, DEFAULT_TTL_MS, DEFAULT_MAX_ENTRIES,
+  COMPONENT, MIGRATIONS };

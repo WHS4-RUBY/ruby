@@ -121,7 +121,6 @@ import asyncio
 import json
 import os
 import re
-import sqlite3
 import time
 import uuid
 from contextlib import closing
@@ -134,6 +133,7 @@ from fastapi import FastAPI, Request, Response
 
 from proxy_core import ProxyContext, ProxyHook, create_app
 import preflight
+import store
 import transforms
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -781,25 +781,56 @@ def _check_escalate(client_id: str) -> None:
 
 
 # ---------------------------------------------------------------- DB
-def init_db():
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        conn.executescript("""
-        CREATE TABLE IF NOT EXISTS runs (
+# 저널·동기화 설정은 기존과 같게 둔다(기본 rollback journal). 통합 저장소가 아니라
+# 이 sidecar 전용 파일이고, 바꾸면 요청마다 쓰는 이 경로의 타이밍이 달라진다.
+_DB_COMPONENT = "cheat_sidecar"
+_DB_OPEN = dict(timeout=5.0, journal_mode=None, synchronous=None)
+_MIGRATIONS = (
+    (1, (
+        """CREATE TABLE IF NOT EXISTS runs (
             run TEXT, mode TEXT, technique TEXT, risk_category TEXT,
             action TEXT, started REAL
-        );
-        CREATE TABLE IF NOT EXISTS reqs (
+        )""",
+        """CREATE TABLE IF NOT EXISTS reqs (
             id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, run TEXT,
-            method TEXT, path TEXT, status INTEGER, defense_action TEXT,
-            client_id TEXT DEFAULT '', defense_plan TEXT DEFAULT ''
-        );
-        """)
-        # 클라이언트 격리 이전에 만들어진 기존 defense.db 호환 — 이미 있으면 조용히 무시.
-        for _col in ("client_id TEXT DEFAULT ''", "defense_plan TEXT DEFAULT ''"):
-            try:
-                conn.execute(f"ALTER TABLE reqs ADD COLUMN {_col}")
-            except sqlite3.OperationalError:
-                pass
+            method TEXT, path TEXT, status INTEGER, defense_action TEXT
+        )""",
+    )),
+    # 클라이언트 격리에서 추가된 두 컬럼.
+    (2, (
+        "ALTER TABLE reqs ADD COLUMN client_id TEXT DEFAULT ''",
+        "ALTER TABLE reqs ADD COLUMN defense_plan TEXT DEFAULT ''",
+    )),
+)
+
+
+def _adopt_existing_schema(conn):
+    """schema_migrations 가 없는 기존 defense.db 를 버전으로 환산해 기록한다.
+
+    이 기록이 없으면 이미 컬럼이 있는 파일에 v2 의 ALTER TABLE 이 다시 돌아 깨진다.
+    예전에는 그 자리를 try/except OperationalError 가 메웠다.
+    """
+    if store.applied_versions(conn, _DB_COMPONENT):
+        return
+    tables = {row[0] for row in
+              conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "reqs" not in tables:
+        return                      # 새 파일 — 마이그레이션이 처음부터 만든다
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(reqs)")}
+    adopted = [1]
+    if {"client_id", "defense_plan"} <= columns:
+        adopted.append(2)
+    with store.transaction(conn, write=True):
+        for version in adopted:
+            conn.execute(
+                f"INSERT INTO {store.MIGRATIONS_TABLE}(component,version,applied_at) "
+                "VALUES (?,?,?)", (_DB_COMPONENT, version, time.time()))
+
+
+def init_db():
+    with closing(store.connect(DB_PATH, **_DB_OPEN)) as conn:
+        _adopt_existing_schema(conn)
+        store.apply_migrations(conn, _DB_COMPONENT, _MIGRATIONS)
         conn.execute("INSERT INTO runs VALUES (?,?,?,?,?,?)", (
             EXPERIMENT_RUN, DEFENSE_MODE, ACTIVE_TECHNIQUE or "-",
             "-",
@@ -824,7 +855,7 @@ def _log_req(method: str, path: str, status: int, action: str, client_id: str = 
             if len(st.esc_decoy_paths) < _DECOY_PATHS_CAP:
                 st.esc_decoy_paths.add(f"login-lure#{st.esc_decoy_hits}" if is_lure
                                        else _norm_decoy_path(path))
-    with closing(sqlite3.connect(DB_PATH)) as conn:
+    with closing(store.connect(DB_PATH, **_DB_OPEN)) as conn:
         conn.execute(
             "INSERT INTO reqs (ts,run,method,path,status,defense_action,client_id,defense_plan) "
             "VALUES (?,?,?,?,?,?,?,?)",

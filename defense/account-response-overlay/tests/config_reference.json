@@ -1,0 +1,1136 @@
+{
+  "decoy-for:overlay-production-juice-v2.toml": {
+    "audit_path": "/app/state/telemetry.sqlite3",
+    "cycle": {
+      "candidates": 3,
+      "history": 3
+    },
+    "detector_required": true,
+    "engagement": {
+      "candidates": 3,
+      "rounds": 8,
+      "stages": 4
+    },
+    "frontend_dir": "",
+    "limits": {
+      "audit_rows": 50000,
+      "concurrent": 32,
+      "global_rpm": 3600,
+      "header_bytes": 16384,
+      "max_peers": 4096,
+      "max_sessions": 2048,
+      "peer_rpm": 180,
+      "request_bytes": 65536,
+      "request_seconds": 8.0,
+      "response_bytes": 8388608,
+      "session_bytes": 67108864,
+      "session_concurrent": 1,
+      "session_delay_ms": 5000,
+      "session_requests": 1000,
+      "session_ttl": 21600,
+      "url_bytes": 2048
+    },
+    "modules": [
+      "cycle"
+    ],
+    "origin": "",
+    "origin_policy": "sealed",
+    "profile": {
+      "account_terms": [
+        "login",
+        "account",
+        "user",
+        "auth",
+        "password"
+      ],
+      "api_prefixes": [
+        "/api",
+        "/rest",
+        "/swagger",
+        "/openapi"
+      ],
+      "decoy_admin_email": "administrator@internal.invalid",
+      "decoy_brand": "Internal Administration",
+      "decoy_namespaces": [
+        "/ftp",
+        "/ops"
+      ],
+      "decoy_profile_image": "/assets/public/images/uploads/default.svg",
+      "decoy_service": "Internal Account Registry",
+      "login_form_selector": "#login-form",
+      "login_paths": [
+        "/rest/user/login"
+      ],
+      "menu_selector": "mat-sidenav mat-nav-list",
+      "ordinary_api_exact": [
+        "/api/challenges",
+        "/rest/languages",
+        "/rest/admin/application-configuration",
+        "/rest/admin/application-version"
+      ],
+      "ordinary_api_prefixes": [
+        "/api/products",
+        "/rest/products",
+        "/api/quantitys"
+      ],
+      "origin_auth_cookies": [
+        "token"
+      ],
+      "recon_html_paths": [
+        "/admin",
+        "/internal",
+        "/debug",
+        "/backup",
+        "/config",
+        "/.git",
+        "/.env"
+      ],
+      "recon_segments": [
+        "admin",
+        "internal",
+        "debug",
+        "backup",
+        "config",
+        "private",
+        "secret",
+        "wp-admin",
+        "phpmyadmin",
+        "server-status",
+        "actuator",
+        ".git",
+        ".env"
+      ],
+      "recovery_anchor_selector": "a[href='#/forgot-password']",
+      "robots_disallow": [
+        "/ftp",
+        "/ops/recovery/accounts",
+        "/ops/service/manifest"
+      ]
+    },
+    "run_id": "juice-overlay-v2",
+    "secure_cookie": false,
+    "site_adapter": "juice_shop",
+    "static_paths": []
+  },
+  "decoy-for:overlay-production-ruby-v2.toml": {
+    "audit_path": "/app/state/telemetry.sqlite3",
+    "cycle": {
+      "candidates": 3,
+      "history": 3
+    },
+    "detector_required": true,
+    "engagement": {
+      "candidates": 3,
+      "rounds": 8,
+      "stages": 4
+    },
+    "frontend_dir": "",
+    "limits": {
+      "audit_rows": 50000,
+      "concurrent": 32,
+      "global_rpm": 3600,
+      "header_bytes": 16384,
+      "max_peers": 4096,
+      "max_sessions": 2048,
+      "peer_rpm": 180,
+      "request_bytes": 65536,
+      "request_seconds": 8.0,
+      "response_bytes": 8388608,
+      "session_bytes": 67108864,
+      "session_concurrent": 1,
+      "session_delay_ms": 5000,
+      "session_requests": 1000,
+      "session_ttl": 21600,
+      "url_bytes": 2048
+    },
+    "modules": [
+      "cycle"
+    ],
+    "origin": "",
+    "origin_policy": "sealed",
+    "profile": {
+      "account_terms": [
+        "login",
+        "account",
+        "user",
+        "auth",
+        "password"
+      ],
+      "api_prefixes": [
+        "/api",
+        "/rest",
+        "/swagger",
+        "/openapi"
+      ],
+      "decoy_admin_email": "administrator@internal.invalid",
+      "decoy_brand": "Internal Administration",
+      "decoy_namespaces": [
+        "/ftp",
+        "/ops"
+      ],
+      "decoy_profile_image": "/assets/public/images/uploads/default.svg",
+      "decoy_service": "Internal Account Registry",
+      "login_form_selector": "#login-form",
+      "login_paths": [
+        "/rest/user/login"
+      ],
+      "menu_selector": "mat-sidenav mat-nav-list",
+      "ordinary_api_exact": [
+        "/api/challenges",
+        "/rest/languages",
+        "/rest/admin/application-configuration",
+        "/rest/admin/application-version"
+      ],
+      "ordinary_api_prefixes": [
+        "/api/products",
+        "/rest/products",
+        "/api/quantitys"
+      ],
+      "origin_auth_cookies": [
+        "token"
+      ],
+      "recon_html_paths": [
+        "/admin",
+        "/internal",
+        "/debug",
+        "/backup",
+        "/config",
+        "/.git",
+        "/.env"
+      ],
+      "recon_segments": [
+        "admin",
+        "internal",
+        "debug",
+        "backup",
+        "config",
+        "private",
+        "secret",
+        "wp-admin",
+        "phpmyadmin",
+        "server-status",
+        "actuator",
+        ".git",
+        ".env"
+      ],
+      "recovery_anchor_selector": "a[href='#/forgot-password']",
+      "robots_disallow": [
+        "/ftp",
+        "/ops/recovery/accounts",
+        "/ops/service/manifest"
+      ]
+    },
+    "run_id": "ruby-overlay-v2",
+    "secure_cookie": false,
+    "site_adapter": "generic",
+    "static_paths": []
+  },
+  "decoy-for:overlay-v1.toml": {
+    "audit_path": "state/telemetry.sqlite3",
+    "cycle": {
+      "candidates": 3,
+      "history": 3
+    },
+    "detector_required": true,
+    "engagement": {
+      "candidates": 3,
+      "rounds": 8,
+      "stages": 4
+    },
+    "frontend_dir": "",
+    "limits": {
+      "audit_rows": 50000,
+      "concurrent": 32,
+      "global_rpm": 3600,
+      "header_bytes": 16384,
+      "max_peers": 4096,
+      "max_sessions": 2048,
+      "peer_rpm": 180,
+      "request_bytes": 65536,
+      "request_seconds": 8.0,
+      "response_bytes": 8388608,
+      "session_bytes": 67108864,
+      "session_concurrent": 1,
+      "session_delay_ms": 5000,
+      "session_requests": 1000,
+      "session_ttl": 21600,
+      "url_bytes": 2048
+    },
+    "modules": [
+      "unified"
+    ],
+    "origin": "",
+    "origin_policy": "sealed",
+    "profile": {
+      "account_terms": [
+        "login",
+        "account",
+        "user",
+        "auth",
+        "password"
+      ],
+      "api_prefixes": [
+        "/api",
+        "/rest",
+        "/swagger",
+        "/openapi"
+      ],
+      "decoy_admin_email": "administrator@internal.invalid",
+      "decoy_brand": "Internal Administration",
+      "decoy_namespaces": [
+        "/ftp",
+        "/ops"
+      ],
+      "decoy_profile_image": "/assets/public/images/uploads/default.svg",
+      "decoy_service": "Internal Account Registry",
+      "login_form_selector": "#login-form",
+      "login_paths": [
+        "/rest/user/login"
+      ],
+      "menu_selector": "mat-sidenav mat-nav-list",
+      "ordinary_api_exact": [
+        "/api/challenges",
+        "/rest/languages",
+        "/rest/admin/application-configuration",
+        "/rest/admin/application-version"
+      ],
+      "ordinary_api_prefixes": [
+        "/api/products",
+        "/rest/products",
+        "/api/quantitys"
+      ],
+      "origin_auth_cookies": [
+        "token"
+      ],
+      "recon_html_paths": [
+        "/admin",
+        "/internal",
+        "/debug",
+        "/backup",
+        "/config",
+        "/.git",
+        "/.env"
+      ],
+      "recon_segments": [
+        "admin",
+        "internal",
+        "debug",
+        "backup",
+        "config",
+        "private",
+        "secret",
+        "wp-admin",
+        "phpmyadmin",
+        "server-status",
+        "actuator",
+        ".git",
+        ".env"
+      ],
+      "recovery_anchor_selector": "a[href='#/forgot-password']",
+      "robots_disallow": [
+        "/ftp",
+        "/ops/recovery/accounts",
+        "/ops/service/manifest"
+      ]
+    },
+    "run_id": "overlay-v1-decoy",
+    "secure_cookie": false,
+    "site_adapter": "juice_shop",
+    "static_paths": []
+  },
+  "decoy-for:overlay-v2.toml": {
+    "audit_path": "state/telemetry.sqlite3",
+    "cycle": {
+      "candidates": 3,
+      "history": 3
+    },
+    "detector_required": true,
+    "engagement": {
+      "candidates": 3,
+      "rounds": 8,
+      "stages": 4
+    },
+    "frontend_dir": "",
+    "limits": {
+      "audit_rows": 50000,
+      "concurrent": 32,
+      "global_rpm": 3600,
+      "header_bytes": 16384,
+      "max_peers": 4096,
+      "max_sessions": 2048,
+      "peer_rpm": 180,
+      "request_bytes": 65536,
+      "request_seconds": 8.0,
+      "response_bytes": 8388608,
+      "session_bytes": 67108864,
+      "session_concurrent": 1,
+      "session_delay_ms": 5000,
+      "session_requests": 1000,
+      "session_ttl": 21600,
+      "url_bytes": 2048
+    },
+    "modules": [
+      "cycle"
+    ],
+    "origin": "",
+    "origin_policy": "sealed",
+    "profile": {
+      "account_terms": [
+        "login",
+        "account",
+        "user",
+        "auth",
+        "password"
+      ],
+      "api_prefixes": [
+        "/api",
+        "/rest",
+        "/swagger",
+        "/openapi"
+      ],
+      "decoy_admin_email": "administrator@internal.invalid",
+      "decoy_brand": "Internal Administration",
+      "decoy_namespaces": [
+        "/ftp",
+        "/ops"
+      ],
+      "decoy_profile_image": "/assets/public/images/uploads/default.svg",
+      "decoy_service": "Internal Account Registry",
+      "login_form_selector": "#login-form",
+      "login_paths": [
+        "/rest/user/login"
+      ],
+      "menu_selector": "mat-sidenav mat-nav-list",
+      "ordinary_api_exact": [
+        "/api/challenges",
+        "/rest/languages",
+        "/rest/admin/application-configuration",
+        "/rest/admin/application-version"
+      ],
+      "ordinary_api_prefixes": [
+        "/api/products",
+        "/rest/products",
+        "/api/quantitys"
+      ],
+      "origin_auth_cookies": [
+        "token"
+      ],
+      "recon_html_paths": [
+        "/admin",
+        "/internal",
+        "/debug",
+        "/backup",
+        "/config",
+        "/.git",
+        "/.env"
+      ],
+      "recon_segments": [
+        "admin",
+        "internal",
+        "debug",
+        "backup",
+        "config",
+        "private",
+        "secret",
+        "wp-admin",
+        "phpmyadmin",
+        "server-status",
+        "actuator",
+        ".git",
+        ".env"
+      ],
+      "recovery_anchor_selector": "a[href='#/forgot-password']",
+      "robots_disallow": [
+        "/ftp",
+        "/ops/recovery/accounts",
+        "/ops/service/manifest"
+      ]
+    },
+    "run_id": "overlay-v2-decoy",
+    "secure_cookie": false,
+    "site_adapter": "juice_shop",
+    "static_paths": []
+  },
+  "decoy:decoy-production-juice-v2.toml": {
+    "audit_path": "/app/state/telemetry.sqlite3",
+    "cycle": {
+      "candidates": 3,
+      "history": 3
+    },
+    "detector_required": true,
+    "engagement": {
+      "candidates": 3,
+      "rounds": 8,
+      "stages": 4
+    },
+    "frontend_dir": "",
+    "limits": {
+      "audit_rows": 50000,
+      "concurrent": 32,
+      "global_rpm": 3600,
+      "header_bytes": 16384,
+      "max_peers": 4096,
+      "max_sessions": 2048,
+      "peer_rpm": 180,
+      "request_bytes": 65536,
+      "request_seconds": 8.0,
+      "response_bytes": 8388608,
+      "session_bytes": 67108864,
+      "session_concurrent": 1,
+      "session_delay_ms": 5000,
+      "session_requests": 1000,
+      "session_ttl": 21600,
+      "url_bytes": 2048
+    },
+    "modules": [
+      "cycle"
+    ],
+    "origin": "",
+    "origin_policy": "sealed",
+    "profile": {
+      "account_terms": [
+        "login",
+        "account",
+        "user",
+        "auth",
+        "password"
+      ],
+      "api_prefixes": [
+        "/api",
+        "/rest",
+        "/swagger",
+        "/openapi"
+      ],
+      "decoy_admin_email": "administrator@internal.invalid",
+      "decoy_brand": "Internal Administration",
+      "decoy_namespaces": [
+        "/ftp",
+        "/ops"
+      ],
+      "decoy_profile_image": "/assets/public/images/uploads/default.svg",
+      "decoy_service": "Internal Account Registry",
+      "login_form_selector": "#login-form",
+      "login_paths": [
+        "/rest/user/login"
+      ],
+      "menu_selector": "mat-sidenav mat-nav-list",
+      "ordinary_api_exact": [
+        "/api/challenges",
+        "/rest/languages",
+        "/rest/admin/application-configuration",
+        "/rest/admin/application-version"
+      ],
+      "ordinary_api_prefixes": [
+        "/api/products",
+        "/rest/products",
+        "/api/quantitys"
+      ],
+      "origin_auth_cookies": [
+        "token"
+      ],
+      "recon_html_paths": [
+        "/admin",
+        "/internal",
+        "/debug",
+        "/backup",
+        "/config",
+        "/.git",
+        "/.env"
+      ],
+      "recon_segments": [
+        "admin",
+        "internal",
+        "debug",
+        "backup",
+        "config",
+        "private",
+        "secret",
+        "wp-admin",
+        "phpmyadmin",
+        "server-status",
+        "actuator",
+        ".git",
+        ".env"
+      ],
+      "recovery_anchor_selector": "a[href='#/forgot-password']",
+      "robots_disallow": [
+        "/ftp",
+        "/ops/recovery/accounts",
+        "/ops/service/manifest"
+      ]
+    },
+    "run_id": "juice-overlay-v2",
+    "secure_cookie": false,
+    "site_adapter": "juice_shop",
+    "static_paths": []
+  },
+  "decoy:decoy-production-ruby-v2.toml": {
+    "audit_path": "/app/state/telemetry.sqlite3",
+    "cycle": {
+      "candidates": 3,
+      "history": 3
+    },
+    "detector_required": true,
+    "engagement": {
+      "candidates": 3,
+      "rounds": 8,
+      "stages": 4
+    },
+    "frontend_dir": "",
+    "limits": {
+      "audit_rows": 50000,
+      "concurrent": 32,
+      "global_rpm": 3600,
+      "header_bytes": 16384,
+      "max_peers": 4096,
+      "max_sessions": 2048,
+      "peer_rpm": 180,
+      "request_bytes": 65536,
+      "request_seconds": 8.0,
+      "response_bytes": 8388608,
+      "session_bytes": 67108864,
+      "session_concurrent": 1,
+      "session_delay_ms": 5000,
+      "session_requests": 1000,
+      "session_ttl": 21600,
+      "url_bytes": 2048
+    },
+    "modules": [
+      "cycle"
+    ],
+    "origin": "",
+    "origin_policy": "sealed",
+    "profile": {
+      "account_terms": [
+        "login",
+        "account",
+        "user",
+        "auth",
+        "password"
+      ],
+      "api_prefixes": [
+        "/api",
+        "/rest",
+        "/swagger",
+        "/openapi"
+      ],
+      "decoy_admin_email": "administrator@internal.invalid",
+      "decoy_brand": "Internal Administration",
+      "decoy_namespaces": [
+        "/ftp",
+        "/ops"
+      ],
+      "decoy_profile_image": "/assets/public/images/uploads/default.svg",
+      "decoy_service": "Internal Account Registry",
+      "login_form_selector": "#login-form",
+      "login_paths": [
+        "/rest/user/login"
+      ],
+      "menu_selector": "mat-sidenav mat-nav-list",
+      "ordinary_api_exact": [
+        "/api/challenges",
+        "/rest/languages",
+        "/rest/admin/application-configuration",
+        "/rest/admin/application-version"
+      ],
+      "ordinary_api_prefixes": [
+        "/api/products",
+        "/rest/products",
+        "/api/quantitys"
+      ],
+      "origin_auth_cookies": [
+        "token"
+      ],
+      "recon_html_paths": [
+        "/admin",
+        "/internal",
+        "/debug",
+        "/backup",
+        "/config",
+        "/.git",
+        "/.env"
+      ],
+      "recon_segments": [
+        "admin",
+        "internal",
+        "debug",
+        "backup",
+        "config",
+        "private",
+        "secret",
+        "wp-admin",
+        "phpmyadmin",
+        "server-status",
+        "actuator",
+        ".git",
+        ".env"
+      ],
+      "recovery_anchor_selector": "a[href='#/forgot-password']",
+      "robots_disallow": [
+        "/ftp",
+        "/ops/recovery/accounts",
+        "/ops/service/manifest"
+      ]
+    },
+    "run_id": "ruby-overlay-v2",
+    "secure_cookie": false,
+    "site_adapter": "generic",
+    "static_paths": []
+  },
+  "decoy:decoy-v1.toml": {
+    "audit_path": "state/telemetry.sqlite3",
+    "cycle": {
+      "candidates": 3,
+      "history": 3
+    },
+    "detector_required": true,
+    "engagement": {
+      "candidates": 3,
+      "rounds": 8,
+      "stages": 4
+    },
+    "frontend_dir": "",
+    "limits": {
+      "audit_rows": 50000,
+      "concurrent": 32,
+      "global_rpm": 3600,
+      "header_bytes": 16384,
+      "max_peers": 4096,
+      "max_sessions": 2048,
+      "peer_rpm": 180,
+      "request_bytes": 65536,
+      "request_seconds": 8.0,
+      "response_bytes": 8388608,
+      "session_bytes": 67108864,
+      "session_concurrent": 1,
+      "session_delay_ms": 5000,
+      "session_requests": 1000,
+      "session_ttl": 21600,
+      "url_bytes": 2048
+    },
+    "modules": [
+      "unified"
+    ],
+    "origin": "",
+    "origin_policy": "sealed",
+    "profile": {
+      "account_terms": [
+        "login",
+        "account",
+        "user",
+        "auth",
+        "password"
+      ],
+      "api_prefixes": [
+        "/api",
+        "/rest",
+        "/swagger",
+        "/openapi"
+      ],
+      "decoy_admin_email": "administrator@internal.invalid",
+      "decoy_brand": "Internal Administration",
+      "decoy_namespaces": [
+        "/ftp",
+        "/ops"
+      ],
+      "decoy_profile_image": "/assets/public/images/uploads/default.svg",
+      "decoy_service": "Internal Account Registry",
+      "login_form_selector": "#login-form",
+      "login_paths": [
+        "/rest/user/login"
+      ],
+      "menu_selector": "mat-sidenav mat-nav-list",
+      "ordinary_api_exact": [
+        "/api/challenges",
+        "/rest/languages",
+        "/rest/admin/application-configuration",
+        "/rest/admin/application-version"
+      ],
+      "ordinary_api_prefixes": [
+        "/api/products",
+        "/rest/products",
+        "/api/quantitys"
+      ],
+      "origin_auth_cookies": [
+        "token"
+      ],
+      "recon_html_paths": [
+        "/admin",
+        "/internal",
+        "/debug",
+        "/backup",
+        "/config",
+        "/.git",
+        "/.env"
+      ],
+      "recon_segments": [
+        "admin",
+        "internal",
+        "debug",
+        "backup",
+        "config",
+        "private",
+        "secret",
+        "wp-admin",
+        "phpmyadmin",
+        "server-status",
+        "actuator",
+        ".git",
+        ".env"
+      ],
+      "recovery_anchor_selector": "a[href='#/forgot-password']",
+      "robots_disallow": [
+        "/ftp",
+        "/ops/recovery/accounts",
+        "/ops/service/manifest"
+      ]
+    },
+    "run_id": "overlay-v1-decoy",
+    "secure_cookie": false,
+    "site_adapter": "juice_shop",
+    "static_paths": []
+  },
+  "decoy:decoy-v2.toml": {
+    "audit_path": "state/telemetry.sqlite3",
+    "cycle": {
+      "candidates": 3,
+      "history": 3
+    },
+    "detector_required": true,
+    "engagement": {
+      "candidates": 3,
+      "rounds": 8,
+      "stages": 4
+    },
+    "frontend_dir": "",
+    "limits": {
+      "audit_rows": 50000,
+      "concurrent": 32,
+      "global_rpm": 3600,
+      "header_bytes": 16384,
+      "max_peers": 4096,
+      "max_sessions": 2048,
+      "peer_rpm": 180,
+      "request_bytes": 65536,
+      "request_seconds": 8.0,
+      "response_bytes": 8388608,
+      "session_bytes": 67108864,
+      "session_concurrent": 1,
+      "session_delay_ms": 5000,
+      "session_requests": 1000,
+      "session_ttl": 21600,
+      "url_bytes": 2048
+    },
+    "modules": [
+      "cycle"
+    ],
+    "origin": "",
+    "origin_policy": "sealed",
+    "profile": {
+      "account_terms": [
+        "login",
+        "account",
+        "user",
+        "auth",
+        "password"
+      ],
+      "api_prefixes": [
+        "/api",
+        "/rest",
+        "/swagger",
+        "/openapi"
+      ],
+      "decoy_admin_email": "administrator@internal.invalid",
+      "decoy_brand": "Internal Administration",
+      "decoy_namespaces": [
+        "/ftp",
+        "/ops"
+      ],
+      "decoy_profile_image": "/assets/public/images/uploads/default.svg",
+      "decoy_service": "Internal Account Registry",
+      "login_form_selector": "#login-form",
+      "login_paths": [
+        "/rest/user/login"
+      ],
+      "menu_selector": "mat-sidenav mat-nav-list",
+      "ordinary_api_exact": [
+        "/api/challenges",
+        "/rest/languages",
+        "/rest/admin/application-configuration",
+        "/rest/admin/application-version"
+      ],
+      "ordinary_api_prefixes": [
+        "/api/products",
+        "/rest/products",
+        "/api/quantitys"
+      ],
+      "origin_auth_cookies": [
+        "token"
+      ],
+      "recon_html_paths": [
+        "/admin",
+        "/internal",
+        "/debug",
+        "/backup",
+        "/config",
+        "/.git",
+        "/.env"
+      ],
+      "recon_segments": [
+        "admin",
+        "internal",
+        "debug",
+        "backup",
+        "config",
+        "private",
+        "secret",
+        "wp-admin",
+        "phpmyadmin",
+        "server-status",
+        "actuator",
+        ".git",
+        ".env"
+      ],
+      "recovery_anchor_selector": "a[href='#/forgot-password']",
+      "robots_disallow": [
+        "/ftp",
+        "/ops/recovery/accounts",
+        "/ops/service/manifest"
+      ]
+    },
+    "run_id": "overlay-v2-decoy",
+    "secure_cookie": false,
+    "site_adapter": "juice_shop",
+    "static_paths": []
+  },
+  "overlay:overlay-production-juice-v2.toml": {
+    "decoy_config": "decoy-production-juice-v2.toml",
+    "max_request_bytes": 1048576,
+    "max_response_bytes": 16777216,
+    "origin_url": "http://juice-shop-target:3000",
+    "site_profile": "site-juice-shop.toml",
+    "timeout_seconds": 10.0
+  },
+  "overlay:overlay-production-ruby-v2.toml": {
+    "decoy_config": "decoy-production-ruby-v2.toml",
+    "max_request_bytes": 1048576,
+    "max_response_bytes": 16777216,
+    "origin_url": "http://ruby-web-target:8080",
+    "site_profile": "site-ruby-shop.toml",
+    "timeout_seconds": 10.0
+  },
+  "overlay:overlay-v1.toml": {
+    "decoy_config": "decoy-v1.toml",
+    "max_request_bytes": 1048576,
+    "max_response_bytes": 16777216,
+    "origin_url": "http://127.0.0.1:3000",
+    "site_profile": "site-juice-shop.toml",
+    "timeout_seconds": 10.0
+  },
+  "overlay:overlay-v2.toml": {
+    "decoy_config": "decoy-v2.toml",
+    "max_request_bytes": 1048576,
+    "max_response_bytes": 16777216,
+    "origin_url": "http://127.0.0.1:3000",
+    "site_profile": "site-juice-shop.toml",
+    "timeout_seconds": 10.0
+  },
+  "site:site-generic-example.toml": {
+    "account_terms": [
+      "login",
+      "account",
+      "user",
+      "auth",
+      "password"
+    ],
+    "api_prefixes": [
+      "/api",
+      "/swagger",
+      "/openapi"
+    ],
+    "decoy_admin_email": "administrator@internal.invalid",
+    "decoy_brand": "Internal Administration",
+    "decoy_namespaces": [
+      "/ftp",
+      "/ops"
+    ],
+    "decoy_profile_image": "",
+    "decoy_service": "Internal Account Registry",
+    "login_form_selector": "form[data-login]",
+    "login_paths": [
+      "/api/auth/login"
+    ],
+    "menu_selector": "nav[aria-label='Main']",
+    "ordinary_api_exact": [
+      "/api/configuration"
+    ],
+    "ordinary_api_prefixes": [
+      "/api/catalog",
+      "/api/search"
+    ],
+    "origin_auth_cookies": [
+      "session_token"
+    ],
+    "recon_html_paths": [
+      "/admin",
+      "/internal",
+      "/debug",
+      "/backup",
+      "/.git",
+      "/.env"
+    ],
+    "recon_segments": [
+      "admin",
+      "internal",
+      "debug",
+      "backup",
+      "config",
+      "private",
+      "secret",
+      ".git",
+      ".env"
+    ],
+    "recovery_anchor_selector": "a[href='/forgot-password']",
+    "robots_disallow": [
+      "/ftp",
+      "/ops/recovery/accounts",
+      "/ops/service/manifest"
+    ]
+  },
+  "site:site-juice-shop.toml": {
+    "account_terms": [
+      "login",
+      "account",
+      "user",
+      "auth",
+      "password"
+    ],
+    "api_prefixes": [
+      "/api",
+      "/rest",
+      "/swagger",
+      "/openapi"
+    ],
+    "decoy_admin_email": "administrator@internal.invalid",
+    "decoy_brand": "Internal Administration",
+    "decoy_namespaces": [
+      "/ftp",
+      "/ops"
+    ],
+    "decoy_profile_image": "/assets/public/images/uploads/default.svg",
+    "decoy_service": "Internal Account Registry",
+    "login_form_selector": "#login-form",
+    "login_paths": [
+      "/rest/user/login"
+    ],
+    "menu_selector": "mat-sidenav mat-nav-list",
+    "ordinary_api_exact": [
+      "/api/challenges",
+      "/rest/languages",
+      "/rest/admin/application-configuration",
+      "/rest/admin/application-version"
+    ],
+    "ordinary_api_prefixes": [
+      "/api/products",
+      "/rest/products",
+      "/api/quantitys"
+    ],
+    "origin_auth_cookies": [
+      "token"
+    ],
+    "recon_html_paths": [
+      "/admin",
+      "/internal",
+      "/debug",
+      "/backup",
+      "/config",
+      "/.git",
+      "/.env"
+    ],
+    "recon_segments": [
+      "admin",
+      "internal",
+      "debug",
+      "backup",
+      "config",
+      "private",
+      "secret",
+      "wp-admin",
+      "phpmyadmin",
+      "server-status",
+      "actuator",
+      ".git",
+      ".env"
+    ],
+    "recovery_anchor_selector": "a[href='#/forgot-password']",
+    "robots_disallow": [
+      "/ftp",
+      "/ops/recovery/accounts",
+      "/ops/service/manifest"
+    ]
+  },
+  "site:site-ruby-shop.toml": {
+    "account_terms": [
+      "login",
+      "account",
+      "auth",
+      "user",
+      "password",
+      "session"
+    ],
+    "api_prefixes": [
+      "/api",
+      "/swagger",
+      "/openapi"
+    ],
+    "decoy_admin_email": "administrator@archive.invalid",
+    "decoy_brand": "RUBY Market Archive",
+    "decoy_namespaces": [
+      "/ftp",
+      "/ops"
+    ],
+    "decoy_profile_image": "",
+    "decoy_service": "Internal Account Registry",
+    "login_form_selector": ".masthead .session form.inline",
+    "login_paths": [
+      "/api/auth/login"
+    ],
+    "menu_selector": "nav.primary",
+    "ordinary_api_exact": [],
+    "ordinary_api_prefixes": [
+      "/api/products",
+      "/api/search",
+      "/api/shops"
+    ],
+    "origin_auth_cookies": [
+      "ruby_session",
+      "ruby_remember",
+      "token"
+    ],
+    "recon_html_paths": [
+      "/admin",
+      "/internal",
+      "/debug",
+      "/backup",
+      "/.git",
+      "/.env"
+    ],
+    "recon_segments": [
+      "admin",
+      "internal",
+      "debug",
+      "backup",
+      "config",
+      "private",
+      "secret",
+      ".git",
+      ".env"
+    ],
+    "recovery_anchor_selector": "a[href='#/account']",
+    "robots_disallow": [
+      "/ftp",
+      "/ops/recovery/accounts",
+      "/ops/service/manifest"
+    ]
+  }
+}

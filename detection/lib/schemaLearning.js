@@ -29,21 +29,53 @@
  *      대시보드에 통계로만 보여주고, 실제 identityMismatch.js 규칙 추가는 여전히 사람이 코드로
  *      작성해야 한다 — 정직하게 자동화 범위를 좁혀둔 부분.
  *
- * 영속화: 프로세스 재시작(컨테이너 재빌드 포함)에도 학습 내용이 남아있어야 의미가 있어서 디스크에
- * JSON 파일로 저장한다. 요청마다 디스크에 쓰면 트래픽이 몰릴 때 I/O 병목이 될 수 있어 2초
- * 디바운스로 묶어서 쓴다. 파일이 없거나 손상됐으면 빈 상태로 조용히 시작한다(죽지 않는다) —
- * 이 프로젝트의 다른 모듈들과 같은 방어적 원칙.
+ * 영속화: 프로세스 재시작(컨테이너 재빌드 포함)에도 학습 내용이 남아있어야 의미가 있어서
+ * Detection 통합 DB(DETECTION_STORE_DB)의 schema_learning 테이블에 저장한다. 요청마다 쓰면
+ * 트래픽이 몰릴 때 병목이 될 수 있어 2초 디바운스로 묶어서 쓰고, 한 번의 쓰기는 트랜잭션
+ * 하나다. 상태가 없거나(첫 실행) 한 라우트의 값이 깨졌으면 그 라우트만 버리고 나머지로
+ * 조용히 시작한다(죽지 않는다) — 이 프로젝트의 다른 모듈들과 같은 방어적 원칙.
  *
- * 초기화(리셋): DATA_FILE은 평범한 JSON 파일이라 서버를 끄고 파일/폴더를 직접 지워도 되고,
- * 서버를 켜둔 채로는 resetAll()을 호출하는 API(server.js의 POST /__detection/api/schema-learning/reset
- * 참고)로 메모리와 디스크를 한 번에 비울 수 있다.
+ * 초기화(리셋): 서버를 끄고 통합 DB 의 schema_learning 테이블을 비워도 되고, 서버를 켜둔
+ * 채로는 resetAll()을 호출하는 API(server.js의 POST /__detection/api/schema-learning/reset
+ * 참고)로 메모리와 저장소를 한 번에 비울 수 있다.
  */
 
-const fs = require('fs');
 const path = require('path');
 
-const DATA_FILE = process.env.SCHEMA_LEARNING_FILE || path.join(__dirname, '..', 'data', 'schema-learning.json');
+const store = require('./store');
+
+// 학습 상태는 Detection 통합 DB 안의 schema_learning 테이블에 있다. 예전에는
+// schema-learning.json 을 writeFileSync 로 통째로 덮어썼다 — 원자적이지 않아
+// 쓰는 중 프로세스가 죽으면 파일이 깨졌고, version 필드는 읽을 때 검사도 안 했다.
+// node:sqlite 를 못 쓰면 다른 Detection 저장소와 같게 인메모리로만 동작한다.
+const DB_PATH = process.env.DETECTION_STORE_DB
+  || path.join(__dirname, '..', 'data', 'detection.sqlite3');
+const COMPONENT = 'schema_learning';
+const MIGRATIONS = [[1, [
+  `CREATE TABLE IF NOT EXISTS schema_learning(
+      kind TEXT NOT NULL, route TEXT NOT NULL, payload TEXT NOT NULL,
+      PRIMARY KEY(kind, route))`,
+]]];
+const KINDS = ['massAssignment', 'roleGated', 'identityCandidates'];
 const SAVE_DEBOUNCE_MS = 2000;
+
+let db = null;
+function database() {
+  if (db !== null) return db;
+  if (!store.available()) {
+    console.warn('[schemaLearning] node:sqlite 사용 불가 → 학습 상태를 메모리에만 유지한다');
+    db = false;
+    return db;
+  }
+  try {
+    db = store.open(DB_PATH);
+    store.applyMigrations(db, COMPONENT, MIGRATIONS);
+  } catch (err) {
+    console.warn('[schemaLearning] 상태 저장소를 열 수 없다(메모리만 사용):', err.message);
+    db = false;
+  }
+  return db;
+}
 
 // 후보를 "제안"으로 승격시키는 데 필요한 최소 근거
 const ROLE_MIN_SUCCESS = 3;       // admin(또는 특정 role)이 최소 이만큼 성공해야
@@ -63,24 +95,45 @@ function routeKey(method, normalizedPath) {
 }
 
 function load() {
+  state = emptyState();
+  const handle = database();
+  if (!handle) return;
   try {
-    const raw = fs.readFileSync(DATA_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      state = { ...emptyState(), ...parsed };
+    for (const row of handle.prepare('SELECT kind,route,payload FROM schema_learning').all()) {
+      if (!KINDS.includes(row.kind)) continue;        // 알 수 없는 종류는 무시
+      try {
+        state[row.kind][row.route] = JSON.parse(row.payload);
+      } catch {
+        // 한 라우트의 값이 깨져도 나머지 학습 결과는 살린다
+      }
     }
-  } catch {
-    // 파일이 없거나(첫 실행) 손상됐으면 빈 상태로 시작 — 정상 동작
+  } catch (err) {
+    console.warn('[schemaLearning] 상태를 읽지 못했다(빈 상태로 시작):', err.message);
     state = emptyState();
   }
 }
 
 function writeNow() {
+  const handle = database();
+  if (!handle) return;
   try {
-    fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-    fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2));
+    handle.exec('BEGIN IMMEDIATE');
+    try {
+      handle.exec('DELETE FROM schema_learning');
+      const insert = handle.prepare(
+        'INSERT INTO schema_learning(kind,route,payload) VALUES(?,?,?)');
+      for (const kind of KINDS) {
+        for (const [route, entry] of Object.entries(state[kind])) {
+          insert.run(kind, route, JSON.stringify(entry));
+        }
+      }
+      handle.exec('COMMIT');
+    } catch (inner) {
+      try { handle.exec('ROLLBACK'); } catch (_) { /* 이미 롤백됨 */ }
+      throw inner;
+    }
   } catch (err) {
-    console.warn('[schemaLearning] 디스크 저장 실패(계속 진행, 다음 기회에 재시도):', err.message);
+    console.warn('[schemaLearning] 저장 실패(계속 진행, 다음 기회에 재시도):', err.message);
   }
 }
 
@@ -282,6 +335,12 @@ function listCandidates() {
   return { massAssignment, roleGated, identityCandidates };
 }
 
+/** 디바운스를 기다리지 않고 즉시 저장한다(종료 직전·테스트용). */
+function flush() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  writeNow();
+}
+
 function resetAll() {
   state = emptyState();
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
@@ -289,7 +348,11 @@ function resetAll() {
 }
 
 module.exports = {
-  DATA_FILE,
+  DB_PATH,
+  flush,
+  COMPONENT,
+  MIGRATIONS,
+  KINDS,
   observeMassAssignment,
   getApprovedMassAssignmentWhitelist,
   approveMassAssignment,

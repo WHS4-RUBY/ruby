@@ -24,7 +24,9 @@ services:
   response-overlay:
     <<: [*image, *hardening]
     environment:
-      OVERLAY_CONFIG: "${OVERLAY_CONFIG:-/app/config/overlay-server-v2.toml}"
+      OVERLAY_CONFIG: "${OVERLAY_CONFIG:-/app/config/overlay-v2.toml}"
+      # TLS 게이트웨이 뒤에서는 가짜 세션 쿠키도 Secure 로 둔다.
+      OVERLAY_SECURE_COOKIE: "${OVERLAY_SECURE_COOKIE:-true}"
       OVERLAY_ORIGIN_URL: "${OVERLAY_ORIGIN_URL:?Set the fixed Juice Shop origin URL}"
       DEFENSE_SECRET_FILE: /app/state/session.key
       DEFENSE_DETECTOR_SECRET_FILE: /app/state/detector.key

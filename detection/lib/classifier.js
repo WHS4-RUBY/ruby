@@ -35,8 +35,36 @@ const ATTACK_HONEY_POINTS = Object.freeze({
   ssh_cred_reuse: 12,
   password_list_reuse: 12,
   writable_file_found: 8,
+  decoy_path_hit: 8,
   script_hint_access: 5,
 });
+
+// 상한(35)과 ATTACK_WEIGHTS.attackHoney(0.17)는 바꾸지 않는다. honeyScore 가
+// min(상한, 합)이므로 신호를 더해도 허니가 공격 점수에 더할 수 있는 최대치는 그대로다.
+const DEFAULT_HONEY_CONFIG = Object.freeze({
+  automationPoints: AUTOMATION_HONEY_POINTS,
+  attackPoints: ATTACK_HONEY_POINTS,
+  automationMaxPoints: AUTOMATION_HONEY_MAX_POINTS,
+  attackMaxPoints: ATTACK_HONEY_MAX_POINTS,
+});
+let honeyConfig = DEFAULT_HONEY_CONFIG;
+
+/** 배점을 policy.json 에서 덮어쓴다. 인자가 없으면 코드 기본값으로 되돌린다. */
+function configure({ honey } = {}) {
+  if (!honey || !Object.keys(honey).length) {
+    honeyConfig = DEFAULT_HONEY_CONFIG;
+    return honeyConfig;
+  }
+  // 표는 신호 단위로 병합한다. attack: { decoy_path_hit: 0 } 처럼 하나만 적어도
+  // 나머지 신호의 배점이 사라지지 않는다.
+  honeyConfig = Object.freeze({
+    automationPoints: Object.freeze({ ...AUTOMATION_HONEY_POINTS, ...(honey.automationPoints || {}) }),
+    attackPoints: Object.freeze({ ...ATTACK_HONEY_POINTS, ...(honey.attackPoints || {}) }),
+    automationMaxPoints: honey.automationMaxPoints ?? AUTOMATION_HONEY_MAX_POINTS,
+    attackMaxPoints: honey.attackMaxPoints ?? ATTACK_HONEY_MAX_POINTS,
+  });
+  return honeyConfig;
+}
 
 // Ground truth 실험 후 교체할 임시 정규화 기준이다.
 const NORMALIZATION = Object.freeze({
@@ -189,13 +217,13 @@ function honeyScore(features, pointMap, maximumPoints, extraPoints = {}) {
 }
 
 function scoreAutomationHoney(features) {
-  return honeyScore(features, AUTOMATION_HONEY_POINTS, AUTOMATION_HONEY_MAX_POINTS, {
+  return honeyScore(features, honeyConfig.automationPoints, honeyConfig.automationMaxPoints, {
     coverage: coverageHoneyPoints(features),
   });
 }
 
 function scoreAttackHoney(features) {
-  return honeyScore(features, ATTACK_HONEY_POINTS, ATTACK_HONEY_MAX_POINTS);
+  return honeyScore(features, honeyConfig.attackPoints, honeyConfig.attackMaxPoints);
 }
 
 function weightedScore(breakdown, weights) {
@@ -290,10 +318,13 @@ function classify(features) {
 
 module.exports = {
   classify,
+  configure,
   AUTOMATION_WEIGHTS,
   ATTACK_WEIGHTS,
   AUTOMATION_HONEY_POINTS,
   ATTACK_HONEY_POINTS,
+  AUTOMATION_HONEY_MAX_POINTS,
+  ATTACK_HONEY_MAX_POINTS,
   scoreAutomationHoney,
   scoreAttackHoney,
   scoreRepeatedAttackEvidence,

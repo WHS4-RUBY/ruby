@@ -31,11 +31,11 @@ const schemaLearning = require('./schemaLearning');
 // 1. Mass Assignment — 엔드포인트별 "클라이언트가 채워도 되는 필드" 화이트리스트
 // ---------------------------------------------------------------------------
 
+// 키는 뒤 슬래시를 뗀 형태로만 적는다 — whitelistKey() 가 조회할 때 정규화한다.
+// 예전에는 '/api/Users' 와 '/api/Users/' 를 같은 값으로 두 번씩 나열했다.
 const MASS_ASSIGNMENT_WHITELIST = new Map([
   ['POST /api/Users', new Set(['email', 'password', 'passwordRepeat', 'securityQuestion', 'securityAnswer'])],
-  ['POST /api/Users/', new Set(['email', 'password', 'passwordRepeat', 'securityQuestion', 'securityAnswer'])],
   ['POST /api/Feedbacks', new Set(['comment', 'rating', 'captchaId', 'captcha'])],
-  ['POST /api/Feedbacks/', new Set(['comment', 'rating', 'captchaId', 'captcha'])],
   ['PUT /rest/products/:id/reviews', new Set(['message'])], // author는 세션에서 나와야지 클라이언트가 지정하면 안 됨
   ['PATCH /rest/products/reviews', new Set(['id', 'message'])],
   // 1차 실전 공격 테스트 미탐: PUT /api/Products/:id (상품 변조)는 role-gated:product-write로만
@@ -67,6 +67,12 @@ const SUSPICIOUS_ROLE_VALUES = new Set([
 
 function routeKey(method, normalizedPath) {
   return `${String(method || '').toUpperCase()} ${normalizedPath || ''}`;
+}
+
+/** 화이트리스트 조회용 키. 뒤 슬래시가 붙은 같은 라우트를 같은 키로 본다. */
+function whitelistKey(method, normalizedPath) {
+  const path = String(normalizedPath || '');
+  return routeKey(method, path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path);
 }
 
 /**
@@ -109,7 +115,7 @@ function findSuspiciousValuesDeep(node, whitelist, acc = [], isTopLevel = true) 
 // 하드코딩된 화이트리스트가 있는 라우트인지 — server.js가 schemaLearning 관찰 시점에
 // "이미 하드코딩돼 있으니 학습 대상 아님"을 판단할 때 재사용한다.
 function hasHardcodedMassAssignmentWhitelist(method, normalizedPath) {
-  return MASS_ASSIGNMENT_WHITELIST.has(routeKey(method, normalizedPath));
+  return MASS_ASSIGNMENT_WHITELIST.has(whitelistKey(method, normalizedPath));
 }
 
 function detectMassAssignment(method, normalizedPath, bodyObj) {
@@ -122,7 +128,7 @@ function detectMassAssignment(method, normalizedPath, bodyObj) {
   // 중첩까지 화이트리스트로 관리하면 너무 엄격해져 오탐이 늘어난다). 하드코딩이 없으면
   // schemaLearning.js가 승인해둔 학습 화이트리스트를 대신 쓴다 — 둘 다 없으면 여전히
   // checked:false 취급(아무 판단 안 함, 오탐 방지 원칙 유지).
-  const whitelist = MASS_ASSIGNMENT_WHITELIST.get(routeKey(method, normalizedPath))
+  const whitelist = MASS_ASSIGNMENT_WHITELIST.get(whitelistKey(method, normalizedPath))
     || schemaLearning.getApprovedMassAssignmentWhitelist(method, normalizedPath)
     || null;
   if (whitelist) {

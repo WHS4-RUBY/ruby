@@ -342,3 +342,51 @@ test("단일 신호로는 0.8에 못 미치고, 인젝션·XSS·경로 탐색·�
       .map((step) => step.name),
     ["rate_limit_strict", "decoy_maze"]);
 });
+
+// 기존 buildFeatures 에 미끼 신호만 얹는다. coverage 는 조건을 끄고 자동화 쪽 신호가
+// 섞이지 않게 해 공격 허니 기여분만 본다.
+function withDeception(distinctSignals) {
+  const features = buildFeatures();
+  features.deception = {
+    distinctSignals,
+    signalCounts: Object.fromEntries(distinctSignals.map((signal) => [signal, 1])),
+    recentUniqueApiPaths: 0,
+    coverageEligible: false,
+  };
+  return features;
+}
+
+test("미끼 경로 적중은 공격 허니에 8점을 더하고 허니 상한은 그대로다", () => {
+  const { ATTACK_HONEY_POINTS, ATTACK_HONEY_MAX_POINTS } = require("../lib/classifier");
+  assert.equal(ATTACK_HONEY_POINTS.decoy_path_hit, 8);
+  assert.equal(ATTACK_HONEY_MAX_POINTS, 35);
+
+  const clean = classify(withDeception([]));
+  const hit = classify(withDeception(["decoy_path_hit"]));
+  assert.equal(hit.honeyBreakdown.attack.contributions.decoy_path_hit, 8);
+  assert.equal(clean.honeyBreakdown.attack.contributions.decoy_path_hit, 0);
+  assert.equal(hit.honeyBreakdown.attack.totalPoints, 8);
+  // 허니가 공격 점수에 더할 수 있는 최대치(0.17)는 바뀌지 않는다.
+  assert.equal(hit.scoreMaximumPoints.attack.attackHoney, 17);
+  assert.equal(Number((hit.attackScore - clean.attackScore).toFixed(3)),
+    Number((8 / 35 * 0.17).toFixed(3)));
+  // 자동화 점수는 움직이지 않는다.
+  assert.equal(hit.automationScore, clean.automationScore);
+});
+
+test("미끼 배점은 policy.json 의 detection.deception.points 로 조정된다", () => {
+  const classifier = require("../lib/classifier");
+  try {
+    classifier.configure({ honey: { attackPoints: { decoy_path_hit: 0 } } });
+    const muted = classify(withDeception(["decoy_path_hit"]));
+    assert.equal(muted.honeyBreakdown.attack.contributions.decoy_path_hit, 0);
+    // 표는 신호 단위로 병합되므로 다른 신호의 배점은 남아 있다.
+    assert.equal(muted.honeyBreakdown.attack.contributions.watermark_reuse, 0);
+    const other = classify(withDeception(["watermark_reuse"]));
+    assert.equal(other.honeyBreakdown.attack.contributions.watermark_reuse, 20);
+  } finally {
+    classifier.configure();
+  }
+  const restored = classify(withDeception(["decoy_path_hit"]));
+  assert.equal(restored.honeyBreakdown.attack.contributions.decoy_path_hit, 8);
+});

@@ -1,6 +1,6 @@
 {
   "package": "defense-accounts-response-overlay",
-  "release": "0.13.0",
+  "release": "0.14.0",
   "policies": [
     "unified-v1",
     "cycle-v2"
@@ -17,9 +17,14 @@
   "agent_contextual_dom_lures": true,
   "agent_operations_menu_lure": true,
   "site_profile_configurable": true,
+  "decoy_namespace_configurable": true,
+  "decoy_catalog": "config/decoy-catalog.json",
   "agent_robots_lure": true,
   "spa_recon_html_lure": true,
-  "lure_metrics": "state/lure-events.sqlite3",
+  "lure_metrics": "state/telemetry.sqlite3",
+  "audit_log": "state/telemetry.sqlite3",
+  "isolation_store": "state/security.sqlite3",
+  "schema_versioning": "schema_migrations(component, version, applied_at)",
   "risk_modes": [
     "medium-response-overlay",
     "high-sealed-isolation"

@@ -5,4 +5,5 @@
 !proxy_core.py
 !transforms.py
 !profiles.py
+!store.py
 !preflight.py

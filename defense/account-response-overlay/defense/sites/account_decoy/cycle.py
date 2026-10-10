@@ -9,6 +9,7 @@ from ...journey import TRACKS
 from ...model import error, links, page
 from ..base import site_for
 from .engagement import Engagement, ROOT, TITLES
+from .facade import AUTH_COOKIE
 from .unified import UnifiedDefense, ARCHIVE, SERVICE
 
 
@@ -184,13 +185,12 @@ class CyclicDefense(UnifiedDefense):
         if path == account_root + '/logout':
             if ctx.method != 'POST':
                 return error(405, 'POST required')
-            from .facade import AUTH_COOKIE
             response = JSONResponse({'status': 'logged_out'})
             response.delete_cookie(AUTH_COOKIE, path='/', secure=ctx.settings.secure_cookie,
                                    httponly=True, samesite='strict')
             response.delete_cookie('token', path='/', secure=ctx.settings.secure_cookie, samesite='strict')
             return response
-        if path == '/api/Challenges':
+        if path == '/api/Challenges' and ctx.settings.site_adapter == 'juice_shop':
             if ctx.method not in {'GET', 'HEAD'}:
                 return error(405, 'GET required')
             return site_for(ctx).fallback(ctx)  # The sole login challenge remains unsolved.

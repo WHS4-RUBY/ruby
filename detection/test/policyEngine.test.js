@@ -9,6 +9,7 @@ const {
   applyDefensePlan,
   applyDefenseRule,
   clampScore,
+  loadDeceptionPoints,
   loadPolicyRules,
   selectRule,
   selectStrategies,
@@ -285,4 +286,82 @@ test("확정 공격 점수 구간 상한이 하한 이하이거나 1.01을 넘�
       assert.throws(() => loadPolicyRules(file), /invalid confirmed attack ceiling/);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// loadDeceptionPoints: 미끼 신호 배점 덮어쓰기 (없으면 코드 기본값)
+// ---------------------------------------------------------------------------
+const KNOWN_SIGNALS = ["trap_trigger", "no_asset_loading", "decoy_path_hit", "watermark_reuse"];
+
+test("detection.deception.points가 없으면 덮어쓸 것이 없다고 보고한다", () => {
+  assert.deepEqual(loadDeceptionPoints(), {});
+  withTempConfig({ defense: { rules: rawRules } }, (file) => {
+    assert.deepEqual(loadDeceptionPoints(file), {});
+  });
+});
+
+test("배점과 상한을 읽어 온다", () => {
+  withTempConfig({
+    defense: { rules: rawRules },
+    detection: { deception: { points: {
+      attack: { decoy_path_hit: 0 }, automation: { trap_trigger: 25 },
+      attackMax: 40, automationMax: 30,
+    } } },
+  }, (file) => {
+    const override = loadDeceptionPoints(file, { knownSignals: KNOWN_SIGNALS });
+    assert.deepEqual(override.attackPoints, { decoy_path_hit: 0 });
+    assert.deepEqual(override.automationPoints, { trap_trigger: 25 });
+    assert.equal(override.attackMaxPoints, 40);
+    assert.equal(override.automationMaxPoints, 30);
+  });
+});
+
+test("일부만 적으면 그 부분만 돌려준다", () => {
+  withTempConfig({
+    defense: { rules: rawRules },
+    detection: { deception: { points: { attack: { decoy_path_hit: 3 } } } },
+  }, (file) => {
+    assert.deepEqual(loadDeceptionPoints(file, { knownSignals: KNOWN_SIGNALS }),
+      { attackPoints: { decoy_path_hit: 3 } });
+  });
+});
+
+test("알 수 없는 신호 이름은 조용히 무시하지 않고 거부한다", () => {
+  withTempConfig({
+    defense: { rules: rawRules },
+    detection: { deception: { points: { attack: { decoy_path_hitt: 8 } } } },
+  }, (file) => {
+    assert.throws(() => loadDeceptionPoints(file, { knownSignals: KNOWN_SIGNALS }),
+      /unknown signal: decoy_path_hitt/);
+  });
+});
+
+test("배점과 상한의 잘못된 값을 거부한다", () => {
+  const cases = [
+    [{ attack: { decoy_path_hit: -1 } }, /nonnegative number/],
+    [{ attack: { decoy_path_hit: "eight" } }, /nonnegative number/],
+    [{ attack: [1, 2] }, /must be an object/],
+    [{ attackMax: 0 }, /positive number/],
+    [{ automationMax: "x" }, /positive number/],
+  ];
+  for (const [points, pattern] of cases) {
+    withTempConfig({ defense: { rules: rawRules }, detection: { deception: { points } } }, (file) => {
+      assert.throws(() => loadDeceptionPoints(file, { knownSignals: KNOWN_SIGNALS }), pattern);
+    });
+  }
+  withTempConfig({ defense: { rules: rawRules }, detection: { deception: { points: [] } } },
+    (file) => {
+      assert.throws(() => loadDeceptionPoints(file), /must be an object/);
+    });
+});
+
+test("loadPolicyRules는 새 최상위 키가 있어도 규칙 배열만 돌려준다", () => {
+  withTempConfig({
+    defense: { rules: rawRules },
+    detection: { deception: { points: { attack: { decoy_path_hit: 1 } } } },
+  }, (file) => {
+    const rules = loadPolicyRules(file);
+    assert.ok(Array.isArray(rules));
+    assert.equal(rules.length, rawRules.length);
+  });
 });

@@ -48,6 +48,60 @@ function loadPolicyRules(configPath = process.env.POLICY_CONFIG_PATH || DEFAULT_
   });
 }
 
+function readPointTable(table, label, knownSignals) {
+  if (table === undefined) return undefined;
+  if (table === null || typeof table !== "object" || Array.isArray(table)) {
+    throw new Error(`deception ${label} points must be an object`);
+  }
+  for (const [signal, points] of Object.entries(table)) {
+    if (knownSignals && !knownSignals.has(signal)) {
+      throw new Error(`deception ${label} points name an unknown signal: ${signal}`);
+    }
+    const numeric = Number(points);
+    if (!Number.isFinite(numeric) || numeric < 0) {
+      throw new Error(`deception ${label} points for ${signal} must be a nonnegative number`);
+    }
+  }
+  return table;
+}
+
+function readMaximum(value, label) {
+  if (value === undefined) return undefined;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    throw new Error(`deception ${label} maximum must be a positive number`);
+  }
+  return numeric;
+}
+
+/**
+ * 미끼 신호 배점 덮어쓰기. policy.json 에 detection.deception.points 가 없으면
+ * 빈 객체를 돌려주고 classifier 는 코드 기본값을 그대로 쓴다. knownSignals 를 주면
+ * 오타를 조용히 무시하지 않고 거부한다.
+ */
+function loadDeceptionPoints(
+  configPath = process.env.POLICY_CONFIG_PATH || DEFAULT_CONFIG_PATH,
+  { knownSignals } = {}
+) {
+  const resolvedPath = path.resolve(configPath);
+  const config = JSON.parse(fs.readFileSync(resolvedPath, "utf8"));
+  const points = config?.detection?.deception?.points;
+  if (points === undefined) return {};
+  if (points === null || typeof points !== "object" || Array.isArray(points)) {
+    throw new Error(`detection.deception.points at ${resolvedPath} must be an object`);
+  }
+  const known = knownSignals ? new Set(knownSignals) : null;
+  const override = {
+    automationPoints: readPointTable(points.automation, "automation", known),
+    attackPoints: readPointTable(points.attack, "attack", known),
+    automationMaxPoints: readMaximum(points.automationMax, "automation"),
+    attackMaxPoints: readMaximum(points.attackMax, "attack"),
+  };
+  return Object.fromEntries(
+    Object.entries(override).filter(([, value]) => value !== undefined)
+  );
+}
+
 /**
  * 규칙은 위에서부터 처음 맞는 하나만 고른다. 단계(tier)는 "얼마나 확실한 근거인가"를
  * 나타내고, 각 단계에 어떤 전략을 붙일지는 policy.json에서만 정한다. 새 방어 전략은
@@ -87,6 +141,7 @@ module.exports = {
   applyDefensePlan,
   applyDefenseRule,
   clampScore,
+  loadDeceptionPoints,
   loadPolicyRules,
   selectRule,
   selectStrategies,

@@ -85,25 +85,32 @@ function extractToken(authorizationHeader, cookieHeader) {
 // 라우트별 "요청 대상 리소스가 내 것이어야 한다" 규칙
 // ---------------------------------------------------------------------------
 
+// 정규화 경로 템플릿 하나에서 URL 추출용 정규식을 만든다. 예전에는 같은 라우트를
+// 정규화 경로와 정규식으로 두 번 적어서 한쪽만 고치면 조용히 어긋났다.
+// 앵커를 붙이지 않는다 — 쿼리스트링이 붙은 원본 URL 에서도 찾아야 한다(기존 동작).
+function numericIdFrom(normalizedPath) {
+  const pattern = new RegExp(
+    normalizedPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(':id', '(\\d+)')
+  );
+  return (url) => {
+    const found = pattern.exec(String(url || ''));
+    return found ? Number(found[1]) : null;
+  };
+}
+
+function identityRoute(tag, normalizedPath, claimField) {
+  return {
+    tag,
+    normalizedPath,
+    test: (method, candidatePath) => candidatePath === normalizedPath,
+    extractRequestedId: numericIdFrom(normalizedPath),
+    claimField,
+  };
+}
+
 const IDENTITY_ROUTE_RULES = [
-  {
-    tag: 'identity-mismatch:basket',
-    test: (method, normalizedPath) => normalizedPath === '/rest/basket/:id',
-    extractRequestedId: (url) => {
-      const m = /\/rest\/basket\/(\d+)/.exec(url);
-      return m ? Number(m[1]) : null;
-    },
-    claimField: 'bid',
-  },
-  {
-    tag: 'identity-mismatch:user',
-    test: (method, normalizedPath) => normalizedPath === '/api/Users/:id',
-    extractRequestedId: (url) => {
-      const m = /\/api\/Users\/(\d+)/.exec(url);
-      return m ? Number(m[1]) : null;
-    },
-    claimField: 'id',
-  },
+  identityRoute('identity-mismatch:basket', '/rest/basket/:id', 'bid'),
+  identityRoute('identity-mismatch:user', '/api/Users/:id', 'id'),
 ];
 
 /**
@@ -113,15 +120,22 @@ const IDENTITY_BODY_RULES = [
   {
     tag: 'identity-mismatch:feedback-userid',
     test: (method, normalizedPath) =>
-      routeMatches(method, normalizedPath, 'POST', '/api/Feedbacks') ||
-      routeMatches(method, normalizedPath, 'POST', '/api/Feedbacks/'),
+      routeMatches(method, normalizedPath, 'POST', '/api/Feedbacks'),
     field: 'UserId',
     claimField: 'id',
   },
 ];
 
+// 뒤 슬래시는 같은 라우트다. 예전에는 '/api/Feedbacks' 와 '/api/Feedbacks/' 를
+// 규칙마다 따로 나열했다.
+function withoutTrailingSlash(path) {
+  const value = String(path || '');
+  return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
 function routeMatches(method, normalizedPath, expectedMethod, expectedPath) {
-  return String(method).toUpperCase() === expectedMethod && normalizedPath === expectedPath;
+  return String(method).toUpperCase() === expectedMethod &&
+    withoutTrailingSlash(normalizedPath) === withoutTrailingSlash(expectedPath);
 }
 
 /**

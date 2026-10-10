@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 # The administrative dashboard is a separate application and is deliberately
 # absent from the production sidecar image.
-COPY Defense_proxy.py proxy_core.py transforms.py profiles.py preflight.py ./
+COPY Defense_proxy.py proxy_core.py transforms.py profiles.py preflight.py store.py ./
 USER 10001:10001
 
 EXPOSE 3012

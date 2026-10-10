@@ -6,7 +6,12 @@ const net = require("net");
 const os = require("os");
 const path = require("path");
 
+// 경계값은 shared/target-selection.json 의 선언과 같아야 한다 —
+// defense/tests/test_target_selection_contract.js 가 아니라 Python 쪽 계약 테스트가
+// 두 구현을 함께 검증한다.
 const TARGET_ID = /^[a-z][a-z0-9-]{0,31}$/;
+const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const MAX_SELECTION_BYTES = 8192;
 const LABELS = {
   legacy: "기본 대상",
   "ruby-shop": "RUBY Market",
@@ -44,7 +49,7 @@ function parseTargetChoices(raw, fallbackUrl) {
 function validateSelection(value, choices) {
   if (!value || typeof value !== "object" || Array.isArray(value) ||
       !choices.has(value.targetId) ||
-      typeof value.runId !== "string" || !/^[a-zA-Z0-9:-]{1,100}$/.test(value.runId) ||
+      typeof value.runId !== "string" || !CANONICAL_UUID.test(value.runId) ||
       typeof value.changedAt !== "string" || !Number.isFinite(Date.parse(value.changedAt))) {
     throw new Error("invalid target selection state");
   }
@@ -80,7 +85,12 @@ class TargetSelectionStore {
   }
 
   read() {
-    return validateSelection(JSON.parse(fs.readFileSync(this.filePath, "utf8")), this.choices);
+    // Defense 쪽과 같은 크기 상한. 상한이 없으면 공유 볼륨의 거대한 파일을 그대로 파싱한다.
+    const raw = fs.readFileSync(this.filePath);
+    if (raw.length > MAX_SELECTION_BYTES) {
+      throw new Error("invalid target selection state");
+    }
+    return validateSelection(JSON.parse(raw.toString("utf8")), this.choices);
   }
 
   _write(selection) {
