@@ -19,6 +19,10 @@ from .windows import ReadMemory, feedback_state, find_text, pack_context, serial
 RENDER_WAIT_MS = 3000
 
 
+def utf16_units(text):
+    return len(text.encode('utf-16-le', 'surrogatepass')) // 2
+
+
 def session_summary(path):
     """Counts only: how many cookies the prepared session holds, how many have expired, local storage origins."""
     state = json.loads(Path(path).read_text(encoding='utf-8-sig'))
@@ -652,17 +656,18 @@ class Observer:
                 if item[key]['status'] == '관찰됨':
                     captured = item[key]['value']
                     item[key]['value'] = captured['value']
+                    # JS lengths count UTF-16 units; compare in the same unit so one emoji is not a truncation.
                     item[key]['original_size'] = captured['total']
-                    item[key]['capture_truncated'] = len(captured['value']) < captured['total']
+                    item[key]['capture_truncated'] = utf16_units(captured['value']) < captured['total']
             if isinstance(item['screen'].get('value'), str):
                 item['screen_sha256'] = ref(item['screen']['value'])
             for key in ('screen', 'source'):
                 value = item[key]['value']
                 if isinstance(value, str):
-                    original = item[key].get('original_size', len(value))
+                    original = item[key].get('original_size', utf16_units(value))
                     sample = self.store_body(value, item['route'], key)
                     item[key].update(sample['body'])
-                    if original > len(value):
+                    if original > utf16_units(value):
                         item[key].update(original_size=original, capture_truncated=True, truncated=True, capture_error='retention_limit')
                     item[key]['ref'] = sample['ref']
             self.samples.append(item)
