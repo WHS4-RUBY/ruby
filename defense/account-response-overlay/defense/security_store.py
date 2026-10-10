@@ -14,6 +14,8 @@ import sqlite3
 import stat
 import uuid
 
+from . import store
+
 
 SCHEMA_VERSION = 1
 MAX_NONCES = 8192
@@ -68,15 +70,16 @@ def _file_identity(path: Path) -> tuple[int, int]:
 
 
 def _connect_existing(path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(path.as_uri() + '?mode=rw', uri=True,
-                                 timeout=5, isolation_level=None)
+    """Open an existing store only. create=False keeps this fail-closed: a missing or
+    unreadable store is an error, never a silently recreated empty one. This store keeps
+    its own durability policy (synchronous=FULL, no WAL, 5s) and its own file — it is not
+    merged with the audit or lure telemetry rings, whose writes would otherwise contend
+    for the lock that the isolation decision needs."""
     try:
-        connection.execute('PRAGMA synchronous=FULL')
-        connection.execute('PRAGMA busy_timeout=5000')
-    except sqlite3.Error:
-        connection.close()
-        raise
-    return connection
+        return store.connect(path, create=False, timeout=5, journal_mode=None,
+                             synchronous='FULL')
+    except store.StoreError as exc:
+        raise SecurityStoreError('security store is missing or unreadable') from exc
 
 
 def initialize_security_store(path: str) -> None:

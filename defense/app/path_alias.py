@@ -25,11 +25,14 @@ import re
 import secrets
 import sqlite3
 import sys
+import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from urllib.parse import parse_qsl, quote, unquote, unquote_plus, urlsplit, urlunsplit
+
+from . import store
 
 LOGGER_NAME = "ruby.defense.path_alias"
 DEFAULT_PREFIXES = ("/rest/", "/api/")
@@ -530,8 +533,8 @@ def _canonical(path: str) -> str:
 
 
 # Portable DDL: SQLite maps BIGINT/DOUBLE PRECISION to INTEGER/REAL affinity.
-# v4 tables: v3's path_alias_clients/path_alias_client_rows are no longer read.
-_SCHEMA = (
+_COMPONENT = "path_alias"
+_V1 = (
     """CREATE TABLE IF NOT EXISTS path_alias_client_state (
         app_id TEXT NOT NULL, client_id TEXT NOT NULL,
         generation BIGINT NOT NULL, issued_at DOUBLE PRECISION NOT NULL,
@@ -553,33 +556,44 @@ _SCHEMA = (
     """CREATE INDEX IF NOT EXISTS path_alias_client_state_pending
         ON path_alias_client_state(app_id, confirmed, created_at)""",
 )
+# v3 가 쓰던 두 테이블은 v4 부터 아무도 읽지 않는데 기존 볼륨에 그대로 남아 있었다.
+_V2 = (
+    "DROP TABLE IF EXISTS path_alias_client_rows",
+    "DROP TABLE IF EXISTS path_alias_clients",
+)
+_MIGRATIONS = ((1, _V1), (2, _V2))
 
 
 class _SQLiteStore:
     """One database file shared by the workers of one host; writes take the database-wide lock."""
 
+    # WAL + NORMAL survives process crashes; only an OS crash can lose the last commits,
+    # which costs users a page reload, not a security property.
+    _OPEN = dict(timeout=10.0, journal_mode="WAL", synchronous="NORMAL",
+                 row_factory=sqlite3.Row)
+
     def __init__(self, path: str):
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.path = path
         with self.connect() as db:
-            db.execute("PRAGMA journal_mode=WAL")
-            self.begin_write(db)
-            try:
-                for statement in _SCHEMA:
-                    db.execute(statement)
-                db.commit()
-            except Exception:
-                db.rollback()
-                raise
+            self._adopt_existing(db)
+            store.apply_migrations(db, _COMPONENT, _MIGRATIONS)
+
+    @staticmethod
+    def _adopt_existing(db) -> None:
+        """Record v1 for a volume written before migrations existed, without rerunning its DDL."""
+        if store.applied_versions(db, _COMPONENT):
+            return
+        existing = db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                              ("path_alias_alias_rows",)).fetchone()
+        if existing is None:
+            return
+        with store.transaction(db, write=True):
+            db.execute(f"INSERT INTO {store.MIGRATIONS_TABLE}(component,version,applied_at) "
+                       "VALUES (?,?,?)", (_COMPONENT, 1, time.time()))
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        with closing(sqlite3.connect(self.path, timeout=10.0, isolation_level=None)) as db:
-            db.row_factory = sqlite3.Row
-            db.execute("PRAGMA busy_timeout=10000")
-            # WAL + NORMAL survives process crashes; only an OS crash can lose the last commits,
-            # which costs users a page reload, not a security property.
-            db.execute("PRAGMA synchronous=NORMAL")
+        with closing(store.connect(self.path, **self._OPEN)) as db:
             yield db
 
     def begin_write(self, db) -> None:

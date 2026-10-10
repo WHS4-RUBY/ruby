@@ -20,6 +20,7 @@ import stat
 import time
 from urllib.parse import urlsplit
 
+from . import store
 from .target_selection import _TARGET_ID, _validate_url
 
 
@@ -298,7 +299,11 @@ class _RouteTransaction:
         if self.store._file_identity() != self.store._identity:
             raise OverlayRouteError("overlay route store was replaced")
         try:
-            self.conn = sqlite3.connect(self.store.path, timeout=2, isolation_level=None)
+            # 이 저장소는 자기 파일을 유지한다(통합하지 않는다). 요청마다 쓰는
+            # path-alias 와 파일을 공유하면 그쪽 쓰기 락이 이 fail-closed 경로를
+            # SQLITE_BUSY 로 떨어뜨리고, main.py 는 그걸 503 으로 돌려준다.
+            self.conn = store.connect(self.store.path, timeout=2, journal_mode=None,
+                                      synchronous=None)
             self.conn.execute("BEGIN IMMEDIATE" if self.write else "BEGIN")
             return self.conn
         except sqlite3.Error as exc:
