@@ -9,6 +9,7 @@ import importlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import sys
 import unittest
 
@@ -171,6 +172,52 @@ class DecoyNamespaceIsDeclaredByTheProfile(unittest.TestCase):
             with self.subTest(case=label):
                 with self.assertRaises(ValueError):
                     site_profile.SiteProfile(**{**fields, **override})
+
+
+class StageAndEntryClassification(unittest.TestCase):
+    """교정된 분류 동작. 교정 전에는 접두어만 맞아도 미끼 패밀리로 기록됐다."""
+
+    def test_a_family_name_must_end_on_a_segment_boundary(self):
+        for path, expected in ((decoy_paths.RECOVERY, 'recovery:accounts'),
+                               (decoy_paths.ARCHIVE, 'archive'),
+                               ('/ops/recoveryXYZ', 'decoy'),
+                               ('/ops/archiveZ/1', 'decoy')):
+            with self.subTest(path=path):
+                self.assertEqual(expected, decoy_paths.decoy_stage(path))
+
+    def test_the_legacy_root_also_needs_a_segment_boundary(self):
+        self.assertEqual('ftp', decoy_paths.decoy_stage(decoy_paths.LEGACY))
+        self.assertEqual('ftp', decoy_paths.decoy_stage(decoy_paths.LEGACY + '/old'))
+        for near_miss in (decoy_paths.LEGACY + 'x', decoy_paths.LEGACY + '.bak'):
+            with self.subTest(path=near_miss):
+                self.assertEqual('decoy', decoy_paths.decoy_stage(near_miss))
+
+    def test_a_record_step_keeps_its_number_and_stays_a_step(self):
+        record = decoy_paths.RECOVERY + '/1/' + 'a' * 24
+        self.assertEqual('recovery:accounts:1', decoy_paths.decoy_stage(record))
+        self.assertFalse(decoy_paths.is_entry(record))
+
+    def test_only_ascii_digits_become_a_step_number(self):
+        # 비-ASCII 숫자가 통과하면 LureMetrics.emit 의 stage 검증에서 ValueError 가 된다.
+        self.assertEqual('recovery:accounts',
+                         decoy_paths.decoy_stage(decoy_paths.RECOVERY + '/\u0661'))
+
+    def test_every_stage_label_is_emittable_as_lure_telemetry(self):
+        emit_pattern = re.compile(r'[a-zA-Z0-9_:/.-]*')
+        paths = [*decoy_paths.ENTRIES, *decoy_paths.OVERLAY_PATHS.values(),
+                 decoy_paths.RECOVERY + '/1', decoy_paths.RECOVERY + '/\u0661',
+                 '/ops/recoveryXYZ', decoy_paths.LEGACY + 'x']
+        for path in paths:
+            with self.subTest(path=path):
+                stage = decoy_paths.decoy_stage(path)
+                self.assertLessEqual(len(stage), 80)
+                self.assertTrue(emit_pattern.fullmatch(stage), stage)
+
+    def test_a_trailing_slash_does_not_turn_an_entry_into_a_step(self):
+        for entry in decoy_paths.ENTRIES:
+            with self.subTest(entry=entry):
+                self.assertTrue(decoy_paths.is_entry(entry))
+                self.assertTrue(decoy_paths.is_entry(entry + '/'))
 
 
 class PathPredicatePrecondition(unittest.TestCase):

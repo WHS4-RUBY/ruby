@@ -28,6 +28,7 @@
   },
   "overlayEntries": ["/ftp", "/ops/recovery/accounts", "/ops/service/manifest"],
   "sessionAliasRoot": "/ops/service/session",
+  "stageRoot": "/ops",
   "stageFamilies": ["recovery", "archive", "service"],
   "clueHeaders": {
     "recovery": { "header": "X-Recovery-API", "title": "Account recovery records", "pathKey": "recovery" },

@@ -30,6 +30,7 @@ OVERLAY_ASSETS: tuple[str, ...] = tuple(_OVERLAY['assets'])
 OVERLAY_PATHS: dict[str, str] = dict(CATALOG['overlayPaths'])
 ENTRIES: tuple[str, ...] = tuple(CATALOG['overlayEntries'])
 SESSION_ALIAS_ROOT: str = CATALOG['sessionAliasRoot']
+STAGE_ROOT: str = CATALOG['stageRoot']
 STAGE_FAMILIES: tuple[str, ...] = tuple(CATALOG['stageFamilies'])
 IDENTITY: dict[str, str] = dict(CATALOG['identity'])
 DECOY_COOKIES: dict[str, str] = dict(CATALOG['decoyCookies'])
@@ -43,9 +44,7 @@ SERVICE = OVERLAY_PATHS['service']
 OPERATIONS_CSS = OVERLAY_PATHS['operationsCss']
 LURE_SCRIPT = OVERLAY_PATHS['lureScript']
 
-# The decoy entry set historically carried the trailing-slash variant of /ftp only.
-# Generalizing that is a behavior change and is handled in its own commit.
-_ENTRY_EXACT = frozenset(ENTRIES) | {LEGACY + '/'}
+_ENTRY_EXACT = frozenset(ENTRIES)
 
 # Verbatim in overlay.py and high_risk.py before this module existed.
 HOP_HEADERS = frozenset({'connection', 'proxy-connection', 'keep-alive', 'proxy-authenticate',
@@ -53,7 +52,10 @@ HOP_HEADERS = frozenset({'connection', 'proxy-connection', 'keep-alive', 'proxy-
                          'upgrade', 'host'})
 
 _CANONICAL = re.compile(r'/[A-Za-z0-9/_.-]*\Z')
-_STAGE = re.compile(r'^/ops/(' + '|'.join(STAGE_FAMILIES) + r')(?:/([^/]+))?(?:/([^/]+))?')
+_STEP_DIGITS = re.compile(r'[0-9]+')
+# 패밀리 뒤에 세그먼트 경계를 요구한다. 없으면 /ops/recoveryXYZ 가 recovery 로 잡힌다.
+_STAGE = re.compile(re.escape(STAGE_ROOT) + r'/(' + '|'.join(map(re.escape, STAGE_FAMILIES))
+                    + r')(?=/|\Z)(?:/([^/]+))?(?:/([^/]+))?')
 
 
 def is_canonical_path(path: str) -> bool:
@@ -74,7 +76,8 @@ def is_overlay_decoy(path: str) -> bool:
 
 def is_entry(path: str) -> bool:
     """A landing page of the decoy rather than a step inside one."""
-    return path in _ENTRY_EXACT
+    bare = path[:-1] if len(path) > 1 and path.endswith('/') else path
+    return bare in _ENTRY_EXACT
 
 
 def session_aliases(login_path: str) -> dict[str, str]:
@@ -113,10 +116,10 @@ def decoy_stage(path: str) -> str:
     match = _STAGE.match(path)
     if match:
         family, branch, step = match.groups()
-        if branch == 'accounts' and step and step.isdecimal():
+        if branch == 'accounts' and step and _STEP_DIGITS.fullmatch(step):
             return f'{family}:accounts:{step[:9]}'
         return f'{family}:{branch}' if branch and re.fullmatch(r'[a-zA-Z_-]+', branch) else family
-    return 'ftp' if path.startswith(LEGACY) else 'decoy'
+    return 'ftp' if prefixed(path, LEGACY) else 'decoy'
 
 
 def normalize_decoy_key(path: str) -> str:
