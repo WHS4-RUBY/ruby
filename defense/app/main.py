@@ -1181,6 +1181,7 @@ async def catch_all(request: Request, full_path: str):
                     keep_server=bool(decoy_url))
                 log_alias(alias_decision, upstream.status_code, rewrites,
                           skipped=skipped or body_note, would_rewrite=counted)
+
             if gate is not None and gate.issue_cookie and upstream.status_code < 500:
                 response.raw_headers.append((
                     b"set-cookie", token_gate.build_set_cookie(TOKEN_GATE, time.time()).encode("latin-1")
