@@ -857,8 +857,17 @@ async def semantic_merge(model, catalog, runs, deadline, state=None, checkpoint=
                 for key in batch:
                     try:
                         row = response[key]
-                        row = ({'agreement': row.get('agreement'), 'answer': row.get('answer', row)}
-                               if isinstance(row, dict) else {'agreement': None, 'answer': row})
+                        if isinstance(row, dict) and 'answer' in row:
+                            # Keys the model put next to the answer (findings, conflicts, notes) stay with it.
+                            extra = {name: value for name, value in row.items() if name not in ('agreement', 'answer')}
+                            answer = row['answer']
+                            if extra:
+                                answer = ({**extra, **answer} if isinstance(answer, dict)
+                                          else {'answer': answer, **extra})
+                            row = {'agreement': row.get('agreement'), 'answer': answer}
+                        else:
+                            row = ({'agreement': row.get('agreement'), 'answer': row}
+                                   if isinstance(row, dict) else {'agreement': None, 'answer': row})
                         valid_rows[key] = row
                         model.failures.clear(failure_prefix + key)
                     except Exception as error:
