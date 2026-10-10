@@ -514,28 +514,33 @@ class Observer:
             chunk = base64.b64decode(encoded[:((left + 2) // 3) * 4]) if left else b''
             item['raw'].extend(chunk[:left])
 
-        async def begin(event):
+        def response_received(event):
             key = prefix + event['requestId']
             if self.network_stopped() or not self.in_scope(event['response']['url']):
                 return
             if key in self.active_bodies:
                 finish({'requestId': event['requestId'], 'force': True})
-            self.active_bodies[key] = {'route': ref(event['response']['url']), 'raw': bytearray(), 'seen': 0,
-                                       'started': time.monotonic(), 'buffered': False}
+            # Created before any await, so a loadingFinished that arrives before begin() runs still finds it.
+            item = {'route': ref(event['response']['url']), 'raw': bytearray(), 'seen': 0,
+                    'started': time.monotonic(), 'buffered': False}
+            self.active_bodies[key] = item
+            self.spawn(begin(event, item))
+
+        async def begin(event, item):
+            key = prefix + event['requestId']
             try:
                 data = await asyncio.wait_for(session.send('Network.streamResourceContent',
                          {'requestId': event['requestId']}), timeout=self.request_timeout())
-                retain(key, data.get('bufferedData'))
-                item = self.active_bodies.get(key)
-                if item is not None:
+                if self.active_bodies.get(key) is item:
+                    retain(key, data.get('bufferedData'))
                     item['buffered'] = True
                     if 'finished' in item:
                         finish(item['finished'])
             except Exception as error:
                 # Streaming could not start (for example, loading already finished). Keep the item unstreamed so
                 # the finished body goes through the bounded getResponseBody path, and keep why streaming failed.
-                item = self.active_bodies.get(key)
-                if item is not None:
+                # A newer response with the same id may have replaced this item; that one is left alone.
+                if self.active_bodies.get(key) is item:
                     item['buffered'] = True
                     item['stream_error'] = (type(error).__name__ + ': ' + str(error)).splitlines()[0]
                     if 'finished' in item:
@@ -608,7 +613,7 @@ class Observer:
                                     error='; '.join(filter(None, [event.get('errorText'),
                                                                   'stream_unavailable: ' + item['stream_error']])))
             self.response_bodies.append(body)
-        session.on('Network.responseReceived', lambda event: self.spawn(begin(event)))
+        session.on('Network.responseReceived', response_received)
         session.on('Network.dataReceived', received)
         session.on('Network.loadingFinished', finish)
         session.on('Network.loadingFailed', finish)
