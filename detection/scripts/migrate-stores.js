@@ -19,6 +19,10 @@ const { COMPONENT: CANDIDATE_COMPONENT, MIGRATIONS: CANDIDATE_MIGRATIONS } =
   require("../lib/xssCandidateStoreSqlite");
 const { CONFIRMED_TABLE, REFLECTED_TABLE, evidenceMigrations } =
   require("../lib/xssEvidenceStore");
+const { COMPONENT: LEARNING_COMPONENT, MIGRATIONS: LEARNING_MIGRATIONS, KINDS: LEARNING_KINDS } =
+  require("../lib/schemaLearning");
+
+const LEARNING_FILE = "schema-learning.json";
 
 const SOURCES = [
   { file: "xss-candidates.db", from: "cand", to: "cand",
@@ -62,6 +66,40 @@ function copyRows(target, source, spec) {
   return moved;
 }
 
+/** schema-learning.json 의 세 맵을 (kind, route, payload) 행으로 옮긴다. */
+function importLearning(target, filePath) {
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (error) {
+    console.warn(`${LEARNING_FILE} 를 읽지 못해 건너뛴다: ${error.message}`);
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") {
+    console.warn(`${LEARNING_FILE} 모양이 예상과 달라 건너뛴다`);
+    return null;
+  }
+  store.applyMigrations(target, LEARNING_COMPONENT, LEARNING_MIGRATIONS);
+  const insert = target.prepare(
+    "INSERT OR IGNORE INTO schema_learning(kind,route,payload) VALUES(?,?,?)");
+  let moved = 0;
+  target.exec("BEGIN IMMEDIATE");
+  try {
+    for (const kind of LEARNING_KINDS) {
+      const bucket = parsed[kind];
+      if (!bucket || typeof bucket !== "object") continue;
+      for (const [route, entry] of Object.entries(bucket)) {
+        moved += insert.run(kind, route, JSON.stringify(entry)).changes;
+      }
+    }
+    target.exec("COMMIT");
+  } catch (error) {
+    try { target.exec("ROLLBACK"); } catch (_) { /* 이미 롤백됨 */ }
+    throw error;
+  }
+  return moved;
+}
+
 function retire(filePath) {
   for (const suffix of ["", "-wal", "-shm"]) {
     const candidate = filePath + suffix;
@@ -80,13 +118,18 @@ function main(argv) {
     || path.join(dataDir, "detection.sqlite3");
 
   const pending = SOURCES.filter((spec) => fs.existsSync(path.join(dataDir, spec.file)));
-  if (!pending.length) {
+  const learningPath = process.env.SCHEMA_LEARNING_FILE || path.join(dataDir, LEARNING_FILE);
+  const learningPending = fs.existsSync(learningPath);
+  if (!pending.length && !learningPending) {
     console.log(`옮길 구 저장소가 없다 (${dataDir}). 통합 DB 는 ${dbPath} 에서 새로 시작한다.`);
     return 0;
   }
   if (options.dryRun) {
     for (const spec of pending) {
       console.log(`[dry-run] ${spec.file} (${spec.from}) -> ${path.basename(dbPath)} (${spec.to})`);
+    }
+    if (learningPending) {
+      console.log(`[dry-run] ${path.basename(learningPath)} -> ${path.basename(dbPath)} (schema_learning)`);
     }
     return 0;
   }
@@ -105,6 +148,13 @@ function main(argv) {
         source.close();
       }
       retire(sourcePath);
+    }
+    if (learningPending) {
+      const moved = importLearning(target, learningPath);
+      if (moved !== null) {
+        console.log(`${path.basename(learningPath)} -> schema_learning: ${moved}행`);
+        retire(learningPath);
+      }
     }
   } finally {
     target.close();

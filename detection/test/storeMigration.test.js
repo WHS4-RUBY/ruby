@@ -135,3 +135,83 @@ test("dry-run 은 파일을 건드리지 않는다", () => {
   assert.equal(fs.existsSync(path.join(dir, "xss-candidates.db")), true);
   assert.equal(fs.existsSync(path.join(dir, "detection.sqlite3")), false);
 });
+
+test("schema-learning.json 의 세 맵이 schema_learning 테이블로 옮겨진다", () => {
+  const dir = workDir();
+  const unified = path.join(dir, "detection.sqlite3");
+  fs.writeFileSync(path.join(dir, "schema-learning.json"), JSON.stringify({
+    version: 1,
+    massAssignment: {
+      "POST /api/Users": { fields: { email: { count: 3, firstSeen: 1 } }, totalObservations: 3,
+        status: "approved", approvedFields: ["email"] },
+    },
+    roleGated: { "GET /metrics": { roleStats: {}, status: "learning", approvedRequiredRoles: null } },
+    identityCandidates: { "GET /api/Baskets": { sampleSize: 12, matches: 12, status: "learning" } },
+  }, null, 2));
+
+  assert.equal(migrate(["--data-dir", dir, "--db", unified]), 0);
+  assert.equal(fs.existsSync(path.join(dir, "schema-learning.json")), false);
+  assert.equal(fs.existsSync(path.join(dir, "schema-learning.json.migrated")), true);
+
+  const db = store.open(unified);
+  try {
+    const rows = db.prepare("SELECT kind,route FROM schema_learning ORDER BY kind,route").all();
+    assert.deepEqual(rows.map((row) => `${row.kind} ${row.route}`), [
+      "identityCandidates GET /api/Baskets",
+      "massAssignment POST /api/Users",
+      "roleGated GET /metrics",
+    ]);
+    const payload = JSON.parse(db.prepare(
+      "SELECT payload FROM schema_learning WHERE kind=? AND route=?")
+      .get("massAssignment", "POST /api/Users").payload);
+    assert.deepEqual(payload.approvedFields, ["email"]);
+  } finally {
+    db.close();
+  }
+
+  // 멱등
+  assert.equal(migrate(["--data-dir", dir, "--db", unified]), 0);
+});
+
+test("손상된 schema-learning.json 은 건너뛰고 나머지 이전을 막지 않는다", () => {
+  const dir = workDir();
+  const unified = path.join(dir, "detection.sqlite3");
+  seedLegacyCandidates(path.join(dir, "xss-candidates.db"), ["k1"]);
+  fs.writeFileSync(path.join(dir, "schema-learning.json"), "{ not json");
+
+  assert.equal(migrate(["--data-dir", dir, "--db", unified]), 0);
+  assert.equal(counts(unified).cand, 1, "후보 이전은 그대로 진행된다");
+  assert.equal(fs.existsSync(path.join(dir, "schema-learning.json")), true,
+    "읽지 못한 파일은 사람이 보도록 그대로 남긴다");
+});
+
+test("학습 상태가 프로세스 재시작을 넘어 남는다", () => {
+  const dir = workDir();
+  const dbPath = path.join(dir, "detection.sqlite3");
+  const previous = process.env.DETECTION_STORE_DB;
+  process.env.DETECTION_STORE_DB = dbPath;
+  try {
+    delete require.cache[require.resolve("../lib/schemaLearning")];
+    const first = require("../lib/schemaLearning");
+    first.resetAll();
+    for (let n = 0; n < 3; n += 1) {
+      first.observeRoleAccess({ method: "GET", normalizedPath: "/metrics", statusCode: 200,
+        role: "admin", hasHardcodedRule: false });
+    }
+    first.observeRoleAccess({ method: "GET", normalizedPath: "/metrics", statusCode: 403,
+      role: "customer", hasHardcodedRule: false });
+    first.flush();                  // 2초 디바운스를 기다리지 않고 즉시 저장
+
+    delete require.cache[require.resolve("../lib/schemaLearning")];
+    const reloaded = require("../lib/schemaLearning");
+    const candidate = reloaded.listCandidates().roleGated
+      .find((item) => item.key === "GET /metrics");
+    assert.ok(candidate, "재로드 후에도 학습 후보가 남아 있다");
+    assert.deepEqual(candidate.roleStats.admin, { success: 3, denied: 0 });
+    assert.deepEqual(candidate.roleStats.customer, { success: 0, denied: 1 });
+  } finally {
+    delete require.cache[require.resolve("../lib/schemaLearning")];
+    if (previous === undefined) delete process.env.DETECTION_STORE_DB;
+    else process.env.DETECTION_STORE_DB = previous;
+  }
+});

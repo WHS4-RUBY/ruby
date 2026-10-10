@@ -5,7 +5,8 @@ const os = require("node:os");
 const path = require("node:path");
 
 const schemaDir = fs.mkdtempSync(path.join(os.tmpdir(), "schema-learning-test-"));
-process.env.SCHEMA_LEARNING_FILE = path.join(schemaDir, "schema-learning.json");
+// 학습 상태는 Detection 통합 DB 에 들어간다. 테스트마다 별도 파일을 쓴다.
+process.env.DETECTION_STORE_DB = path.join(schemaDir, "detection.sqlite3");
 
 const {
   analyzeBusinessLogic,

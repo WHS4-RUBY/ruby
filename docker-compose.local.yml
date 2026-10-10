@@ -18,7 +18,7 @@ services:
       BLOCK_MODE: "false"
       DETECTION_LEVEL: ${DETECTION_LEVEL:-medium}
       CSRF_ALLOWED_ORIGINS: ${CSRF_ALLOWED_ORIGINS:-http://localhost:8081,http://127.0.0.1:8081}
-      SCHEMA_LEARNING_FILE: /app/data/schema-learning.json
+      DETECTION_STORE_DB: ${DETECTION_STORE_DB:-/app/data/detection.sqlite3}
       CRS_ENABLED: "true"
       CRS_MODE: ${CRS_MODE:-enforce}
       CRS_BLOCK_THRESHOLD: ${CRS_BLOCK_THRESHOLD:-5}
