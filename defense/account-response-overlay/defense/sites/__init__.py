@@ -15,7 +15,7 @@ class ProfileSite:
     bridge_version: str = '2.4.0'
 
     def fallback(self, ctx):
-        from .juice_shop.facade import fallback
+        from .account_decoy.facade import fallback
         return fallback(ctx)
 
 

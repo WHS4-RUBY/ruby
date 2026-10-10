@@ -79,9 +79,9 @@ class Boundary:
 
 def build_hooks(settings, site):
     if settings.modules == ('unified',):
-        from .sites.juice_shop.unified import UnifiedDefense
+        from .sites.account_decoy.unified import UnifiedDefense
         return [UnifiedDefense()]
-    from .sites.juice_shop.cycle import CyclicDefense
+    from .sites.account_decoy.cycle import CyclicDefense
     return [CyclicDefense()]
 
 
