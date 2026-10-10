@@ -144,8 +144,10 @@ def cookie_metadata(headers):
 class Observer:
     def __init__(self, origin, model, budget, credentials=None, failure_limit=8, axis_questions=(), checkpoint=None,
                  request_seconds=30, body_bytes=2000000, retained_bytes=32000000, stream_messages=1000,
-                 session_file=None):
+                 session_file=None, extra_origins=()):
         self.origin, self.model, self.budget = origin, model, budget
+        # Operator-approved origins of the same web (CDN, api. host); everything else stays out of scope.
+        self.extra_authorities = {authority(item) for item in extra_origins}
         self.credentials = credentials or {}
         self.samples, self.responses, self.attempts, self.unopened, self.decisions = [], [], [], [], []
         self.response_bodies, self.form_attempts, self.realtime, self.feedback = [], [], [], []
@@ -177,7 +179,7 @@ class Observer:
         part = urlsplit(url)
         scheme = {'ws': 'http', 'wss': 'https'}.get(part.scheme, part.scheme)
         return (part.username is None and part.password is None and
-                authority(part._replace(scheme=scheme).geturl()) == authority(self.origin))
+                authority(part._replace(scheme=scheme).geturl()) in {authority(self.origin), *self.extra_authorities})
 
     def network_stopped(self):
         return self.human_gate or self.model_done or self.model.stopped() or self.budget.remaining() <= 0
@@ -467,6 +469,12 @@ class Observer:
 
     async def response(self, response):
         request, url = response.request, response.url
+        if request.redirected_from is not None and not self.in_scope(url):
+            # The browser follows redirects without passing the route handler; record the hop that left the origin.
+            self.attempts.append({'source': 'browser', 'url': url, 'method': request.method,
+                                  'resource_type': request.resource_type, 'navigation': request.is_navigation_request(),
+                                  'route': ref(url), 'sent': True, 'reason': '리다이렉트로 범위 밖에 보냄',
+                                  'timestamp': now()})
         row = {'source': 'browser', 'timestamp': now(), 'route': ref(url),
                '_private_request_ref': self.request_refs.get(id(request), (None, None))[1],
                'status_code': isolated(lambda: response.status),
@@ -614,6 +622,11 @@ class Observer:
         await self.drain()
         for page in self.pages:
             if page.is_closed():
+                continue
+            if not self.in_scope(page.url):
+                # A redirect can land outside the origin; that document is not sampled or kept.
+                self.block(page.url, '보지 않음(범위 밖으로 이동함)', 'navigation')
+                await page.goto('about:blank')
                 continue
             item = {'ref': 'sample-' + str(len(self.samples) + 1), 'timestamp': now(),
                     'url': page.url, 'route': ref(page.url)}

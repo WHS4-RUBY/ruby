@@ -53,6 +53,8 @@ def parser():
     result.add_argument('--model-output-bytes', type=int, default=4000000)
     result.add_argument('--checkpoint-root', type=Path, help='Private absolute directory outside repositories')
     result.add_argument('--copy-supplement', type=Path, help='Operator-supplied copy deployment JSON; no Docker commands')
+    result.add_argument('--allow-origin', action='append', default=[],
+                        help='Another origin of the same web (CDN, api host) the browser may load from; repeatable')
     result.add_argument('--reset-failures', action='store_true', help='Keep paid work and costs, reset retry counters for this invocation')
     result.add_argument('--fresh', action='store_true', help='Archive saved stages and start a new cost ledger')
     result.add_argument('--login-env', help='Credential environment name for removal handoff; form login remains prohibited')
@@ -562,7 +564,8 @@ async def one_run(index, args, catalog, limits, model, login, checkpoint, store,
     observer = Observer(args.origin_url, model, Budget(**{**limits, 'seconds': args.browse_seconds or limits['seconds']}),
                         login, args.same_failure_limit, questions, request_seconds=args.request_seconds,
                         body_bytes=args.body_bytes, retained_bytes=args.retained_bytes, stream_messages=args.stream_messages,
-                        session_file=args.session_file if mode == 'session' else None)
+                        session_file=args.session_file if mode == 'session' else None,
+                        extra_origins=args.allow_origin)
     observer.operator_supplement = copy_supplement(args.copy_supplement)
     state = store.state['runs'].setdefault(str(index), {'groups': {}, 'privacy': {}})
     previous_mode = state.get('authority', state.get('published', {}).get('authority', {}).get(
