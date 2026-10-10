@@ -76,6 +76,31 @@ def replace_leaves(value, replacements):
     return value
 
 
+def replace_leaves_counted(value, replacements):
+    """Apply literal replacements to string leaves and dict keys. Returns the value and the finds that
+    matched nowhere, so an unmatched or empty fragment is reported instead of releasing the original."""
+    pairs = [(item.get('find'), item.get('replace', '')) for item in replacements if isinstance(item, dict)]
+    hits = {find: 0 for find, _ in pairs if isinstance(find, str) and find}
+    def text(leaf):
+        for find, replacement in pairs:
+            if find in hits and find in leaf:
+                hits[find] += leaf.count(find)
+                leaf = leaf.replace(find, str(replacement))
+        return leaf
+    def walk(node):
+        if isinstance(node, str):
+            return text(node)
+        if isinstance(node, list):
+            return [walk(child) for child in node]
+        if isinstance(node, dict):
+            return {text(key) if isinstance(key, str) else key: walk(child) for key, child in node.items()}
+        return node
+    result = walk(value)
+    unmatched = [find for find, count in hits.items() if not count]
+    unmatched += [find for find, _ in pairs if not isinstance(find, str) or not find]
+    return result, unmatched
+
+
 class ReadMemory:
     """Keep read windows and immutable sources for one model conversation."""
     def __init__(self, buffers, namespace, retained_bytes=32000000, max_windows=1000):

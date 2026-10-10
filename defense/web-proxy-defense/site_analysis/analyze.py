@@ -18,7 +18,7 @@ from .record import (Failures, empty_axes, merge, merge_by_authority, runs_by_au
                      json_safe, now, private_path, ref, write_json)
 from .resume import CheckpointError, ResumeStore, restored_copy
 from .session_prepare import session_path
-from .windows import (ReadMemory, feedback_state, find_text, pack_context, replace_leaves, unknown_ref,
+from .windows import (ReadMemory, feedback_state, find_text, pack_context, replace_leaves, replace_leaves_counted, unknown_ref,
                       sample_window, serialized)
 
 
@@ -299,7 +299,7 @@ async def privacy_cells(model, cells, deadline, state=None, checkpoint=None):
                 return
         else:
             failure = 'PrivacyCellMissingOrMalformed'
-        pending = []
+        pending, cell_errors = [], {}
         for cell in batch:
             if cell['id'] in terminal:
                 continue
@@ -316,25 +316,38 @@ async def privacy_cells(model, cells, deadline, state=None, checkpoint=None):
                     continue
                 if row.get('safe') is not True:
                     raise ValueError('PrivacyDecisionMissing')
-                value = (replace_leaves(cell['value'], row['replacements']) if 'replacements' in row else
-                         row['value'] if 'value' in row else cell['value'])
-                if isinstance(value, str) and 'value' in row and 'replacements' not in row:
-                    try:
-                        value = json.loads(value)
-                    except ValueError:
-                        pass
-                # A copy of the whole cell (id and value wrapper) is the same answer in another shape.
-                if ('replacements' not in row and isinstance(value, dict) and value.get('id') == cell['id'] and 'value' in value
-                        and set(value) <= set(cell)):
-                    value = value['value']
-                # safe=true with an empty value is a release decision, so the original is kept.
-                if value is None:
+                if 'value' in row and 'replacements' in row:
+                    # A full copy and fragment replacements may disagree; neither is released, the cell is asked again.
+                    raise ValueError('PrivacyValueAndReplacements')
+                if 'value' in row:
+                    value = row['value']
+                    if isinstance(value, str):
+                        try:
+                            parsed = json.loads(value)
+                        except ValueError:
+                            parsed = value
+                        # A string cell stays a string: "1234" or "true" is not re-typed into a number or flag.
+                        value = parsed if not isinstance(cell['value'], str) or isinstance(parsed, str) else value
+                    # A copy of the whole cell (id and value wrapper) is the same answer in another shape.
+                    if (isinstance(value, dict) and value.get('id') == cell['id'] and 'value' in value
+                            and set(value) <= set(cell)):
+                        value = value['value']
+                    # safe=true with an explicit null contradicts itself; ask again instead of releasing the original.
+                    if value is None:
+                        raise ValueError('PrivacySafeWithNullValue')
+                elif 'replacements' in row:
+                    value, unmatched = replace_leaves_counted(cell['value'], row['replacements'])
+                    if unmatched:
+                        raise ValueError('PrivacyReplacementNotFound: ' + serialized(unmatched))
+                else:
+                    # safe=true without a value is a release decision; the original is kept.
                     value = cell['value']
                 released[cell['id']] = protect(json_safe(value), model.secrets)
                 inputs[cell['id']] = ref(serialized(cell['value']))
                 errors.pop(cell['id'], None)
                 model.failures.clear('privacy:' + cell['id'])
-            except Exception:
+            except Exception as error:
+                cell_errors[cell['id']] = str(error)
                 pending.append(cell)
         if '_read_sample' in answer or '_find' in answer:
             tool_args = {key: answer[key] for key in ('_read_sample', '_find') if key in answer}
@@ -367,7 +380,7 @@ async def privacy_cells(model, cells, deadline, state=None, checkpoint=None):
         if not pending:
             await persist()
             return
-        feedback = {'error': failure, 'partial_answer': answer,
+        feedback = {'error': failure, 'partial_answer': answer, 'cell_errors': cell_errors,
                     'instruction': 'Correct only pending cells; released cells are preserved.'}
         state['feedback'] = feedback
         await persist()
@@ -1317,17 +1330,28 @@ async def dry_analysis_check(catalog):
 
     original = {'description': 'private-token private-token', 'evidence': ['sample-1', {'token': 'private-token'}],
                 'hash': 'abcd', 'status': '못 봄', 'count': 2}
-    replacement = {'id': 'nested', 'safe': True, 'value': 'discarded',
-                   'replacements': [{'find': 'private-token', 'replace': '{VALUE}'}]}
-    model = Offline([{'fields': [replacement], '_find': {'text': 'private-token', 'refs': ['privacy:cell:nested']}}, {}])
+    replacements = [{'find': 'private-token', 'replace': '{VALUE}'}]
+    # A find request first, then an ambiguous answer (value and replacements together) that is asked again,
+    # then replacements alone, which release the cell with only those fragments changed.
+    model = Offline([{'_find': {'text': 'private-token', 'refs': ['privacy:cell:nested']}},
+                     {'fields': [{'id': 'nested', 'safe': True, 'value': 'discarded', 'replacements': replacements}]},
+                     {'fields': [{'id': 'nested', 'safe': True, 'replacements': replacements}]}])
     released, errors = await privacy_cells(model, [{'id': 'nested', 'value': original}], deadline)
     if (errors or released['nested']['description'] != '{VALUE} {VALUE}'
             or released['nested']['evidence'] != ['sample-1', {'token': '{VALUE}'}]
             or released['nested']['hash'] != 'abcd' or released['nested']['status'] != '못 봄'
-            or released['nested']['count'] != 2 or len(model.seen) != 2
+            or released['nested']['count'] != 2 or len(model.seen) != 3
             or model.seen[1][1]['feedback']['find']['total_count'] != 3
-            or model.seen[1][1]['read_windows']):
-        raise ValueError('합성 치환 가림 우선순위 또는 찾기 피드백 실패')
+            or model.seen[1][1]['read_windows']
+            or 'PrivacyValueAndReplacements' not in serialized(model.seen[2][1]['feedback'])):
+        raise ValueError('합성 치환 가림, 모호한 답 재질문 또는 찾기 피드백 실패')
+    model = Offline([{'fields': [{'id': 'nulled', 'safe': True, 'value': None}]},
+                     {'fields': [{'id': 'nulled', 'safe': True, 'replacements': [{'find': 'absent', 'replace': 'x'}]}]},
+                     {'fields': [{'id': 'nulled', 'safe': False}]}])
+    released, errors = await privacy_cells(model, [{'id': 'nulled', 'value': original}], deadline)
+    # safe=true with null and a replacement that matches nothing are both asked again, never released as is.
+    if released or errors != {'nulled': 'privacy_withheld'} or len(model.seen) != 3:
+        raise ValueError('합성 가림 null 값 또는 맞지 않는 치환 재질문 실패')
     model = Offline([{'fields': [{'id': 'keep', 'safe': True}, {'id': 'empty', 'safe': True, 'replacements': []},
                                  {'id': 'hide', 'safe': False, 'replacements': []}]}])
     released, errors = await privacy_cells(model, [{'id': key, 'value': original} for key in ('keep', 'empty', 'hide')], deadline)
