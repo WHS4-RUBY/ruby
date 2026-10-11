@@ -234,12 +234,12 @@ test("확정 공격 점수와 오버레이 라우팅 결과를 요청 상세에 
   const card = ui.renderRequestRow({
     method: "GET", path: "/api/orders", status: 404, outcome: "blocked",
     automationScore: 0.31, attackScore: 0.96, confirmedAttackScore: 0.95,
-    riskScore: 0.96, defenseTier: "confirmed", strategies: ["account_overlay_high"],
+    riskScore: 0.96, defenseTier: "stage4", strategies: ["account_overlay_high"],
     decoyAction: "account-overlay-high",
   }, { expanded: true });
   assert.match(card, /확정 공격/);
   assert.match(card, /자동화 31 · 공격 96 · 확정 공격 95 · 위험 96/);
-  assert.match(card, /확정 공격 근거 \(confirmed\)/);
+  assert.match(card, /4단계 · 높은 오버레이 \(stage4\)/);
   assert.match(card, /고위험 계정 격리/);
   assert.match(card, /원본 접근 격리/);
 });
@@ -261,8 +261,8 @@ test("요청 행은 결과별 막대·글자 태그와 메서드·상태 색을 
   assert.match(blocked, /<span class="tag action"[^>]*>엄격 속도 제한<\/span>/);
   const defended = ui.renderRequestRow({ requestId: "request:b", method: "GET", status: 200, outcome: "forwarded", strategies: ["delay"] }, { query: "request:b" });
   assert.match(defended, /class="log-entry sev-defended highlight"/);
-  const suspected = ui.renderRequestRow({ method: "GET", status: 200, outcome: "forwarded", strategies: ["decoy_maze"], defenseTier: "suspected" }, { expanded: true });
-  assert.match(suspected, /<dt>방어 단계<\/dt><dd>의심 · 미끼만 \(suspected\)<\/dd>/);
+  const baseline = ui.renderRequestRow({ method: "GET", status: 200, outcome: "forwarded", strategies: ["decoy_maze"], defenseTier: "stage1" }, { expanded: true });
+  assert.match(baseline, /<dt>방어 단계<\/dt><dd>1단계 · 미끼 \(stage1\)<\/dd>/);
   const plain = ui.renderRequestRow({ requestId: "request:c", method: "GET", status: 200, outcome: "forwarded", strategies: [] }, { query: "request:b" });
   assert.match(plain, /class="log-entry sev-forwarded"/);
 });

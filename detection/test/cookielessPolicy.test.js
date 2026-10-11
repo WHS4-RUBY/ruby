@@ -97,13 +97,14 @@ test("세션만 바꿔 보내는 공격은 같은 후보 이력으로 미끼 단
   t.after(() => defenseStub.close());
   const { port, dashboardPassword } = await startDetection(t, defenseStub.address().port);
 
-  // 쿠키 없이 깨끗한 요청만 반복하는 클라이언트: 쿠키가 없다는 이유만으로 방어하지 않는다.
+  // 쿠키 없이 깨끗한 요청만 반복해도 기본 미끼는 보이되 높은 단계로 올라가지 않는다.
   const quiet = [];
   for (let index = 0; index < 8; index++) {
     await request(port, "GET", `/products/${index}`, { headers: { "User-Agent": "quiet-client/1.0" } });
     quiet.push(seen.at(-1));
   }
-  assert.ok(quiet.every((item) => item.plan.length === 0 && !item.tier));
+  assert.ok(quiet.every((item) => item.plan.length === 1 &&
+    item.plan[0] === "decoy_maze" && item.tier === "stage1"));
   assert.ok(quiet.every((item) => item.riskScore < 0.8));
   assert.equal(new Set(quiet.map((item) => item.clientId)).size, 1, "cookie-less requests keep one policy key");
 
@@ -118,12 +119,9 @@ test("세션만 바꿔 보내는 공격은 같은 후보 이력으로 미끼 단
     });
     attacker.push(seen.at(-1));
   }
-  const firstDefended = attacker.findIndex((item) => item.plan.length > 0);
-  assert.ok(firstDefended > 0, "the very first request has no completed history yet");
-  assert.equal(attacker[0].plan.length, 0);
-  for (const item of attacker.slice(firstDefended)) {
-    assert.deepEqual(item.plan, ["decoy_maze"], "once suspected, every later rotated session stays defended");
-    assert.equal(item.tier, "suspected");
+  for (const item of attacker) {
+    assert.deepEqual(item.plan, ["decoy_maze"], "every request receives the baseline decoy");
+    assert.equal(item.tier, "stage1");
   }
   assert.ok(attacker.every((item) => !item.plan.includes("rate_limit_strict")),
     "cookie-less evidence never reaches the confirmed (429) tier");
@@ -134,7 +132,7 @@ test("세션만 바꿔 보내는 공격은 같은 후보 이력으로 미끼 단
 
   // 같은 IP의 다른 지문(다른 클라이언트)은 공격자 이력을 물려받지 않는다.
   await request(port, "GET", "/", { headers: { "User-Agent": "other-browser/2.0" } });
-  assert.deepEqual(seen.at(-1).plan, []);
+  assert.deepEqual(seen.at(-1).plan, ["decoy_maze"]);
 
   // 공격자와 같은 IP·지문이라도 서명 dcid를 돌려주는 클라이언트는 자기 이력만 본다.
   const first = await request(port, "GET", "/", { headers: { "User-Agent": "session-rotating-agent/1.0" } });
@@ -143,7 +141,8 @@ test("세션만 바꿔 보내는 공격은 같은 후보 이력으로 미끼 단
     await request(port, "GET", "/", {
       headers: { "User-Agent": "session-rotating-agent/1.0", Cookie: cookiesFrom(first) },
     });
-    assert.deepEqual(seen.at(-1).plan, [], "a returning signed client does not inherit the candidate score");
+    assert.deepEqual(seen.at(-1).plan, ["decoy_maze"],
+      "a returning signed client keeps only the baseline decoy");
     assert.match(seen.at(-1).clientId, /^dcid:/);
   }
 
@@ -167,8 +166,9 @@ test("세션만 바꿔 보내는 공격은 같은 후보 이력으로 미끼 단
   await request(port, "GET", "/", { headers: { "User-Agent": "session-rotating-agent/1.0" } });
   assert.equal(seen.at(-1).targetId, "alternate");
   assert.notEqual(seen.at(-1).runId, previousRunId);
-  assert.deepEqual(seen.at(-1).plan, [], "new target run starts without the prior candidate's decoy");
-  assert.ok(!seen.at(-1).tier);
+  assert.deepEqual(seen.at(-1).plan, ["decoy_maze"],
+    "a new target run starts at the baseline decoy");
+  assert.equal(seen.at(-1).tier, "stage1");
 
   const secondRun = [];
   for (let index = 0; index < 80; index++) {
@@ -179,8 +179,8 @@ test("세션만 바꿔 보내는 공격은 같은 후보 이력으로 미끼 단
     });
     secondRun.push(seen.at(-1));
   }
-  assert.deepEqual(secondRun[0].plan, []);
-  assert.ok(secondRun.some((item) => item.tier === "suspected" &&
+  assert.deepEqual(secondRun[0].plan, ["decoy_maze"]);
+  assert.ok(secondRun.every((item) => item.tier === "stage1" &&
     item.plan.length === 1 && item.plan[0] === "decoy_maze"),
-  "new run eventually responds to its own repeated attack evidence");
+  "cookie-less attacks do not enter the confirmed overlay or rate-limit tiers");
 });

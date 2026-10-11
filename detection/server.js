@@ -90,6 +90,29 @@ const TARGET = process.env.TARGET_URL || "http://localhost:3000";
 // 2026-09-01 추가: HTML(index.html) 하나만 보는 정찰 대신, 자주 조회되는 정적 텍스트
 // 응답에도 기만 신호를 심는다 — deceptionEngine.injectSignalsPlaintext 참고. 그 경로
 // 목록은 사이트 프로파일의 deception.plaintextBaitPaths 가 정한다(아래 onProxyRes).
+// Defense signs restored alias routes before Detection uses them for completed-request scoring.
+// A direct application target has no key or feedback and retains the ingress URL.
+const configuredRouteFeedbackKey = process.env.OVERLAY_DETECTOR_KEY || "";
+const ROUTE_FEEDBACK_KEY = Buffer.byteLength(configuredRouteFeedbackKey, "utf8") >= 32
+  ? Buffer.from(configuredRouteFeedbackKey, "utf8") : null;
+const RESOLVED_URL_HEADER = "x-ruby-resolved-url";
+const RESOLVED_URL_SIGNATURE_HEADER = "x-ruby-resolved-url-sig";
+
+function verifiedResolvedUrl(req, headers = {}) {
+  if (!ROUTE_FEEDBACK_KEY) return null;
+  const url = headers?.[RESOLVED_URL_HEADER];
+  const signature = headers?.[RESOLVED_URL_SIGNATURE_HEADER];
+  if (typeof url !== "string" || typeof signature !== "string" ||
+      url.length > 8192 || !url.startsWith("/") || url.startsWith("//") ||
+      /[^\x21-\x7e]|[#\\]/.test(url) || !/^[0-9a-f]{64}$/.test(signature) ||
+      !req.rubyRequestId || !req.activeTarget?.targetId) return null;
+  const message = ["ruby:route-feedback:v1", req.rubyRequestId, req.method,
+    req.activeTarget.targetId, req.activeTarget.runId || "", url].join("\n");
+  const expected = crypto.createHmac("sha256", ROUTE_FEEDBACK_KEY)
+    .update(message, "utf8").digest();
+  const supplied = Buffer.from(signature, "hex");
+  return crypto.timingSafeEqual(expected, supplied) ? url : null;
+}
 const BLOCK_MODE = process.env.BLOCK_MODE === "true";
 const DETECTION_LEVEL = normalizeDetectionLevel(process.env.DETECTION_LEVEL);
 const ENABLE_EXPERIMENT_RUN_ID = process.env.ENABLE_EXPERIMENT_RUN_ID === "true";
@@ -368,19 +391,19 @@ function buildPriorPolicyDecision(req) {
     confirmedAttackScore: confirmedAttackScore(analyses) }), observation };
 }
 
-function computeBusinessLogicTags(req) {
-  const normalizedPath = normalizePath(req.originalUrl);
+function computeBusinessLogicTags(req, url = req.originalUrl) {
+  const normalizedPath = normalizePath(url);
   const businessLogicHits = analyzeBusinessLogic({
     method: req.method,
     normalizedPath,
     body: req.body,
-    rawQueryOrBody: req.originalUrl,
+    rawQueryOrBody: url,
     profile: req.siteProfile,
   });
   const identityHits = checkIdentityMismatch({
     method: req.method,
     normalizedPath,
-    url: req.originalUrl,
+    url,
     body: req.body,
     authorizationHeader: req.headers.authorization,
     cookieHeader: req.headers.cookie,
@@ -406,7 +429,7 @@ function computeBusinessLogicTags(req) {
   const integrity = req.siteProfile?.priceIntegrity;
   if (integrity && String(req.method).toUpperCase() === "PUT" &&
       normalizedPath === integrity.itemRoute) {
-    const productId = extractTrailingNumericId(req.originalUrl);
+    const productId = extractTrailingNumericId(url);
     const submittedPrice = req.body && typeof req.body === "object"
       ? req.body[integrity.priceField]
       : undefined;
@@ -418,11 +441,11 @@ function computeBusinessLogicTags(req) {
   return [...new Set(tags)];
 }
 
-function computeCsrfTags(req) {
+function computeCsrfTags(req, url = req.originalUrl) {
   return checkCsrf(
     {
       method: req.method,
-      normalizedPath: normalizePath(req.originalUrl),
+      normalizedPath: normalizePath(url),
       originHeader: req.headers.origin,
       refererHeader: req.headers.referer,
     },
@@ -430,7 +453,7 @@ function computeCsrfTags(req) {
   ).map((hit) => hit.tag);
 }
 
-function observeSchemaLearning(req, statusCode, normalizedPath) {
+function observeSchemaLearning(req, statusCode, normalizedPath, url = req.originalUrl) {
   let bodyObj = req.body;
   if (typeof bodyObj === "string") {
     try {
@@ -466,7 +489,7 @@ function observeSchemaLearning(req, statusCode, normalizedPath) {
     hasHardcodedRule: isHardcodedSensitiveRoute(req.method, normalizedPath, req.siteProfile),
   });
 
-  const requestedId = extractTrailingNumericId(req.originalUrl);
+  const requestedId = extractTrailingNumericId(url);
   const claimedIds = claimed
     ? [claimed.id, claimed.bid].filter((value) => value !== null && value !== undefined)
     : [];
@@ -476,6 +499,32 @@ function observeSchemaLearning(req, statusCode, normalizedPath) {
     statusCode,
     requestedId,
     claimedIds,
+  });
+}
+
+function preparePathObservation(req, url) {
+  req.effectiveUrl = url;
+  req.backgroundTraffic = classifyBackgroundTraffic(url);
+  const normalizedPath = normalizePath(url);
+  req.blTags = computeBusinessLogicTags(req, url);
+  req.csrfTags = computeCsrfTags(req, url);
+  req.loginAttemptEmail = extractLoginAttemptEmail({
+    method: req.method,
+    normalizedPath,
+    body: req.body,
+    profile: req.siteProfile,
+  });
+  req.resetPasswordEmail = extractResetPasswordEmail({
+    method: req.method,
+    normalizedPath,
+    body: req.body,
+    profile: req.siteProfile,
+  });
+  req.securityQuestionEmail = extractSecurityQuestionEmail({
+    method: req.method,
+    normalizedPath,
+    url,
+    profile: req.siteProfile,
   });
 }
 
@@ -501,36 +550,10 @@ function prepareRequestObservation(req) {
     req.headers["content-type"] || "",
     PAYLOAD_FINGERPRINT_KEY
   );
-  req.deceptionEvents = deceptionEngine.inspectRequest({
-    sessionId: req.detectionSessionId,
-    method: req.method,
-    url: req.originalUrl,
-    rawBody: req.detectionRequestBodyBuffer,
-    body: req.body,
-    profile: req.siteProfile,
-  });
-  req.backgroundTraffic = classifyBackgroundTraffic(req.originalUrl);
-  const normalizedPath = normalizePath(req.originalUrl);
-  req.blTags = computeBusinessLogicTags(req);
-  req.csrfTags = computeCsrfTags(req);
-  req.loginAttemptEmail = extractLoginAttemptEmail({
-    method: req.method,
-    normalizedPath,
-    body: req.body,
-    profile: req.siteProfile,
-  });
-  req.resetPasswordEmail = extractResetPasswordEmail({
-    method: req.method,
-    normalizedPath,
-    body: req.body,
-    profile: req.siteProfile,
-  });
-  req.securityQuestionEmail = extractSecurityQuestionEmail({
-    method: req.method,
-    normalizedPath,
-    url: req.originalUrl,
-    profile: req.siteProfile,
-  });
+  // A signed Defense route may replace an opaque alias after the response.
+  // Score deception paths and API coverage once, when the final route is known.
+  req.deceptionEvents = [];
+  preparePathObservation(req, req.originalUrl);
 }
 
 // Stored XSS 대조용 저장소: 쓰기 요청에서 관찰한 값을 나중 응답과 대조한다.
@@ -596,9 +619,10 @@ const XSS_WRITE_METHODS = new Set(["POST", "PUT", "PATCH"]);
 function computeXssDetection(req, responseBuffer, responseHeaders) {
   try {
     const method = String(req.method || "").toUpperCase();
+    const effectiveUrl = req.effectiveUrl || req.originalUrl;
     const xssReq = {
       method,
-      url: req.originalUrl,
+      url: effectiveUrl,
       body: req.body,
       contentType: req.headers["content-type"],
       responseContentType: responseHeaders && responseHeaders["content-type"],
@@ -616,7 +640,7 @@ function computeXssDetection(req, responseBuffer, responseHeaders) {
     for (const f of result.findings || []) {
       if (f.vulnerabilityType === "stored") xssEvidenceStore.recordConfirmed(f);
       else if (f.vulnerabilityType === "reflected") {
-        xssEvidenceStore.recordReflected(f, { endpoint: normalizePath(req.originalUrl) });
+        xssEvidenceStore.recordReflected(f, { endpoint: normalizePath(effectiveUrl) });
       }
     }
     return result.reflected;
@@ -659,10 +683,10 @@ function observeXssWrite(req, session, status) {
   const origin = session.requests.at(-1);
   if (!origin) return;
   xssCandidateStore.observe(extractXssCandidates({
-    url: req.originalUrl,
+    url: req.effectiveUrl || req.originalUrl,
     body: req.body,
     contentType: req.headers["content-type"],
-  }), normalizePath(req.originalUrl), origin);
+  }), normalizePath(req.effectiveUrl || req.originalUrl), origin);
 }
 
 function recordCompletedRequest(req, {
@@ -682,14 +706,29 @@ function recordCompletedRequest(req, {
     categories: [],
     hits: [],
   };
-  const tags = detection.available ? detection.categories : tagPayload(req.originalUrl, req.body);
-  const normalizedPath = normalizePath(req.originalUrl);
+  const effectiveUrl = req.effectiveUrl || req.originalUrl;
+  if (!req._deceptionInspected) {
+    req.deceptionEvents.unshift(...deceptionEngine.inspectRequest({
+      sessionId: req.detectionSessionId,
+      method: req.method,
+      url: effectiveUrl,
+      rawBody: req.detectionRequestBodyBuffer,
+      body: req.body,
+      profile: req.siteProfile,
+    }));
+    req._deceptionInspected = true;
+  }
+  const tags = detection.available ? detection.categories : tagPayload(effectiveUrl, req.body);
+  const normalizedPath = normalizePath(effectiveUrl);
   // A partial upstream response must not teach the schema learner that a
   // write succeeded just because its HTTP headers contained a 2xx status.
-  if (upstreamReached && responseTransportOutcome !== "error") observeSchemaLearning(req, status, normalizedPath);
+  if (upstreamReached && responseTransportOutcome !== "error") {
+    observeSchemaLearning(req, status, normalizedPath, effectiveUrl);
+  }
   const session = store.recordRequest(req.detectionSessionId, ip, {
     method: req.method,
-    url: req.originalUrl,
+    url: effectiveUrl,
+    observedUrl: effectiveUrl === req.originalUrl ? null : req.originalUrl,
     status,
     headers: req.detectionHeaders,
     rawHeaders: req.rawHeaders,
@@ -887,6 +926,8 @@ installTargetSelectionRoutes({ app, targetSelection });
 // 팀원 Python 프록시의 미끼 라우트를 현재 Express 프록시 안에서 직접 처리한다.
 // 이 요청도 일반 요청과 동일하게 CRS, Session, Actor, Auth Group과 타임라인에 기록한다.
 app.use((req, res, next) => {
+  if (req.path === "/__detection" || req.path.startsWith("/__detection/")) return next();
+  prepareRequestObservation(req);
   const trap = deceptionEngine.matchTrap({
     sessionId: req.detectionSessionId,
     method: req.method,
@@ -897,7 +938,6 @@ app.use((req, res, next) => {
   });
   if (!trap) return next();
 
-  prepareRequestObservation(req);
   req.deceptionEvents.push(...trap.events);
   const responseBuffer = Buffer.from(trap.body, "utf8");
   crsScanner.scan(req, getClientIp(req)).then((attackDetection) => {
@@ -1497,15 +1537,48 @@ const detectionHook = {
     if (!replayInspectedBody(proxyReq, req)) fixRequestBody(proxyReq, req);
   },
 
-  async onResponse({ responseBuffer, proxyRes, req, bodyAvailable = true, responseBodyBytes }) {
+  async onResponse({ responseBuffer, proxyRes, req, res, bodyAvailable = true, responseBodyBytes }) {
     if (req.rubyResponseRecorded) return responseBuffer;
+    const restoredUrl = verifiedResolvedUrl(req, proxyRes.headers);
+    if (restoredUrl) preparePathObservation(req, restoredUrl);
+    // A direct login URL is handled by the pre-proxy trap. An alias becomes
+    // recognizable only after Defense returns its signed restored route.
+    // The response must still be buffered, and sticky overlay responses win.
+    let loginTrap = null;
+    if (restoredUrl && req.siteProfile?.deception?.loginPath &&
+        restoredUrl.split("?", 1)[0] === req.siteProfile.deception.loginPath &&
+        String(req.method).toUpperCase() === "POST" &&
+        req.rubyPolicyDecision?.plan?.some((step) => step.name === "decoy_maze") &&
+        bodyAvailable &&
+        proxyRes.statusCode === 401 &&
+        proxyRes.headers["x-ruby-overlay-active"] !== "1") {
+      const matched = deceptionEngine.matchTrap({
+        sessionId: req.detectionSessionId,
+        method: req.method,
+        url: restoredUrl,
+        rawBody: req.detectionRequestBodyBuffer,
+        body: req.body,
+        profile: req.siteProfile,
+      });
+      if (matched?.status === 423) {
+        loginTrap = matched;
+        req.deceptionEvents.push(...matched.events);
+        responseBuffer = Buffer.from(matched.body, "utf8");
+        res.statusCode = matched.status;
+        res.statusMessage = "Locked";
+        res.setHeader("content-type", matched.contentType);
+        res.setHeader("cache-control", "no-store");
+        res.removeHeader("www-authenticate");
+      }
+    }
     req.defenseSignal = proxyRes.headers["x-defense-signal"] === "rate_limited"
       ? "rate_limited" : null;
     const attackDetection = req.attackDetection
       ? req.attackDetection
       : { available: false, error: "scan was not started", categories: [], hits: [] };
     const xssDetection = computeXssDetection(
-      req, bodyAvailable ? responseBuffer : Buffer.alloc(0), proxyRes.headers
+      req, bodyAvailable ? responseBuffer : Buffer.alloc(0),
+      loginTrap ? { ...proxyRes.headers, "content-type": loginTrap.contentType } : proxyRes.headers
     );
     req.xssTags = xssDetection.tags;
     req.xssMaxRisk = xssDetection.maxRisk;
@@ -1514,17 +1587,17 @@ const detectionHook = {
       effectiveDetectionSource,
       effectiveDetectionAnalysis,
     } = recordCompletedRequest(req, {
-      status: proxyRes.statusCode,
-      responseContentType: proxyRes.headers["content-type"],
-      responseContentLength: proxyRes.headers["content-length"],
-      responseBodyBytes: Number.isSafeInteger(responseBodyBytes)
+      status: loginTrap?.status ?? proxyRes.statusCode,
+      responseContentType: loginTrap?.contentType ?? proxyRes.headers["content-type"],
+      responseContentLength: loginTrap ? responseBuffer.length : proxyRes.headers["content-length"],
+      responseBodyBytes: loginTrap ? responseBuffer.length : Number.isSafeInteger(responseBodyBytes)
         ? responseBodyBytes : responseBuffer.length,
       responseTransportOutcome: "complete",
       responseBodyInspected: bodyAvailable && responseBuffer.length <= XSS_MAX_BODY_BYTES,
       attackDetection,
     });
     req.rubyResponseRecorded = true;
-    observeXssWrite(req, session, proxyRes.statusCode);
+    observeXssWrite(req, session, loginTrap?.status ?? proxyRes.statusCode);
 
     // 실험 검증 전에는 BLOCK_MODE도 log-only다. 응답 상태나 body를 변경하지 않는다.
     if (BLOCK_MODE) {
@@ -1549,6 +1622,7 @@ const detectionHook = {
     // request/CRS/header evidence is recorded, but no response body claim or
     // injection is made without a complete, bounded body.
     if (!bodyAvailable) return responseBuffer;
+    if (loginTrap) return responseBuffer;
 
     // HTML 응답이면 telemetry.js 를 </body> 직전에 주입
     const contentType = proxyRes.headers["content-type"] || "";
@@ -1566,7 +1640,7 @@ const detectionHook = {
       return injected;
     }
 
-    const normalizedPath = normalizePath(req.originalUrl);
+    const normalizedPath = normalizePath(req.effectiveUrl || req.originalUrl);
     const priceIntegrity = req.siteProfile?.priceIntegrity;
     if (
       priceIntegrity &&
@@ -1588,10 +1662,11 @@ const detectionHook = {
     // 참고 주석.
     // 평문 유인 경로는 프로파일이 정한다. 선언이 없으면 이 주입만 꺼진다.
     const baitPaths = req.siteProfile?.deception?.plaintextBaitPaths;
-    if (baitPaths?.includes(req.path)) {
+    const effectivePath = (req.effectiveUrl || req.originalUrl).split("?", 1)[0];
+    if (baitPaths?.includes(effectivePath)) {
       return deceptionEngine.injectSignalsPlaintext(responseBuffer.toString("utf8"), session.id);
     }
-    if (req.path.endsWith(".js") || contentType.includes("javascript")) {
+    if (effectivePath.endsWith(".js") || contentType.includes("javascript")) {
       return deceptionEngine.injectSignalsJs(
         responseBuffer.toString("utf8"), session.id, req.siteProfile
       );
@@ -1602,6 +1677,8 @@ const detectionHook = {
 
   async onResponseError({ req, proxyRes, responseBodyBytes }) {
     if (req.rubyResponseRecorded || !req._detectionPrepared) return;
+    const restoredUrl = verifiedResolvedUrl(req, proxyRes?.headers);
+    if (restoredUrl) preparePathObservation(req, restoredUrl);
     req.defenseSignal = proxyRes?.headers?.["x-defense-signal"] === "rate_limited"
       ? "rate_limited" : null;
     const attackDetection = req.attackDetection

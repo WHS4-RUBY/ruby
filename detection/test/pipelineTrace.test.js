@@ -46,10 +46,8 @@ function upgrade(port, route, headers = {}) {
   });
 }
 
-function expectedStrictStrategies(confirmedAttackScore) {
-  return confirmedAttackScore >= 0.95
-    ? ["rate_limit_strict", "account_overlay_high"]
-    : ["rate_limit_strict", "decoy_maze"];
+function expectedStrictStrategies() {
+  return ["decoy_maze", "delay", "rate_limit_strict", "account_overlay_high"];
 }
 
 test("HTTP request trace and signed versus unsigned WebSocket upgrade policies", { timeout: 20000 }, async (t) => {
@@ -195,7 +193,7 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.ok(last.confirmedAttackScore >= 0.8);
   assert.ok(last.riskScore >= 0.8);
   assert.deepEqual(last.plan.map((step) => step.name),
-    expectedStrictStrategies(last.confirmedAttackScore));
+    expectedStrictStrategies());
   assert.ok(seen.every((item) => item.forwardedFor === undefined));
   assert.ok(seen.every((item) => item.forwardedProto === "https"));
   assert.match(last.candidateId, /^actor:/);
@@ -210,7 +208,8 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   });
   assert.equal(anonymousUpgrade.status, 101);
   const anonymousPolicy = seenUpgrades.at(-1);
-  assert.deepEqual(anonymousPolicy.plan, [], "cookie-less upgrade must not inherit attack rate limit or decoy");
+  assert.deepEqual(anonymousPolicy.plan.map((step) => step.name), ["decoy_maze"],
+    "cookie-less upgrade uses the baseline decoy without inheriting attack rate limits");
   assert.equal(anonymousPolicy.attackScore, 0);
   assert.equal(anonymousPolicy.confirmedAttackScore, 0);
   assert.equal(anonymousPolicy.riskScore, 0);
@@ -236,8 +235,8 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   assert.ok(signedPolicy.confirmedAttackScore >= 0.8);
   assert.ok(signedPolicy.riskScore >= 0.8);
   assert.deepEqual(signedPolicy.plan.map((step) => step.name),
-    expectedStrictStrategies(signedPolicy.confirmedAttackScore));
-  assert.ok(!signedPolicy.plan.some((step) => step.name === "delay"));
+    expectedStrictStrategies());
+  assert.equal(signedPolicy.plan[1].params.delay_ms, 700);
   assert.notEqual(signedPolicy.requestId, last.requestId);
   assert.ok(seenUpgrades.every((item) => item.forwardedFor === undefined));
 
@@ -278,7 +277,7 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
   // 방어 카운터도 공유하지 않는다.
   assert.equal(seen.at(-1).candidateId, last.candidateId);
   assert.deepEqual(seen.at(-1).plan.map((step) => step.name), ["decoy_maze"]);
-  assert.equal(seen.at(-1).tier, "suspected");
+  assert.equal(seen.at(-1).tier, "stage1");
   assert.equal(seen.at(-1).source, "actor-candidate-fallback");
   assert.equal(seen.at(-1).clientId, last.candidateId);
   assert.equal(seen.at(-1).confirmedAttackScore, 0);
@@ -335,7 +334,7 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
     headers: { "User-Agent": "curl/8.0", Cookie: [...cookies.values()].join("; ") },
   });
   assert.equal(newRunSigned.status, 200);
-  assert.deepEqual(seen.at(-1).plan, []);
+  assert.deepEqual(seen.at(-1).plan.map((step) => step.name), ["decoy_maze"]);
   assert.equal(seen.at(-1).confirmedAttackScore, 0);
   assert.equal(seen.at(-1).riskScore, 0);
 });

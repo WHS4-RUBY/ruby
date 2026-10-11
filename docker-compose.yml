@@ -17,6 +17,7 @@ services:
       - CSRF_ALLOWED_ORIGINS=${CSRF_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1}
       - PAYLOAD_FINGERPRINT_KEY=${PAYLOAD_FINGERPRINT_KEY:?Set PAYLOAD_FINGERPRINT_KEY}
       - DCID_HMAC_SECRET=${DCID_HMAC_SECRET:?Set DCID_HMAC_SECRET}
+      - OVERLAY_DETECTOR_KEY=${OVERLAY_DETECTOR_KEY:?Set OVERLAY_DETECTOR_KEY}
       - DCID_COOKIE_SECURE=${DCID_COOKIE_SECURE:?Set DCID_COOKIE_SECURE}
       - TRUST_PROXY=${TRUST_PROXY:-loopback,linklocal,uniquelocal}
       - ACCOUNT_ID_HASH_KEY=${ACCOUNT_ID_HASH_KEY:?Set ACCOUNT_ID_HASH_KEY}
@@ -50,6 +51,8 @@ services:
       service: defense-base
     environment:
       - RUBY_ENV=production
+      - PATH_ALIAS_MODE=${PATH_ALIAS_MODE:-enforce}
+      - PATH_ALIAS_TARGET_ROUTES=${PATH_ALIAS_TARGET_ROUTES:-juice-shop=/app/config/juice-shop-routes.json,ruby-shop=/app/config/ruby-shop-routes.json}
       - DECOY_UPSTREAM_CHOICES=juice-shop=http://cheat-juice:3012,ruby-shop=http://cheat-ruby:3012
       - OVERLAY_UPSTREAM_CHOICES=juice-shop=http://overlay-juice:8080,ruby-shop=http://overlay-ruby:8080
       - OVERLAY_DETECTOR_KEY=${OVERLAY_DETECTOR_KEY:?Set OVERLAY_DETECTOR_KEY}

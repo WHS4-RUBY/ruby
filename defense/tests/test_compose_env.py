@@ -82,6 +82,17 @@ class ComposeFilesShareTheirCommonEnvironment(unittest.TestCase):
                 with self.subTest(service=service, compose=name):
                     self.assertEqual(set(), base & set(parsed.get(service, {})))
 
+    def test_production_selects_alias_routes_per_target(self):
+        production = self.concrete['docker-compose.yml']['defense']
+        local = self.concrete['docker-compose.local.yml']['defense']
+        self.assertEqual(production['PATH_ALIAS_MODE'], '${PATH_ALIAS_MODE:-enforce}')
+        self.assertIn('juice-shop=/app/config/juice-shop-routes.json',
+                      production['PATH_ALIAS_TARGET_ROUTES'])
+        self.assertIn('ruby-shop=/app/config/ruby-shop-routes.json',
+                      production['PATH_ALIAS_TARGET_ROUTES'])
+        self.assertEqual(local['PATH_ALIAS_MODE'], '${PATH_ALIAS_MODE:-off}')
+        self.assertEqual(local['PATH_ALIAS_TARGET_ROUTES'], '${PATH_ALIAS_TARGET_ROUTES:-}')
+
 
 if __name__ == '__main__':
     unittest.main()

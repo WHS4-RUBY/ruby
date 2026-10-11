@@ -120,12 +120,9 @@ test("모든 샘플 점수에서 policy.json 기준 기대값과 일치한다 (�
   }
 });
 
-test("어느 규칙에도 속하지 않는 점수는 빈 배열을 반환한다", () => {
-  const uncovered = samplePoints(rawRules).filter(
-    (p) => !rawRules.some((r) => r.min_score <= p && p < r.max_score)
-  );
-  for (const score of uncovered) {
-    assert.deepEqual(selectStrategies(score, rules), [], `score=${score}`);
+test("0점과 모든 점수 구간에 미끼 또는 그 단계의 방어 계획이 존재한다", () => {
+  for (const score of samplePoints(rawRules)) {
+    assert.ok(selectStrategies(score, rules).length > 0, `score=${score}`);
   }
 });
 
@@ -158,49 +155,81 @@ test("클라이언트의 Defense plan을 제거하고 policy.json 결과로 교�
   }
 });
 
-test("확정 공격 점수 구간과 각 위험 점수 하한이 함께 전략을 결정한다", () => {
+test("0.25, 0.5, 0.8 경계에서 위험과 확정 공격 점수가 함께 단계를 결정한다", () => {
   const names = (riskScore, confirmedAttackScore = 0) => selectStrategies(
     riskScore, rules, { confirmedAttackScore }
   ).map((step) => step.name);
   const tier = (riskScore, confirmedAttackScore = 0) =>
     selectRule(riskScore, rules, { confirmedAttackScore })?.tier ?? null;
 
-  assert.deepEqual(names(0.799999, 0), []);
-  assert.deepEqual(names(0.8, 0), ["decoy_maze"]);
-  assert.equal(tier(0.8, 0), "suspected");
-  assert.deepEqual(names(1, 0.499999), ["decoy_maze"]);
-  assert.deepEqual(names(0.499999, 0.5), []);
-  assert.deepEqual(names(0.5, 0.5), ["account_overlay_medium"]);
-  assert.equal(tier(0.5, 0.5), "confirmed");
-  assert.deepEqual(names(1, 0.799999), ["account_overlay_medium"]);
-  assert.deepEqual(names(0.799999, 0.8), []);
-  assert.deepEqual(names(0.8, 0.8), ["rate_limit_strict", "decoy_maze"]);
-  assert.equal(tier(0.8, 0.8), "confirmed");
-  assert.deepEqual(names(1, 0.949999), ["rate_limit_strict", "decoy_maze"]);
-  assert.deepEqual(names(0.949999, 0.95), []);
-  assert.deepEqual(names(0.95, 0.95), ["rate_limit_strict", "account_overlay_high"]);
-  assert.deepEqual(names(1, 1), ["rate_limit_strict", "account_overlay_high"]);
-  assert.equal(tier(1, 1), "confirmed");
-  assert.equal(tier(0.5), null);
+  assert.deepEqual(names(0, 0), ["decoy_maze"]);
+  assert.equal(tier(0, 0), "stage1");
+  assert.deepEqual(names(1, 0.249999), ["decoy_maze"]);
+  assert.deepEqual(names(0.249999, 0.25), ["decoy_maze"]);
+  assert.deepEqual(names(0.25, 0.249999), ["decoy_maze"]);
+  assert.deepEqual(names(0.25, 0.25), ["decoy_maze", "account_overlay_medium", "delay"]);
+  assert.equal(tier(0.25, 0.25), "stage2");
+  assert.deepEqual(names(1, 0.499999), ["decoy_maze", "account_overlay_medium", "delay"]);
+  assert.deepEqual(names(0.499999, 0.5), ["decoy_maze"]);
+  assert.deepEqual(names(0.5, 0.5), ["decoy_maze", "account_overlay_medium", "delay"]);
+  assert.equal(tier(0.5, 0.5), "stage3");
+  assert.deepEqual(names(1, 0.799999), ["decoy_maze", "account_overlay_medium", "delay"]);
+  assert.deepEqual(names(0.799999, 0.8), ["decoy_maze"]);
+  assert.deepEqual(names(0.8, 0.8),
+    ["decoy_maze", "delay", "rate_limit_strict", "account_overlay_high"]);
+  assert.equal(tier(0.8, 0.8), "stage4");
+  assert.deepEqual(names(1, 1),
+    ["decoy_maze", "delay", "rate_limit_strict", "account_overlay_high"]);
+  assert.equal(tier(1, 1), "stage4");
+  assert.equal(tier(0.5), "stage1");
 });
 
 test("단계 이름을 내부 헤더로 전달하고 외부에서 넣은 값은 지운다", () => {
-  const suspected = createProxyReq({ "x-ruby-defense-tier": "confirmed" });
-  assert.equal(applyDefenseRule(suspected, { riskScore: 0.9, rules }).tier, "suspected");
-  assert.equal(suspected.headers.get("x-ruby-defense-tier"), "suspected");
+  const baseline = createProxyReq({ "x-ruby-defense-tier": "stage4" });
+  assert.equal(applyDefenseRule(baseline, { riskScore: 0, rules }).tier, "stage1");
+  assert.equal(baseline.headers.get("x-ruby-defense-tier"), "stage1");
 
-  const confirmed = createProxyReq({ "x-ruby-defense-tier": "suspected" });
-  assert.equal(applyDefenseRule(confirmed, {
-    riskScore: 0.95, confirmedAttackScore: 0.95, rules,
-  }).tier, "confirmed");
-  assert.equal(confirmed.headers.get("x-ruby-defense-tier"), "confirmed");
+  const escalated = createProxyReq({ "x-ruby-defense-tier": "stage1" });
+  assert.equal(applyDefenseRule(escalated, {
+    riskScore: 0.8, confirmedAttackScore: 0.8, rules,
+  }).tier, "stage4");
+  assert.equal(escalated.headers.get("x-ruby-defense-tier"), "stage4");
 
-  const none = createProxyReq({ "x-ruby-defense-tier": "confirmed" });
-  assert.deepEqual(applyDefenseRule(none, { riskScore: 0.1, rules }), { plan: [], tier: null });
-  assert.equal(none.headers.has("x-ruby-defense-tier"), false);
+  const forged = createProxyReq({ "x-ruby-defense-tier": "stage4" });
+  assert.deepEqual(applyDefenseRule(forged, { riskScore: 0.1, rules }), {
+    plan: [{ name: "decoy_maze", params: {} }], tier: "stage1",
+  });
+  assert.equal(forged.headers.get("x-ruby-defense-tier"), "stage1");
 });
 
-test("확정된 0.8 이상 0.95 미만 플랜은 요청 제한과 미끼만 전달한다", () => {
+test("2·3단계는 중간 오버레이를 유지하며 지연만 300ms에서 500ms로 바꾼다", () => {
+  const proxyReq = createProxyReq({ "x-defense-plan": '[{"name":"bypass"}]' });
+  const second = applyDefensePlan(proxyReq, {
+    riskScore: 0.25,
+    confirmedAttackScore: 0.25,
+    rules,
+  });
+  assert.deepEqual(second, [
+    { name: "decoy_maze", params: {} },
+    { name: "account_overlay_medium", params: {} },
+    { name: "delay", params: { delay_ms: 300 } },
+  ]);
+  assert.equal(proxyReq.headers.get("x-defense-plan"), JSON.stringify(second));
+
+  const third = applyDefensePlan(proxyReq, {
+    riskScore: 0.5,
+    confirmedAttackScore: 0.5,
+    rules,
+  });
+  assert.deepEqual(third, [
+    { name: "decoy_maze", params: {} },
+    { name: "account_overlay_medium", params: {} },
+    { name: "delay", params: { delay_ms: 500 } },
+  ]);
+  assert.equal(proxyReq.headers.get("x-defense-plan"), JSON.stringify(third));
+});
+
+test("4단계는 429도 지연되도록 delay를 요청 제한보다 앞에 전달한다", () => {
   const proxyReq = createProxyReq({ "x-defense-plan": '[{"name":"bypass"}]' });
   const plan = applyDefensePlan(proxyReq, {
     riskScore: 0.8,
@@ -209,21 +238,8 @@ test("확정된 0.8 이상 0.95 미만 플랜은 요청 제한과 미끼만 전�
   });
 
   assert.deepEqual(plan, [
-    { name: "rate_limit_strict", params: { max_rps: 1 } },
     { name: "decoy_maze", params: {} },
-  ]);
-  assert.equal(proxyReq.headers.get("x-defense-plan"), JSON.stringify(plan));
-});
-
-test("확정된 0.95 이상 플랜은 요청 제한과 높은 계정 오버레이를 전달한다", () => {
-  const proxyReq = createProxyReq({ "x-defense-plan": '[{"name":"bypass"}]' });
-  const plan = applyDefensePlan(proxyReq, {
-    riskScore: 0.95,
-    confirmedAttackScore: 0.95,
-    rules,
-  });
-
-  assert.deepEqual(plan, [
+    { name: "delay", params: { delay_ms: 700 } },
     { name: "rate_limit_strict", params: { max_rps: 1 } },
     { name: "account_overlay_high", params: {} },
   ]);

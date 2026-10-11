@@ -7,10 +7,12 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
 from starlette.testclient import TestClient
+from starlette.responses import Response
 
 from defense.app import main, path_alias as pa
 from defense.app.strategies.base import DefenseResult
@@ -347,6 +349,9 @@ class IntegrationTests(unittest.TestCase):
         self.emitted = p.start()
         self.addCleanup(p.stop)
         self.client = TestClient(main.app, follow_redirects=False)
+        # Most compatibility cases exercise the active alias stage. Individual
+        # rollout tests override this header around the 0.5 boundary.
+        self.client.headers["x-ruby-risk-score"] = "0.5"
         self.addCleanup(self.client.close)
 
     def logs(self, event="path_alias"):
@@ -373,6 +378,163 @@ class IntegrationTests(unittest.TestCase):
         self.assertNotIn("params", self.calls[-1])
         self.assertEqual(self.logs()[-1]["route_id"], "/rest/products/search")
         self.assertNotIn(client_id, json.dumps(self.emitted.call_args_list[-1].args[0]))
+
+    def test_score_boundary_stops_issuance_and_rewrite_after_drop(self):
+        self.upstream = self.PAGE
+        below = self.client.get("/", headers={"x-ruby-risk-score": "0.49"})
+        self.assertIn('/rest/products/search"', below.text)
+        self.assertNotIn("set-cookie", below.headers)
+        self.assertIsNone(self.client.cookies.get(pa.COOKIE_NAME))
+
+        active = self.client.get("/", headers={"x-ruby-risk-score": "0.5"})
+        client_id = self.client.cookies.get(pa.COOKIE_NAME)
+        alias = self.table.current_aliases(NOW, client_id)["/rest/products/search"]
+        self.assertIn(alias, active.text)
+        with self.table._store.connect() as db:
+            before_rows = db.execute("SELECT COUNT(*) FROM path_alias_alias_rows").fetchone()[0]
+
+        dropped = self.client.get("/", headers={"x-ruby-risk-score": "0.49"})
+        self.assertIn('/rest/products/search"', dropped.text)
+        self.assertNotIn(alias, dropped.text)
+        self.assertNotIn("set-cookie", dropped.headers)
+        with self.table._store.connect() as db:
+            after_rows = db.execute("SELECT COUNT(*) FROM path_alias_alias_rows").fetchone()[0]
+        self.assertEqual(after_rows, before_rows)
+
+        self.upstream = self.JSON
+        direct = self.client.get("/rest/products/search", headers={"x-ruby-risk-score": "0.49"})
+        restored = self.client.get(alias, headers={"x-ruby-risk-score": "0.49"})
+        self.assertEqual((direct.status_code, restored.status_code), (200, 200))
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
+
+    def test_low_score_search_value_with_alias_marker_is_not_enforced(self):
+        query = "q=__ruby_alias_" + "a" * 26
+        self.upstream = self.JSON
+        response = self.client.get("/rest/products/search?" + query, headers={
+            "x-ruby-risk-score": "0.49"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search?" + query))
+        self.assertEqual(self.logs(), [])
+        nested = self.client.get("/rest/products/__ruby_alias_demo", headers={
+            "x-ruby-risk-score": "0.49"})
+        self.assertEqual(nested.status_code, 200)
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/__ruby_alias_demo"))
+
+    def test_low_score_stale_alias_restores_without_reissuing(self):
+        _, client_id, alias = self.open_page()
+        self.table.rotate_client(client_id, NOW, "direct")
+        with self.table._store.connect() as db:
+            before_rows = db.execute("SELECT COUNT(*) FROM path_alias_alias_rows").fetchone()[0]
+        response = self.client.get(alias, headers={"x-ruby-risk-score": "0.49"})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("set-cookie", response.headers)
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
+        with self.table._store.connect() as db:
+            after_rows = db.execute("SELECT COUNT(*) FROM path_alias_alias_rows").fetchone()[0]
+        self.assertEqual(after_rows, before_rows)
+
+    def test_alias_block_pays_delay_and_rate_limit_precedes_lookup(self):
+        plan = json.dumps([
+            {"name": "delay", "params": {"delay_ms": 1}},
+            {"name": "rate_limit_strict", "params": {"max_rps": 1}},
+        ])
+        headers = {"x-client-id": "alias-rate-before-lookup", "x-ruby-risk-score": "0.8",
+                   "x-defense-plan": plan}
+        unknown = "/__ruby_alias_" + "a" * 26
+        first = self.client.get(unknown, headers=headers)
+        self.assertEqual(first.status_code, 404)
+        self.assertEqual(first.headers["x-defense-delay-ms"], "1")
+        self.assertEqual(first.headers["x-defense-applied"],
+                         "delay,rate_limit_strict,path_alias")
+        with patch.object(main, "_alias_db", AsyncMock(side_effect=AssertionError(
+                "429 must precede alias DB lookup"))) as lookup:
+            second = self.client.get(unknown, headers=headers)
+        self.assertEqual(second.status_code, 429)
+        self.assertEqual(second.headers["x-defense-delay-ms"], "1")
+        lookup.assert_not_awaited()
+
+    def test_restored_alias_feedback_is_signed_and_upstream_cannot_spoof_it(self):
+        _, _, alias = self.open_page()
+        key = b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        request_id = "request:123e4567-e89b-42d3-a456-426614174000"
+        self.upstream = (200, [("content-type", "application/json"),
+                               ("X-Ruby-Resolved-Url", "/forged"),
+                               ("X-Ruby-Resolved-Url-Sig", "forged"),
+                               ("X-Ruby-Overlay-Active", "1")], b'{"ok":true}')
+        with patch.object(main, "OVERLAY_DETECTOR_KEY", key), patch.object(
+                main, "OVERLAY_UPSTREAMS", {}):
+            response = self.client.get(alias + "?q=%2Fapi%2FProducts%2F1", headers={
+                "x-ruby-request-id": request_id})
+            direct = self.client.get("/other", headers={
+                "x-ruby-request-id": request_id})
+        resolved = "/rest/products/search?q=%2Fapi%2FProducts%2F1"
+        message = "\n".join(("ruby:route-feedback:v1", request_id, "GET", "legacy", "", resolved))
+        signature = hmac.new(key, message.encode(), hashlib.sha256).hexdigest()
+        self.assertEqual(response.headers["x-ruby-resolved-url"], resolved)
+        self.assertEqual(response.headers["x-ruby-resolved-url-sig"], signature)
+        self.assertEqual(sum(k.lower() == b"x-ruby-resolved-url" for k, _ in response.headers.raw), 1)
+        self.assertEqual(direct.status_code, 200)
+        self.assertNotIn("x-ruby-resolved-url", direct.headers)
+        self.assertNotIn("x-ruby-resolved-url-sig", direct.headers)
+        self.assertNotIn("x-ruby-overlay-active", response.headers)
+        self.assertNotIn("x-ruby-overlay-active", direct.headers)
+
+    def test_alias_feedback_requires_detection_request_id_and_key(self):
+        _, _, alias = self.open_page()
+        request_id = "request:123e4567-e89b-42d3-a456-426614174000"
+        for key, identifier in ((b"short", request_id),
+                                (b"x" * 32, ""),
+                                (b"x" * 32, "client-chosen")):
+            with self.subTest(key=key, identifier=identifier), patch.object(
+                    main, "OVERLAY_DETECTOR_KEY", key):
+                headers = {"x-ruby-request-id": identifier} if identifier else {}
+                response = self.client.get(alias, headers=headers)
+                self.assertNotIn("x-ruby-resolved-url", response.headers)
+                self.assertNotIn("x-ruby-resolved-url-sig", response.headers)
+
+    def test_alias_feedback_reaches_streaming_but_rate_limit_precedes_lookup(self):
+        _, _, alias = self.open_page()
+        key = b"x" * 32
+        request_id = "request:123e4567-e89b-42d3-a456-426614174000"
+        headers = {"x-ruby-request-id": request_id}
+        self.upstream = (200, [("content-type", "application/octet-stream"),
+                               ("X-Ruby-Resolved-Url", "/forged"),
+                               ("X-Ruby-Resolved-Url-Sig", "forged")], b"binary")
+        with patch.object(main, "OVERLAY_DETECTOR_KEY", key):
+            streamed = self.client.get(alias, headers=headers)
+            limited = Response(status_code=429, headers={
+                "X-Ruby-Resolved-Url": "/forged", "X-Ruby-Resolved-Url-Sig": "forged",
+                "X-Ruby-Overlay-Active": "1"})
+            limited.raw_headers.append((b"X-RUBY-RESOLVED-URL", b"/duplicate"))
+            with patch.object(main, "OVERLAY_UPSTREAMS", {}), patch.object(
+                    main, "_apply_plan", AsyncMock(return_value=main.AppliedPlan(
+                        short_circuit=limited))):
+                rate_limited = self.client.get(alias, headers=headers)
+        self.assertEqual(streamed.status_code, 200)
+        self.assertEqual(streamed.content, b"binary")
+        self.assertEqual(rate_limited.status_code, 429)
+        self.assertNotIn("x-ruby-overlay-active", rate_limited.headers)
+        self.assertNotIn("x-ruby-resolved-url", rate_limited.headers)
+        self.assertNotIn("x-ruby-resolved-url-sig", rate_limited.headers)
+        self.assertEqual(streamed.headers["x-ruby-resolved-url"], "/rest/products/search")
+        self.assertEqual(sum(k.lower() == b"x-ruby-resolved-url" for k, _ in streamed.headers.raw), 1)
+        self.assertEqual(sum(k.lower() == b"x-ruby-resolved-url-sig" for k, _ in streamed.headers.raw), 1)
+        message = "\n".join(("ruby:route-feedback:v1", request_id, "GET", "legacy", "",
+                             "/rest/products/search"))
+        self.assertEqual(streamed.headers["x-ruby-resolved-url-sig"],
+                         hmac.new(key, message.encode(), hashlib.sha256).hexdigest())
+
+    def test_alias_feedback_escapes_unsafe_query_and_caps_url_length(self):
+        request_id = "request:123e4567-e89b-42d3-a456-426614174000"
+        request = SimpleNamespace(headers={"x-ruby-request-id": request_id}, method="GET")
+        selected = SimpleNamespace(target_id="legacy", run_id=None)
+        restored = SimpleNamespace(scope={"raw_path": b"/rest/products/search",
+                                          "query_string": b"q=\xff\r\n"})
+        with patch.object(main, "OVERLAY_DETECTOR_KEY", b"x" * 32):
+            feedback = main._signed_resolved_url(request, selected, restored)
+            self.assertEqual(feedback[0], "/rest/products/search?q=%FF%0D%0A")
+            restored.scope["query_string"] = b"q=" + b"a" * 8192
+            self.assertIsNone(main._signed_resolved_url(request, selected, restored))
 
     def test_query_path_bytes_survive_alias_translation(self):
         _, _, alias = self.open_page()
@@ -468,6 +630,27 @@ class IntegrationTests(unittest.TestCase):
         response = self.client.get(page.headers["location"])
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.calls[-1]["url"], "http://localhost:9000" + url)
+
+    def test_query_alias_restores_below_half_without_unrelated_query_activation(self):
+        self.configure_query_routes()
+        _, _, alias = self.open_page()
+        self.upstream = self.JSON
+        query = "route=%2F" + alias.lstrip("/")
+        restored = self.client.get("/gateway?" + query, headers={
+            "x-ruby-risk-score": "0.49"})
+        self.assertEqual(restored.status_code, 200)
+        self.assertTrue(self.calls[-1]["url"].endswith(
+            "/gateway?route=%2Frest%2Fproducts%2Fsearch"))
+        before_logs = len(self.logs())
+        unrelated = self.client.get("/gateway?q=__ruby_alias_" + "a" * 26, headers={
+            "x-ruby-risk-score": "0.49"})
+        self.assertEqual(unrelated.status_code, 200)
+        self.assertEqual(len(self.logs()), before_logs)
+        embedded = self.client.get(
+            "/gateway?route=%2Frest%2Fproducts%2Fsearch%3Fx%3D__ruby_alias_demo",
+            headers={"x-ruby-risk-score": "0.49"})
+        self.assertEqual(embedded.status_code, 200)
+        self.assertEqual(len(self.logs()), before_logs)
 
     def test_query_alias_reaches_later_strategy_and_preserves_other_fields(self):
         self.configure_query_routes()
@@ -566,13 +749,17 @@ class IntegrationTests(unittest.TestCase):
 
         def backend(request):
             captured.append(request)
-            return httpx.Response(200, stream=_AsyncBody(b"overlay"))
+            return httpx.Response(401, headers={"X-Ruby-Overlay-Active": "0"},
+                                  stream=_AsyncBody(b"overlay"))
 
         upstream = httpx.AsyncClient(transport=httpx.MockTransport(backend))
         self.addCleanup(lambda: asyncio.run(upstream.aclose()))
         raw_query = "next=%2Fapi%2FProducts%2F1&empty=&flag"
         body = b"email=a%40example.invalid"
-        plan = json.dumps([{"name": main.OVERLAY_MEDIUM, "params": {}}])
+        plan = json.dumps([
+            {"name": main.OVERLAY_MEDIUM, "params": {}},
+            {"name": "delay", "params": {"delay_ms": 500}},
+        ])
         with patch.object(main.app.state, "http_client", upstream), patch.object(
                 main.target_selection.target_selector, "for_request", return_value=selected), patch.object(
                 main, "OVERLAY_UPSTREAMS", {"juice-shop": "http://overlay-juice:8080"}), patch.object(
@@ -584,9 +771,19 @@ class IntegrationTests(unittest.TestCase):
                 "x-ruby-confirmed-attack-score": "0.6",
                 "x-defense-plan": plan,
             })
+            sticky = self.client.post(alias + "?" + raw_query, content=body, headers={
+                "x-client-id": "resolved:alice",
+                "x-ruby-risk-score": "0",
+                "x-ruby-confirmed-attack-score": "0",
+                "x-defense-plan": '[{"name":"decoy_maze","params":{}}]',
+            })
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(captured), 1)
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers["x-ruby-overlay-active"], "1")
+        self.assertEqual(sum(k.lower() == b"x-ruby-overlay-active" for k, _ in response.headers.raw), 1)
+        self.assertEqual(sticky.status_code, 401)
+        self.assertEqual(sticky.headers["x-ruby-overlay-active"], "1")
+        self.assertEqual(len(captured), 2)
         request = captured[0]
         raw_target = "/rest/user/login?" + raw_query
         self.assertEqual(request.url.raw_path, raw_target.encode("ascii"))

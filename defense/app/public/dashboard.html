@@ -450,7 +450,11 @@
     });
     const DEFENSE_SIGNALS = Object.freeze({ rate_limited:'요청 빈도 제한', none:'없음' });
     // detection/config/policy.json의 tier 이름. 새 단계를 추가하면 여기에 표시 이름만 더한다.
-    const DEFENSE_TIERS = Object.freeze({ confirmed:'확정 공격 근거', suspected:'의심 · 미끼만' });
+    const DEFENSE_TIERS = Object.freeze({
+      stage1:'1단계 · 미끼', stage2:'2단계 · 중간 오버레이',
+      stage3:'3단계 · 중간 오버레이', stage4:'4단계 · 높은 오버레이',
+      confirmed:'확정 공격 근거', suspected:'의심 · 미끼만',
+    });
     const OUTCOME_FILTERS = Object.freeze({ all:'모든 결과', defended:'방어 적용', blocked:'차단·오류' });
     // 탐지 화면의 흐름 필터와 같은 이름을 쓴다. unlinked는 후보 정보가 없는 기록(이전 버전·서명 없는 WebSocket)이다.
     const FLOW_FILTERS = Object.freeze({ all:'모든 흐름', linked:'연결된 흐름', standalone:'단독 관찰', unlinked:'흐름 정보 없음' });

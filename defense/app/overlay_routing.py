@@ -62,31 +62,30 @@ def requested_tier(plan: list[dict], *, risk_score: float | None,
     """Require the trusted plan and its completed-history score to agree."""
     if risk_score is None or confirmed_attack_score is None:
         raise OverlayRouteError("overlay score missing")
-    markers = [step for step in plan if step.get("name") in OVERLAY_NAMES]
-    if len(markers) > 1 or any(step.get("params", {}) != {} for step in markers):
-        raise OverlayRouteError("invalid overlay plan")
-    if risk_score >= 0.95 and confirmed_attack_score >= 0.95:
-        expected = {"rate_limit_strict", OVERLAY_HIGH}
+    if risk_score >= 0.8 and confirmed_attack_score >= 0.8:
+        expected = [
+            {"name": "delay", "params": {"delay_ms": 700}},
+            {"name": "rate_limit_strict", "params": {"max_rps": 1}},
+            {"name": OVERLAY_HIGH, "params": {}},
+        ]
         tier = "high"
-    elif risk_score >= 0.8 and 0.8 <= confirmed_attack_score < 0.95:
-        expected = {"rate_limit_strict", "decoy_maze"}
-        tier = None
     elif risk_score >= 0.5 and 0.5 <= confirmed_attack_score < 0.8:
-        expected = {OVERLAY_MEDIUM}
+        expected = [
+            {"name": OVERLAY_MEDIUM, "params": {}},
+            {"name": "delay", "params": {"delay_ms": 500}},
+        ]
+        tier = "medium"
+    elif risk_score >= 0.25 and 0.25 <= confirmed_attack_score < 0.5:
+        expected = [
+            {"name": OVERLAY_MEDIUM, "params": {}},
+            {"name": "delay", "params": {"delay_ms": 300}},
+        ]
         tier = "medium"
     else:
-        if markers:
-            raise OverlayRouteError("overlay marker score mismatch")
-        return None
-    names = [step.get("name") for step in plan]
-    if set(names) != expected or len(names) != len(expected):
+        expected = [{"name": "decoy_maze", "params": {}}]
+        tier = None
+    if plan != expected:
         raise OverlayRouteError("selected defense plan does not match score tier")
-    if "rate_limit_strict" in expected and not any(
-        step.get("name") == "rate_limit_strict" and
-        step.get("params") == {"max_rps": 1}
-        for step in plan
-    ):
-        raise OverlayRouteError("strict rate limit plan is invalid")
     return tier
 
 

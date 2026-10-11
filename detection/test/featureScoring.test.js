@@ -186,9 +186,9 @@ test("64건 반복 공격 + 독립 증거가 실제 0.8 정책 구간에 도달�
   const score = result.attackScore;
   assert.ok(score >= 0.8);
   const plan = selectStrategies(score, loadPolicyRules(), { confirmedAttackScore: score });
-  assert.deepEqual(plan.map((step) => step.name), score >= 0.95
-    ? ["rate_limit_strict", "account_overlay_high"]
-    : ["rate_limit_strict", "decoy_maze"]);
+  assert.deepEqual(plan.map((step) => step.name),
+    ["decoy_maze", "delay", "rate_limit_strict", "account_overlay_high"]);
+  assert.equal(plan[1].params.delay_ms, 700);
 });
 
 test("Automation Honey는 trap, no-asset, 조건부 coverage를 합쳐 최대 35점을 반영한다", () => {
@@ -322,7 +322,7 @@ test("단일 신호로는 0.8에 못 미치고, 인젝션·XSS·경로 탐색·�
 
   const injectionOnly = build({ tags: ["sqli"] });
   assert.ok(injectionOnly.attackScore < 0.8);
-  assert.equal(tierFor(injectionOnly.attackScore), null);
+  assert.equal(tierFor(injectionOnly.attackScore), "stage1");
 
   const payloadsOnly = build({ tags: ["sqli", "path-traversal", "command-injection"], xss: true });
   assert.ok(payloadsOnly.attackScore > injectionOnly.attackScore);
@@ -333,14 +333,14 @@ test("단일 신호로는 0.8에 못 미치고, 인젝션·XSS·경로 탐색·�
   assert.ok(withHoney.attackScore >= 0.8, `combined attack score=${withHoney.attackScore}`);
 
   // 같은 점수라도 확정 공격 점수(검증된 DCID의 Resolved Actor)가 있어야 429 단계에 닿는다.
-  assert.equal(tierFor(withHoney.attackScore), "suspected");
+  assert.equal(tierFor(withHoney.attackScore), "stage1");
   assert.deepEqual(selectStrategies(withHoney.attackScore, rules).map((step) => step.name),
     ["decoy_maze"]);
-  assert.equal(tierFor(withHoney.attackScore, { confirmed: withHoney.attackScore }), "confirmed");
+  assert.equal(tierFor(withHoney.attackScore, { confirmed: withHoney.attackScore }), "stage4");
   assert.deepEqual(
     selectStrategies(withHoney.attackScore, rules, { confirmedAttackScore: withHoney.attackScore })
       .map((step) => step.name),
-    ["rate_limit_strict", "decoy_maze"]);
+    ["decoy_maze", "delay", "rate_limit_strict", "account_overlay_high"]);
 });
 
 // 기존 buildFeatures 에 미끼 신호만 얹는다. coverage 는 조건을 끄고 자동화 쪽 신호가

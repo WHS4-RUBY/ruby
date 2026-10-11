@@ -11,7 +11,7 @@ from unittest.mock import patch
 import httpx
 from starlette.websockets import WebSocket
 
-from defense.app.main import app, websocket_proxy
+from defense.app.main import AppliedPlan, app, websocket_proxy
 from defense.app.monitoring import event_store
 from defense.app.overlay_routing import (
     OVERLAY_HIGH, OVERLAY_MEDIUM, OverlayRouteError, OverlayRouteStore,
@@ -35,9 +35,27 @@ class BytesStream(httpx.AsyncByteStream):
         pass
 
 
-def plan(*names):
-    return json.dumps([{"name": name, "params": {"max_rps": 1} if name == "rate_limit_strict" else {}}
-                       for name in names])
+def plan(*names, delay_ms=None):
+    def params(name):
+        if name == "rate_limit_strict":
+            return {"max_rps": 1}
+        if name == "delay":
+            return {"delay_ms": delay_ms}
+        return {}
+
+    return json.dumps([{"name": name, "params": params(name)} for name in names])
+
+
+def stage_plan(stage):
+    if stage == 1:
+        return plan("decoy_maze")
+    if stage == 2:
+        return plan(OVERLAY_MEDIUM, "delay", delay_ms=300)
+    if stage == 3:
+        return plan(OVERLAY_MEDIUM, "delay", delay_ms=500)
+    if stage == 4:
+        return plan("delay", "rate_limit_strict", OVERLAY_HIGH, delay_ms=700)
+    raise ValueError("unknown stage")
 
 
 class OverlayStoreTests(unittest.TestCase):
@@ -68,20 +86,36 @@ class OverlayStoreTests(unittest.TestCase):
                 OverlayRouteStore.bootstrap(path, KEY, targets)
 
     def test_score_and_plan_must_agree(self):
-        medium = [{"name": OVERLAY_MEDIUM, "params": {}}]
-        high = [{"name": "rate_limit_strict", "params": {"max_rps": 1}},
-                {"name": OVERLAY_HIGH, "params": {}}]
-        self.assertEqual(requested_tier(medium, risk_score=0.6, confirmed_attack_score=0.6), "medium")
-        self.assertEqual(requested_tier(high, risk_score=0.95, confirmed_attack_score=0.95), "high")
+        stage1 = json.loads(stage_plan(1))
+        stage2 = json.loads(stage_plan(2))
+        stage3 = json.loads(stage_plan(3))
+        stage4 = json.loads(stage_plan(4))
+        self.assertIsNone(requested_tier(stage1, risk_score=0, confirmed_attack_score=0))
+        self.assertIsNone(requested_tier(stage1, risk_score=0.249999, confirmed_attack_score=0.249999))
+        self.assertEqual(requested_tier(stage2, risk_score=0.25, confirmed_attack_score=0.25), "medium")
+        self.assertEqual(requested_tier(stage2, risk_score=0.9, confirmed_attack_score=0.3), "medium")
+        self.assertEqual(requested_tier(stage2, risk_score=0.499999, confirmed_attack_score=0.499999), "medium")
+        self.assertEqual(requested_tier(stage3, risk_score=0.5, confirmed_attack_score=0.5), "medium")
+        self.assertEqual(requested_tier(stage3, risk_score=0.799999, confirmed_attack_score=0.799999), "medium")
+        self.assertEqual(requested_tier(stage4, risk_score=0.8, confirmed_attack_score=0.8), "high")
         self.assertIsNone(requested_tier(
-            [{"name": "decoy_maze", "params": {}}],
+            stage1,
             risk_score=0.9, confirmed_attack_score=0.0,
         ))
         for invalid, risk, confirmed in (
-            (medium, 0.6, None), (medium, 0.6, 0.8), (high, 0.95, 0.9),
-            (medium + high, 0.99, 0.99),
+            (stage3, 0.6, None), (stage3, 0.6, 0.8), (stage4, 0.95, 0.7),
+            (stage3 + stage4, 0.99, 0.99),
             ([{"name": OVERLAY_HIGH, "params": {}}], 0.99, 0.99),
             ([], 0.9, 0.9),
+            (stage1, 0.25, 0.25),
+            (stage2, 0.5, 0.5),
+            (stage3, 0.8, 0.8),
+            (stage4, 0.799999, 0.8),
+            ([*stage4[:1], {"name": "rate_limit_strict", "params": {"max_rps": 2}}, stage4[2]], 0.8, 0.8),
+            ([{"name": "delay", "params": {"delay_ms": 700}}, stage4[2], stage4[1]], 0.8, 0.8),
+            ([{"name": "delay", "params": {"delay_ms": 699}}, *stage4[1:]], 0.8, 0.8),
+            ([*stage2[:1], {"name": "delay", "params": {"delay_ms": 500}}], 0.3, 0.3),
+            ([{"name": OVERLAY_MEDIUM, "params": {"unexpected": 1}}, stage2[1]], 0.3, 0.3),
         ):
             with self.subTest(invalid=invalid, risk=risk, confirmed=confirmed):
                 with self.assertRaises(OverlayRouteError):
@@ -159,7 +193,7 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
                 async with app.router.lifespan_context(app):
                     pass
 
-    async def test_medium_sticks_through_cheat_band_high_upgrades_and_429_precedes_proxy(self):
+    async def test_medium_sticks_through_stage3_high_upgrades_and_429_precedes_proxy(self):
         now = [100.0]
         overlays = {"juice-shop": "http://overlay-juice:8080"}
         decoys = {"juice-shop": "http://cheat-juice:3012"}
@@ -173,36 +207,32 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
             ), patch("defense.app.strategies.rate_limit.time", SimpleNamespace(monotonic=lambda: now[0])):
                 medium = await client.post(
                     "/api/search?x=%2B&x=%252F", content=b"a=1",
-                    headers=self.headers("resolved:actor-a", 0.6, 0.6, plan(OVERLAY_MEDIUM)),
+                    headers=self.headers("resolved:actor-a", 0.3, 0.3, stage_plan(2)),
                 )
                 now[0] += 2
                 sticky_medium = await client.get(
                     "/api/products", headers=self.headers(
-                        "resolved:actor-a", 0.85, 0.85,
-                        plan("rate_limit_strict", "decoy_maze"),
+                        "resolved:actor-a", 0.6, 0.6, stage_plan(3),
                     ),
                 )
                 fresh_cheat = await client.get(
                     "/api/products", headers=self.headers(
-                        "resolved:actor-b", 0.85, 0.85,
-                        plan("rate_limit_strict", "decoy_maze"),
+                        "resolved:actor-b", 0.85, 0.0, stage_plan(1),
                     ),
                 )
                 now[0] += 2
                 high = await client.get(
                     "/api/orders", headers=self.headers(
-                        "resolved:actor-a", 0.97, 0.97,
-                        plan("rate_limit_strict", OVERLAY_HIGH),
+                        "resolved:actor-a", 0.85, 0.85, stage_plan(4),
                     ),
                 )
                 blocked = await client.get(
                     "/api/orders", headers=self.headers(
-                        "resolved:actor-a", 0.97, 0.97,
-                        plan("rate_limit_strict", OVERLAY_HIGH),
+                        "resolved:actor-a", 0.85, 0.85, stage_plan(4),
                     ),
                 )
                 sticky_high = await client.get(
-                    "/api/orders", headers=self.headers("resolved:actor-a", 0.1, 0.1, plan()),
+                    "/api/orders", headers=self.headers("resolved:actor-a", 0.1, 0.1, stage_plan(1)),
                 )
 
         self.assertEqual([r.status_code for r in
@@ -220,18 +250,19 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.calls[3].headers["x-defense-risk"], "high")
         self.assertEqual(self.calls[4].headers["x-defense-risk"], "high")
         self.assertNotIn("x-defense-signal", high.headers)
-        self.assertEqual(medium.headers["x-defense-applied"], "none")
+        self.assertEqual(medium.headers["x-defense-applied"], "delay")
+        self.assertEqual(blocked.headers["x-defense-delay-ms"], "700")
         events = list(reversed(event_store.recent(6)))
-        self.assertEqual(events[0]["strategies"], [OVERLAY_MEDIUM])
-        self.assertEqual(events[0]["confirmedAttackScore"], 0.6)
+        self.assertEqual(events[0]["strategies"], ["delay", OVERLAY_MEDIUM])
+        self.assertEqual(events[0]["confirmedAttackScore"], 0.3)
         self.assertEqual(events[0]["decoyAction"], "account-overlay-medium")
-        self.assertEqual(events[1]["strategies"], ["rate_limit_strict", OVERLAY_MEDIUM])
-        self.assertEqual(events[2]["strategies"], ["rate_limit_strict", "decoy_maze"])
-        self.assertEqual(events[3]["strategies"], ["rate_limit_strict", OVERLAY_HIGH])
-        self.assertEqual(events[3]["confirmedAttackScore"], 0.97)
+        self.assertEqual(events[1]["strategies"], ["delay", OVERLAY_MEDIUM])
+        self.assertEqual(events[2]["strategies"], ["decoy_maze"])
+        self.assertEqual(events[3]["strategies"], ["delay", "rate_limit_strict", OVERLAY_HIGH])
+        self.assertEqual(events[3]["confirmedAttackScore"], 0.85)
         self.assertEqual(events[3]["decoyAction"], "account-overlay-high")
         self.assertEqual(events[3]["outcome"], "blocked")
-        self.assertEqual(events[4]["strategies"], ["rate_limit_strict"])
+        self.assertEqual(events[4]["strategies"], ["delay", "rate_limit_strict"])
         self.assertEqual(events[4]["status"], 429)
         self.assertEqual(events[4]["defenseSignal"], "rate_limited")
         self.assertEqual(events[5]["strategies"], [OVERLAY_HIGH])
@@ -243,7 +274,7 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
             ), patch("defense.app.main.DECOY_UPSTREAMS", {"juice-shop": "http://cheat-juice:3012"}), patch(
                 "defense.app.main.OVERLAY_DETECTOR_KEY", KEY
             ), patch.object(app.state, "overlay_routes", self.store, create=True):
-                headers = self.headers("actor:cookie-less", 0.9, 0.0, plan("decoy_maze"))
+                headers = self.headers("actor:cookie-less", 0.9, 0.0, stage_plan(1))
                 headers.update({
                     "X-Ruby-Defense-Tier": "suspected",
                     "X-Ruby-Candidate-Id": "actor:cookie-less",
@@ -262,7 +293,7 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(event["candidateId"] == "actor:cookie-less" for event in events))
         self.assertTrue(all(event["clientFlowId"] == "client-flow:observed" for event in events))
 
-    async def test_first_high_request_is_sticky_even_when_rate_limited(self):
+    async def test_high_remains_sticky_when_later_request_is_rate_limited(self):
         now = [100.0]
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://defense") as client:
             with patch("defense.app.target_selection.target_selector", self.selector), patch(
@@ -273,26 +304,26 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
                 "defense.app.main.strategy_state", StrategyStateStore()
             ), patch("defense.app.strategies.rate_limit.time", SimpleNamespace(monotonic=lambda: now[0])):
                 first = await client.get("/api/products", headers=self.headers(
-                    "actor-c", 0.85, 0.85, plan("rate_limit_strict", "decoy_maze")))
+                    "actor-c", 0.85, 0.85, stage_plan(4)))
                 blocked_high = await client.get("/api/products", headers=self.headers(
-                    "actor-c", 0.97, 0.97, plan("rate_limit_strict", OVERLAY_HIGH)))
+                    "actor-c", 0.97, 0.97, stage_plan(4)))
                 sticky_high = await client.get("/api/products", headers=self.headers(
-                    "actor-c", 0.1, 0.1, plan()))
+                    "actor-c", 0.1, 0.1, stage_plan(1)))
 
         self.assertEqual([first.status_code, blocked_high.status_code, sticky_high.status_code],
-                         [200, 429, 404])
-        self.assertEqual([call.url.host for call in self.calls], ["cheat-juice", "overlay-juice"])
+                         [404, 429, 404])
+        self.assertEqual([call.url.host for call in self.calls], ["overlay-juice", "overlay-juice"])
         actor = actor_id(KEY, "juice-shop", self.run_id, "actor-c")
         self.assertEqual(self.store.observe(actor, None), "high")
         events = list(reversed(event_store.recent(3)))
         self.assertEqual(events[1]["status"], 429)
         self.assertEqual(events[1]["defenseSignal"], "rate_limited")
-        self.assertEqual(events[1]["strategies"], ["rate_limit_strict"])
+        self.assertEqual(events[1]["strategies"], ["delay", "rate_limit_strict"])
         self.assertEqual(events[2]["strategies"], [OVERLAY_HIGH])
 
     async def test_missing_or_malformed_private_plan_and_scores_fail_closed(self):
         variants = []
-        low = self.headers("actor-a", 0.1, 0.1, plan())
+        low = self.headers("actor-a", 0.1, 0.1, stage_plan(1))
         for name in ("X-Defense-Plan", "X-Ruby-Risk-Score", "X-Ruby-Confirmed-Attack-Score"):
             headers = dict(low)
             del headers[name]
@@ -300,8 +331,8 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
         variants.extend((
             ("malformed", {**low, "X-Defense-Plan": "{"}),
             ("filtered", {**low, "X-Defense-Plan": '[{"params":{}}]'}),
-            ("medium-missing-marker", self.headers("actor-b", 0.6, 0.6, plan())),
-            ("cheat-missing-plan", self.headers("actor-c", 0.85, 0.85, plan())),
+            ("medium-missing-marker", self.headers("actor-b", 0.6, 0.6, stage_plan(1))),
+            ("high-missing-plan", self.headers("actor-c", 0.85, 0.85, stage_plan(1))),
             ("high-missing-marker", self.headers("actor-d", 0.97, 0.97, plan())),
         ))
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://defense") as client:
@@ -316,11 +347,10 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(response.status_code, 503)
                 normal = await client.get("/api/products", headers=low)
                 just_below_high = await client.get("/api/products", headers=self.headers(
-                    "actor-boundary", 0.9499999, 0.9499999,
-                    plan("rate_limit_strict", "decoy_maze")))
+                    "actor-boundary", 0.7999999, 0.7999999, stage_plan(3)))
         self.assertEqual(normal.status_code, 200)
         self.assertEqual(just_below_high.status_code, 200)
-        self.assertEqual([call.url.host for call in self.calls], ["cheat-juice", "cheat-juice"])
+        self.assertEqual([call.url.host for call in self.calls], ["cheat-juice", "overlay-juice"])
 
     async def test_overlay_upstream_rejections_and_failures_are_errors(self):
         def backend(req):
@@ -343,27 +373,32 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
                                      ("/unreachable", 502)):
                     with self.subTest(path=path):
                         response = await client.get(path, headers=self.headers(
-                            "actor-" + path, 0.6, 0.6, plan(OVERLAY_MEDIUM)))
+                            "actor-" + path, 0.6, 0.6, stage_plan(3)))
                         self.assertEqual(response.status_code, status)
                         event = event_store.recent(1)[0]
                         self.assertEqual(event["outcome"], "error")
-                        self.assertEqual(event["strategies"], [OVERLAY_MEDIUM])
+                        self.assertEqual(event["strategies"], ["delay", OVERLAY_MEDIUM])
                         self.assertEqual(event["decoyAction"], "account-overlay-medium")
 
     async def test_strategy_failure_after_route_selection_records_overlay_attempt(self):
+        async def fail_after_pre_route(steps, _request, _selected):
+            if steps and steps[0]["name"] == "delay":
+                return AppliedPlan(names=["delay"])
+            raise RuntimeError("strategy failed")
+
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://defense") as client:
             with patch("defense.app.target_selection.target_selector", self.selector), patch(
                 "defense.app.main.OVERLAY_UPSTREAMS", {"juice-shop": "http://overlay-juice:8080"}
             ), patch("defense.app.main.OVERLAY_DETECTOR_KEY", KEY), patch.object(
                 app.state, "overlay_routes", self.store, create=True
-            ), patch("defense.app.main._apply_plan", side_effect=RuntimeError("strategy failed")):
+            ), patch("defense.app.main._apply_plan", side_effect=fail_after_pre_route):
                 response = await client.get("/api/products", headers=self.headers(
-                    "actor-error", 0.6, 0.6, plan(OVERLAY_MEDIUM)))
+                    "actor-error", 0.6, 0.6, stage_plan(3)))
         self.assertEqual(response.status_code, 500)
         self.assertEqual(self.calls, [])
         event = event_store.recent(1)[0]
         self.assertEqual(event["outcome"], "error")
-        self.assertEqual(event["strategies"], [OVERLAY_MEDIUM])
+        self.assertEqual(event["strategies"], ["delay", OVERLAY_MEDIUM])
         self.assertEqual(event["decoyAction"], "account-overlay-medium")
 
     async def test_missing_key_and_large_body_fail_without_upstream_contact(self):
@@ -375,7 +410,7 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
                 app.state, "overlay_routes", self.store, create=True
             ):
                 missing = await client.get("/api/products", headers=self.headers(
-                    "actor-a", 0.6, 0.6, plan(OVERLAY_MEDIUM)))
+                    "actor-a", 0.6, 0.6, stage_plan(3)))
             with patch("defense.app.target_selection.target_selector", self.selector), patch(
                 "defense.app.main.OVERLAY_UPSTREAMS", overlays
             ), patch("defense.app.main.OVERLAY_DETECTOR_KEY", KEY), patch.object(
@@ -383,11 +418,11 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
             ):
                 too_large = await client.post("/api/products", content=b"x" * (1_048_576 + 1),
                                               headers=self.headers("actor-a", 0.6, 0.6,
-                                                                   plan(OVERLAY_MEDIUM)))
+                                                                   stage_plan(3)))
         self.assertEqual(missing.status_code, 503)
         self.assertEqual(too_large.status_code, 413)
         self.assertEqual(self.calls, [])
-        self.assertEqual(event_store.recent(1)[0]["strategies"], [OVERLAY_MEDIUM])
+        self.assertEqual(event_store.recent(1)[0]["strategies"], ["delay", OVERLAY_MEDIUM])
         self.assertEqual(event_store.recent(1)[0]["decoyAction"], "account-overlay-medium")
 
     async def test_missing_trusted_client_id_cannot_take_normal_cheat_route(self):
@@ -402,7 +437,7 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
                 response = await client.get("/api/products", headers={
                     "X-Ruby-Target-Id": "juice-shop", "X-Ruby-Run-Id": self.run_id,
                     "X-Ruby-Risk-Score": "0", "X-Ruby-Confirmed-Attack-Score": "0",
-                    "X-Defense-Plan": "[]",
+                    "X-Defense-Plan": stage_plan(1),
                 })
         self.assertEqual(response.status_code, 503)
         self.assertEqual(self.calls, [])
@@ -417,7 +452,7 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
             sent.append(message)
 
         headers = self.headers("actor-ws", 0.97, 0.97,
-                               plan("rate_limit_strict", OVERLAY_HIGH))
+                               stage_plan(4))
         websocket = WebSocket({
             "type": "websocket", "scheme": "ws", "path": "/socket",
             "raw_path": b"/socket", "query_string": b"",
@@ -432,7 +467,7 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
             await websocket_proxy(websocket, "socket")
         connect.assert_not_called()
         self.assertEqual(sent[-1]["code"], 1008)
-        self.assertEqual(event_store.recent(1)[0]["strategies"], ["rate_limit_strict", OVERLAY_HIGH])
+        self.assertEqual(event_store.recent(1)[0]["strategies"], ["delay", "rate_limit_strict", OVERLAY_HIGH])
         self.assertEqual(event_store.recent(1)[0]["outcome"], "blocked")
 
     async def test_websocket_rate_limit_records_429_and_signal(self):
@@ -446,7 +481,7 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
 
         def websocket():
             headers = self.headers("actor-ws", 0.97, 0.97,
-                                   plan("rate_limit_strict", OVERLAY_HIGH))
+                                   stage_plan(4))
             return WebSocket({
                 "type": "websocket", "scheme": "ws", "path": "/socket",
                 "raw_path": b"/socket", "query_string": b"",
@@ -469,7 +504,7 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
         event = event_store.recent(1)[0]
         self.assertEqual(event["status"], 429)
         self.assertEqual(event["defenseSignal"], "rate_limited")
-        self.assertEqual(event["strategies"], ["rate_limit_strict"])
+        self.assertEqual(event["strategies"], ["delay", "rate_limit_strict"])
 
 
 if __name__ == "__main__":

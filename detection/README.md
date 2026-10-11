@@ -131,26 +131,45 @@ Client Flow 이력을 사용합니다.
 업그레이드 요청의 이전 HTTP 이력에만 정책을 적용하며 프레임 내용은 분석하거나 점수화하지 않습니다.
 Socket.IO polling은 HTTP 요청으로 기록되지만 배경 트래픽은 행동 점수에서 제외합니다.
 
-`config/policy.json`의 규칙은 위에서부터 처음 맞는 하나만 선택하며, 각 규칙의
-`tier`는 근거의 확실성 단계를 나타냅니다. 새 방어 전략은 점수 코드를 바꾸지 않고
-해당 단계의 `strategies`에 추가합니다.
+`config/policy.json`의 규칙은 위에서부터 처음 맞는 하나만 선택합니다. 각 요청에는
+선택된 단계의 전략 목록을 보냅니다. `tier`는 `stage1`~`stage4`로 기록합니다.
+새 방어 전략은 점수 코드를 바꾸지 않고 해당 단계의 `strategies`에 추가합니다.
 
 확정 공격 점수는 **검증된 동일 DCID의 Resolved Actor**에서만 계산합니다. 각 확정 단계는
 위험 점수도 표의 하한 이상이어야 합니다.
 
 | 단계 | 위험 점수 | 확정 공격 점수 | 선택 전략 |
 |---|---:|---:|---|
-| `confirmed` | 0.95 이상 | 0.95 이상 | `rate_limit_strict`(초당 최대 1요청), `account_overlay_high` |
-| `confirmed` | 0.8 이상 | 0.8 이상 0.95 미만 | `rate_limit_strict`, `decoy_maze` |
-| `confirmed` | 0.5 이상 | 0.5 이상 0.8 미만 | `account_overlay_medium` |
-| `suspected` | 0.8 이상 | 0.5 미만 | `decoy_maze`만 적용. 확정된 차단·격리 없음 |
-| 없음 | 그 외 | 그 외 | 방어 계획 없음 |
+| `stage4` | 0.8 이상 | 0.8 이상 | `delay` 700ms, `rate_limit_strict`(초당 최대 1요청), `account_overlay_high` |
+| `stage3` | 0.5 이상 | 0.5 이상 0.8 미만 | `account_overlay_medium`, `delay` 500ms |
+| `stage2` | 0.25 이상 | 0.25 이상 0.5 미만 | `account_overlay_medium`, `delay` 300ms |
+| `stage1` | 그 외(0점 포함) | 그 외 | `decoy_maze` |
 
 공식 Defense가 속도 제한과 계정 오버레이를 실행하고, 비공개 CHeaT sidecar가
-기만 계획을 실행합니다. 위험 점수에 따른 일괄 지연은 선택하지 않지만 미끼에 접촉한
-클라이언트에는 CHeaT의 미로·적응형 지연이 적용될 수 있습니다.
-공유 IP·HTTP 지문으로 연결된 Candidate/Client Flow의 점수는 `suspected` 미끼 계획에만
-사용할 수 있으며 자동 429 또는 계정 오버레이의 근거가 아닙니다. 서명 검증하지 않은
+기만 계획을 실행합니다. `delay`는 공식 Defense에서 각 단계의 고정 시간만큼
+적용합니다. 4단계에서는 속도 제한보다 먼저 적용하므로 429 응답에도 700ms가 붙습니다.
+미끼에 접촉한 클라이언트에는 CHeaT의 미로·적응형 지연이 별도로 적용될 수 있습니다.
+`path_alias`는 점수별 전략 목록에는 없지만, Defense는 현재 요청의 **위험 점수 0.5 이상**부터 새 별칭을 발급하고 응답을 치환합니다. 확정 공격 점수가 낮아 계획이 `stage1` 또는 `stage2`여도 이 기준을 넘으면 켜집니다. 첫 해당 요청부터 대상별 경로 파일의 enforce 또는 observe 모드 상한에 따라 원본 경로를 판정합니다. 기존 탭의 원본 API 호출은 enforce에서 404를 받을 수 있습니다. 위험 점수가 다시 0.5 미만으로 내려가면 새 발급·치환·원본 경로 차단을 멈추고 기존 별칭 URL만 복원합니다.
+Defense가 실제로 별칭을 원래 경로로 복원한 요청에는 복원 URL과 HMAC 서명을 응답의
+`X-Ruby-Resolved-Url`·`X-Ruby-Resolved-Url-Sig`로 돌려줍니다. Detection은 동일한
+`OVERLAY_DETECTOR_KEY`로 요청 ID·메서드·대상·실행 ID까지 묶인 서명을 검증한 뒤,
+완료 요청의 경로 기반 태그·통계와 다음 요청의 정책 점수에 복원 경로를 사용합니다.
+미끼 접촉·API 방문 수·정적 자산 미수신 신호도 완료 시점에 복원 경로로 한 번 계산합니다.
+원래 별칭 URL은 요청 기록의 `observedUrl`에 남깁니다. 두 헤더는 클라이언트 응답에서
+항상 제거하며, 헤더가 없거나 잘못됐거나 키가 설정되지 않은 직접 연결에서는 받은
+URL을 그대로 사용합니다. CRS의 현재 요청 검사는 Defense보다 먼저 실행되므로 이때는
+여전히 별칭 URL을 봅니다. 쿼리·본문 공격 검사는 계속 적용되지만 경로 자체에 의존하는
+CRS 규칙은 별칭 복원 결과를 이용하지 못합니다.
+별칭으로 들어온 로그인 요청에서 미끼 워터마크 또는 SSH 자격증명을 재사용하면,
+서명된 복원 경로가 `/rest/user/login`이고 요청 정책이 `stage1`이며 원본 로그인 실패
+응답(401)을 완전히 버퍼링한 경우 기존 로그인 트랩의 423 응답을 적용합니다. 실제
+계정 오버레이가 처리한 응답과 429 응답은 그대로 전달합니다. 스트리밍 응답은 이미
+클라이언트로 전송을 시작했으므로 423으로 바꿀 수 없고 원래 응답을 유지합니다.
+Defense가 보내는 내부 `X-Ruby-Overlay-Active` 표시와 복원 경로 서명 헤더는
+클라이언트 응답에서 제거합니다.
+공유 IP·HTTP 지문으로 연결된 Candidate/Client Flow의 점수는 단계별 전략에서
+`stage1` 미끼 계획에만 사용할 수 있지만, 위험 점수가 0.5 이상이면 별칭을 켤 수
+있습니다. 자동 429 또는 계정 오버레이의 근거는 아닙니다. 서명 검증하지 않은
 Bearer 값의 그룹 점수도 자동 429 근거가 아닙니다. 한 요청의 공격 신호가 응답 후
 확정되면 대응은 후속 요청부터 가능합니다. 429는 `X-Defense-Signal: rate_limited`로
 탐지 기록에 남으며, 해당 요청은 sidecar까지 전달되지 않습니다.
@@ -171,8 +190,8 @@ Bearer 값의 그룹 점수도 자동 429 근거가 아닙니다. 한 요청의 
 | `X-Ruby-Request-Id` | 탐지·방어 기록을 결합할 무작위 요청 ID |
 | `X-Ruby-Automation-Score`, `X-Ruby-Attack-Score`, `X-Ruby-Confirmed-Attack-Score`, `X-Ruby-Risk-Score` | 전달 전 완료 이력의 0~1 점수 |
 | `X-Ruby-Policy-Source` | 정책 점수의 탐지 출처 |
-| `X-Ruby-Defense-Tier` | 선택된 `policy.json` 규칙의 단계(`confirmed`, `suspected`). 계획이 없으면 보내지 않습니다 |
-| `X-Ruby-Candidate-Id`, `X-Ruby-Client-Flow-Id` | 요청 당시 관찰 후보와 연결된 Client Flow. 헤더 자체는 Defense 대시보드의 묶음 표시용이며, Detection은 별도로 해당 이력을 `suspected` 판단에 사용합니다 |
+| `X-Ruby-Defense-Tier` | 선택된 `policy.json` 규칙의 단계(`stage1`~`stage4`) |
+| `X-Ruby-Candidate-Id`, `X-Ruby-Client-Flow-Id` | 요청 당시 관찰 후보와 연결된 Client Flow. 헤더 자체는 Defense 대시보드의 묶음 표시용이며, Detection은 별도로 해당 이력을 1단계 판단에 사용합니다 |
 | `X-Ruby-Target-Id`, `X-Ruby-Run-Id` | 선택된 대상과 실험 실행의 식별자 |
 
 점수·출처 헤더는 Defense의 관측용 내부 계약입니다. 외부 요청에 같은 이름의 헤더가
@@ -191,9 +210,10 @@ DCID를 돌려주지 않은 요청은 매번 새 DCID를 발급받으므로 서�
 무관한 같은 IP·HTTP 지문의 Candidate와 한 IP 안에서만 이어진 Client Flow의 완료
 이력으로 판단합니다. `X-Client-Id`도 요청마다 바뀌는 DCID 대신 그 Candidate 또는
 Client Flow ID를 사용해 방어 상태가 쪼개지지 않게 합니다. 쿠키가 없다는 사실 자체는
-점수에 더하거나 빼지 않으며, 확정 공격 점수가 없으므로 `suspected` 단계(미끼)까지만
-닿습니다. 같은 NAT 뒤에서 지문이 같은 다른 사용자의 첫 요청(쿠키 발급 전)에도 미끼
-계획이 붙을 수 있다는 점은 감수한 트레이드오프이며, 그 사용자가 DCID를 돌려주는
+점수에 더하거나 빼지 않으며, 확정 공격 점수가 없으므로 단계별 전략은 `stage1`(미끼)까지만
+닿습니다. 위험 점수가 0.5 이상이면 별칭은 별도로 켜집니다. 같은 NAT 뒤에서 지문이
+같은 다른 사용자의 첫 요청(쿠키 발급 전)에도 미끼 계획과 별칭이 붙을 수 있다는 점은
+감수한 트레이드오프이며, 그 사용자가 DCID를 돌려주는
 순간부터는 자기 이력만 사용합니다. 요청마다 HTTP 지문이나 IP까지 바꾸는 클라이언트는
 매번 새 Candidate가 되므로 이 방식으로도 이어지지 않습니다.
 
@@ -233,6 +253,7 @@ npm test
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `TARGET_URL` | `http://localhost:3000` | upstream 주소. 운영 Compose에서는 `http://defense:8080` |
+| `OVERLAY_DETECTOR_KEY` | 없음 | Defense와 공유하는 HMAC 키. 별칭 복원 경로 피드백 검증용이며 운영 Compose에서는 필수 |
 | `TARGET_CHOICES` | 없음 | 관리 화면에서 고를 `id=내부 URL` 목록. Defense에도 같은 값 전달 |
 | `TARGET_DEFAULT_ID` | `legacy` | 유효한 이전 선택이 없을 때의 대상 ID. `TARGET_CHOICES`에 포함되어야 함 |
 | `TARGET_SELECTION_FILE` | 없음 | 대상·실행 ID를 기록하고 Defense와 공유할 파일 |
@@ -286,8 +307,9 @@ Detection 은 Defense 앞단이라 Defense 가 만든 미끼 경로 요청을 �
 
 배점은 공격 허니 8점이며 `ATTACK_HONEY_MAX_POINTS` 상한 35점과
 `ATTACK_WEIGHTS.attackHoney` 0.17 은 그대로입니다 — 허니가 공격 점수에 더할 수 있는
-최대치가 변하지 않으므로 0.5/0.8/0.95 구간 자체는 달라지지 않고, 같은 요청이 더 빨리
-구간에 닿을 수 있습니다. 한 번 적중의 기여는 `8/35 × 0.17 ≈ 0.039` 입니다.
+최대치가 변하지 않으므로 한 번 적중만으로 2단계 경계 0.25에 닿지는 않습니다.
+한 번 적중의 기여는 `8/35 × 0.17 ≈ 0.039`이며, 다른 공격 신호와 합쳐 점수가
+0.25 이상에 도달하면 다음 요청부터 2단계를 선택합니다.
 
 배점은 `config/policy.json` 의 `detection.deception.points` 로 조정합니다. 표는
 신호 단위로 병합되므로 하나만 적어도 나머지 배점은 남습니다. 이 신호를 끄려면:

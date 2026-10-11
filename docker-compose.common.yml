@@ -66,7 +66,6 @@ services:
       - TARGET_CHOICES=${TARGET_CHOICES:-}
       - TARGET_DEFAULT_ID=${TARGET_DEFAULT_ID:-legacy}
       - TARGET_SELECTION_FILE=/app/target-data/target-selection.json
-      - PATH_ALIAS_MODE=${PATH_ALIAS_MODE:-off}
       - PATH_ALIAS_EPOCH_S=${PATH_ALIAS_EPOCH_S:-1800}
       - PATH_ALIAS_GRACE_EPOCHS=${PATH_ALIAS_GRACE_EPOCHS:-1}
       - PATH_ALIAS_PREFIXES=${PATH_ALIAS_PREFIXES:-/rest/,/api/,/b2b/}
