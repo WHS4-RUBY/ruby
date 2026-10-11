@@ -2036,6 +2036,8 @@ const AUTHORITY = {anonymous: '익명', session: '계정', other: '기타'};
 const REASONS = {new: '새로 시작', resume: '체크포인트에서 이어서', fresh: '처음부터',
   different_origin_catalog_or_output: '저장된 체크포인트와 원본, 축 목록 또는 출력이 달라 새로 시작'};
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9_.:\/-]{0,79}$/;
+// Each CLI's default model; switching provider replaces only an empty field or the other CLI's default.
+const MODEL_DEFAULT = {codex: 'gpt-6-sol', claude: 'claude-opus-5-5'};
 let records = '', current = 'env', rates = '', snapshot = null, env = null, account = null, saveTimer = null;
 let refreshing = false, loadedModel = null, ratesTouched = false, dryValues = null, dryFolded = false;
 const ai = {}, busy = {}, polling = {}, seen = {};
@@ -2904,7 +2906,14 @@ async function init() {
   $('model').addEventListener('input', () => setModel('model', 'model-run'));
   $('model-run').addEventListener('input', () => setModel('model-run', 'model'));
   for (const radio of document.querySelectorAll('input[name="provider"]')) {
-    radio.addEventListener('change', () => { renderAi(); if (!ai[provider()]) checkAi(); scheduleSave(); gate(); });
+    radio.addEventListener('change', () => {
+      const model = $('model').value.trim();
+      if (!model || Object.values(MODEL_DEFAULT).includes(model)) {
+        $('model').value = MODEL_DEFAULT[provider()];
+        setModel('model', 'model-run');
+      }
+      renderAi(); if (!ai[provider()]) checkAi(); scheduleSave(); gate();
+    });
   }
   for (const button of document.querySelectorAll('[data-step]')) button.addEventListener('click', () => show(button.dataset.step));
   for (const button of document.querySelectorAll('[data-go]')) button.addEventListener('click', () => show(button.dataset.go));
