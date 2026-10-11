@@ -242,27 +242,30 @@ jobs:
           docker compose -f docker-compose.local.yml exec -T \
             -e DECOY_ENTRY_PATH="$DECOY_ENTRY_PATH" detection node - <<'JS'
           (async () => {
+            const stage4 = require('/app/config/policy.json').defense.rules
+              .find(rule => rule.tier === 'stage4');
+            if (!stage4) throw new Error('stage4 policy is missing');
+            const started = Date.now();
             const response = await fetch(`http://defense:8080${process.env.DECOY_ENTRY_PATH}`, {
               headers: {
                 'X-Client-Id': 'integration-decoy-client',
-                'X-Defense-Plan': JSON.stringify([
-                  { name: 'rate_limit_strict', params: { max_rps: 1 } },
-                  { name: 'decoy_maze', params: {} },
-                ]),
+                'X-Defense-Plan': JSON.stringify(stage4.strategies),
                 'X-Ruby-Risk-Score': '0.85',
                 'X-Ruby-Confirmed-Attack-Score': '0.85',
                 'X-Ruby-Request-Id': 'integration-decoy-request',
               },
             });
             const body = await response.text();
+            const elapsed = Date.now() - started;
             const applied = response.headers.get('x-defense-applied') ?? '';
             if (
                 response.status !== 200 ||
                 !body ||
-                applied .includes('decoy_maze') ||
+                elapsed < 650 ||
+                applied.includes('decoy_maze') ||
                 response.headers.has('x-ruby-decoy-action')
             ) {
-              throw new Error(`decoy response ${response.status}: ${body.slice(0, 160)}`);
+              throw new Error(`decoy response ${response.status} in ${elapsed}ms, applied=${applied}: ${body.slice(0, 160)}`);
             }
           })().catch(error => { console.error(error); process.exitCode = 1; });
           JS
@@ -278,11 +281,16 @@ jobs:
             const unsigned = await fetch('http://overlay-alternate:8080/');
             if (unsigned.status !== 403) throw new Error(`unsigned overlay: ${unsigned.status}`);
 
+            const rules = require('/app/config/policy.json').defense.rules;
+
             async function check(tier, score, clientId) {
               const marker = `account_overlay_${tier}`;
-              const plan = tier === 'high'
-                ? [{ name: 'rate_limit_strict', params: { max_rps: 1 } }, { name: marker, params: {} }]
-                : [{ name: marker, params: {} }];
+              const stage = tier === 'high' ? 'stage4' : 'stage3';
+              const plan = rules.find(rule => rule.tier === stage)?.strategies;
+              if (!plan?.some(step => step.name === marker)) {
+                throw new Error(`${stage} overlay policy is missing`);
+              }
+              const started = Date.now();
               const response = await fetch('http://defense:8080/', {
                 headers: {
                   'X-Client-Id': clientId,
@@ -293,9 +301,12 @@ jobs:
                 },
               });
               const body = await response.text();
+              const elapsed = Date.now() - started;
               const expected = tier === 'high' ? 'Internal Operations Console' : '/assets/account-recovery.js';
-              if (response.status !== 200 || !body.includes(expected)) {
-                throw new Error(`${tier} overlay returned ${response.status}: ${body.slice(0, 160)}`);
+              const minimumDelay = tier === 'high' ? 650 : 450;
+              if (response.status !== 200 || !body.includes(expected) ||
+                  elapsed < minimumDelay) {
+                throw new Error(`${tier} overlay returned ${response.status} in ${elapsed}ms: ${body.slice(0, 160)}`);
               }
             }
 

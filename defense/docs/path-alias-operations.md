@@ -1,6 +1,6 @@
 # 경로 별칭 설치·운영 가이드 (v4, 2026-10-09)
 
-경로 별칭은 **검증된 사이트에 선택적으로 켜는 기능**이다. 기본값은 `PATH_ALIAS_MODE=off`이고, 저장소는 별도 서비스가 필요 없는 SQLite 파일 하나다. 이 문서는 설치·모드·경로 파일·쿠키 미반환 정책·기존 PostgreSQL 설치의 전환을 정리한다. 연구 설계와 실험 기록은 [path-alias-plan.md](path-alias-plan.md), 경로 수집은 [route-discovery-design.md](route-discovery-design.md)에 있다.
+경로 별칭은 위험 점수 0.5 이상에서 새 별칭 발급과 응답 치환을 시작하며, 대상별 경로 파일과 검증 상태가 실제 모드를 정한다. 점수가 0.5 미만으로 내려가면 새 발급·치환·원본 경로 차단은 멈추고 기존 별칭 URL만 복원한다. 운영 Compose는 기본적으로 `PATH_ALIAS_MODE=enforce`를 선택하고 Juice Shop에는 enforce, 아직 검증 전인 Ruby Shop에는 observe를 적용한다. 로컬 Compose의 기본값은 `off`다. 저장소는 별도 서비스가 필요 없는 SQLite 파일 하나다. 이 문서는 설치·모드·경로 파일·쿠키 미반환 정책·기존 PostgreSQL 설치의 전환을 정리한다. 연구 설계와 실험 기록은 [path-alias-plan.md](path-alias-plan.md), 경로 수집은 [route-discovery-design.md](route-discovery-design.md)에 있다.
 
 ## 1. 설치: SQLite
 
@@ -22,7 +22,7 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 
 | 모드 | 응답 본문·`Location` | 별칭 쿠키 | 원본 보호 경로 | DB | 용도 |
 |---|---|---|---|---|---|
-| `off` | 그대로 | 없음 | 통과 | 사용 안 함 | 기본값 |
+| `off` | 그대로 | 없음 | 통과 | 사용 안 함 | 로컬 Compose 기본값, 운영 중지 옵션 |
 | `audit` | **그대로** (치환 건수만 `would_rewrite`로 기록) | 없음 | 통과, `decision=audit` 기록 | 사용 안 함 | 정상 사용자에게 영향 없는 수집·점검 |
 | `observe` | **치환함** | 발급 | 통과, `would_block`·`would_rotate` 기록 | 사용 | 실제 브라우저가 별칭을 쓰는지 확인. 사용자가 받는 응답이 바뀐다 |
 | `enforce` | 치환함 | 발급 | 404, 사유별 교체 | 사용 | 검증된 사이트·경로에만 |
@@ -31,17 +31,19 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 
 **enforce는 경로 파일이 준비 완료를 선언해야 적용된다.** `PATH_ALIAS_MODE=enforce`라도 경로 파일에 `"enforce_ready": true`가 없으면 그 파일의 경로는 `observe`로 동작한다. `enforce_ready`를 쓰려면 `compatibility.verified_flows`(검증한 정상 흐름 목록), `compatibility.refresh`(별칭 교체 뒤 앱이 새 별칭을 받는 방법), `compatibility.refresh_verified: true`가 모두 있어야 하며, 없으면 시작이 실패한다. 시작할 때 `path_alias_config` 이벤트에 `mode`·`default_mode`·`enforce_ready`가 기록된다. 경로별 `"mode": "observe"`로 일부 경로만 낮출 수 있으며, 경로 단위 설정이 파일의 준비 상태를 넘어 enforce로 올리지는 못한다.
 
-**위험 점수로 진행 중인 세션을 갑자기 enforce로 바꾸지 않는다.** 별칭 판정은 설정·경로·별칭 쿠키만 보고 `X-Ruby-*-Score`를 읽지 않는다(`test_risk_scores_never_switch_alias_decisions`).
+**위험 점수가 0.5에 도달하면 첫 요청부터 원본 경로를 판정하고, 경로 참조가 담긴 응답에서 새 별칭을 발급·치환한다.** Defense가 받은 `X-Ruby-Risk-Score`만 이 문턱에 사용한다. `X-Ruby-Confirmed-Attack-Score`는 계정 오버레이·속도 제한의 조건이며 별칭 활성화 조건이 아니다. 따라서 정책 계획이 `stage1`이어도 위험 점수가 0.5 이상이면 별칭이 적용될 수 있다. 문턱을 넘기 전에 열린 탭의 JS가 이후에도 원본 경로를 계속 호출하면 Juice Shop enforce에서 404가 나올 수 있으므로 보호되지 않은 화면을 새로고침해 별칭을 받아야 한다. 점수가 0.5 미만으로 내려가면 새 발급·치환·원본 경로 차단을 멈추고 기존 별칭 URL은 계속 복원한다. 대상별 `enforce_ready`와 경로별 모드가 enforce 상한을 정한다.
 
 현재 저장소의 경로 파일 상태:
 
 | 파일 | `enforce_ready` | 근거 |
 |---|---|---|
 | `juice-shop-routes.json` | true | 2026-10-09 실제 스택 브라우저 검증(아래 7절). `target_ids: ["juice-shop"]`. **67개 경로 모두 enforce**(보수적 운영: 에이전트가 원본 경로를 직접 부르면 어느 경로든 거부). 핵심 흐름 외 화면 18개도 별칭만으로 동작함을 확인했다. 만료된 탭의 POST 307 복구(`stale_redirect_unsafe`)는 검증 후 켰다. 직접 조작까지 검증하지 않은 기능은 `compatibility.not_verified`에 적었다 |
-| `ruby-shop-routes.json` | false | 소스 선언에서 만든 목록. 브라우저 흐름과 갱신 방식 미검증 |
+| `ruby-shop-routes.json` | false | `target_ids: ["ruby-shop"]`. 소스 선언에서 만든 목록. 브라우저 흐름과 갱신 방식 미검증이므로 운영에서도 observe |
 | `query-routing-example.json` | false | 예시 |
 
-여러 대상을 고르는 배포(`TARGET_CHOICES`)에서는 경로 파일의 `target_ids`가 적용 대상을 정한다(지정하지 않으면 모든 대상). 같은 앱을 다른 대상 ID로 띄우는 환경(로컬 Compose와 실험 실행기의 `legacy`)은 `PATH_ALIAS_TARGET_IDS=legacy`로 덮어쓴다. 다른 앱(Ruby Shop)의 `/api/`가 Juice Shop 경로 파일 때문에 막히지 않는다.
+운영 Compose의 `PATH_ALIAS_TARGET_ROUTES`는 `juice-shop=/app/config/juice-shop-routes.json,ruby-shop=/app/config/ruby-shop-routes.json`이다. 한 Defense 인스턴스가 대상 ID를 선택한 뒤 해당 파일과 SQLite 이름공간만 사용한다. 파일의 `target_ids`가 있으면 매핑의 대상 ID가 파일에도 있어야 시작한다. 매핑에 없는 대상은 별칭을 적용하지 않는다. 환경변수 `PATH_ALIAS_MODE=off`는 전체 대상을 끈다. `PATH_ALIAS_TARGET_IDS`는 이 대상별 매핑과 함께 쓰지 않는다.
+
+단일 대상 설치에서는 `PATH_ALIAS_TARGET_ROUTES`를 비워 기존 `PATH_ALIAS_ROUTES_FILE`을 쓴다. 이때 파일의 `target_ids`가 적용 대상을 정하며, 같은 앱을 다른 대상 ID로 띄우는 로컬 Compose나 실험 실행기의 `legacy`는 `PATH_ALIAS_TARGET_IDS=legacy`로 덮어쓸 수 있다. 다른 앱의 `/api/`에 Juice Shop 경로 파일을 강제로 적용하지 않는다.
 
 ## 3. 경로 파일 형식
 
@@ -113,9 +115,9 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 
 ### 6.2 별칭 쪽 정책
 
-- 별칭 쿠키를 돌려주지 않는 클라이언트(curl·에이전트·쿠키 차단)는 응답마다 **미확인(pending) 클라이언트**를 새로 받는다. 같은 쿠키로 다음 요청이 오면 확인(confirmed) 상태가 된다.
+- 위험 점수 0.5 이상에서 별칭 쿠키를 돌려주지 않는 클라이언트(curl·에이전트·쿠키 차단)는 치환할 경로가 있는 응답마다 **미확인(pending) 클라이언트**를 새로 받는다. 같은 쿠키로 다음 요청이 오면 확인(confirmed) 상태가 된다.
 - 미확인 클라이언트의 별칭은 쿠키 없이도 쓸 수 있다(`alias_state=adopted`). 별칭을 받은 쪽이 그 쿠키도 같이 받았으므로 귀속 검사로 얻는 것이 없고, 막으면 도구 한계만 측정하게 된다. 이 사용은 `PATH_ALIAS_PENDING_TTL_S`가 지나면 **조회 시점에** 끝난다(정리 작업 실행 여부와 무관, `stale_alias`·교체 없음). 같은 쿠키를 돌려주는 브라우저는 그때 확인 상태가 되어 계속 쓴다. 행 삭제는 별도 정리 주기가 한다. 확인된 클라이언트의 별칭은 다른 쿠키·쿠키 없음에서 `foreign_alias`로 거부된다.
-- **쿠키가 없다는 이유로 원본 보호 경로를 허용하지 않는다.** 쿠키 유무와 무관하게 원본 경로는 enforce에서 404다.
+- **위험 점수 0.5 이상에서는 쿠키가 없다는 이유로 원본 보호 경로를 허용하지 않는다.** 첫 해당 요청부터 쿠키 유무와 무관하게 원본 경로는 enforce에서 404다. 점수가 0.5 미만이면 원본 경로 차단을 멈춘다.
 - 쿠키 부재 자체는 점수·차단 근거가 아니다. 공유 IP·지문을 신원으로 쓰지 않는다. 별칭 단계는 IP를 보지 않는다.
 - 사전에 명시한 쿠키 없는 API 채널(`cookieless_channels`)은 별칭 쿠키가 없고 지정 헤더가 있는 요청에 한해 원본 경로를 허용한다(`kind=channel`). Detection·CRS·후속 전략은 그대로 적용된다. 헤더는 누구나 붙일 수 있으므로, 이 설정은 해당 경로의 별칭 보호를 포기한다는 운영 결정이다.
 
@@ -131,7 +133,12 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 
 상한은 앱 전체 기준이다. 상한에 닿으면 발급 거부 전에 미확인 만료분과 확인된 유휴 클라이언트를 같은 쓰기 트랜잭션에서 회수한다. 확인된 클라이언트는 마지막 발급 뒤 별칭 수명과 tombstone 기간이 모두 지난 경우에만 정리하므로, 그 전의 오래된 탭 복구는 유지된다. 쿠키를 돌려주지 않는 요청이 몰리면 새 방문자도 같은 503을 받을 수 있다. SQLite 파일은 행을 지워도 줄어들지 않고 빈 페이지를 재사용한다.
 
-### 6.3 Detection 정책과의 관계 (Detection 코드는 변경하지 않음)
+### 6.3 Detection 정책과의 관계: 2026-10-09 실험 기록
+
+아래 표는 위험 점수 0.5 문턱과 새 단계별 정책을 적용하기 전의 스택 관찰이다. 당시
+`suspected`·`confirmed` 단계와 첫 요청 계획 부재는 현재 정책을 설명하지 않는다.
+현재는 첫 요청부터 `stage1` 미끼 계획을 선택하고, 공유 후보의 위험 점수가 0.5
+이상이면 확정 공격 점수 없이도 별칭을 적용할 수 있다.
 
 | 상황 | Detection 정책 키·근거 | 실제 스택 관찰 (2026-10-09, Juice Shop) |
 |---|---|---|
@@ -144,7 +151,7 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 | 같은 NAT, 쿠키 반환 정상 사용자 | 자기 dcid | 공격자 이력 영향 없음 |
 | 같은 NAT, 쿠키 미반환, 같은 지문 | 같은 후보 | 공격자 이력을 공유 → 미끼 대상이 될 수 있음 (Detection 테스트가 명시한 NAT 절충) |
 
-정리: **현재 요청 근거 방어**(CRS·별칭 단계의 원본 차단)는 쿠키와 무관하게 동작한다. **이력 기반 방어**(후보·Client Flow 미끼)는 쿠키 미반환 클라이언트를 이어 보지만, 새 유효 DCID나 지문 변경으로 끊을 수 있다. 계획 헤더가 오면 Defense와 CHeaT는 쿠키 없는 후보 키에도 미끼를 실행하고 상태를 유지했다(같은 미로 응답 반복, 별칭 단계가 먼저 원본 경로를 404 처리).
+현재 요청의 CRS 방어는 쿠키와 무관하게 동작한다. 별칭의 원본 경로 차단도 위험 점수 0.5 이상에서는 쿠키와 무관하며, 점수가 낮아지면 차단을 중지한다. 후보·Client Flow 이력은 쿠키 미반환 클라이언트를 이어 보지만 새 유효 DCID나 지문 변경으로 끊을 수 있다. 위 과거 실험에서는 Defense와 CHeaT가 쿠키 없는 후보 키에도 미끼 계획을 실행하고 상태를 유지했다.
 
 ### 6.4 HTTP와 WebSocket
 
@@ -157,6 +164,9 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 | 계정 오버레이 대상 | 오버레이로 라우팅 | 업그레이드 거부 |
 
 ## 7. 검증 결과
+
+이 절의 수치와 브라우저 결과는 2026-10-09 당시 별칭 모드를 직접 지정한 실험이다.
+위험 점수 0.5에서 켜고 끄는 전환 흐름의 브라우저 검증으로 해석하지 않는다.
 
 ### 7.1 실행 환경
 
@@ -206,7 +216,7 @@ PostgreSQL 지원은 v4에서 제거했다. 여러 호스트가 별칭을 공유
 | Defense 복원 후 (후속 전략·CHeaT·대상) | `/rest/products/search?q=apple&q=` | `/gateway?route=%2Fapi%2Fitems&x=1&x=&y` | `/api.php?action=search&q=a+b` |
 | Defense 로그 | `path=/__ruby_alias_…`, `real_path=/rest/products/search`, `route_id`, 쿼리 값 없음 | `route_id=/api/items` | `route_id=/api.php?action=search` |
 
-Detection은 별칭 경로를 본다. 별칭이 클라이언트마다 달라 Detection의 엔드포인트별 통계·업무 로직 태그는 실제 경로 기준으로 묶이지 않는다. 공격 페이로드 검사(CRS)에는 영향이 없었다(별칭 경로의 SQLi도 403). Detection이 복원 경로를 알아야 한다면 Defense가 복원 결과를 Detection에 알려 주는 별도 연동이 필요하다(Detection 담당 범위).
+Detection은 요청을 Defense에 보내기 전 별칭 경로를 본다. Defense가 실제 별칭을 복원한 응답에는 원래 경로·쿼리와 서명을 내부 헤더로 싣는다. Detection은 이를 검증한 뒤 완료 요청의 엔드포인트별 점수와 업무 로직 분석에 원래 URL을 사용하고, 피드백 헤더를 클라이언트에 전달하지 않는다. 피드백이 없는 요청과 WebSocket에는 이 복원이 적용되지 않는다. 4단계 속도 제한의 429는 별칭 조회 전에 반환하므로 복원 URL 서명 피드백이 없고, Detection에는 요청한 별칭 URL로 기록된다. 요청을 전달하기 전에 수행하는 CRS의 URL 검사는 별칭 경로를 사용하며, 본문·쿼리 페이로드 검사는 그대로 수행한다.
 
 ## 9. 저장소: SQLite 단일 구성, 기존 PostgreSQL 설치의 전환·롤백
 
@@ -225,7 +235,7 @@ SQLite는 쓰기 잠금이 DB 전체 단위라 서로 다른 사용자의 발급
 
 ### 9.2 기존 PostgreSQL 설치에서 전환
 
-1. 서버 `.env`의 `PATH_ALIAS_MODE`를 확인한다. `off`(기본)이면 별칭 DB를 쓰지 않으므로 사용자 영향이 없다. `.env`에 `PATH_ALIAS_DB_URL`이 있으면 지운다(남아 있으면 시작 실패).
+1. 서버 `.env`의 `PATH_ALIAS_MODE`를 확인한다. `off`이면 별칭 DB를 쓰지 않으므로 사용자 영향이 없다. `.env`에 `PATH_ALIAS_DB_URL`이 있으면 지운다(남아 있으면 시작 실패).
 2. 새 버전을 배포한다. Compose에 `path-alias-db`가 없으므로 기존 PostgreSQL 컨테이너는 고아 컨테이너로 남는다(배포는 `--remove-orphans` 없이 올린다). 볼륨 `path-alias-pg`는 지우지 않는다.
 3. Defense 로그의 `path_alias_config`에서 `"backend":"sqlite"`를 확인한다.
 4. 롤백 기간이 지나면 `docker stop <project>-path-alias-db-1`로 멈춘다. 볼륨과 GitHub Secret `PATH_ALIAS_DB_PASSWORD`는 롤백 가능성이 없어질 때까지 남겨 둔다. 그 뒤 컨테이너·볼륨·Secret을 지운다.
@@ -242,9 +252,10 @@ SQLite는 쓰기 잠금이 DB 전체 단위라 서로 다른 사용자의 발급
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `PATH_ALIAS_MODE` | `off` | off / audit / observe / enforce |
+| `PATH_ALIAS_MODE` | 운영 Compose: `enforce`, 로컬 Compose: `off` | off / audit / observe / enforce. 위험 점수 0.5 이상에서 새 발급·치환을 시작하고 경로 파일의 준비 상태가 enforce 상한을 정함 |
+| `PATH_ALIAS_TARGET_ROUTES` | 운영 Compose: Juice Shop·Ruby Shop 매핑, 로컬 Compose: 비어 있음 | `target-id=/app/config/routes.json` 쉼표 구분. 대상별 파일·DB 이름공간을 선택하며 매핑 밖 대상은 적용하지 않음 |
 | `PATH_ALIAS_ROUTES_FILE` | Compose: juice-shop | 경로 파일 |
-| `PATH_ALIAS_TARGET_IDS` | 비어 있음(파일의 `target_ids`) | 경로 파일을 적용할 대상 ID 덮어쓰기 (로컬·실험: `legacy`) |
+| `PATH_ALIAS_TARGET_IDS` | 비어 있음(파일의 `target_ids`) | 단일 파일 모드에서 대상 ID 덮어쓰기 (로컬·실험: `legacy`); 대상별 매핑과 함께 사용 불가 |
 | `PATH_ALIAS_PREFIXES` | `/rest/,/api/,/b2b/` | 직접 호출을 보는 보호 접두사. 경로 파일의 모든 경로가 이 안에 있어야 함 |
 | `PATH_ALIAS_DB_PATH` | Compose: `/app/alias-data/path-alias.sqlite3` | SQLite 파일 (`PATH_ALIAS_DB_URL`이 있으면 시작 실패) |
 | `PATH_ALIAS_EPOCH_S`, `PATH_ALIAS_GRACE_EPOCHS` | 1800, 1 | 시간 교체와 유예 |

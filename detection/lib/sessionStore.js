@@ -330,6 +330,7 @@ function recordRequest(
   {
     method,
     url,
+    observedUrl = null,
     status,
     headers = {},
     rawHeaders = [],
@@ -405,6 +406,7 @@ function recordRequest(
     ts: now,
     method: normalizedMethod,
     url,
+    observedUrl,
     normalizedPath,
     operation,
     status,

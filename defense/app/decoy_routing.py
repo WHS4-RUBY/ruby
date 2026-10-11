@@ -16,6 +16,59 @@ _ACTION = re.compile(r"[a-z0-9][a-z0-9:!_-]{0,63}\Z")
 ACTION_HEADER = "x-ruby-decoy-action"
 STRATEGIES_HEADER = "x-ruby-decoy-strategies"
 BLOCK_ACTIONS = frozenset({"ambig-block", "post-rce-block"})
+# Keep this expression in sync with CHeaT transforms.MAZE_DEFAULT_PATTERN.
+# CHeaT can make a maze out of sensitive-looking files and paths well beyond
+# its advertised roots. Otherwise an overlay actor could follow a generated
+# maze link and unexpectedly arrive at the account overlay instead.
+MAZE_DEFAULT_PATTERN = (
+    r"^/(\.(git|env|svn|aws|ssh)|_?internal|admin|backup|backups|config|configs|"
+    r"debug|private|secret|secrets|credentials|dump|db|database|management|"
+    r"api/v[0-9]+/internal|\.well-known/security|"
+    r"[\w.\-/]+\.(bak|old|orig|sql|ya?ml|env|ini|log|pem|key|json\.bak))"
+    r"($|/|\?|\.)")
+_MAZE_DEFAULT_RE = re.compile(MAZE_DEFAULT_PATTERN, re.I)
+_MAZE_ROOT = re.compile(r"/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\Z")
+
+
+def _parse_maze_root_choices(raw: str | None, target_ids, name: str) -> dict[str, tuple[str, ...]]:
+    if not raw or not raw.strip():
+        return {}
+    allowed = set(target_ids)
+    configured: dict[str, tuple[str, ...]] = {}
+    for item in raw.split(","):
+        target_id, separator, paths = item.strip().partition("=")
+        roots = paths.split("|")
+        normalized = tuple(root.lower() for root in roots)
+        if (not separator or target_id not in allowed or target_id in configured
+                or not roots or any(not _MAZE_ROOT.fullmatch(root) or
+                                     any(segment in {".", ".."} for segment in root.split("/"))
+                                     for root in roots)
+                or len(set(normalized)) != len(normalized)):
+            raise RuntimeError(f"{name} must contain valid id=/root entries")
+        configured[target_id] = normalized
+    return configured
+
+
+def parse_maze_extra_roots(raw: str | None, target_ids) -> dict[str, tuple[str, ...]]:
+    """Target-specific CHeaT preset entries, such as Apache's /server-status."""
+    return _parse_maze_root_choices(raw, target_ids, "DECOY_MAZE_EXTRA_ROOT_CHOICES")
+
+
+def parse_maze_excluded_roots(raw: str | None, target_ids) -> dict[str, tuple[str, ...]]:
+    """Mirror sidecar MAZE_EXCLUDE roots that belong to the real application."""
+    return _parse_maze_root_choices(raw, target_ids, "DECOY_MAZE_EXCLUDED_ROOT_CHOICES")
+
+
+def is_maze_decoy_request(method: str, path: str, *, extra_roots=(), excluded_roots=()) -> bool:
+    if method not in {"GET", "HEAD"}:
+        return False
+    candidate = path.lower().rstrip("/") or "/"
+    if any(candidate == root or candidate.startswith(root + "/") for root in excluded_roots):
+        return False
+    return bool(_MAZE_DEFAULT_RE.match(candidate) or any(
+        candidate == root or candidate.startswith(root + "/") or candidate.startswith(root + ".")
+        for root in extra_roots
+    ))
 
 
 def parse_decoy_upstreams(raw: str | None, target_ids) -> dict[str, str]:

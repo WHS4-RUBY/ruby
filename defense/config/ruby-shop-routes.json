@@ -1,4 +1,5 @@
 {
+  "target_ids": ["ruby-shop"],
   "enforce_ready": false,
   "compatibility": {
     "note": "Routes come from source declarations only. Browser flows and the refresh method have not been verified; enforce stays at observe until they are."

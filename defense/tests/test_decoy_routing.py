@@ -1,4 +1,8 @@
+import ast
+import importlib.util
 import json
+from pathlib import Path
+import re
 import unittest
 import uuid
 from unittest.mock import patch
@@ -6,11 +10,16 @@ from unittest.mock import patch
 import httpx
 
 from defense.app.decoy_routing import (
-    applied_decoy_strategies, decoy_action, parse_decoy_upstreams,
+    MAZE_DEFAULT_PATTERN, applied_decoy_strategies, decoy_action, is_maze_decoy_request,
+    parse_decoy_upstreams, parse_maze_excluded_roots, parse_maze_extra_roots,
 )
 from defense.app.main import app
 from defense.app.monitoring import event_store
 from defense.app.target_selection import TargetSelector
+
+
+CHEAT_DIR = Path(__file__).resolve().parents[1] / "CHeat-defense-proxy" / "defense_proxy_v2"
+APACHE_EXTRA_ROOTS = ("/.htpasswd", "/actuator", "/server-status", "/server-info", "/phpinfo")
 
 
 class EmptyStream(httpx.AsyncByteStream):
@@ -54,6 +63,90 @@ class DecoyConfigurationTests(unittest.TestCase):
             applied_decoy_strategies({"x-ruby-decoy-strategies": "decoy_maze,delay,decoy_maze,decoy_t21_shell"}),
             ["decoy_maze", "decoy_t21_shell"],
         )
+
+    def test_all_generic_get_head_maze_paths_bypass_an_overlay(self):
+        for root in ("/internal", "/backup", "/backups", "/admin", "/config", "/configs",
+                     "/debug", "/private", "/secret", "/credentials", "/dump", "/db",
+                     "/database", "/management", "/.git", "/.env"):
+            self.assertTrue(is_maze_decoy_request("GET", root))
+            self.assertTrue(is_maze_decoy_request("HEAD", root + "/ops/runbook"))
+        for file_path in ("/archive/backup.sql", "/settings.yml", "/var/app.log",
+                          "/keys/secret.pem", "/config.json.bak", "/api/v2/internal/ops",
+                          "/.well-known/security"):
+            self.assertTrue(is_maze_decoy_request("GET", file_path), file_path)
+        for method, path in (
+            ("POST", "/internal/ops/runbook"), ("GET", "/admin"),
+            ("GET", "/internalx"),
+            ("GET", "/backup-other"), ("GET", "/"),
+        ):
+            self.assertFalse(is_maze_decoy_request(method, path, excluded_roots=("/admin",)))
+        self.assertTrue(is_maze_decoy_request("GET", "/admin.json",
+                                              excluded_roots=("/admin",)))
+        self.assertFalse(is_maze_decoy_request("GET", "/admin/backup",
+                                               excluded_roots=("/admin",)))
+        self.assertTrue(is_maze_decoy_request("GET", "/server-status",
+                                              extra_roots=APACHE_EXTRA_ROOTS))
+        self.assertTrue(is_maze_decoy_request("HEAD", "/.htpasswd.old",
+                                              extra_roots=APACHE_EXTRA_ROOTS))
+        self.assertFalse(is_maze_decoy_request("POST", "/server-status",
+                                               extra_roots=APACHE_EXTRA_ROOTS))
+        self.assertFalse(is_maze_decoy_request("GET", "/server-status-more",
+                                               extra_roots=APACHE_EXTRA_ROOTS))
+
+    def test_extra_maze_roots_are_explicit_per_target(self):
+        self.assertEqual(parse_maze_extra_roots(
+            "juice-shop=/.htpasswd|/server-status,ruby-shop=/staging|/legacy",
+            {"juice-shop", "ruby-shop"}
+        ), {"juice-shop": ("/.htpasswd", "/server-status"),
+            "ruby-shop": ("/staging", "/legacy")})
+        self.assertEqual(parse_maze_excluded_roots(
+            "ruby-shop=/admin", {"juice-shop", "ruby-shop"}
+        ), {"ruby-shop": ("/admin",)})
+        for invalid in ("missing=/admin", "juice-shop=admin", "juice-shop=/",
+                        "juice-shop=/admin/,juice-shop=/other", "juice-shop=/admin|/admin",
+                        "juice-shop=/admin?x=1", "juice-shop=/../admin"):
+            with self.subTest(invalid=invalid), self.assertRaises(RuntimeError):
+                parse_maze_extra_roots(invalid, {"juice-shop", "ruby-shop"})
+            with self.subTest(invalid=invalid), self.assertRaises(RuntimeError):
+                parse_maze_excluded_roots(invalid, {"juice-shop", "ruby-shop"})
+
+    def test_generic_pattern_stays_in_sync_with_cheat(self):
+        syntax = ast.parse((CHEAT_DIR / "transforms.py").read_text(encoding="utf-8"))
+        sidecar_pattern = next(
+            ast.literal_eval(node.value) for node in syntax.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "MAZE_DEFAULT_PATTERN"
+                    for target in node.targets)
+        )
+        self.assertEqual(MAZE_DEFAULT_PATTERN, sidecar_pattern)
+
+    def test_target_specific_preset_patterns_match_our_sidecar_routing(self):
+        spec = importlib.util.spec_from_file_location("cheat_profiles_for_maze_routing",
+                                                    CHEAT_DIR / "profiles.py")
+        profile_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(profile_module)
+        cases = {
+            "apache-php": (APACHE_EXTRA_ROOTS, (),
+                           ("/.htpasswd", "/actuator/health", "/server-status",
+                            "/server-info.json", "/phpinfo.php")),
+            "nginx-fastapi": ((), ("/admin",),
+                              ("/internal/ops/runbook", "/db/backup.sql", "/.ssh/id_rsa")),
+        }
+        for preset, (extra_roots, excluded_roots, paths) in cases.items():
+            maze_config = profile_module.PRESETS[preset]["maze"]
+            extra_pattern = maze_config.get("extra_pattern", "")
+            sidecar_pattern = MAZE_DEFAULT_PATTERN
+            if extra_pattern:
+                sidecar_pattern += r"|^/(?:" + extra_pattern + r")($|/|\?|\.)"
+            compiled = re.compile(sidecar_pattern, re.I)
+            for path in (*paths, "/products", "/api/orders", "/server-status"):
+                excluded = any(path.lower() == root or path.lower().startswith(root + "/")
+                               for root in excluded_roots)
+                expected = bool(compiled.match(path) and not excluded)
+                actual = is_maze_decoy_request("GET", path, extra_roots=extra_roots,
+                                               excluded_roots=excluded_roots)
+                with self.subTest(preset=preset, path=path):
+                    self.assertEqual(actual, expected)
 
 
 class DecoyProxyContractTests(unittest.IsolatedAsyncioTestCase):
@@ -107,6 +200,7 @@ class DecoyProxyContractTests(unittest.IsolatedAsyncioTestCase):
                     "X-Ruby-Attack-Score": "0.7",
                     "X-Client-Id": "client-a",
                     "X-Defense-Plan": json.dumps(plan),
+                    "X-Defense-Decoy-Only": "1",
                     "X-Ruby-Decoy-Action": "ambig-block",
                     "X-Ruby-Decoy-Strategies": "decoy_migration",
                 })
@@ -120,6 +214,7 @@ class DecoyProxyContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("x-ruby-attack-score", captured[0].headers)
         self.assertNotIn("x-ruby-decoy-action", captured[0].headers)
         self.assertNotIn("x-ruby-decoy-strategies", captured[0].headers)
+        self.assertNotIn("x-defense-decoy-only", captured[0].headers)
         self.assertEqual(response.headers["location"], "http://defense/login")
         # 공개 응답에는 미끼 전략 이름이 없다(이벤트 기록에는 있다 — 아래 event["strategies"]).
         self.assertEqual(response.headers["x-defense-applied"], "delay,rate_limit_strict")

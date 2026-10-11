@@ -4,6 +4,9 @@ const querystring = require("node:querystring");
 
 const DEFAULT_MAX_RESPONSE_BODY_BYTES = 4 * 1024 * 1024;
 const DETECTION_COOKIE_NAMES = new Set(["dlsid", "dcid"]);
+const PRIVATE_ROUTE_FEEDBACK_HEADERS = new Set([
+  "x-ruby-resolved-url", "x-ruby-resolved-url-sig", "x-ruby-overlay-active",
+]);
 const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
   "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
   "te", "trailer", "transfer-encoding", "upgrade",
@@ -136,7 +139,8 @@ function copyResponseHeaders(proxyRes, res, { rawBody, dropContentLength = false
     // The Detection middleware minted this correlation ID before the proxy
     // request. A target response must not replace it.
     if (key === "x-ruby-request-id" && res.hasHeader(key)) continue;
-    if (HOP_BY_HOP_RESPONSE_HEADERS.has(key) || nominatedHopHeaders.has(key) ||
+    if (PRIVATE_ROUTE_FEEDBACK_HEADERS.has(key) ||
+        HOP_BY_HOP_RESPONSE_HEADERS.has(key) || nominatedHopHeaders.has(key) ||
         (key === "content-length" && (!rawBody || dropContentLength)) ||
         (key === "content-encoding" && !rawBody) ||
         (bodyChanged && ["etag", "content-md5", "digest", "accept-ranges"].includes(key))) continue;
