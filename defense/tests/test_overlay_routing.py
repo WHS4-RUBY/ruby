@@ -50,11 +50,11 @@ def stage_plan(stage):
     if stage == 1:
         return plan("decoy_maze")
     if stage == 2:
-        return plan(OVERLAY_MEDIUM, "delay", delay_ms=300)
+        return plan("decoy_maze", OVERLAY_MEDIUM, "delay", delay_ms=300)
     if stage == 3:
-        return plan(OVERLAY_MEDIUM, "delay", delay_ms=500)
+        return plan("decoy_maze", OVERLAY_MEDIUM, "delay", delay_ms=500)
     if stage == 4:
-        return plan("delay", "rate_limit_strict", OVERLAY_HIGH, delay_ms=700)
+        return plan("decoy_maze", "delay", "rate_limit_strict", OVERLAY_HIGH, delay_ms=700)
     raise ValueError("unknown stage")
 
 
@@ -111,11 +111,12 @@ class OverlayStoreTests(unittest.TestCase):
             (stage2, 0.5, 0.5),
             (stage3, 0.8, 0.8),
             (stage4, 0.799999, 0.8),
-            ([*stage4[:1], {"name": "rate_limit_strict", "params": {"max_rps": 2}}, stage4[2]], 0.8, 0.8),
-            ([{"name": "delay", "params": {"delay_ms": 700}}, stage4[2], stage4[1]], 0.8, 0.8),
-            ([{"name": "delay", "params": {"delay_ms": 699}}, *stage4[1:]], 0.8, 0.8),
-            ([*stage2[:1], {"name": "delay", "params": {"delay_ms": 500}}], 0.3, 0.3),
-            ([{"name": OVERLAY_MEDIUM, "params": {"unexpected": 1}}, stage2[1]], 0.3, 0.3),
+            ([*stage4[:2], {"name": "rate_limit_strict", "params": {"max_rps": 2}}, stage4[3]], 0.8, 0.8),
+            ([stage4[0], stage4[2], stage4[1], stage4[3]], 0.8, 0.8),
+            ([stage4[0], {"name": "delay", "params": {"delay_ms": 699}}, *stage4[2:]], 0.8, 0.8),
+            ([*stage2[:2], {"name": "delay", "params": {"delay_ms": 500}}], 0.3, 0.3),
+            ([stage2[0], {"name": OVERLAY_MEDIUM, "params": {"unexpected": 1}}, stage2[2]], 0.3, 0.3),
+            (stage2[1:], 0.3, 0.3),
         ):
             with self.subTest(invalid=invalid, risk=risk, confirmed=confirmed):
                 with self.assertRaises(OverlayRouteError):
@@ -293,6 +294,46 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(event["candidateId"] == "actor:cookie-less" for event in events))
         self.assertTrue(all(event["clientFlowId"] == "client-flow:observed" for event in events))
 
+    async def test_overlay_actor_keeps_maze_on_reserved_paths_and_ordinary_requests_use_overlay(self):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://defense") as client:
+            with patch("defense.app.target_selection.target_selector", self.selector), patch(
+                "defense.app.main.OVERLAY_UPSTREAMS", {"juice-shop": "http://overlay-juice:8080"}
+            ), patch("defense.app.main.DECOY_UPSTREAMS", {"juice-shop": "http://cheat-juice:3012"}), patch(
+                "defense.app.main.MAZE_EXTRA_ROOTS", {"juice-shop": ("/admin",)}
+            ), patch(
+                "defense.app.main.OVERLAY_DETECTOR_KEY", KEY
+            ), patch.object(app.state, "overlay_routes", self.store, create=True):
+                current = self.headers("actor-maze", 0.3, 0.3, stage_plan(2))
+                maze = await client.get("/internal/ops/runbook", headers=current)
+                ordinary = await client.get("/api/products", headers=current)
+                admin = await client.get("/admin", headers=current)
+                unsafe = await client.post("/internal/ops/runbook", headers=current)
+                downgraded = self.headers("actor-maze", 0.1, 0.1, stage_plan(1))
+                sticky_maze = await client.get("/internal/ops/next", headers=downgraded)
+                sticky_ordinary = await client.get("/api/products", headers=downgraded)
+
+        self.assertEqual([r.status_code for r in
+                          (maze, ordinary, admin, unsafe, sticky_maze, sticky_ordinary)],
+                         [200, 200, 200, 200, 200, 200])
+        self.assertEqual([request.url.host for request in self.calls], [
+            "cheat-juice", "overlay-juice", "cheat-juice", "overlay-juice",
+            "cheat-juice", "overlay-juice",
+        ])
+        for request in (self.calls[0], self.calls[2], self.calls[4]):
+            self.assertEqual(request.headers["x-defense-decoy-only"], "1")
+            self.assertEqual(json.loads(request.headers["x-defense-plan"]),
+                             [{"name": "decoy_maze", "params": {}}])
+            self.assertNotIn("x-defense-signature", request.headers)
+        for request in (self.calls[1], self.calls[3], self.calls[5]):
+            self.assertNotIn("x-defense-decoy-only", request.headers)
+            self.assertIn("x-defense-signature", request.headers)
+        events = list(reversed(event_store.recent(6)))
+        self.assertEqual(events[0]["strategies"], ["delay", "decoy_maze"])
+        self.assertEqual(events[0]["decoyAction"], "maze")
+        self.assertEqual(events[1]["strategies"], ["delay", OVERLAY_MEDIUM])
+        self.assertEqual(events[4]["strategies"], ["decoy_maze"])
+        self.assertEqual(events[5]["strategies"], [OVERLAY_MEDIUM])
+
     async def test_high_remains_sticky_when_later_request_is_rate_limited(self):
         now = [100.0]
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://defense") as client:
@@ -320,6 +361,26 @@ class OverlayProxyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[1]["defenseSignal"], "rate_limited")
         self.assertEqual(events[1]["strategies"], ["delay", "rate_limit_strict"])
         self.assertEqual(events[2]["strategies"], [OVERLAY_HIGH])
+
+    async def test_stage4_rate_limit_precedes_decoy_routing_after_single_700ms_delay(self):
+        now = [100.0]
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://defense") as client:
+            with patch("defense.app.target_selection.target_selector", self.selector), patch(
+                "defense.app.main.OVERLAY_UPSTREAMS", {"juice-shop": "http://overlay-juice:8080"}
+            ), patch("defense.app.main.DECOY_UPSTREAMS", {"juice-shop": "http://cheat-juice:3012"}), patch(
+                "defense.app.main.OVERLAY_DETECTOR_KEY", KEY
+            ), patch.object(app.state, "overlay_routes", self.store, create=True), patch(
+                "defense.app.main.strategy_state", StrategyStateStore()
+            ), patch("defense.app.strategies.rate_limit.time", SimpleNamespace(monotonic=lambda: now[0])):
+                headers = self.headers("actor-maze-high", 0.85, 0.85, stage_plan(4))
+                first = await client.get("/internal/ops/runbook", headers=headers)
+                limited = await client.get("/internal/ops/runbook", headers=headers)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(limited.status_code, 429)
+        self.assertEqual(limited.headers["x-defense-delay-ms"], "700")
+        self.assertEqual([request.url.host for request in self.calls], ["cheat-juice"])
+        self.assertEqual(self.calls[0].headers["x-defense-decoy-only"], "1")
 
     async def test_missing_or_malformed_private_plan_and_scores_fail_closed(self):
         variants = []

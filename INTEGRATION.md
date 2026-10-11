@@ -42,12 +42,14 @@ Defense 는 관리 화면에서 고른 대상 ID 에 맞는 sidecar 와 오버�
 `X-Forwarded-For` 는 Detection 이 항상 무시한다.
 
 정책은 위험 점수와 확정 공격 점수를 함께 본다. 둘 다 0.8 이상이면 `stage4`
-(`delay` 700ms, `rate_limit_strict`, `account_overlay_high`), 둘 다 0.5 이상이고
-확정 공격 점수가 0.8 미만이면 `stage3`(`account_overlay_medium`, `delay` 500ms),
-둘 다 0.25 이상이고 확정 공격 점수가 0.5 미만이면 `stage2`
-(`account_overlay_medium`, `delay` 300ms)다. 나머지 요청은 0점부터 `stage1`
-(`decoy_maze`)이다. 한 요청에는 선택된 단계의 계획만 전달하며 이전 단계 계획은
-누적하지 않는다. 오버레이 경로는 같은 검증된 행위자에 대해 영속 유지된다.
+(`decoy_maze`, `delay` 700ms, `rate_limit_strict`, `account_overlay_high`), 둘 다
+0.5 이상이고 확정 공격 점수가 0.8 미만이면 `stage3`(`decoy_maze`,
+`account_overlay_medium`, `delay` 500ms), 둘 다 0.25 이상이고 확정 공격 점수가
+0.5 미만이면 `stage2`(`decoy_maze`, `account_overlay_medium`, `delay` 300ms)다.
+나머지 요청은 0점부터 `stage1`(`decoy_maze`)이다. `decoy_maze`는 모든 단계에서
+유지하고 중간 오버레이는 4단계에서 높은 오버레이로 대체한다. 지연은 더하지 않고
+선택된 단계의 값 하나만 실행한다. 오버레이 경로는 같은 검증된 행위자에 대해 영속
+유지된다.
 `path_alias`는 이 전략 계획에 넣지 않고 현재 요청의 **위험 점수가 0.5 이상**인 경우
 Defense에서 별칭 발급·응답 치환을 시작한다. 별칭 기준은 확정 공격 점수를 요구하지
 않으므로 `stage1` 계획이 선택된 요청에서도 켜질 수 있다. 첫 해당 요청부터 대상별
@@ -67,7 +69,27 @@ Defense가 별칭을 복원한 경우에는 원래 경로·쿼리와 요청 ID·
 `X-Defense-Plan` 에서 **기만 전략만** 남겨 전달한다(`decoy_routing.decoy_plan`).
 속도 제한과 지연은 Defense 가 직접 실행하고 sidecar 에 넘기지 않는다. 4단계는
 지연을 먼저 실행해 429 응답에도 700ms를 적용한다. 속도 제한이 429를 반환하면
-sidecar나 오버레이로 보내지 않는다.
+sidecar나 오버레이로 보내지 않는다. 운영·로컬 Compose는 CHeaT 내부 지연을 0으로
+설정해 Defense 의 300·500·700ms에 추가 지연이 붙지 않게 한다.
+
+Compose는 `DETECTION_POLICY_GATE_ENABLED=true`로 실행한다. Detection이 자체 응답하는
+미끼 요청은 본문·자격 증명·미끼 URL을 보내지 않고 인증된
+`/__defense/policy-gate`에 정책 식별 정보만 전달한다. Defense는 일반 프록시 요청과
+동일한 행위자·실행 ID 상태로 지연과 속도 제한을 실행한다. 이미 오버레이에 들어간
+행위자의 로그인 미끼는 Detection이 자체 응답하지 않고 Defense의 오버레이로 보낸다.
+CRS가 요청을 먼저 차단한 경우에는 이 미끼 경로와 Defense를 통과하지 않는다.
+독립 실행에서 `TARGET_URL`을 앱에 직접 연결하면 이 게이트는 기본적으로 꺼진다.
+Juice Shop에서 위험 점수가 0.5 이상인 원본 로그인 경로는 별칭 강제 규칙이 먼저
+지연 후 404로 막으며, 발급된 별칭을 사용한 로그인만 오버레이에 도달한다.
+
+오버레이 행위자의 `GET`/`HEAD` 요청 중 CHeaT 기본 미로 패턴 또는 대상별 추가
+미끼 경로에 일치하는 요청은 CHeaT 로 보낸다. 실제 앱 경로와 겹치는 RUBY Shop의
+`/admin`은 양쪽에서 제외한다. Defense 는 내부 `X-Defense-Decoy-Only: 1`을 붙이고
+sidecar 는 미로 응답을 만들되 실제 대상에는 요청을 보내지 않는다. 미로가 일치하지
+않아도 대상에 전달하는 대신 404로 끝낸다. 이외의 요청은 Defense 가 서명해 계정
+오버레이로 보낸다. 오버레이가 처리한 일반 응답에는 CHeaT의 `Link`·HTML 주석·
+`robots.txt` 미로 힌트가 새로 추가되지 않는다. 이미 알려진 미끼 경로는 계속
+접근할 수 있다.
 
 ### CHeaT sidecar → Defense
 

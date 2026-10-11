@@ -757,6 +757,7 @@ class IntegrationTests(unittest.TestCase):
         raw_query = "next=%2Fapi%2FProducts%2F1&empty=&flag"
         body = b"email=a%40example.invalid"
         plan = json.dumps([
+            {"name": "decoy_maze", "params": {}},
             {"name": main.OVERLAY_MEDIUM, "params": {}},
             {"name": "delay", "params": {"delay_ms": 500}},
         ])
@@ -765,6 +766,15 @@ class IntegrationTests(unittest.TestCase):
                 main, "OVERLAY_UPSTREAMS", {"juice-shop": "http://overlay-juice:8080"}), patch.object(
                 main, "OVERLAY_DETECTOR_KEY", key), patch.object(
                 main.app.state, "overlay_routes", store, create=True):
+            # At stage3 the protected original login URL remains subject to
+            # alias enforcement, even when it carries decoy credentials.
+            direct = self.client.post("/rest/user/login",
+                                      content=b"email=LLM_Admin&password=password123", headers={
+                "x-client-id": "resolved:alice",
+                "x-ruby-risk-score": "0.6",
+                "x-ruby-confirmed-attack-score": "0.6",
+                "x-defense-plan": plan,
+            })
             response = self.client.post(alias + "?" + raw_query, content=body, headers={
                 "x-client-id": "resolved:alice",
                 "x-ruby-risk-score": "0.6",
@@ -778,6 +788,7 @@ class IntegrationTests(unittest.TestCase):
                 "x-defense-plan": '[{"name":"decoy_maze","params":{}}]',
             })
 
+        self.assertEqual(direct.status_code, 404)
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.headers["x-ruby-overlay-active"], "1")
         self.assertEqual(sum(k.lower() == b"x-ruby-overlay-active" for k, _ in response.headers.raw), 1)

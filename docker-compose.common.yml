@@ -11,6 +11,7 @@ services:
   detection-base:
     environment:
       - TARGET_URL=http://defense:8080
+      - DETECTION_POLICY_GATE_ENABLED=${DETECTION_POLICY_GATE_ENABLED:-true}
       - TARGET_CHOICES=${TARGET_CHOICES:-}
       - TARGET_DEFAULT_ID=${TARGET_DEFAULT_ID:-legacy}
       - TARGET_SELECTION_FILE=/app/data/target-selection.json

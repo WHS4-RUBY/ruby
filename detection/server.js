@@ -61,7 +61,7 @@ const {
 } = require("./lib/priceIntegrity");
 const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
-const { applyDefenseRule, loadDeceptionPoints, loadPolicyRules } = require("./lib/policyEngine");
+const { applyDefenseRule, loadDeceptionPoints, loadPolicyRules, selectRule } = require("./lib/policyEngine");
 const { createRunScopedPolicyAnalyzer } = require("./lib/runScopedPolicy");
 const { createProxyCore, fixRequestBody } = require("./lib/proxyCore");
 const { loadInspectionConfig, createRequestInspection, replayInspectedBody } = require("./lib/requestInspection");
@@ -95,8 +95,89 @@ const TARGET = process.env.TARGET_URL || "http://localhost:3000";
 const configuredRouteFeedbackKey = process.env.OVERLAY_DETECTOR_KEY || "";
 const ROUTE_FEEDBACK_KEY = Buffer.byteLength(configuredRouteFeedbackKey, "utf8") >= 32
   ? Buffer.from(configuredRouteFeedbackKey, "utf8") : null;
+const POLICY_GATE_ENABLED = process.env.DETECTION_POLICY_GATE_ENABLED === "true";
+if (POLICY_GATE_ENABLED && !ROUTE_FEEDBACK_KEY) {
+  throw new Error("DETECTION_POLICY_GATE_ENABLED requires OVERLAY_DETECTOR_KEY of at least 32 bytes");
+}
 const RESOLVED_URL_HEADER = "x-ruby-resolved-url";
 const RESOLVED_URL_SIGNATURE_HEADER = "x-ruby-resolved-url-sig";
+
+function verifyPolicyGateResponse(response, requestBody, tier, delay, signal) {
+  const signature = response.headers.get("x-defense-policy-response-signature");
+  if (!signature || !/^[0-9a-f]{64}$/.test(signature)) return false;
+  const fields = [
+    "ruby:policy-gate-response:v1",
+    crypto.createHash("sha256").update(requestBody).digest("hex"),
+    String(response.status), tier || "", delay || "", signal || "",
+  ];
+  const expected = crypto.createHmac("sha256", ROUTE_FEEDBACK_KEY)
+    .update(fields.join("\n"), "utf8").digest();
+  return crypto.timingSafeEqual(expected, Buffer.from(signature, "hex"));
+}
+
+// A local deception response still consumes the same Defense delay and rate
+// state as a proxied request. Only bounded policy metadata enters this call;
+// the trap URL, request body, and credentials stay in Detection.
+async function checkLocalTrapPolicy(req) {
+  if (!ROUTE_FEEDBACK_KEY) throw new Error("policy gate key unavailable");
+  const decision = req.rubyPolicyDecision;
+  const body = Buffer.from(JSON.stringify({
+    targetId: req.activeTarget.targetId,
+    runId: req.activeTarget.runId,
+    clientId: decision.clientId,
+    riskScore: decision.riskScore,
+    confirmedAttackScore: decision.confirmedAttackScore,
+    plan: decision.plan,
+    requestId: req.rubyRequestId,
+    issuedAt: Math.floor(Date.now() / 1000),
+  }), "utf8");
+  if (body.length > 8192) throw new Error("policy gate request too large");
+  const signature = crypto.createHmac("sha256", ROUTE_FEEDBACK_KEY).update(body).digest("hex");
+  const response = await fetch(new URL("/__defense/policy-gate", TARGET), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Defense-Policy-Signature": signature,
+    },
+    body,
+    redirect: "manual",
+    signal: AbortSignal.timeout(5000),
+  });
+  const delay = response.headers.get("x-defense-delay-ms");
+  const expectedDelay = decision.plan.find((step) => step.name === "delay");
+  if (delay !== (expectedDelay ? String(expectedDelay.params.delay_ms) : null)) {
+    await response.body?.cancel();
+    throw new Error("policy gate delay does not match selected stage");
+  }
+  const signal = response.headers.get("x-defense-signal");
+  if (response.status === 429 && response.headers.get("x-defense-signal") === "rate_limited") {
+    if (!decision.plan.some((step) => step.name === "rate_limit_strict") ||
+        !verifyPolicyGateResponse(response, body, null, delay, signal)) {
+      await response.body?.cancel();
+      throw new Error("policy gate rate response authentication failed");
+    }
+    await response.body?.cancel();
+    return { status: 429, delay };
+  }
+  if (response.status !== 200) {
+    await response.body?.cancel();
+    throw new Error("policy gate rejected request");
+  }
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of response.body) {
+    size += chunk.byteLength;
+    if (size > 256) throw new Error("policy gate response too large");
+    chunks.push(Buffer.from(chunk));
+  }
+  const result = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (!result || Object.keys(result).length !== 1 ||
+      ![null, "medium", "high"].includes(result.tier) || signal !== null ||
+      !verifyPolicyGateResponse(response, body, result.tier, delay, signal)) {
+    throw new Error("policy gate returned an invalid route");
+  }
+  return { status: 200, tier: result.tier, delay };
+}
 
 function verifiedResolvedUrl(req, headers = {}) {
   if (!ROUTE_FEEDBACK_KEY) return null;
@@ -925,7 +1006,7 @@ installTargetSelectionRoutes({ app, targetSelection });
 
 // 팀원 Python 프록시의 미끼 라우트를 현재 Express 프록시 안에서 직접 처리한다.
 // 이 요청도 일반 요청과 동일하게 CRS, Session, Actor, Auth Group과 타임라인에 기록한다.
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   if (req.path === "/__detection" || req.path.startsWith("/__detection/")) return next();
   prepareRequestObservation(req);
   const trap = deceptionEngine.matchTrap({
@@ -937,19 +1018,53 @@ app.use((req, res, next) => {
     profile: req.siteProfile,
   });
   if (!trap) return next();
+  // An overlay actor's login is signed and handled by Defense. Avoid serving
+  // the local 423 or charging a gate request and then delaying it again there.
+  let policy = { status: 200, tier: null, delay: null };
+  let loginTrap = false;
+  if (POLICY_GATE_ENABLED) {
+    const decision = buildPriorPolicyDecision(req);
+    const rule = selectRule(decision.riskScore, policyRules,
+      { confirmedAttackScore: decision.confirmedAttackScore });
+    req.rubyPolicyDecision = { ...decision, plan: rule?.strategies || [], tier: rule?.tier || null };
+    loginTrap = trap.status === 423 &&
+      req.siteProfile?.deception?.loginPath === req.path && req.method === "POST";
+    const selectedOverlay = req.rubyPolicyDecision.plan.some((step) =>
+      step.name === "account_overlay_medium" || step.name === "account_overlay_high");
+    if (loginTrap && selectedOverlay) return next();
+    try {
+      policy = await checkLocalTrapPolicy(req);
+    } catch {
+      policy = { status: 503 };
+    }
+  }
+  if (loginTrap && policy.status === 200 && policy.tier) return next();
 
-  req.deceptionEvents.push(...trap.events);
-  const responseBuffer = Buffer.from(trap.body, "utf8");
-  crsScanner.scan(req, getClientIp(req)).then((attackDetection) => {
-    recordCompletedRequest(req, {
-      status: trap.status,
-      responseContentType: trap.contentType,
-      responseContentLength: responseBuffer.length,
-      responseBodyBytes: responseBuffer.length,
-      attackDetection,
-    });
-    res.status(trap.status).type(trap.contentType).send(responseBuffer);
-  }).catch(next);
+  let attackDetection;
+  try {
+    attackDetection = await crsScanner.scan(req, getClientIp(req));
+  } catch (error) {
+    return next(error);
+  }
+  const status = policy.status === 429 ? 429 : policy.status === 503 ? 503 : trap.status;
+  const responseBuffer = Buffer.from(status === trap.status ? trap.body
+    : status === 429 ? '{"error":"rate_limited"}'
+      : '{"error":"defense_policy_unavailable"}', "utf8");
+  const contentType = status === trap.status ? trap.contentType : "application/json; charset=utf-8";
+  if (status === trap.status) req.deceptionEvents.push(...trap.events);
+  if (status === 429) req.defenseSignal = "rate_limited";
+  recordCompletedRequest(req, {
+    status,
+    responseContentType: contentType,
+    responseContentLength: responseBuffer.length,
+    responseBodyBytes: responseBuffer.length,
+    attackDetection,
+    upstreamReached: false,
+  });
+  res.setHeader("Cache-Control", "no-store");
+  if (policy.delay) res.setHeader("X-Defense-Delay-Ms", policy.delay);
+  if (status === 429) res.setHeader("X-Defense-Signal", "rate_limited");
+  res.status(status).type(contentType).send(responseBuffer);
 });
 
 app.post("/__detection/telemetry", (req, res) => {

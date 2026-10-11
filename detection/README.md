@@ -132,23 +132,34 @@ Client Flow 이력을 사용합니다.
 Socket.IO polling은 HTTP 요청으로 기록되지만 배경 트래픽은 행동 점수에서 제외합니다.
 
 `config/policy.json`의 규칙은 위에서부터 처음 맞는 하나만 선택합니다. 각 요청에는
-선택된 단계의 전략 목록을 보냅니다. `tier`는 `stage1`~`stage4`로 기록합니다.
-새 방어 전략은 점수 코드를 바꾸지 않고 해당 단계의 `strategies`에 추가합니다.
+선택된 단계의 **전체 유효 전략 목록**을 보냅니다. 높은 단계의 정책 목록에 낮은 단계에서
+계속 쓸 전략을 명시해 누적합니다. `tier`는 `stage1`~`stage4`로 기록합니다.
+새 방어 전략을 추가할 때는 적용 시작 단계와 이후 단계의 `strategies`를 함께 수정합니다.
+지연은 합산하지 않고 해당 단계의 한 값만, 계정 오버레이는 중간 또는 높은 수준 중
+하나만 선택합니다.
 
 확정 공격 점수는 **검증된 동일 DCID의 Resolved Actor**에서만 계산합니다. 각 확정 단계는
 위험 점수도 표의 하한 이상이어야 합니다.
 
 | 단계 | 위험 점수 | 확정 공격 점수 | 선택 전략 |
 |---|---:|---:|---|
-| `stage4` | 0.8 이상 | 0.8 이상 | `delay` 700ms, `rate_limit_strict`(초당 최대 1요청), `account_overlay_high` |
-| `stage3` | 0.5 이상 | 0.5 이상 0.8 미만 | `account_overlay_medium`, `delay` 500ms |
-| `stage2` | 0.25 이상 | 0.25 이상 0.5 미만 | `account_overlay_medium`, `delay` 300ms |
+| `stage4` | 0.8 이상 | 0.8 이상 | `decoy_maze`, `delay` 700ms, `rate_limit_strict`(초당 최대 1요청), `account_overlay_high` |
+| `stage3` | 0.5 이상 | 0.5 이상 0.8 미만 | `decoy_maze`, `account_overlay_medium`, `delay` 500ms |
+| `stage2` | 0.25 이상 | 0.25 이상 0.5 미만 | `decoy_maze`, `account_overlay_medium`, `delay` 300ms |
 | `stage1` | 그 외(0점 포함) | 그 외 | `decoy_maze` |
 
 공식 Defense가 속도 제한과 계정 오버레이를 실행하고, 비공개 CHeaT sidecar가
-기만 계획을 실행합니다. `delay`는 공식 Defense에서 각 단계의 고정 시간만큼
+기만 계획을 실행합니다. 미끼 경로는 높은 단계에서도 CHeaT로 보내며 일반 요청에는
+선택된 계정 오버레이를 적용합니다. `delay`는 공식 Defense에서 각 단계의 고정 시간만큼
 적용합니다. 4단계에서는 속도 제한보다 먼저 적용하므로 429 응답에도 700ms가 붙습니다.
-미끼에 접촉한 클라이언트에는 CHeaT의 미로·적응형 지연이 별도로 적용될 수 있습니다.
+CHeaT의 자체 지연은 0으로 설정해 단계별 지연에 더하지 않습니다.
+Compose에서 Detection이 직접 응답하는 미끼 요청도 내부 인증 게이트를 통해 Defense의
+지연·속도 제한 상태를 사용합니다. 게이트 응답은 HMAC으로 검증합니다. 이미 오버레이에
+들어간 행위자의 로그인 미끼는 Defense로 전달합니다. CRS가 먼저 차단한 요청은 이
+게이트를 거치지 않습니다. Defense 없이 앱에 직접 연결하는 독립 실행은 게이트를
+기본적으로 끕니다.
+Juice Shop 3·4단계에서 원본 로그인 경로는 Defense의 별칭 강제 규칙이 먼저 지연 후
+404로 막습니다. 별칭으로 들어온 로그인은 오버레이가 처리합니다.
 `path_alias`는 점수별 전략 목록에는 없지만, Defense는 현재 요청의 **위험 점수 0.5 이상**부터 새 별칭을 발급하고 응답을 치환합니다. 확정 공격 점수가 낮아 계획이 `stage1` 또는 `stage2`여도 이 기준을 넘으면 켜집니다. 첫 해당 요청부터 대상별 경로 파일의 enforce 또는 observe 모드 상한에 따라 원본 경로를 판정합니다. 기존 탭의 원본 API 호출은 enforce에서 404를 받을 수 있습니다. 위험 점수가 다시 0.5 미만으로 내려가면 새 발급·치환·원본 경로 차단을 멈추고 기존 별칭 URL만 복원합니다.
 Defense가 실제로 별칭을 원래 경로로 복원한 요청에는 복원 URL과 HMAC 서명을 응답의
 `X-Ruby-Resolved-Url`·`X-Ruby-Resolved-Url-Sig`로 돌려줍니다. Detection은 동일한
@@ -161,8 +172,9 @@ URL을 그대로 사용합니다. CRS의 현재 요청 검사는 Defense보다 �
 여전히 별칭 URL을 봅니다. 쿼리·본문 공격 검사는 계속 적용되지만 경로 자체에 의존하는
 CRS 규칙은 별칭 복원 결과를 이용하지 못합니다.
 별칭으로 들어온 로그인 요청에서 미끼 워터마크 또는 SSH 자격증명을 재사용하면,
-서명된 복원 경로가 `/rest/user/login`이고 요청 정책이 `stage1`이며 원본 로그인 실패
-응답(401)을 완전히 버퍼링한 경우 기존 로그인 트랩의 423 응답을 적용합니다. 실제
+서명된 복원 경로가 사이트 프로필의 로그인 경로이고 요청 계획에 `decoy_maze`가 있으며
+원본 로그인 실패 응답(401)을 완전히 버퍼링한 경우 기존 로그인 트랩의 423 응답을
+적용합니다. 실제
 계정 오버레이가 처리한 응답과 429 응답은 그대로 전달합니다. 스트리밍 응답은 이미
 클라이언트로 전송을 시작했으므로 423으로 바꿀 수 없고 원래 응답을 유지합니다.
 Defense가 보내는 내부 `X-Ruby-Overlay-Active` 표시와 복원 경로 서명 헤더는
@@ -253,7 +265,8 @@ npm test
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `TARGET_URL` | `http://localhost:3000` | upstream 주소. 운영 Compose에서는 `http://defense:8080` |
-| `OVERLAY_DETECTOR_KEY` | 없음 | Defense와 공유하는 HMAC 키. 별칭 복원 경로 피드백 검증용이며 운영 Compose에서는 필수 |
+| `DETECTION_POLICY_GATE_ENABLED` | `false` | Defense 연결 시 로컬 미끼 응답도 인증된 정책 게이트를 거치게 함. 두 Compose에서는 `true` |
+| `OVERLAY_DETECTOR_KEY` | 없음 | Defense와 공유하는 HMAC 키. 별칭 복원 경로 피드백 및 정책 게이트 왕복 인증에 사용하며 운영 Compose에서는 필수 |
 | `TARGET_CHOICES` | 없음 | 관리 화면에서 고를 `id=내부 URL` 목록. Defense에도 같은 값 전달 |
 | `TARGET_DEFAULT_ID` | `legacy` | 유효한 이전 선택이 없을 때의 대상 ID. `TARGET_CHOICES`에 포함되어야 함 |
 | `TARGET_SELECTION_FILE` | 없음 | 대상·실행 ID를 기록하고 Defense와 공유할 파일 |

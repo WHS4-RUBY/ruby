@@ -3,12 +3,13 @@
     "rules": [
       {
         "tier": "stage4",
-        "description": "4단계: 위험·확정 공격 점수가 모두 0.8 이상이면 700ms 지연, 엄격한 요청 제한, 높은 계정 오버레이를 적용한다",
+        "description": "4단계: 미끼 미로를 유지하고 700ms 지연, 엄격한 요청 제한, 높은 계정 오버레이를 적용한다",
         "min_score": 0.8,
         "max_score": 1.01,
         "min_confirmed_attack_score": 0.8,
         "max_confirmed_attack_score": 1.01,
         "strategies": [
+          { "name": "decoy_maze", "params": {} },
           { "name": "delay", "params": { "delay_ms": 700 } },
           { "name": "rate_limit_strict", "params": { "max_rps": 1 } },
           { "name": "account_overlay_high", "params": {} }
@@ -16,24 +17,26 @@
       },
       {
         "tier": "stage3",
-        "description": "3단계: 위험 점수 0.5 이상, 확정 공격 점수 0.5 이상 0.8 미만이면 중간 계정 오버레이와 500ms 지연을 적용한다",
+        "description": "3단계: 미끼 미로와 중간 계정 오버레이를 유지하고 지연을 500ms로 교체한다",
         "min_score": 0.5,
         "max_score": 1.01,
         "min_confirmed_attack_score": 0.5,
         "max_confirmed_attack_score": 0.8,
         "strategies": [
+          { "name": "decoy_maze", "params": {} },
           { "name": "account_overlay_medium", "params": {} },
           { "name": "delay", "params": { "delay_ms": 500 } }
         ]
       },
       {
         "tier": "stage2",
-        "description": "2단계: 위험 점수 0.25 이상, 확정 공격 점수 0.25 이상 0.5 미만이면 중간 계정 오버레이와 300ms 지연을 적용한다",
+        "description": "2단계: 미끼 미로를 유지하고 중간 계정 오버레이와 300ms 지연을 적용한다",
         "min_score": 0.25,
         "max_score": 1.01,
         "min_confirmed_attack_score": 0.25,
         "max_confirmed_attack_score": 0.5,
         "strategies": [
+          { "name": "decoy_maze", "params": {} },
           { "name": "account_overlay_medium", "params": {} },
           { "name": "delay", "params": { "delay_ms": 300 } }
         ]

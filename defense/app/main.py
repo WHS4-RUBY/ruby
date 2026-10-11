@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import time
@@ -21,7 +22,9 @@ from .dashboard import router as dashboard_router
 from .dashboard import DASHBOARD_SESSION_COOKIE, auth_manager
 from .decoy_routing import (
     ACTION_HEADER, BLOCK_ACTIONS, STRATEGIES_HEADER,
-    applied_decoy_strategies, decoy_action, decoy_plan_header, parse_decoy_upstreams,
+    applied_decoy_strategies, decoy_action, decoy_plan_header,
+    is_maze_decoy_request, parse_decoy_upstreams, parse_maze_extra_roots,
+    parse_maze_excluded_roots,
 )
 from .monitoring import event_store
 from .overlay_routing import (
@@ -60,6 +63,12 @@ def _alias_for_target(target_id: str) -> tuple[path_alias.PathAliasConfig, path_
 TARGET_URL = target_selection.target_selector.choices[target_selection.target_selector.default_id]
 DECOY_UPSTREAMS = parse_decoy_upstreams(
     os.getenv("DECOY_UPSTREAM_CHOICES"), target_selection.target_selector.choices,
+)
+MAZE_EXTRA_ROOTS = parse_maze_extra_roots(
+    os.getenv("DECOY_MAZE_EXTRA_ROOT_CHOICES"), target_selection.target_selector.choices,
+)
+MAZE_EXCLUDED_ROOTS = parse_maze_excluded_roots(
+    os.getenv("DECOY_MAZE_EXCLUDED_ROOT_CHOICES"), target_selection.target_selector.choices,
 )
 OVERLAY_UPSTREAMS = parse_overlay_upstreams(
     os.getenv("OVERLAY_UPSTREAM_CHOICES"), target_selection.target_selector.choices,
@@ -142,6 +151,12 @@ _INTERNAL_RESPONSE_HEADERS = frozenset({
 })
 _DETECTION_REQUEST_ID = re.compile(
     r"request:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
+_POLICY_GATE_BODY_LIMIT = 8192
+_POLICY_GATE_SIGNATURE = re.compile(r"[0-9a-f]{64}\Z")
+_POLICY_GATE_FIELDS = frozenset({
+    "targetId", "runId", "clientId", "riskScore", "confirmedAttackScore",
+    "plan", "requestId", "issuedAt",
+})
 _WEBSOCKET_SKIP = _HOP_BY_HOP | {
     "sec-websocket-accept",
     "sec-websocket-extensions",
@@ -165,6 +180,118 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="RUBY Defense Proxy", lifespan=lifespan)
+
+
+def _sign_policy_gate_response(response: Response, request_body: bytes, tier: str | None) -> None:
+    """Bind the private gate result to the exact request and visible controls."""
+    fields = (
+        "ruby:policy-gate-response:v1",
+        hashlib.sha256(request_body).hexdigest(),
+        str(response.status_code),
+        tier or "",
+        response.headers.get("x-defense-delay-ms", ""),
+        response.headers.get("x-defense-signal", ""),
+    )
+    response.headers["X-Defense-Policy-Response-Signature"] = hmac.new(
+        OVERLAY_DETECTOR_KEY, "\n".join(fields).encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
+
+@app.post("/__defense/policy-gate")
+async def policy_gate(request: Request):
+    """Apply pre-route defenses to a Detection-owned, locally served trap.
+
+    The signed body contains policy identity only. Trap paths, credentials, and
+    request bodies never cross this private control route.
+    """
+    if len(OVERLAY_DETECTOR_KEY) < 32:
+        return Response(status_code=503)
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        if not content_length.isdecimal():
+            return Response(status_code=400)
+        if int(content_length) > _POLICY_GATE_BODY_LIMIT:
+            return Response(status_code=413)
+    signature = request.headers.get("x-defense-policy-signature", "")
+    if not _POLICY_GATE_SIGNATURE.fullmatch(signature):
+        return Response(status_code=403)
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > _POLICY_GATE_BODY_LIMIT:
+            return Response(status_code=413)
+    expected = hmac.new(OVERLAY_DETECTOR_KEY, body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return Response(status_code=403)
+    try:
+        payload = json.loads(body)
+    except (TypeError, ValueError):
+        return Response(status_code=400)
+    if not isinstance(payload, dict) or payload.keys() != _POLICY_GATE_FIELDS:
+        return Response(status_code=400)
+    client_id = payload["clientId"]
+    request_id = payload["requestId"]
+    issued_at = payload["issuedAt"]
+    risk_score = payload["riskScore"]
+    confirmed_score = payload["confirmedAttackScore"]
+    if (not isinstance(client_id, str) or not 0 < len(client_id) <= 128
+            or not isinstance(request_id, str)
+            or not _DETECTION_REQUEST_ID.fullmatch(request_id)
+            or type(issued_at) is not int or abs(time.time() - issued_at) > 30
+            or any(type(score) not in (int, float) or not math.isfinite(score)
+                   or not 0 <= score <= 1 for score in (risk_score, confirmed_score))):
+        return Response(status_code=400)
+    target_id, run_id, plan = payload["targetId"], payload["runId"], payload["plan"]
+    if (not isinstance(target_id, str) or not isinstance(run_id, str)
+            or not isinstance(plan, list) or len(plan) > 16):
+        return Response(status_code=400)
+    try:
+        selected = target_selection.target_selector.for_request({
+            "x-ruby-target-id": target_id, "x-ruby-run-id": run_id,
+        })
+        requested_tier(plan, risk_score=risk_score,
+                       confirmed_attack_score=confirmed_score)
+    except (TargetSelectionError, OverlayRouteError):
+        return Response(status_code=503)
+
+    # Build the same trusted request headers that an ordinary proxied request
+    # receives. _apply_plan therefore uses the same run/client rate-limit key.
+    trusted_headers = {
+        "x-client-id": client_id,
+        "x-ruby-request-id": request_id,
+        "x-ruby-target-id": target_id,
+        "x-ruby-run-id": run_id,
+        "x-ruby-risk-score": str(risk_score),
+        "x-ruby-confirmed-attack-score": str(confirmed_score),
+        "x-defense-plan": json.dumps(plan, separators=(",", ":")),
+    }
+    scope = dict(request.scope)
+    scope["headers"] = [(key.encode("ascii"), value.encode("utf-8"))
+                        for key, value in trusted_headers.items()]
+    trusted_request = Request(scope)
+    pre_route_plan = [step for step in plan if step["name"] in {"delay", "rate_limit_strict"}]
+    try:
+        applied = await _apply_plan(pre_route_plan, trusted_request, selected)
+        if applied.short_circuit is not None:
+            response = applied.short_circuit
+            for key, value in applied.headers.items():
+                response.headers[key] = value
+            if response.status_code == 429:
+                _sign_policy_gate_response(response, body, None)
+            return response
+        overlay = await _overlay_route(trusted_request, selected, plan)
+    except Exception:
+        return Response(status_code=503)
+    response = Response(
+        content=json.dumps({"tier": overlay[1] if overlay else None}),
+        media_type="application/json",
+    )
+    for key, value in applied.headers.items():
+        response.headers[key] = value
+    _sign_policy_gate_response(response, body, overlay[1] if overlay else None)
+    return response
+
+
 app.include_router(dashboard_router)
 strategy_state = StrategyStateStore()
 
@@ -1224,9 +1351,19 @@ async def catch_all(request: Request, full_path: str):
     if overlay_route is not None:
         request.state.overlay_active = True
 
+    # A sticky overlay actor keeps following the maze on reserved decoy paths.
+    # All other requests use the signed account overlay. The private sidecar
+    # receives a decoy-only marker so it cannot fall through to the real app.
+    decoy_only = (overlay_route is not None
+                  and selected.target_id in DECOY_UPSTREAMS
+                  and is_maze_decoy_request(
+                      request.method, strategy_request.url.path,
+                      extra_roots=MAZE_EXTRA_ROOTS.get(selected.target_id, ()),
+                      excluded_roots=MAZE_EXCLUDED_ROOTS.get(selected.target_id, ())))
+    use_overlay_upstream = overlay_route is not None and not decoy_only
     overlay_strategy = ([OVERLAY_HIGH if overlay_route[1] == "high" else OVERLAY_MEDIUM]
-                        if overlay_route else [])
-    action_name = f"account-overlay-{overlay_route[1]}" if overlay_route else None
+                        if use_overlay_upstream else [])
+    action_name = f"account-overlay-{overlay_route[1]}" if use_overlay_upstream else None
 
     try:
         later = await _apply_plan(post_route_plan, strategy_request, selected)
@@ -1266,8 +1403,8 @@ async def catch_all(request: Request, full_path: str):
 
     attempted_strategies = applied.names + overlay_strategy
     applied.headers["X-Defense-Applied"] = applied_header
-    decoy_url = None if overlay_route else DECOY_UPSTREAMS.get(selected.target_id)
-    if overlay_route:
+    decoy_url = DECOY_UPSTREAMS.get(selected.target_id) if not use_overlay_upstream else None
+    if use_overlay_upstream:
         overlay_url, tier, actor = overlay_route
         try:
             target = raw_target(strategy_request.scope)
@@ -1297,6 +1434,8 @@ async def catch_all(request: Request, full_path: str):
             build_decoy_headers(request, applied.headers, selected, plan)
             if decoy_url else build_upstream_headers(request, applied.headers)
         )
+        if decoy_only:
+            headers["X-Defense-Decoy-Only"] = "1"
         upstream_path = alias.upstream_path.lstrip("/") if translated else full_path
         upstream_url = httpx.URL(f"{(decoy_url or selected.url).rstrip('/')}/{upstream_path}")
         raw_query = strategy_request.scope.get("query_string", b"")
@@ -1312,16 +1451,16 @@ async def catch_all(request: Request, full_path: str):
             method=request.method,
             url=str(upstream_url),
             headers=headers,
-            content=bytes(body) if overlay_route else (
+            content=bytes(body) if use_overlay_upstream else (
                 strategy_request.stream() if request.method not in {"GET", "HEAD"} else None
             ),
         )
-        if overlay_route and upstream_request.url.raw_path != target.encode("ascii"):
+        if use_overlay_upstream and upstream_request.url.raw_path != target.encode("ascii"):
             record(400, "error", attempted_strategies, decoy_action_name=action_name)
             return Response(status_code=400)
         upstream = await request.app.state.http_client.send(upstream_request, stream=True)
     except (httpx.InvalidURL, ValueError):
-        status = 400 if overlay_route else 502
+        status = 400 if use_overlay_upstream else 502
         record(status, "error", attempted_strategies, decoy_action_name=action_name)
         return Response(status_code=status)
     except httpx.RequestError:
@@ -1336,7 +1475,7 @@ async def catch_all(request: Request, full_path: str):
     applied_header = ",".join(recorded_strategies) or "none"
     # 공개 응답에는 공식 전략 이름만 싣는다 — decoy_* 이름은 곧 "이 응답은 미끼"라는 신호라서(기록용 recorded_strategies 는 그대로).
     public_applied_header = ",".join(applied.names) or "none"
-    if overlay_route:
+    if use_overlay_upstream:
         sidecar_outcome = (
             "error" if upstream.status_code < 200 or upstream.status_code >= 500
             or upstream.status_code in {400, 403, 413}

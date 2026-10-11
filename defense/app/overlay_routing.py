@@ -64,6 +64,7 @@ def requested_tier(plan: list[dict], *, risk_score: float | None,
         raise OverlayRouteError("overlay score missing")
     if risk_score >= 0.8 and confirmed_attack_score >= 0.8:
         expected = [
+            {"name": "decoy_maze", "params": {}},
             {"name": "delay", "params": {"delay_ms": 700}},
             {"name": "rate_limit_strict", "params": {"max_rps": 1}},
             {"name": OVERLAY_HIGH, "params": {}},
@@ -71,12 +72,14 @@ def requested_tier(plan: list[dict], *, risk_score: float | None,
         tier = "high"
     elif risk_score >= 0.5 and 0.5 <= confirmed_attack_score < 0.8:
         expected = [
+            {"name": "decoy_maze", "params": {}},
             {"name": OVERLAY_MEDIUM, "params": {}},
             {"name": "delay", "params": {"delay_ms": 500}},
         ]
         tier = "medium"
     elif risk_score >= 0.25 and 0.25 <= confirmed_attack_score < 0.5:
         expected = [
+            {"name": "decoy_maze", "params": {}},
             {"name": OVERLAY_MEDIUM, "params": {}},
             {"name": "delay", "params": {"delay_ms": 300}},
         ]

@@ -17,7 +17,7 @@ RUBY의 방어 계층을 개발하는 영역입니다. Detection Proxy의 Policy
 
 운영 Compose에서는 Detection과 Defense가 같은 `TARGET_CHOICES`를 읽습니다. 관리 화면에서 선택한 대상 ID와 실행 ID가 공유 선택 파일에 저장되고, Defense가 그 ID의 내부 주소로 요청을 전달합니다. 현재 운영 대상은 `juice-shop=http://juice-shop-target:3000`과 `ruby-shop=http://ruby-web-target:8080`입니다. `TARGET_DEFAULT_ID`는 이 목록에 있는 ID로 지정해야 합니다. 실험 공격은 공개 포트 80으로 보내야 Detection과 Defense를 통과합니다. 벤치마크 선택 화면의 포트 3020으로 직접 보낸 요청은 이 파이프라인과 두 대시보드에 기록되지 않습니다.
 
-운영 Compose는 두 대상에 각각 비공개 CHeaT sidecar(`cheat-juice:3012`, `cheat-ruby:3012`)와 계정 Response Overlay(`overlay-juice:8080`, `overlay-ruby:8080`)를 연결합니다. 정상 HTTP 요청은 `Detection → Defense → 대상별 CHeaT → Target`으로 흐릅니다. 계정 오버레이로 분류된 요청은 Defense가 서명해 대상별 오버레이로 보내며, 고위험 격리에서는 Target에 전달하지 않습니다. 다른 대상 ID에 기만 경로가 없으면 Defense가 Target에 직접 전달합니다. 격리된 클라이언트의 WebSocket은 거부하고 정상 클라이언트의 WebSocket은 Target으로 연결합니다.
+운영 Compose는 두 대상에 각각 비공개 CHeaT sidecar(`cheat-juice:3012`, `cheat-ruby:3012`)와 계정 Response Overlay(`overlay-juice:8080`, `overlay-ruby:8080`)를 연결합니다. 정상 HTTP 요청은 `Detection → Defense → 대상별 CHeaT → Target`으로 흐릅니다. 계정 오버레이로 분류된 행위자의 일반 요청은 Defense가 서명해 대상별 오버레이로 보내며, 고위험 격리에서는 Target에 전달하지 않습니다. 이 행위자가 CHeaT 기본 미로 패턴이나 대상별 추가 미끼 경로에 `GET`/`HEAD`로 접근하면 CHeaT에 보내고, CHeaT는 실제 Target에 접근하지 않습니다. 실제 앱 경로와 겹치는 RUBY Shop의 `/admin`은 양쪽 미로에서 제외합니다. 오버레이가 처리한 일반 응답에는 CHeaT의 미로 입구 힌트가 새로 삽입되지 않습니다. 다른 대상 ID에 기만 경로가 없으면 Defense가 Target에 직접 전달합니다. 격리된 클라이언트의 WebSocket은 거부하고 정상 클라이언트의 WebSocket은 Target으로 연결합니다.
 
 | 환경변수 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -98,6 +98,8 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 - **응답 치환은 클라이언트에 가장 가까운 곳에서 마지막으로 하는 것이 설계 목표입니다.** 현재는 업스트림 응답의 경로와 `Location`을 치환합니다. 전략의 응답 처리 훅과 역순 실행은 아직 없으며, 전략이 즉시 반환한 응답(`short_circuit`)도 현재 치환 대상이 아닙니다. 뒤 단계가 응답에 미끼 링크 등을 추가하려면 이 응답 처리 구조를 먼저 구현해야 합니다.
 
 위험 점수가 0.5에 도달하는 첫 요청부터 Juice Shop의 원본 보호 경로에 enforce를 적용합니다. 별칭은 이후 경로 참조가 담긴 응답을 치환할 때 발급됩니다. 이미 원래 경로가 담긴 JS를 받은 탭은 원본 API 경로를 계속 호출해 404를 받을 수 있으므로, 보호되지 않은 화면을 새로고침해 치환된 URL을 다시 받아야 합니다. 점수가 0.5 미만으로 내려가면 새 발급·응답 치환·원본 경로 차단을 중지하되 기존 별칭 URL은 복원합니다. 대상별 enforce·observe 모드의 상한과 교체 주기·유예·즉시 교체 조건은 점수에 따라 바뀌지 않습니다.
+
+이 순서 때문에 Juice Shop의 3·4단계에서 원본 `/rest/user/login` 요청은 오버레이 분기 전에 지연 후 404가 됩니다. Detection은 미끼 자격 증명 로그인 요청을 자체 처리하지 않고 Defense에 보내며, 발급된 별칭으로 들어온 요청은 오버레이에 도달합니다.
 
 별칭은 **경로를 아는가**만 거릅니다. JS나 브라우저에서 정상 별칭을 얻은 공격자의 요청 내용은 통과합니다. 탐지 프록시는 Defense보다 앞에 있어 요청 전 CRS에서 별칭 주소(`/__ruby_alias_...`)를 봅니다. Defense가 복원한 원래 URL은 응답에 서명해 Detection으로 보내고, Detection은 완료 이력의 로그인 시도·비밀번호 재설정·경로별 업무 로직 등의 점수에 사용합니다. 피드백 헤더는 클라이언트에 전달하지 않습니다. 원래 URL을 요청 전에 알 수 없는 CRS의 경로별 검사는 여전히 별칭 URL을 사용합니다. `path_alias_rotation` 로그의 `direct`·`reject`를 탐지 쪽 공격 신호로 넘기는 연동은 아직 없습니다.
 
@@ -292,9 +294,11 @@ docker compose exec overlay-juice python -m defense.cli \
 
 Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사용합니다. Defense 이벤트는 이전 완료 요청 기반 Automation·Attack·확정 Attack·Risk 점수, 정책 출처, `X-Ruby-Defense-Tier`의 `stage1`~`stage4`, 대상 ID·실행 ID, 실제 실행 전략과 기만 동작, 백엔드 HTTP 상태 및 `forwarded`·`blocked`·`error` 결과를 기록합니다. `X-Ruby-Candidate-Id`와 `X-Ruby-Client-Flow-Id`는 방어 대시보드의 관찰 흐름 표시용으로만 기록하고 전략 선택에는 쓰지 않습니다.
 
-현재 정책은 위험 점수와 확정 공격 점수가 모두 0.25 이상이면 `stage2`의 중간 계정 오버레이와 300ms 지연, 모두 0.5 이상이고 확정 공격 점수가 0.8 미만이면 `stage3`의 중간 계정 오버레이와 500ms 지연, 모두 0.8 이상이면 `stage4`의 700ms 지연·초당 1요청 속도 제한·높은 계정 오버레이를 선택합니다. 그 외 요청은 0점부터 `stage1`의 `decoy_maze`를 선택합니다. Detection이 쿠키 미반환 요청의 후보·한 IP 흐름 이력으로 높은 위험 점수를 계산해도 확정 공격 점수가 없으면 전략 계획은 `stage1`에 머뭅니다. 다만 위험 점수가 0.5 이상이면 별칭을 적용합니다. 계정 오버레이·속도 제한은 반환·검증된 signed DCID 이력이 필요합니다.
+현재 정책은 0점을 포함한 `stage1`부터 모든 단계에 `decoy_maze`를 넣습니다. 위험 점수와 확정 공격 점수가 모두 0.25 이상이면 `stage2`에 중간 계정 오버레이와 300ms 지연을 추가하고, 모두 0.5 이상이며 확정 공격 점수가 0.8 미만이면 `stage3`에서 중간 오버레이를 유지하고 지연을 500ms로 바꿉니다. 둘 다 0.8 이상이면 `stage4`에서 중간 오버레이를 높은 오버레이로 대체하고 지연을 700ms로 바꾸며 초당 1요청 속도 제한을 추가합니다. 지연은 이전 단계 값과 합산하지 않습니다. Detection이 쿠키 미반환 요청의 후보·한 IP 흐름 이력으로 높은 위험 점수를 계산해도 확정 공격 점수가 없으면 전략 계획은 `stage1`에 머뭅니다. 다만 위험 점수가 0.5 이상이면 별칭을 적용합니다. 계정 오버레이·속도 제한은 반환·검증된 signed DCID 이력이 필요합니다.
 
-매 요청의 전략 계획은 한 단계만 담고 이전 단계 기법을 누적하지 않습니다. 다만 이미 중간·높은 오버레이에 들어간 같은 검증된 행위자는 점수가 내려가도 그 오버레이 경로에 남습니다. Defense는 CHeaT에 기만 전략만 전달하고 지연과 속도 제한을 자체 실행합니다. 오버레이 계획은 점수와 전략 목록을 검증한 뒤 대상·실행 ID·클라이언트에서 만든 가명 actor에 원본 경로·쿼리·본문을 HMAC으로 서명합니다. `stage4`의 700ms 지연은 속도 제한보다 먼저 실행하므로 429 응답에도 적용됩니다. 429가 반환되면 오버레이나 sidecar로 전달하지 않습니다. Sidecar와 오버레이는 내부 제어 헤더를 Target으로 전달하지 않습니다. 응답의 `X-Ruby-Decoy-Action`·`X-Ruby-Decoy-Strategies`는 Defense가 기록한 뒤 클라이언트 응답에서 제거합니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
+매 요청에는 해당 단계의 전략 목록을 전달합니다. `decoy_maze`는 모든 단계에 남고, 중간 오버레이는 4단계에서 높은 오버레이로 승격하며, 지연은 해당 단계 값 하나만 실행합니다. 이미 중간·높은 오버레이에 들어간 같은 검증된 행위자는 점수가 내려가도 그 오버레이 경로에 남습니다. Defense는 CHeaT에 기만 전략만 전달하고 지연과 속도 제한을 자체 실행합니다. 운영·로컬 Compose는 CHeaT의 내부 지연을 0으로 설정합니다. 오버레이 행위자의 `GET`/`HEAD` 미끼 경로는 내부 decoy-only 표시와 함께 CHeaT에 보내 실제 Target으로 빠져나가지 않게 하고, 일반 요청은 오버레이로 보냅니다. 오버레이 계획은 점수와 전략 목록을 검증한 뒤 대상·실행 ID·클라이언트에서 만든 가명 actor에 원본 경로·쿼리·본문을 HMAC으로 서명합니다. `stage4`의 700ms 지연은 속도 제한보다 먼저 실행하므로 429 응답에도 적용됩니다. 429가 반환되면 오버레이나 sidecar로 전달하지 않습니다. Sidecar와 오버레이는 내부 제어 헤더를 Target으로 전달하지 않습니다. 응답의 `X-Ruby-Decoy-Action`·`X-Ruby-Decoy-Strategies`는 Defense가 기록한 뒤 클라이언트 응답에서 제거합니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
+
+Compose에서는 `DETECTION_POLICY_GATE_ENABLED=true`로 실행합니다. Detection이 프록시 전에 자체 응답하는 미끼 요청은 HMAC 인증된 `POST /__defense/policy-gate`를 호출합니다. 요청 본문·자격 증명·미끼 URL 없이 정책 식별 정보만 보내며, Defense는 일반 프록시 요청과 같은 상태 키로 지연·속도 제한을 적용합니다. Defense의 게이트 응답도 요청 내용과 상태·단계·지연에 묶인 HMAC으로 인증합니다. 이미 오버레이에 들어간 행위자의 로그인 미끼는 Detection이 직접 응답하지 않고 Defense의 오버레이로 보냅니다. CRS가 먼저 차단한 요청은 이 내부 게이트를 통과하지 않습니다. Defense 없이 앱에 직접 연결하는 독립 실행에서는 이 게이트가 기본적으로 꺼집니다.
 
 전략의 `apply(request, params, state)`는 요청 단계에서 실행합니다. `DefenseResult`는 즉시 반환할 응답, Target에 보낼 헤더, 백엔드 응답 변형 함수, 다음 클라이언트 상태를 담을 수 있습니다. 일반 공식 Defense 전략의 상태는 전략 이름, 선택된 실행 ID(없으면 대상 ID), `X-Client-Id`별로 분리하고, 기본 10분 미사용 시 만료되며 최대 10,000개를 유지합니다. `DEFENSE_STATE_TTL_SECONDS`와 `DEFENSE_STATE_LIMIT`로 조절합니다. 계정 오버레이의 중·고위험 경로는 별도 SQLite 볼륨에 영속 저장하며 키가 바뀌거나 DB가 사라지면 원본으로 우회하지 않고 실패합니다. 경로 상태의 식별 범위는 같은 대상·실행 ID·검증된 `dcid`입니다. 쿠키를 지우면 새 식별자가 되어 기존 격리가 자동 승계되지 않습니다. 동일 클라이언트의 동시 상태 변경은 순서대로 처리합니다. Sidecar의 기만 상태도 실행 ID와 클라이언트별로 분리됩니다.
 
