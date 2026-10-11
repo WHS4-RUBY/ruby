@@ -76,7 +76,11 @@ function extractToken(authorizationHeader, cookieHeader) {
   // CSRF 라운드(3차)에서 관측된 패턴: Authorization 헤더 대신 Cookie: token=<JWT> 로 세팅
   if (cookieHeader) {
     const m = /(?:^|;\s*)token=([^;]+)/.exec(cookieHeader);
-    if (m) return decodeURIComponent(m[1]);
+    // 깨진 퍼센트 인코딩은 raw 로 되돌린다. 던지면 app.use 래퍼가 없어 500 이 되고,
+    // null 로 두면 쿠키 끝에 % 한 글자를 붙여 신원·역할 판정을 눈감게 만들 수 있다.
+    if (m) {
+      try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+    }
   }
   return null;
 }

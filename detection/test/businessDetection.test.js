@@ -14,7 +14,7 @@ const {
   detectNumericAbuse,
   detectNoSqlOperatorInjection,
 } = require("../lib/businessLogicSignatures");
-const { checkIdentityMismatch } = require("../lib/identityMismatch");
+const { checkIdentityMismatch, extractToken } = require("../lib/identityMismatch");
 const { checkRoleGatedAccess } = require("../lib/roleGatedAccess");
 const { checkCsrf, buildAllowedOrigins } = require("../lib/csrfDetection");
 const { extractLoginAttemptEmail } = require("../lib/loginBruteForce");
@@ -179,5 +179,41 @@ test("스키마 학습은 제안 후 명시적 승인 전까지 탐지 규칙에
   assert.deepEqual(
     [...schemaLearning.getApprovedMassAssignmentWhitelist("POST", "/api/Custom")].sort(),
     ["count", "name"]
+  );
+});
+
+// 형제 함수들(extractQueryValue, xssReflection.decode, server.js 의 쿠키 파서)은 모두
+// decodeURIComponent 를 try/catch 로 감싸는데 extractToken 만 빠져 있었다. 이 미들웨어는
+// app.use 에서 래퍼 없이 호출되므로(server.js) 던지면 Express 가 500 을 낸다.
+// 실패 시 raw 로 되돌리는 쪽을 택했다 — null 로 두면 공격자가 쿠키 끝에 % 하나를 붙여
+// Detection 의 신원 판정을 통째로 눈감게 만들 수 있다.
+test("쿠키의 깨진 퍼센트 인코딩이 500 을 만들지 않고 신원 판정도 눈감지 않는다", () => {
+  const userToken = token({ data: { id: 7, role: "customer" }, bid: 12 });
+
+  assert.doesNotThrow(() => extractToken(undefined, "token=%"));
+  assert.equal(extractToken(undefined, "token=%"), "%");
+
+  // 디코딩 가능한 값은 그대로 디코딩한다(기존 동작).
+  assert.equal(extractToken(undefined, `token=${encodeURIComponent(userToken)}`), userToken);
+
+  // 깨진 인코딩이 뒤에 붙어도 토큰을 버리지 않는다 — 그러지 않으면 % 한 글자로 회피된다.
+  for (const cookie of [`token=${userToken}%`, `token=%${userToken}`]) {
+    const hits = checkIdentityMismatch({
+      method: "GET",
+      normalizedPath: "/rest/basket/:id",
+      url: "/rest/basket/99",
+      cookieHeader: cookie,
+    });
+    assert.equal(hits.length, 1, `${cookie} 에서 신원 불일치를 놓쳤다`);
+    assert.equal(hits[0].tag, "identity-mismatch:basket");
+  }
+
+  // 역할 게이트도 같은 경로를 쓴다(extractToken 재export).
+  assert.doesNotThrow(() =>
+    checkRoleGatedAccess({
+      method: "GET",
+      normalizedPath: "/rest/admin/application-configuration",
+      cookieHeader: "token=%",
+    })
   );
 });
