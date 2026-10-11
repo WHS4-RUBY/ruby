@@ -504,6 +504,7 @@ function prepareRequestObservation(req) {
     method: req.method,
     normalizedPath,
     body: req.body,
+    profile: req.siteProfile,
   });
   req.resetPasswordEmail = extractResetPasswordEmail({
     method: req.method,

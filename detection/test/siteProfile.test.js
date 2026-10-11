@@ -46,9 +46,8 @@ function genericDoc(overrides = {}) {
 test("juice-shop 프로파일은 지금 살아 있는 모듈 상수와 정확히 같다", () => {
   const juice = load("juice-shop");
 
-  const { LOGIN_ROUTE } = require("../lib/loginBruteForce");
-  assert.deepEqual(juice.loginBruteForce.route,
-    { method: LOGIN_ROUTE.method, normalizedPath: LOGIN_ROUTE.normalizedPath });
+  // loginBruteForce 는 이미 프로파일을 읽으므로 비교할 상수가 없다. 그 보장은
+  // characterizeLoginBruteForce.test.js 가 이어받는다 — 상수 비교보다 동작 비교가 강하다.
 
   const { RESET_PASSWORD_ROUTE, SECURITY_QUESTION_ROUTE } = require("../lib/passwordResetAbuse");
   assert.deepEqual(juice.passwordResetAbuse.resetRoute,

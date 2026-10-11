@@ -29,6 +29,13 @@ const {
   resetPriceCache,
 } = require("../lib/priceIntegrity");
 const schemaLearning = require("../lib/schemaLearning");
+const { loadSiteProfile } = require("../lib/siteProfile");
+
+// 라우트·필드명은 이제 프로파일에서 온다. 이 파일의 단정은 juice-shop 대상이므로
+// juice-shop 프로파일을 넘긴다.
+const JUICE_PROFILE = loadSiteProfile(
+  path.join(__dirname, "..", "config", "site-profiles", "juice-shop.json")
+);
 
 after(() => fs.rmSync(schemaDir, { recursive: true, force: true }));
 
@@ -127,6 +134,7 @@ test("로그인·비밀번호 재설정·보안질문에서 이메일 집계 키
       method: "POST",
       normalizedPath: "/rest/user/login",
       body: { email: " User@Example.Test " },
+      profile: JUICE_PROFILE,
     }),
     "user@example.test"
   );
