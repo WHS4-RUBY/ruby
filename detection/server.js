@@ -380,6 +380,7 @@ function computeBusinessLogicTags(req) {
     normalizedPath,
     body: req.body,
     rawQueryOrBody: req.originalUrl,
+    profile: req.siteProfile,
   });
   const identityHits = checkIdentityMismatch({
     method: req.method,
@@ -447,7 +448,9 @@ function observeSchemaLearning(req, statusCode, normalizedPath) {
     normalizedPath,
     bodyObj,
     statusCode,
-    hasHardcodedWhitelist: hasHardcodedMassAssignmentWhitelist(req.method, normalizedPath),
+    hasHardcodedWhitelist: hasHardcodedMassAssignmentWhitelist(
+      req.method, normalizedPath, req.siteProfile
+    ),
   });
 
   const token = extractToken(req.headers.authorization, req.headers.cookie);

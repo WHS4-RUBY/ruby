@@ -55,17 +55,8 @@ test("juice-shop 프로파일은 지금 살아 있는 모듈 상수와 정확히
 
   // priceIntegrity 도 프로파일을 읽는다 — 보장은 characterizePriceIntegrity 로.
 
-  const bl = require("../lib/businessLogicSignatures");
-  assert.deepEqual(
-    juice.businessLogic.massAssignmentWhitelist.map((entry) => [entry.route, entry.fields]),
-    [...bl.MASS_ASSIGNMENT_WHITELIST].map(([route, fields]) => [route, [...fields]])
-  );
-  assert.deepEqual(juice.businessLogic.alwaysSuspiciousFields, [...bl.ALWAYS_SUSPICIOUS_FIELDS]);
-  assert.deepEqual(juice.businessLogic.suspiciousRoleValues, [...bl.SUSPICIOUS_ROLE_VALUES]);
-  assert.deepEqual(
-    juice.businessLogic.numericFieldRules,
-    [...bl.NUMERIC_FIELD_RULES].map(([field, rule]) => ({ field, ...rule }))
-  );
+  // businessLogicSignatures 도 프로파일을 읽는다 — 보장은
+  // characterizeBusinessLogicSignatures 로.
 
   const { SENSITIVE_ROUTES } = require("../lib/roleGatedAccess");
   assert.deepEqual(

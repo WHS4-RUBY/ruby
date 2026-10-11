@@ -52,12 +52,12 @@ test("mass assignment, 숫자 남용, NoSQL 연산자와 comment-only SQLi를 �
     securityQuestion: { id: 1 },
     securityAnswer: "answer",
     nested: { role: "admin" },
-  });
+  }, JUICE_PROFILE);
   assert.equal(mass.hit, true);
   assert.ok(mass.extraFields.includes("nested"));
   assert.ok(mass.suspiciousFields.includes("role"));
 
-  assert.equal(detectNumericAbuse({ quantity: -1 }).hit, true);
+  assert.equal(detectNumericAbuse({ quantity: -1 }, JUICE_PROFILE).hit, true);
   assert.equal(detectNoSqlOperatorInjection({ id: { $ne: -1 } }).hit, true);
   assert.ok(
     analyzeBusinessLogic({
@@ -65,6 +65,7 @@ test("mass assignment, 숫자 남용, NoSQL 연산자와 comment-only SQLi를 �
       normalizedPath: "/rest/user/login",
       body: { email: "admin@example.test'--", password: "x" },
       rawQueryOrBody: "/rest/user/login",
+      profile: JUICE_PROFILE,
     }).some((hit) => hit.tag === "sqli-comment-only")
   );
 });

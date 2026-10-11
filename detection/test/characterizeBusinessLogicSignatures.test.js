@@ -10,14 +10,26 @@ const schemaDir = fs.mkdtempSync(path.join(os.tmpdir(), "characterize-bl-"));
 process.env.DETECTION_STORE_DB = path.join(schemaDir, "detection.sqlite3");
 
 const {
-  analyzeBusinessLogic,
-  detectMassAssignment,
-  hasHardcodedMassAssignmentWhitelist,
-  detectNumericAbuse,
+  analyzeBusinessLogic: analyze,
+  detectMassAssignment: detectMass,
+  hasHardcodedMassAssignmentWhitelist: hasWhitelist,
+  detectNumericAbuse: detectNumeric,
   detectNoSqlOperatorInjection,
   detectCommentOnlySqli,
 } = require("../lib/businessLogicSignatures");
 const schemaLearning = require("../lib/schemaLearning");
+const { loadSiteProfile } = require("../lib/siteProfile");
+
+const profileAt = (id) =>
+  loadSiteProfile(path.join(__dirname, "..", "config", "site-profiles", `${id}.json`));
+
+// juice-shop 프로파일을 주입하면 아래 단정은 한 글자도 바뀌지 않고 통과해야 한다.
+const JUICE_PROFILE = profileAt("juice-shop");
+const analyzeBusinessLogic = (args) => analyze({ ...args, profile: JUICE_PROFILE });
+const detectMassAssignment = (method, route, body) => detectMass(method, route, body, JUICE_PROFILE);
+const hasHardcodedMassAssignmentWhitelist = (method, route) =>
+  hasWhitelist(method, route, JUICE_PROFILE);
+const detectNumericAbuse = (body) => detectNumeric(body, JUICE_PROFILE);
 
 after(() => fs.rmSync(schemaDir, { recursive: true, force: true }));
 
@@ -268,4 +280,106 @@ test("특성화: 본문이 객체가 아니면 아무것도 판정하지 않는�
       { hit: false, extraFields: [], suspiciousFields: [], suspiciousValues: [] },
       `본문 ${JSON.stringify(body)} 가 통과했다`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// 프로파일화 이후
+// ---------------------------------------------------------------------------
+
+const GENERIC_PROFILE = profileAt("generic");
+const RUBY_PROFILE = profileAt("ruby-shop");
+
+// D3-R: 라우트 무관한 세 판정은 generic·ruby-shop 에도 같은 값으로 들어간다.
+// 빠지면 프로파일 없는 대상(legacy/alternate)의 동작이 바뀐다.
+test("라우트 무관 판정은 세 프로파일에서 모두 같다", () => {
+  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+    // 의심 필드명 — 라우트와 무관하다.
+    assert.deepEqual(
+      detectMass("POST", "/anything", { role: "admin" }, profile).suspiciousFields,
+      detectMass("POST", "/anything", { role: "admin" }, JUICE_PROFILE).suspiciousFields,
+      `${profile.profileId} 의 의심 필드명 판정이 juice-shop 과 다르다`
+    );
+    // 숫자 범위 — 라우트와 무관하다.
+    assert.deepEqual(
+      detectNumeric({ quantity: -1 }, profile),
+      detectNumeric({ quantity: -1 }, JUICE_PROFILE)
+    );
+    assert.deepEqual(detectNumeric({ rating: 0 }, profile), detectNumeric({ rating: 0 }, JUICE_PROFILE));
+    // 비활성으로 보고되어서는 안 된다.
+    for (const feature of ["businessLogic.alwaysSuspiciousFields",
+                           "businessLogic.suspiciousRoleValues",
+                           "businessLogic.numericFieldRules"]) {
+      assert.ok(!profile.disabledFeatures.includes(feature),
+        `${profile.profileId} 가 ${feature} 를 비활성으로 선언했다 — 동작이 바뀐다`);
+    }
+  }
+});
+
+// 반대로 라우트별 화이트리스트는 사이트 종속이므로 generic·ruby-shop 에 없다.
+test("라우트별 화이트리스트는 generic·ruby-shop 에서 비활성이고 그 사실이 드러난다", () => {
+  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+    assert.equal(hasWhitelist("POST", "/api/Users", profile), false);
+    const result = detectMass("POST", "/api/Users", { email: "a@b", zzz: 1 }, profile);
+    assert.deepEqual(result.extraFields, [], "화이트리스트가 없으면 판단하지 않는다");
+    assert.deepEqual(result.suspiciousValues, [], "값 검사도 화이트리스트가 있을 때만");
+    assert.ok(profile.disabledFeatures.includes("businessLogic.massAssignmentWhitelist"),
+      `${profile.profileId} 가 massAssignmentWhitelist 비활성을 선언하지 않았다`);
+  }
+});
+
+test("다른 사이트의 라우트·필드·범위로도 같은 판정이 나온다", () => {
+  const otherSite = {
+    ...GENERIC_PROFILE,
+    businessLogic: {
+      massAssignmentWhitelist: [
+        { route: "POST /api/auth/register", fields: ["email", "password"] },
+      ],
+      alwaysSuspiciousFields: ["is_seller", "tier"],
+      suspiciousRoleValues: ["seller", "staff"],
+      numericFieldRules: [{ field: "amount", min: 1, max: 10 }],
+    },
+  };
+
+  assert.equal(hasWhitelist("POST", "/api/auth/register", otherSite), true);
+  const mass = detectMass("POST", "/api/auth/register",
+    { email: "a@b", password: "x", is_seller: true }, otherSite);
+  assert.deepEqual(mass.extraFields, ["is_seller"]);
+  assert.deepEqual(mass.suspiciousFields, ["is_seller"]);
+
+  // juice-shop 의 의심 필드명·범위는 이 프로파일에서 잡히지 않는다.
+  assert.deepEqual(detectMass("POST", "/x", { role: "admin" }, otherSite).suspiciousFields, []);
+  assert.equal(detectNumeric({ quantity: -1 }, otherSite).hit, false);
+  assert.equal(detectNumeric({ amount: 0 }, otherSite).hit, true);
+  assert.equal(detectNumeric({ amount: 11 }, otherSite).hit, true);
+  assert.equal(detectNumeric({ amount: 5 }, otherSite).hit, false);
+  // 값 검사도 이 사이트의 어휘를 쓴다.
+  assert.deepEqual(
+    detectMass("POST", "/api/auth/register", { nickname: "SELLER" }, otherSite).suspiciousValues,
+    ["nickname"]
+  );
+});
+
+// NoSQL 연산자와 comment-only SQLi 는 설정을 받지 않으므로 프로파일이 없어도 돈다 —
+// 비활성 보고 대상이 아니다.
+test("구문 판정 둘은 프로파일과 무관하게 계속 돈다", () => {
+  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE, null, undefined, {}]) {
+    const tags = analyze({
+      method: "POST",
+      normalizedPath: "/anything",
+      body: { id: { $ne: -1 }, q: "' --" },
+      profile,
+    }).map((t) => t.tag);
+    assert.ok(tags.includes("nosql-injection-generalized"),
+      "NoSQL 연산자 판정은 프로파일과 무관해야 한다");
+    assert.ok(tags.includes("sqli-comment-only"),
+      "comment-only SQLi 판정은 프로파일과 무관해야 한다");
+  }
+});
+
+test("프로파일에 businessLogic 블록이 아예 없으면 네 판정 중 둘만 돈다", () => {
+  const noBlock = { profileId: "x", label: "x", schemaVersion: 1 };
+  assert.deepEqual(detectMass("POST", "/api/Users", { role: "admin" }, noBlock),
+    { hit: false, extraFields: [], suspiciousFields: [], suspiciousValues: [] });
+  assert.deepEqual(detectNumeric({ quantity: -1 }, noBlock), { hit: false, violations: [] });
+  assert.equal(hasWhitelist("POST", "/api/Users", noBlock), false);
 });
