@@ -87,14 +87,9 @@ if (process.env.NODE_ENV === "production" && ADMIN_PORT === null) {
   throw new Error("production requires an isolated ADMIN_PORT listener");
 }
 const TARGET = process.env.TARGET_URL || "http://localhost:3000";
-// 2026-09-01 추가: HTML(index.html) 하나만 보는 정찰 대신, 자주 조회되는
-// 정적 텍스트 응답에도 기만 신호를 심는다 — deceptionEngine.injectSignalsPlaintext 참고.
-const PLAINTEXT_BAIT_PATHS = new Set([
-  "/robots.txt",
-  "/security.txt",
-  "/.well-known/security.txt",
-  "/metrics",
-]);
+// 2026-09-01 추가: HTML(index.html) 하나만 보는 정찰 대신, 자주 조회되는 정적 텍스트
+// 응답에도 기만 신호를 심는다 — deceptionEngine.injectSignalsPlaintext 참고. 그 경로
+// 목록은 사이트 프로파일의 deception.plaintextBaitPaths 가 정한다(아래 onProxyRes).
 const BLOCK_MODE = process.env.BLOCK_MODE === "true";
 const DETECTION_LEVEL = normalizeDetectionLevel(process.env.DETECTION_LEVEL);
 const ENABLE_EXPERIMENT_RUN_ID = process.env.ENABLE_EXPERIMENT_RUN_ID === "true";
@@ -512,6 +507,7 @@ function prepareRequestObservation(req) {
     url: req.originalUrl,
     rawBody: req.detectionRequestBodyBuffer,
     body: req.body,
+    profile: req.siteProfile,
   });
   req.backgroundTraffic = classifyBackgroundTraffic(req.originalUrl);
   const normalizedPath = normalizePath(req.originalUrl);
@@ -897,6 +893,7 @@ app.use((req, res, next) => {
     url: req.originalUrl,
     rawBody: req.detectionRequestBodyBuffer,
     body: req.body,
+    profile: req.siteProfile,
   });
   if (!trap) return next();
 
@@ -1589,11 +1586,15 @@ const detectionHook = {
     // 자주 조회되는 다른 정적 텍스트 응답(포맷 자체가 "#"/"//" 주석을
     // 지원하는 곳)에도 같은 신호를 심는다 — deceptionEngine.injectSignals*
     // 참고 주석.
-    if (PLAINTEXT_BAIT_PATHS.has(req.path)) {
+    // 평문 유인 경로는 프로파일이 정한다. 선언이 없으면 이 주입만 꺼진다.
+    const baitPaths = req.siteProfile?.deception?.plaintextBaitPaths;
+    if (baitPaths?.includes(req.path)) {
       return deceptionEngine.injectSignalsPlaintext(responseBuffer.toString("utf8"), session.id);
     }
     if (req.path.endsWith(".js") || contentType.includes("javascript")) {
-      return deceptionEngine.injectSignalsJs(responseBuffer.toString("utf8"), session.id);
+      return deceptionEngine.injectSignalsJs(
+        responseBuffer.toString("utf8"), session.id, req.siteProfile
+      );
     }
 
     return responseBuffer;

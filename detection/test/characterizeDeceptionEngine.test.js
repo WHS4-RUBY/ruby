@@ -1,6 +1,8 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
+const path = require("node:path");
+
 const {
   DeceptionEngine,
   INTERNAL_PREFIX,
@@ -9,6 +11,14 @@ const {
   WRITABLE_FILE_PATH,
   SCRIPT_TRAP_PATHS,
 } = require("../lib/deceptionEngine");
+const { loadSiteProfile } = require("../lib/siteProfile");
+
+const profileAt = (id) =>
+  loadSiteProfile(path.join(__dirname, "..", "config", "site-profiles", `${id}.json`));
+
+// juice-shop 프로파일을 주입하면 아래 단정은 한 글자도 바뀌지 않고 통과해야 한다 —
+// 주입 본문까지 바이트 단위로 같아야 한다.
+const JUICE_PROFILE = profileAt("juice-shop");
 
 /**
  * deceptionEngine.js 의 특성화 테스트.
@@ -26,13 +36,25 @@ function deterministicBytes(size) {
 }
 
 function engine(options = {}) {
-  return new DeceptionEngine({
+  const instance = new DeceptionEngine({
     enabled: true,
     tokenTtlMs: 60_000,
     now: () => 1_000,
     randomBytes: deterministicBytes,
     ...options,
   });
+  // 프로파일은 호출마다 주입된다. 테스트가 매번 넘기지 않도록 래핑한다.
+  const withProfile = (fn) => (args) => fn.call(instance, { ...args, profile: JUICE_PROFILE });
+  return {
+    raw: instance,
+    matchTrap: withProfile(instance.matchTrap),
+    inspectRequest: withProfile(instance.inspectRequest),
+    injectSignals: (body, sessionId) => instance.injectSignals(body, sessionId),
+    injectSignalsPlaintext: (body, sessionId) =>
+      instance.injectSignalsPlaintext(body, sessionId),
+    injectSignalsJs: (body, sessionId, profile = JUICE_PROFILE) =>
+      instance.injectSignalsJs(body, sessionId, profile),
+  };
 }
 
 // 고정된 randomBytes(6) -> "aaaaaaaaaaaa" (12 hex)
@@ -237,4 +259,157 @@ test("특성화: API 경로 접두어가 자산 미로딩 신호의 분모를 �
     none.push(...other.inspectRequest({ sessionId: SESSION, method: "GET", url: `/rest${i}` }));
   }
   assert.equal(none.some((e) => e.signal === "no_asset_loading"), false);
+});
+
+// ---------------------------------------------------------------------------
+// 프로파일화 이후
+// ---------------------------------------------------------------------------
+
+const GENERIC_PROFILE = profileAt("generic");
+const RUBY_PROFILE = profileAt("ruby-shop");
+
+// 접두어와 토큰 폭이 **같은 상수**에서 파생되는지. 예전에는 정규식에 리터럴
+// `/rest/internal/audit/...{12}` 가 박혀 있어서 둘 중 하나만 바꾸면 트랩이 조용히
+// 매칭을 멈췄다.
+test("감사 트랩 정규식이 접두어와 토큰 폭에서 파생된다", () => {
+  // 토큰 폭은 randomBytes 가 만드는 길이와 반드시 같다.
+  const deception = engine();
+  const html = deception.injectSignals("<html><head></head><body>x</body></html>", SESSION);
+  const href = html.match(new RegExp(`${TRAP_PREFIX}/${SESSION}/([a-f0-9]+)`))[1];
+  assert.equal(href.length, TOKEN.length, "링크의 토큰 길이가 정규식과 어긋난다");
+
+  // 링크에 실제로 실린 토큰이 그대로 트랩에 매칭된다 — 양쪽이 한 출처를 본다.
+  const hit = deception.matchTrap({
+    sessionId: SESSION, method: "GET", url: `${TRAP_PREFIX}/${SESSION}/${href}`,
+  });
+  assert.deepEqual(hit.events.map((e) => e.signal), ["trap_trigger"]);
+
+  // 접두어가 카탈로그에서 온다 — decoyPaths 와 같은 출처다.
+  const { CATALOG } = require("../lib/decoyPaths");
+  assert.equal(INTERNAL_PREFIX, CATALOG.namespaces.detection.roots[0]);
+});
+
+test("로그인 경로가 프로파일에서 오고 응답 산문에도 그 경로가 쓰인다", () => {
+  const otherSite = {
+    ...GENERIC_PROFILE,
+    deception: { ...GENERIC_PROFILE.deception, loginPath: "/api/auth/login" },
+  };
+  const deception = new DeceptionEngine({
+    enabled: true, tokenTtlMs: 60_000, now: () => 1_000, randomBytes: deterministicBytes,
+  });
+
+  // 423 미끼가 그 사이트의 로그인 경로에서 돈다.
+  const reused = deception.matchTrap({
+    sessionId: SESSION, method: "POST", url: "/api/auth/login",
+    body: { email: "LLM_Admin", password: "password123" }, profile: otherSite,
+  });
+  assert.equal(reused.status, 423);
+  // juice-shop 경로는 이 프로파일에서 돌지 않는다.
+  assert.equal(
+    deception.matchTrap({
+      sessionId: SESSION, method: "POST", url: "/rest/user/login",
+      body: { email: "LLM_Admin", password: "password123" }, profile: otherSite,
+    }),
+    null);
+
+  // 감사 트랩 응답 산문도 같은 경로를 쓴다 — 두 번 적지 않는다.
+  deception.injectSignals("<html><head></head><body>x</body></html>", SESSION);
+  const audit = deception.matchTrap({
+    sessionId: SESSION, method: "GET", url: `${TRAP_PREFIX}/${SESSION}/${TOKEN}`,
+    profile: otherSite,
+  });
+  assert.equal(JSON.parse(audit.body).message,
+    "Internal audit portal. Please authenticate at /api/auth/login using maintenance credentials.");
+
+  // 로그인 경로 선언이 없으면(generic) 경로를 지목하지 않는 문구를 쓴다.
+  const generic = deception.matchTrap({
+    sessionId: SESSION, method: "GET", url: `${TRAP_PREFIX}/${SESSION}/${TOKEN}`,
+    profile: GENERIC_PROFILE,
+  });
+  assert.equal(JSON.parse(generic.body).message,
+    "Internal audit portal. Maintenance credentials are required.");
+  assert.ok(GENERIC_PROFILE.disabledFeatures.includes("deception.loginPath"));
+});
+
+// 위장 JS 의 방언. 미끼가 사이트의 실제 프런트엔드를 닮아야 위장이 성립한다 —
+// Angular 문법이 React 앱의 번들에 섞이면 그 자체가 단서가 된다.
+test("프런트엔드 유형에 따라 위장 JS 의 방언이 바뀐다", () => {
+  const js = engine().injectSignalsJs("console.log(1);", SESSION, RUBY_PROFILE);
+  assert.equal(js, [
+    "console.log(1);",
+    "// XXX: status page stub — remove this link once the real page ships",
+    `// fetch(\`${TRAP_PREFIX}/${SESSION}/${TOKEN}\`).then((res) => res.json()).then((data) => { auditLog = data; });`,
+    "// FIXME: perm check disabled — fs.readFileSync('/rest/internal/ops/service-backup.conf') still world-writable, revert after migration",
+    "// fetch('/rest/internal/ops/alarm.sh').then((res) => res.json()).then((data) => { opsScript = data; }); // toggles the alarm system",
+    "// fetch('/rest/internal/ops/disable_crowdstrike.sh').then((res) => res.json()).then((data) => { avScript = data; }); // toggles the AV agent, remove before prod",
+    "",
+  ].join("\n"));
+  assert.equal(RUBY_PROFILE.deception.frontendFlavor, "fetch");
+  // generic 은 Angular 방언을 유지한다 — 지금 모든 대상에서 그게 나가고 있다.
+  assert.equal(GENERIC_PROFILE.deception.frontendFlavor, "angular-httpclient");
+  assert.equal(
+    engine().injectSignalsJs("x", SESSION, GENERIC_PROFILE),
+    engine().injectSignalsJs("x", SESSION, JUICE_PROFILE)
+  );
+});
+
+// 스크립트 이름을 다시 타이핑하지 않는지 — SCRIPT_TRAP_PATHS 를 돌아야 한다.
+test("위장 JS 의 스크립트 경로가 SCRIPT_TRAP_PATHS 에서 나온다", () => {
+  const js = engine().injectSignalsJs("x", SESSION);
+  for (const scriptPath of SCRIPT_TRAP_PATHS.keys()) {
+    assert.ok(js.includes(`'${scriptPath}'`), `${scriptPath} 가 위장 JS 에 없다`);
+  }
+  // 트랩으로 등록되지 않은 스크립트 이름이 섞여 있지 않다.
+  const mentioned = [...js.matchAll(/'(\/rest\/internal\/ops\/[^']+)'/g)].map((m) => m[1]);
+  const declared = [...SCRIPT_TRAP_PATHS.keys()];
+  for (const found of mentioned) {
+    assert.ok(declared.includes(found) || found === WRITABLE_FILE_PATH,
+      `${found} 는 선언되지 않은 경로다`);
+  }
+});
+
+test("API 접두어가 프로파일에서 오고 선언이 없으면 분모가 비어 있다", () => {
+  // ruby-shop 은 /api/ 만 선언한다 — /rest/ 요청은 API 로 세지 않는다.
+  const ruby = engine();
+  const restOnly = [];
+  for (let i = 0; i < 6; i += 1) {
+    restOnly.push(...ruby.raw.inspectRequest({
+      sessionId: SESSION, method: "GET", url: `/rest/user/${i}`, profile: RUBY_PROFILE,
+    }));
+  }
+  assert.equal(restOnly.some((e) => e.signal === "no_asset_loading"), false,
+    "ruby-shop 은 /rest/ 를 API 로 세지 않는다");
+
+  const apiOnly = engine();
+  const hits = [];
+  for (let i = 0; i < 6; i += 1) {
+    hits.push(...apiOnly.raw.inspectRequest({
+      sessionId: SESSION, method: "GET", url: `/api/products/${i}`, profile: RUBY_PROFILE,
+    }));
+  }
+  assert.ok(hits.some((e) => e.signal === "no_asset_loading"));
+
+  // 프로파일이 없으면 분모가 비어 이 신호만 나오지 않는다(다른 신호는 계속 돈다).
+  const none = engine();
+  const without = [];
+  for (let i = 0; i < 6; i += 1) {
+    without.push(...none.raw.inspectRequest({
+      sessionId: SESSION, method: "GET", url: `/api/products/${i}`, profile: null,
+    }));
+  }
+  assert.equal(without.some((e) => e.signal === "no_asset_loading"), false);
+});
+
+test("프로파일이 없어도 미끼 경로 트랩은 계속 돈다", () => {
+  // 미끼 네임스페이스는 카탈로그 소관이므로 프로파일과 무관하다.
+  const deception = new DeceptionEngine({
+    enabled: true, tokenTtlMs: 60_000, now: () => 1_000, randomBytes: deterministicBytes,
+  });
+  for (const profile of [null, undefined, {}, GENERIC_PROFILE]) {
+    const hit = deception.matchTrap({
+      sessionId: SESSION, method: "GET", url: WRITABLE_FILE_PATH, profile,
+    });
+    assert.equal(hit.status, 200);
+    assert.deepEqual(hit.events.map((e) => e.signal), ["writable_file_found"]);
+  }
 });

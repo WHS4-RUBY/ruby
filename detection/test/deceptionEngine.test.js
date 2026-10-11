@@ -19,6 +19,12 @@ function engine() {
   });
 }
 
+// 로그인 경로와 API 접두어는 사이트 프로파일에서 온다. 이 파일의 단정은 juice-shop
+// 대상이므로 juice-shop 프로파일을 넘긴다.
+const JUICE_PROFILE = require("../lib/siteProfile").loadSiteProfile(
+  require("node:path").join(__dirname, "..", "config", "site-profiles", "juice-shop.json")
+);
+
 test("HTML 응답에 팀원 구현의 미끼 신호와 세션별 토큰을 삽입한다", () => {
   const deception = engine();
   const html = deception.injectSignals("<html><head></head><body>hello</body></html>", "session-a");
@@ -63,6 +69,7 @@ test("percent-encoding된 워터마크를 다른 쿠키 세션의 요청에서�
     method: "POST",
     url: "/rest/user/login",
     rawBody: Buffer.from(`email=LLM&password=${encodeURIComponent(watermark)}`),
+    profile: JUICE_PROFILE,
   });
 
   const reuse = events.find((event) => event.signal === "watermark_reuse");
@@ -89,6 +96,7 @@ test("트랩 링크, 쓰기 가능 파일과 스크립트 경로를 Node 내부 
     sessionId: "writer",
     method: "PUT",
     url: "/rest/internal/ops/service-backup.conf",
+    profile: JUICE_PROFILE,
   });
   assert.equal(writable.events[0].signal, "writable_file_write");
 
@@ -96,6 +104,7 @@ test("트랩 링크, 쓰기 가능 파일과 스크립트 경로를 Node 내부 
     sessionId: "reader",
     method: "GET",
     url: "/rest/internal/ops/alarm.sh",
+    profile: JUICE_PROFILE,
   });
   assert.equal(script.events[0].signal, "script_hint_access");
   assert.match(script.body, /maintenance mode enabled temporarily/);
@@ -111,6 +120,7 @@ test("A-3: 우리 미끼 자격증명으로 로그인하면 원본 401 대신 �
     method: "POST",
     url: "/rest/user/login",
     rawBody: Buffer.from(`email=LLM&password=${encodeURIComponent(watermark)}`),
+    profile: JUICE_PROFILE,
   });
   assert.equal(watermarkTrap.status, 423);
   assert.equal(watermarkTrap.events.length, 0); // 채점은 inspectRequest()가 별도로 함
@@ -120,6 +130,7 @@ test("A-3: 우리 미끼 자격증명으로 로그인하면 원본 401 대신 �
     method: "POST",
     url: "/rest/user/login",
     rawBody: Buffer.from("email=LLM_Admin&password=password123"),
+    profile: JUICE_PROFILE,
   });
   assert.equal(sshTrap.status, 423);
 
@@ -129,6 +140,7 @@ test("A-3: 우리 미끼 자격증명으로 로그인하면 원본 401 대신 �
     method: "POST",
     url: "/rest/user/login",
     rawBody: Buffer.from("email=admin@juice-sh.op&password=admin123"),
+    profile: JUICE_PROFILE,
   });
   assert.equal(normal, null);
 });
@@ -141,6 +153,7 @@ test("coverage와 no_asset_loading은 Automation Honey 후보 신호로 발생�
       sessionId: "observation-session",
       method: "GET",
       url: path,
+      profile: JUICE_PROFILE,
     }));
   }
 
@@ -185,6 +198,7 @@ test("Defense 미끼 경로 요청은 공격 쪽 미끼 신호를 만들고 정�
   const instance = engine();
   const hit = instance.inspectRequest({
     sessionId: "decoy-session", method: "GET", url: "/ops/recovery/accounts?page=2",
+    profile: JUICE_PROFILE,
   });
   const signals = hit.map((event) => event.signal);
   assert.ok(signals.includes("decoy_path_hit"));
