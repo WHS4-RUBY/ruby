@@ -163,10 +163,10 @@ test("요청 내부 총액 불일치와 관찰 가격 대비 급락을 탐지한
   assert.equal(detectPriceTampering({ quantity: 2, price: 10, total: 1 }, JUICE_PROFILE).hit, true);
 
   resetPriceCache();
-  assert.equal(checkPriceDelta(1, 20, JUICE_PROFILE).hit, false);
-  ingestProductResponseBody({ data: [{ id: 1, price: 100 }] }, JUICE_PROFILE);
-  assert.equal(checkPriceDelta(1, 60, JUICE_PROFILE).hit, false);
-  assert.equal(checkPriceDelta(1, 50, JUICE_PROFILE).hit, true);
+  assert.equal(checkPriceDelta(1, 20, JUICE_PROFILE, "juice-shop").hit, false);
+  ingestProductResponseBody({ data: [{ id: 1, price: 100 }] }, JUICE_PROFILE, "juice-shop");
+  assert.equal(checkPriceDelta(1, 60, JUICE_PROFILE, "juice-shop").hit, false);
+  assert.equal(checkPriceDelta(1, 50, JUICE_PROFILE, "juice-shop").hit, true);
 });
 
 test("스키마 학습은 제안 후 명시적 승인 전까지 탐지 규칙에 사용하지 않는다", () => {

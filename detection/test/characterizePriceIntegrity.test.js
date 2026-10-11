@@ -4,10 +4,10 @@ const { beforeEach, test } = require("node:test");
 const path = require("node:path");
 
 const {
-  recordObservedPrice,
-  ingestProductResponseBody: ingest,
+  recordObservedPrice: record,
+  ingestProductResponseBody: ingestFor,
   extractTrailingNumericId,
-  checkPriceDelta: checkDelta,
+  checkPriceDelta: checkDeltaFor,
   resetPriceCache,
 } = require("../lib/priceIntegrity");
 const { loadSiteProfile } = require("../lib/siteProfile");
@@ -17,6 +17,12 @@ const profileAt = (id) =>
 
 // juice-shop 프로파일을 주입하면 아래 단정은 한 글자도 바뀌지 않고 통과해야 한다.
 const JUICE_PROFILE = profileAt("juice-shop");
+// 가격 캐시는 대상별로 분리된다. 이 파일의 단정은 한 대상 안에서의 동작이므로
+// 고정된 대상 ID 하나를 쓴다.
+const TARGET = "juice-shop";
+const recordObservedPrice = (id, price) => record(TARGET, id, price);
+const ingest = (body, profile) => ingestFor(body, profile, TARGET);
+const checkDelta = (id, price, profile) => checkDeltaFor(id, price, profile, TARGET);
 const ingestProductResponseBody = (body) => ingest(body, JUICE_PROFILE);
 const checkPriceDelta = (id, price) => checkDelta(id, price, JUICE_PROFILE);
 
@@ -230,4 +236,46 @@ test("프로파일에 설정이 없으면 비활성이고 그 사실이 드러�
     assert.ok(profile.disabledFeatures.includes("priceIntegrity"),
       `${profile.profileId} 가 priceIntegrity 비활성을 선언하지 않았다`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// 대상별 캐시 격리 (동작 변경)
+// ---------------------------------------------------------------------------
+
+// Detection 은 한 프로세스가 여러 대상을 서비스하고 활성 대상이 런타임에 전환된다.
+// 예전에는 캐시 키가 productId 하나여서, 두 사이트가 모두 상품 라우트를 가지면
+// 대상을 바꾼 뒤 **다른 사이트의 가격**을 기준값으로 썼다.
+test("가격 캐시는 대상별로 분리된다", () => {
+  const siteA = { ...JUICE_PROFILE, profileId: "site-a" };
+  const siteB = {
+    ...JUICE_PROFILE,
+    profileId: "site-b",
+    priceIntegrity: { ...JUICE_PROFILE.priceIntegrity },
+  };
+
+  // 같은 상품 id 1 이 두 대상에서 전혀 다른 가격을 갖는다.
+  ingestFor({ data: [{ id: 1, price: 100 }] }, siteA, "target-a");
+  ingestFor({ data: [{ id: 1, price: 10 }] }, siteB, "target-b");
+
+  // target-a 기준 100 -> 20 은 20% 로 hit.
+  assert.deepEqual(checkDeltaFor(1, 20, siteA, "target-a"),
+    { hit: true, observed: 100, submitted: 20, dropRatio: 0.2 });
+  // target-b 기준 10 -> 20 은 가격 인상이므로 hit 아님. 대상이 섞였다면
+  // observed 가 100 으로 보여 hit 이 되었을 것이다.
+  assert.deepEqual(checkDeltaFor(1, 20, siteB, "target-b"),
+    { hit: false, observed: 10, submitted: 20, dropRatio: 2 });
+
+  // 한 대상에서만 관찰된 상품은 다른 대상에서 기준값이 없다.
+  ingestFor({ data: [{ id: 2, price: 100 }] }, siteA, "target-a");
+  assert.deepEqual(checkDeltaFor(2, 10, siteB, "target-b"), { hit: false },
+    "다른 대상의 관찰값을 기준으로 쓰면 안 된다");
+  assert.equal(checkDeltaFor(2, 10, siteA, "target-a").hit, true);
+});
+
+test("대상 ID 가 없어도 한 묶음으로 동작한다", () => {
+  record(null, 1, 100);
+  assert.equal(checkDeltaFor(1, 10, JUICE_PROFILE, null).hit, true);
+  assert.equal(checkDeltaFor(1, 10, JUICE_PROFILE, undefined).hit, true,
+    "null 과 undefined 는 같은 묶음이다");
+  assert.deepEqual(checkDeltaFor(1, 10, JUICE_PROFILE, "other"), { hit: false });
 });

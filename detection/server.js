@@ -412,7 +412,8 @@ function computeBusinessLogicTags(req) {
     const submittedPrice = req.body && typeof req.body === "object"
       ? req.body[integrity.priceField]
       : undefined;
-    if (checkPriceDelta(productId, submittedPrice, req.siteProfile).hit) {
+    if (checkPriceDelta(productId, submittedPrice, req.siteProfile,
+                        req.activeTarget?.targetId).hit) {
       tags.push("price-tampering:delta");
     }
   }
@@ -1567,7 +1568,8 @@ const detectionHook = {
       contentType.includes("application/json")
     ) {
       try {
-        ingestProductResponseBody(JSON.parse(responseBuffer.toString("utf8")), req.siteProfile);
+        ingestProductResponseBody(JSON.parse(responseBuffer.toString("utf8")),
+                                  req.siteProfile, req.activeTarget?.targetId);
       } catch {
         // 가격 기준 캐시는 관찰 가능한 정상 JSON 응답만 best-effort로 반영한다.
       }

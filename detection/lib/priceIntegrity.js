@@ -59,18 +59,29 @@
  * 라우트까지 알면서도 이 블록을 비워 두고 비활성으로 보고한다.
  */
 
-// productId(문자열) -> 마지막으로 관찰된 price(숫자)
+// "<대상 ID>|<productId>" -> 마지막으로 관찰된 price(숫자)
+//
+// **대상별로 분리한다.** Detection 은 한 프로세스가 여러 대상을 서비스하고 활성 대상이
+// 대시보드에서 런타임에 전환된다. 예전에는 키가 productId 하나여서, 두 사이트가 모두
+// 상품 라우트를 가지면 대상을 바꾼 뒤 **다른 사이트의 가격**을 기준값으로 써서
+// price-tampering:delta 를 오탐/미탐했다. 지금은 juice-shop 만 priceIntegrity 블록을
+// 가져서 가려져 있을 뿐이다.
 const priceCache = new Map();
+
+function cacheKey(targetId, productId) {
+  // 대상 ID 는 ^[a-z][a-z0-9-]{0,31}$ 라 '|' 를 담을 수 없으므로 구분자가 안전하다.
+  return `${targetId == null ? '' : targetId}|${String(productId)}`;
+}
 
 function resetPriceCache() {
   // 테스트에서만 사용 — 프로세스 생애주기 동안은 계속 누적된다.
   priceCache.clear();
 }
 
-function recordObservedPrice(productId, price) {
+function recordObservedPrice(targetId, productId, price) {
   if (productId === undefined || productId === null) return;
   if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) return;
-  priceCache.set(String(productId), price);
+  priceCache.set(cacheKey(targetId, productId), price);
 }
 
 /**
@@ -80,8 +91,9 @@ function recordObservedPrice(productId, price) {
  *
  * @param {object} parsedBody
  * @param {object|null} profile 활성 사이트 프로파일(`req.siteProfile`)
+ * @param {string|null} targetId 활성 대상 ID(`req.activeTarget.targetId`)
  */
-function ingestProductResponseBody(parsedBody, profile) {
+function ingestProductResponseBody(parsedBody, profile, targetId) {
   const config = profile?.priceIntegrity;
   if (!config) return;
   if (!parsedBody || typeof parsedBody !== 'object') return;
@@ -101,7 +113,7 @@ function ingestProductResponseBody(parsedBody, profile) {
 
   for (const item of candidates) {
     if (item && typeof item === 'object' && typeof item[config.idField] !== 'undefined') {
-      recordObservedPrice(item[config.idField], item[config.priceField]);
+      recordObservedPrice(targetId, item[config.idField], item[config.priceField]);
     }
   }
 }
@@ -124,15 +136,16 @@ function extractTrailingNumericId(url) {
  * @param {string|number} productId
  * @param {number} submittedPrice
  * @param {object|null} profile 활성 사이트 프로파일(`req.siteProfile`)
+ * @param {string|null} targetId 활성 대상 ID(`req.activeTarget.targetId`)
  * @returns {{hit:boolean, observed?:number, submitted?:number, dropRatio?:number}}
  */
-function checkPriceDelta(productId, submittedPrice, profile) {
+function checkPriceDelta(productId, submittedPrice, profile, targetId) {
   const config = profile?.priceIntegrity;
   if (!config) return { hit: false };
   if (productId === undefined || productId === null) return { hit: false };
   if (typeof submittedPrice !== 'number' || !Number.isFinite(submittedPrice)) return { hit: false };
 
-  const observed = priceCache.get(String(productId));
+  const observed = priceCache.get(cacheKey(targetId, productId));
   if (typeof observed !== 'number') return { hit: false }; // 기준값 없으면 판단 보류 — 오탐보다 미탐을 택한다
 
   const dropRatio = submittedPrice / observed;
