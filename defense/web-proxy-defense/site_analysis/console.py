@@ -1700,14 +1700,17 @@ PAGE = r'''<!doctype html>
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+/* Korean breaks only between words; a word longer than the line still wraps instead of overflowing. */
 body { margin: 0; background: var(--bg); color: var(--text);
-  font: 15px/1.55 system-ui, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  font: 15px/1.55 system-ui, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  word-break: keep-all; overflow-wrap: break-word; }
 main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
 h1 { font-size: 22px; margin: 0 0 4px; }
 h2 { font-size: 19px; margin: 0 0 6px; }
 h3 { font-size: 14px; margin: 22px 0 6px; }
 p { margin: 6px 0; }
-code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
+code, pre { font-family: ui-monospace, Consolas, monospace; word-break: normal; overflow-wrap: anywhere; }
+code { font-size: 13px; }
 .layout { display: grid; grid-template-columns: 224px minmax(0, 1fr); gap: 20px; align-items: start; margin-top: 16px; }
 .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; position: sticky; top: 16px; }
 .step { width: 100%; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 8px;
