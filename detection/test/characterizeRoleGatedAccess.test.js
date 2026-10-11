@@ -9,7 +9,7 @@ process.env.DETECTION_STORE_DB = path.join(schemaDir, "detection.sqlite3");
 
 const {
   checkRoleGatedAccess: checkRoleGated,
-  isHardcodedSensitiveRoute,
+  isHardcodedSensitiveRoute: isHardcodedRoute,
 } = require("../lib/roleGatedAccess");
 const schemaLearning = require("../lib/schemaLearning");
 const { loadSiteProfile } = require("../lib/siteProfile");
@@ -20,6 +20,7 @@ const profileAt = (id) =>
 // juice-shop 프로파일을 주입하면 아래 단정은 한 글자도 바뀌지 않고 통과해야 한다.
 const JUICE_PROFILE = profileAt("juice-shop");
 const checkRoleGatedAccess = (args) => checkRoleGated({ ...args, profile: JUICE_PROFILE });
+const isHardcodedSensitiveRoute = (method, route) => isHardcodedRoute(method, route, JUICE_PROFILE);
 
 after(() => fs.rmSync(schemaDir, { recursive: true, force: true }));
 
@@ -181,4 +182,85 @@ test("특성화: 학습 민감 라우트는 하드코딩 매치가 없을 때만
                                            authorizationHeader: customerAuth });
   assert.deepEqual(hardcoded.map((h) => h.tag), ["role-gated:metrics"]);
   schemaLearning.resetAll();
+});
+
+// ---------------------------------------------------------------------------
+// 프로파일화 이후
+// ---------------------------------------------------------------------------
+
+const GENERIC_PROFILE = profileAt("generic");
+const RUBY_PROFILE = profileAt("ruby-shop");
+
+test("다른 사이트의 민감 라우트와 역할 이름으로도 같은 판정이 나온다", () => {
+  const otherSite = {
+    ...GENERIC_PROFILE,
+    roleGated: {
+      sensitiveRoutes: [
+        { tag: "role-gated:admin-users", method: "GET", normalizedPath: "/api/admin/users",
+          requiredRoles: ["administrator"] },
+        { tag: "role-gated:role-change", method: "PUT",
+          normalizedPath: "/api/admin/users/:id/role", requiredRoles: ["administrator", "owner"] },
+      ],
+    },
+  };
+
+  const call = (method, normalizedPath, role) => checkRoleGated({
+    method, normalizedPath, profile: otherSite,
+    authorizationHeader: `Bearer ${token({ data: { role } })}`,
+  });
+
+  assert.deepEqual(call("GET", "/api/admin/users", "administrator"), []);
+  const denied = call("GET", "/api/admin/users", "admin");
+  assert.equal(denied.length, 1, "juice-shop 의 admin 은 이 사이트에서 통과하지 않는다");
+  assert.deepEqual(denied[0].detail.requiredRoles, ["administrator"]);
+
+  // 여러 역할을 허용하는 라우트.
+  for (const role of ["administrator", "owner"]) {
+    assert.deepEqual(call("PUT", "/api/admin/users/:id/role", role), [], role);
+  }
+  assert.equal(call("PUT", "/api/admin/users/:id/role", "seller").length, 1);
+
+  // juice-shop 의 민감 라우트는 이 프로파일에서 민감하지 않다.
+  assert.deepEqual(call("GET", "/metrics", "seller"), []);
+  assert.equal(isHardcodedRoute("GET", "/metrics", otherSite), false);
+  assert.equal(isHardcodedRoute("GET", "/api/admin/users", otherSite), true);
+});
+
+// 규칙 3: ruby-shop 은 /api/admin/users 같은 후보 경로를 알면서도 이 블록을 비워 둔다.
+// **역할 이름**(admin? ADMIN? administrator?)이 저장소에 없어서다. 역할 이름을 틀리면
+// 모든 관리자 요청을 오탐하거나 모든 침입을 미탐한다.
+test("프로파일에 설정이 없으면 비활성이고 학습 폴백만 남는다", () => {
+  const customerAuth = `Bearer ${token({ data: { role: "customer" } })}`;
+  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+    for (const [, method, normalizedPath] of SEVEN_ROUTES) {
+      assert.deepEqual(
+        checkRoleGated({ method, normalizedPath, authorizationHeader: customerAuth, profile }),
+        [], `${profile.profileId} 의 ${method} ${normalizedPath} 에서 태그가 나왔다`);
+      assert.equal(isHardcodedRoute(method, normalizedPath, profile), false);
+    }
+    assert.ok(profile.disabledFeatures.includes("roleGated"),
+      `${profile.profileId} 가 roleGated 비활성을 선언하지 않았다`);
+  }
+});
+
+// identity 설정이 없으면 역할을 알 수 없으므로 이 검사 자체가 성립하지 않는다.
+test("identity 설정이 없으면 민감 라우트가 있어도 판정하지 않는다", () => {
+  const noIdentity = {
+    profileId: "x", label: "x", schemaVersion: 1,
+    roleGated: { sensitiveRoutes: [
+      { tag: "role-gated:x", method: "GET", normalizedPath: "/metrics", requiredRoles: ["admin"] },
+    ] },
+  };
+  assert.deepEqual(
+    checkRoleGated({ method: "GET", normalizedPath: "/metrics", profile: noIdentity }),
+    []
+  );
+});
+
+test("프로파일이 아예 없으면 던지지 않고 비어 있다", () => {
+  for (const profile of [null, undefined, {}, { roleGated: null }]) {
+    assert.deepEqual(
+      checkRoleGated({ method: "GET", normalizedPath: "/metrics", profile }), []);
+    assert.equal(isHardcodedRoute("GET", "/metrics", profile), false);
+  }
 });

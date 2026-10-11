@@ -58,17 +58,6 @@ test("juice-shop 프로파일은 지금 살아 있는 모듈 상수와 정확히
   // businessLogicSignatures 도 프로파일을 읽는다 — 보장은
   // characterizeBusinessLogicSignatures 로.
 
-  const { SENSITIVE_ROUTES } = require("../lib/roleGatedAccess");
-  assert.deepEqual(
-    juice.roleGated.sensitiveRoutes,
-    SENSITIVE_ROUTES.map((route) => ({
-      tag: route.tag,
-      method: route.method,
-      normalizedPath: route.normalizedPath,
-      requiredRoles: [...route.requiredRoles],
-    }))
-  );
-
   // identityMismatch 도 프로파일을 읽는다 — 보장은 characterizeIdentityMismatch 로.
 
   const de = require("../lib/deceptionEngine");

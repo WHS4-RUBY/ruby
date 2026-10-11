@@ -468,7 +468,7 @@ function observeSchemaLearning(req, statusCode, normalizedPath) {
     normalizedPath,
     statusCode,
     role,
-    hasHardcodedRule: isHardcodedSensitiveRoute(req.method, normalizedPath),
+    hasHardcodedRule: isHardcodedSensitiveRoute(req.method, normalizedPath, req.siteProfile),
   });
 
   const requestedId = extractTrailingNumericId(req.originalUrl);
