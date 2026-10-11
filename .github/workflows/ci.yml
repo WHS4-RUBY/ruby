@@ -245,6 +245,7 @@ jobs:
             const stage4 = require('/app/config/policy.json').defense.rules
               .find(rule => rule.tier === 'stage4');
             if (!stage4) throw new Error('stage4 policy is missing');
+            const started = Date.now();
             const response = await fetch(`http://defense:8080${process.env.DECOY_ENTRY_PATH}`, {
               headers: {
                 'X-Client-Id': 'integration-decoy-client',
@@ -255,15 +256,16 @@ jobs:
               },
             });
             const body = await response.text();
+            const elapsed = Date.now() - started;
             const applied = response.headers.get('x-defense-applied') ?? '';
             if (
                 response.status !== 200 ||
                 !body ||
-                response.headers.get('x-defense-delay-ms') !== '700' ||
-                applied .includes('decoy_maze') ||
+                elapsed < 650 ||
+                applied.includes('decoy_maze') ||
                 response.headers.has('x-ruby-decoy-action')
             ) {
-              throw new Error(`decoy response ${response.status}: ${body.slice(0, 160)}`);
+              throw new Error(`decoy response ${response.status} in ${elapsed}ms, applied=${applied}: ${body.slice(0, 160)}`);
             }
           })().catch(error => { console.error(error); process.exitCode = 1; });
           JS
@@ -288,6 +290,7 @@ jobs:
               if (!plan?.some(step => step.name === marker)) {
                 throw new Error(`${stage} overlay policy is missing`);
               }
+              const started = Date.now();
               const response = await fetch('http://defense:8080/', {
                 headers: {
                   'X-Client-Id': clientId,
@@ -298,11 +301,12 @@ jobs:
                 },
               });
               const body = await response.text();
+              const elapsed = Date.now() - started;
               const expected = tier === 'high' ? 'Internal Operations Console' : '/assets/account-recovery.js';
-              const delay = tier === 'high' ? '700' : '500';
+              const minimumDelay = tier === 'high' ? 650 : 450;
               if (response.status !== 200 || !body.includes(expected) ||
-                  response.headers.get('x-defense-delay-ms') !== delay) {
-                throw new Error(`${tier} overlay returned ${response.status}: ${body.slice(0, 160)}`);
+                  elapsed < minimumDelay) {
+                throw new Error(`${tier} overlay returned ${response.status} in ${elapsed}ms: ${body.slice(0, 160)}`);
               }
             }
 
