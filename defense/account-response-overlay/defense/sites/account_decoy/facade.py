@@ -21,8 +21,10 @@ def fallback(ctx):
     p = ctx.path.rstrip('/') or '/'
     if p == OPERATIONS_CSS_PATH and ctx.method in {'GET', 'HEAD'}:
         return Response(OPERATIONS_CSS, media_type='text/css')
-    # Juice Shop 전용 응답 — 다른 사이트에는 없는 엔드포인트다.
-    if p == '/api/Challenges' and ctx.settings.site_adapter == 'juice_shop':
+    # 프로파일이 선언한 사이트에만 있는 엔드포인트. 선언이 없으면 404 로 떨어진다 —
+    # 없는 엔드포인트를 만들어 주지 않는다.
+    challenge_api = ctx.settings.profile.challenge_api
+    if challenge_api and p == challenge_api:
         return challenges(ctx) if ctx.method in {'GET', 'HEAD'} else error(405, 'GET required')
     if p == '/robots.txt' and ctx.method in {'GET', 'HEAD'}:
         return Response(robots_body(ctx.settings.profile.robots_disallow).decode('utf-8'),

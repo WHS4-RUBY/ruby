@@ -17,3 +17,18 @@ decoy_brand = "Internal Administration"
 decoy_admin_email = "administrator@internal.invalid"
 decoy_service = "Internal Account Registry"
 decoy_profile_image = "/assets/public/images/uploads/default.svg"
+
+# 이 사이트에만 있는 엔드포인트. 예전에는 settings.site_adapter == 'juice_shop' 런타임
+# 분기 세 곳이 이 사실을 알고 있었다.
+challenge_api = "/api/Challenges"
+# 미끼가 "성공한 척" 응답할 경로. 응답 종류는 코드가 구현하고 여기서는 고르기만 한다.
+synthetic_success = [
+  { path = "/api/Users", kind = "user_list" },
+  { path = "/api/Users/1", kind = "user_object" },
+  { path = "/rest/saveLoginIp", kind = "ack" },
+  { path = "/rest/deluxe-membership", kind = "deluxe_denied" },
+  { path = "/rest/basket/1", kind = "empty_basket" },
+]
+# 계정 관련으로 취급할 추가 경로 접두어. 예전에는 engagement.py 와 cycle.py 에
+# 사이트와 무관하게 박혀 있었다.
+account_api_prefixes = ["/api/Users", "/administration", "/account"]

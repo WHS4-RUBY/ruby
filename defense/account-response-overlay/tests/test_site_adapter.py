@@ -2,6 +2,11 @@
 
 디렉터리 이름이 juice_shop 이던 동안 generic 어댑터도 그 패키지의 fallback 을
 import 했고, Juice Shop 에만 있는 /api/Challenges 응답을 모든 사이트가 받았다.
+
+그 뒤로도 `settings.site_adapter` 닫힌 2값 enum 이 남아 있어 사이트 추가가 코드 수정
+이었다. 이제 사이트별 능력은 프로파일이 선언하고(challenge_api, synthetic_success,
+account_api_prefixes) 코드에 사이트 이름이 없다 — 그래서 이 파일도 어댑터 이름이
+아니라 **프로파일**을 돈다.
 """
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,7 +24,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @dataclass
 class _Settings:
-    site_adapter: str
     profile: object
 
 
@@ -36,9 +40,12 @@ class _Ctx:
     request: _Request
 
 
-def _ctx(path, adapter, method='GET'):
-    profile = load_site_profile(str(ROOT / 'config/site-juice-shop.toml'))
-    return _Ctx(path, method, _Settings(adapter, profile), _Request({}))
+PROFILES = {name: load_site_profile(str(ROOT / f'config/site-{name}.toml'))
+            for name in ('juice-shop', 'ruby-shop')}
+
+
+def _ctx(path, site, method='GET'):
+    return _Ctx(path, method, _Settings(PROFILES[site]), _Request({}))
 
 
 def test_the_decoy_package_name_no_longer_claims_a_site():
@@ -50,26 +57,47 @@ def test_the_decoy_package_name_no_longer_claims_a_site():
     assert 'account_decoy' in source
 
 
+def test_no_module_branches_on_a_site_name():
+    """코드에 사이트 이름 분기가 남아 있지 않은지 — 사이트 추가가 프로파일로 끝나는 조건.
+
+    주석은 "예전에는 이랬다" 를 설명해야 하므로 사이트 이름을 쓸 수 있다. 검사 대상은
+    주석과 문자열 리터럴을 뺀 **코드 토큰**이다.
+    """
+    import io
+    import tokenize
+
+    for module in sorted((ROOT / 'defense').rglob('*.py')):
+        source = module.read_text(encoding='utf-8')
+        tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+        body = ' '.join(text for kind, text, _, _, _ in tokens
+                        if kind not in {tokenize.COMMENT, tokenize.STRING})
+        for name in ('site_adapter', 'juice_shop', 'juice-shop', 'ruby_shop', 'ruby-shop'):
+            assert name not in body, f'{module.name} 에 {name} 분기가 남아 있다'
+
+
 def test_the_shared_fallback_serves_the_decoy_stylesheet_for_every_site():
-    for adapter in ('juice_shop', 'generic'):
-        response = fallback(_ctx(decoy_paths.OPERATIONS_CSS, adapter))
-        assert response.status_code == 200, adapter
-        assert response.media_type == 'text/css', adapter
+    for site in PROFILES:
+        response = fallback(_ctx(decoy_paths.OPERATIONS_CSS, site))
+        assert response.status_code == 200, site
+        assert response.media_type == 'text/css', site
 
 
 def test_robots_comes_from_the_profile_for_every_site():
-    for adapter in ('juice_shop', 'generic'):
-        body = fallback(_ctx('/robots.txt', adapter)).body.decode('utf-8')
-        assert 'Disallow: /ftp' in body, adapter
-        assert 'Disallow: /ops/service/manifest' in body, adapter
+    for site in PROFILES:
+        body = fallback(_ctx('/robots.txt', site)).body.decode('utf-8')
+        assert 'Disallow: /ftp' in body, site
+        assert 'Disallow: /ops/service/manifest' in body, site
 
 
-def test_only_juice_shop_gets_the_juice_shop_challenge_reply():
-    juice = fallback(_ctx('/api/Challenges', 'juice_shop'))
+def test_only_the_site_that_declares_a_challenge_api_gets_that_reply():
+    # juice-shop 프로파일만 challenge_api 를 선언한다.
+    juice = fallback(_ctx(PROFILES['juice-shop'].challenge_api, 'juice-shop'))
     assert juice.status_code == 200
     assert b'loginAdminChallenge' in juice.body
-    generic = fallback(_ctx('/api/Challenges', 'generic'))
-    assert generic.status_code == 404, '다른 사이트에 없는 엔드포인트를 만들어 주지 않는다'
+    # 선언하지 않은 사이트에서는 같은 경로가 404 다.
+    assert not PROFILES['ruby-shop'].challenge_api
+    other = fallback(_ctx(PROFILES['juice-shop'].challenge_api, 'ruby-shop'))
+    assert other.status_code == 404, '다른 사이트에 없는 엔드포인트를 만들어 주지 않는다'
 
 
 def test_the_decoy_cookie_name_comes_from_the_catalog():

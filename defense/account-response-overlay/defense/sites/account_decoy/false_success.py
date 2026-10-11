@@ -10,6 +10,19 @@ from ...model import ProxyHook, error
 from .facade import AUTH_COOKIE, challenges
 
 
+# 프로파일의 synthetic_success 가 고를 수 있는 응답 종류. 프로파일은 "어느 경로에 어느
+# 종류" 만 고르고 본문은 여기서 만든다 — 응답 본문을 TOML 에 적으면 설정이 코드가 된다.
+# 이 집합이 site_profile.SYNTHETIC_RESPONSE_KINDS 와 같은지는 테스트가 강제한다.
+SYNTHETIC_RESPONSES = {
+    'ack': lambda hook, ctx: {'status': 'success'},
+    'deluxe_denied': lambda hook, ctx: {'status': 'success', 'data': False},
+    'empty_basket': lambda hook, ctx: {'status': 'success',
+                                       'data': {'id': hook.uid, 'Products': []}},
+    'user_list': lambda hook, ctx: {'status': 'success', 'data': [hook.user(ctx)]},
+    'user_object': lambda hook, ctx: {'status': 'success', 'data': hook.user(ctx)},
+}
+
+
 class FalseSuccess(ProxyHook):
     uid = 1
 
@@ -32,12 +45,16 @@ class FalseSuccess(ProxyHook):
 
     async def on_request(self, ctx):
         s, p, method = ctx.session, ctx.path.rstrip('/'), ctx.method
-        account_root = ctx.settings.profile.login_path.rsplit('/', 1)[0]
-        routes = {ctx.settings.profile.login_path, account_root + '/whoami',
+        profile = ctx.settings.profile
+        account_root = profile.login_path.rsplit('/', 1)[0]
+        # 프로파일이 선언한 것만 가로챈다. 선언이 없는 사이트에서는 로그인 경로에서
+        # 파생되는 네 라우트만 미끼가 응답한다 — 없는 엔드포인트를 만들어 주지 않는다.
+        synthetic = dict(profile.synthetic_success)
+        routes = {profile.login_path, account_root + '/whoami',
                   account_root + '/logout', account_root + '/authentication-details'}
-        if ctx.settings.site_adapter == 'juice_shop':
-            routes.update({'/api/Users', '/api/Users/1', '/api/Challenges',
-                           '/rest/saveLoginIp', '/rest/deluxe-membership', '/rest/basket/1'})
+        routes.update(synthetic)
+        if profile.challenge_api:
+            routes.add(profile.challenge_api)
         if p not in routes:
             return None
         header = ctx.request.headers.get('authorization', '').encode('utf-8')
@@ -47,7 +64,7 @@ class FalseSuccess(ProxyHook):
             hmac.compare_digest(header, ('Bearer ' + s.auth_token).encode()) or
             (hmac.compare_digest(cookie, s.auth_token.encode()) and
              hmac.compare_digest(frontend_token, s.auth_token.encode()))))
-        if p == ctx.settings.profile.login_path:
+        if p == profile.login_path:
             # UnifiedDefense already checks all completed stages and exact issued credentials.
             if method != 'POST':
                 return error(405, 'POST required')
@@ -77,17 +94,17 @@ class FalseSuccess(ProxyHook):
             return error(405, 'GET required')
         if p == account_root + '/whoami':
             return JSONResponse({'user': self.user(ctx) if authenticated else {}})
-        if p == '/api/Challenges':
+        # 챌린지 응답은 인증 검사보다 **먼저** 처리된다 — 원본 앱에서도 인증 없이
+        # 조회되는 엔드포인트라 미끼가 거기서 401 을 주면 위장이 깨진다.
+        if profile.challenge_api and p == profile.challenge_api:
             return challenges(ctx, s.login_completed)
         if not authenticated:
             return error(401, 'Authentication required')
-        if p == '/rest/basket/1':
-            return JSONResponse({'status': 'success', 'data': {'id': 1, 'Products': []}})
-        if p == '/rest/deluxe-membership':
-            return JSONResponse({'status': 'success', 'data': False})
-        if p == '/rest/saveLoginIp':
-            return JSONResponse({'status': 'success'})
-        return JSONResponse({'status': 'success', 'data': self.user(ctx) if p == '/api/Users/1' else [self.user(ctx)]})
+        # 로그인 경로에서 파생되는 이 라우트는 프로파일이 선언하지 않는다. 리팩토링
+        # 이전에는 분기 끝의 catch-all 이 사용자 목록을 돌려줬으므로 그 모양을 유지한다.
+        if p == account_root + '/authentication-details':
+            return JSONResponse(SYNTHETIC_RESPONSES['user_list'](self, ctx))
+        return JSONResponse(SYNTHETIC_RESPONSES[synthetic[p]](self, ctx))
 
     async def on_response(self, ctx):
         if ctx.meta.get('synthetic_result', {}).get('goal') == 'admin_login':

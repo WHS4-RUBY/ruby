@@ -46,7 +46,6 @@ class Settings:
     origin_policy: str = "sealed"
     origin: str = ""  # Embedded decoy has no origin client; overlay.py owns the fixed upstream.
     static_paths: tuple[str, ...] = ()
-    site_adapter: str = "juice_shop"
     profile: SiteProfile = field(default_factory=default_site_profile)
     frontend_dir: str = ""
     secure_cookie: bool = False
@@ -72,8 +71,6 @@ class Settings:
             raise ValueError("engagement bounds: rounds 1..16, stages 3..8, candidates 2..5")
         if self.origin_policy != "sealed" or self.origin or self.static_paths:
             raise ValueError("Only sealed isolation is supported; origin/static forwarding was removed")
-        if self.site_adapter not in {'juice_shop', 'generic'}:
-            raise ValueError('Unknown site adapter')
         if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", self.run_id):
             raise ValueError("invalid run_id")
         if any(type(v) is not bool for v in (self.secure_cookie, self.detector_required)):

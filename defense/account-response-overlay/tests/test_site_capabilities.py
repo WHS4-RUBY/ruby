@@ -1,12 +1,9 @@
 """사이트별 미끼 능력이 어디서 오는지 — 특성화와 계약.
 
-지금은 `settings.site_adapter` 가 닫힌 2값 enum(`juice_shop`/`generic`)이고 세 곳에서
-런타임 분기한다. 사이트를 하나 더 붙이려면 코드를 고쳐야 한다. 이 파일은 **고치기 전에**
-지금 동작을 고정하고, 고친 뒤에도 같은 결과가 나오는지 확인한다.
-
-같이 고정하는 것: 아직 프로파일에서 오지 않는 경로 리터럴들
-(`/api/Users`, `/rest/basket/1`, `/rest/deluxe-membership`, `/rest/saveLoginIp`,
-engagement 의 `'/rest/user'` 폴백과 접두어 세 개, cycle 의 protected 접두어).
+예전에는 `settings.site_adapter` 가 닫힌 2값 enum(`juice_shop`/`generic`)이고 세 곳에서
+런타임 분기했다 — 사이트를 하나 더 붙이려면 코드를 고쳐야 했다. 이제 프로파일이
+`challenge_api`·`synthetic_success`·`account_api_prefixes` 로 선언하고 코드는 그 선언만
+본다. 이 파일의 단정은 리팩토링 전후로 같아야 한다.
 """
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,7 +47,6 @@ class _Request:
 @dataclass
 class _Settings:
     profile: object
-    site_adapter: str = 'juice_shop'
     secure_cookie: bool = False
     limits: Limits = field(default_factory=Limits)
 
@@ -65,12 +61,12 @@ class _Ctx:
     meta: dict = field(default_factory=dict)
 
 
-def _ctx(path, *, profile=JUICE, adapter='juice_shop', method='GET', authenticated=True):
+def _ctx(path, *, profile=JUICE, method='GET', authenticated=True):
     session = _Session(authenticated=authenticated)
     request = _Request(
         headers={'authorization': 'Bearer ' + session.auth_token} if authenticated else {},
     )
-    return _Ctx(path, method, _Settings(profile, adapter), session, request)
+    return _Ctx(path, method, _Settings(profile), session, request)
 
 
 async def _claims(hook, ctx):
@@ -99,9 +95,9 @@ async def test_the_profile_derived_account_routes_are_claimed_for_every_site():
 async def test_the_juice_shop_only_routes_are_claimed_only_there():
     hook = FalseSuccess()
     for path in JUICE_ONLY_ROUTES:
-        assert await _claims(hook, _ctx(path, adapter='juice_shop')), path
-        assert not await _claims(hook, _ctx(path, adapter='generic')), \
-            f'{path} 가 generic 어댑터에서도 주장됐다'
+        assert await _claims(hook, _ctx(path, profile=JUICE)), path
+        assert not await _claims(hook, _ctx(path, profile=RUBY)), \
+            f'{path} 가 선언하지 않은 사이트에서도 주장됐다'
 
 
 @pytest.mark.asyncio
@@ -125,6 +121,15 @@ async def test_the_juice_shop_response_shapes():
     assert isinstance(users['data'], list) and len(users['data']) == 1
     one = json.loads((await hook.on_request(_ctx('/api/Users/1'))).body)
     assert isinstance(one['data'], dict) and one['data']['id'] == 1
+
+    # 로그인 경로에서 파생되는 authentication-details 는 프로파일이 선언하지 않지만
+    # 분기 끝의 catch-all 이 사용자 목록을 돌려준다. 처음 특성화에서 빠뜨렸던 항목이고
+    # 리팩토링이 KeyError 로 드러내 준 덕에 여기 고정한다.
+    for profile in (JUICE, RUBY):
+        root = profile.login_path.rsplit('/', 1)[0]
+        details = json.loads(
+            (await hook.on_request(_ctx(root + '/authentication-details', profile=profile))).body)
+        assert isinstance(details['data'], list) and len(details['data']) == 1, profile.login_path
 
     # 챌린지 응답은 인증을 요구하지 않는다 — 인증 검사보다 **먼저** 처리된다.
     challenges = await hook.on_request(_ctx('/api/Challenges', authenticated=False))
@@ -162,10 +167,15 @@ def test_the_account_family_prefixes():
         assert hook.family(path, ruby_ctx) == 'accounts', path
 
 
-def test_the_account_family_falls_back_without_a_context():
-    """ctx 가 없으면 Juice Shop 의 로그인 루트를 가정한다."""
+def test_the_account_family_needs_a_context():
+    """**동작 변경**: ctx 가 없으면 어떤 사이트인지 알 수 없으므로 판정하지 않는다.
+
+    예전에는 Juice Shop 의 로그인 루트(`/rest/user`)를 가정했다 — "모르면 Juice Shop"
+    이라는 숨은 기본값이었다. 실제 호출부 네 곳은 모두 ctx 를 넘기므로(cycle.py:171,201,
+    engagement.py:118,204) 이 분기는 운영에서 도달하지 않는다.
+    """
     hook = Engagement()
-    assert hook.family('/rest/user/login', None) == 'accounts'
+    assert hook.family('/rest/user/login', None) is None
     assert hook.family('/api/auth/login', None) is None
 
 
@@ -179,3 +189,39 @@ def test_the_docs_path_source():
     site = get_site(settings)
     assert isinstance(site, ProfileSite)
     assert site.docs_path == decoy_paths.LEGACY
+
+
+# ---------------------------------------------------------------------------
+# 레지스트리 계약
+# ---------------------------------------------------------------------------
+
+def test_the_response_kind_sets_agree():
+    """프로파일 검증기와 구현이 같은 종류 집합을 본다.
+
+    `site_profile` 이 `false_success` 를 import 하면 순환이 되므로 집합이 두 곳에
+    적혀 있다. 어긋나면 프로파일이 통과한 종류를 구현이 모르는(KeyError) 상태가 된다.
+    """
+    from defense.site_profile import SYNTHETIC_RESPONSE_KINDS
+    from defense.sites.account_decoy.false_success import SYNTHETIC_RESPONSES
+
+    assert set(SYNTHETIC_RESPONSES) == set(SYNTHETIC_RESPONSE_KINDS)
+
+
+def test_an_unknown_response_kind_fails_at_load():
+    """오타난 종류가 "그냥 안 되는" 게 아니라 로드 시점에 터져야 한다."""
+    from dataclasses import replace as dataclass_replace
+
+    with pytest.raises(ValueError, match='synthetic_success kinds'):
+        dataclass_replace(JUICE, synthetic_success=(('/api/Users', 'no_such_kind'),))
+    with pytest.raises(ValueError, match='declares a path twice'):
+        dataclass_replace(JUICE, synthetic_success=(('/a', 'ack'), ('/a', 'ack')))
+
+
+def test_site_routes_may_not_claim_the_decoy_namespace():
+    """사이트의 실제 경로가 미끼 네임스페이스를 침범하면 둘이 같은 경로를 다툰다."""
+    from dataclasses import replace as dataclass_replace
+
+    with pytest.raises(ValueError, match='must not overlap the decoy namespace'):
+        dataclass_replace(JUICE, synthetic_success=(('/ops/service/manifest', 'ack'),))
+    with pytest.raises(ValueError, match='must not overlap the decoy namespace'):
+        dataclass_replace(JUICE, challenge_api='/ftp/challenges')

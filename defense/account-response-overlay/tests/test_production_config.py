@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse, Response
 from defense.config import load as load_decoy_config
 from defense.detector import sign_headers
 from defense.overlay import create_overlay_app, load_overlay
+from defense.site_profile import load_site_profile
 from defense.security_store import initialize_security_store
 from defense.site_profile import load_site_profile
 
@@ -20,12 +21,23 @@ KEY = b'detector-key-for-tests-only-0123456789'
 SESSION = b'session-key-for-tests-only-0123456789'
 
 
+def settings_profile(settings):
+    return load_site_profile(settings.site_profile)
+
+
 def _test_settings(tmp_path, name):
     settings = load_overlay(str(ROOT / 'config' / name))
     decoy = load_decoy_config(settings.decoy_config)
     assert decoy.detector_required and not decoy.secure_cookie
     assert decoy.audit_path == '/app/state/telemetry.sqlite3'
-    assert decoy.site_adapter == ('generic' if 'ruby' in name else 'juice_shop')
+    # 사이트별 능력은 이제 프로파일이 선언한다 — Juice Shop 만 챌린지 API 와 합성
+    # 성공 라우트를 갖는다. 예전에는 decoy TOML 의 site_adapter 가 이 사실을 알았다.
+    if 'ruby' in name:
+        assert not settings_profile(settings).challenge_api
+        assert not settings_profile(settings).synthetic_success
+    else:
+        assert settings_profile(settings).challenge_api == '/api/Challenges'
+        assert len(settings_profile(settings).synthetic_success) == 5
     assert settings.origin_url == ('http://ruby-web-target:8080' if 'ruby' in name
                                    else 'http://juice-shop-target:3000')
     copy = tmp_path / 'decoy.toml'

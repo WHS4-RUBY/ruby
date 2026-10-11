@@ -36,6 +36,11 @@
     "origin": "",
     "origin_policy": "sealed",
     "profile": {
+      "account_api_prefixes": [
+        "/api/Users",
+        "/administration",
+        "/account"
+      ],
       "account_terms": [
         "login",
         "account",
@@ -49,6 +54,7 @@
         "/swagger",
         "/openapi"
       ],
+      "challenge_api": "/api/Challenges",
       "decoy_admin_email": "administrator@internal.invalid",
       "decoy_brand": "Internal Administration",
       "decoy_namespaces": [
@@ -105,11 +111,32 @@
         "/ftp",
         "/ops/recovery/accounts",
         "/ops/service/manifest"
+      ],
+      "synthetic_success": [
+        [
+          "/api/Users",
+          "user_list"
+        ],
+        [
+          "/api/Users/1",
+          "user_object"
+        ],
+        [
+          "/rest/saveLoginIp",
+          "ack"
+        ],
+        [
+          "/rest/deluxe-membership",
+          "deluxe_denied"
+        ],
+        [
+          "/rest/basket/1",
+          "empty_basket"
+        ]
       ]
     },
     "run_id": "juice-overlay-v2",
     "secure_cookie": false,
-    "site_adapter": "juice_shop",
     "static_paths": []
   },
   "decoy-for:overlay-production-ruby-v2.toml": {
@@ -149,6 +176,11 @@
     "origin": "",
     "origin_policy": "sealed",
     "profile": {
+      "account_api_prefixes": [
+        "/api/Users",
+        "/administration",
+        "/account"
+      ],
       "account_terms": [
         "login",
         "account",
@@ -162,6 +194,7 @@
         "/swagger",
         "/openapi"
       ],
+      "challenge_api": "/api/Challenges",
       "decoy_admin_email": "administrator@internal.invalid",
       "decoy_brand": "Internal Administration",
       "decoy_namespaces": [
@@ -218,11 +251,32 @@
         "/ftp",
         "/ops/recovery/accounts",
         "/ops/service/manifest"
+      ],
+      "synthetic_success": [
+        [
+          "/api/Users",
+          "user_list"
+        ],
+        [
+          "/api/Users/1",
+          "user_object"
+        ],
+        [
+          "/rest/saveLoginIp",
+          "ack"
+        ],
+        [
+          "/rest/deluxe-membership",
+          "deluxe_denied"
+        ],
+        [
+          "/rest/basket/1",
+          "empty_basket"
+        ]
       ]
     },
     "run_id": "ruby-overlay-v2",
     "secure_cookie": false,
-    "site_adapter": "generic",
     "static_paths": []
   },
   "decoy-for:overlay-v1.toml": {
@@ -262,6 +316,11 @@
     "origin": "",
     "origin_policy": "sealed",
     "profile": {
+      "account_api_prefixes": [
+        "/api/Users",
+        "/administration",
+        "/account"
+      ],
       "account_terms": [
         "login",
         "account",
@@ -275,6 +334,7 @@
         "/swagger",
         "/openapi"
       ],
+      "challenge_api": "/api/Challenges",
       "decoy_admin_email": "administrator@internal.invalid",
       "decoy_brand": "Internal Administration",
       "decoy_namespaces": [
@@ -331,11 +391,32 @@
         "/ftp",
         "/ops/recovery/accounts",
         "/ops/service/manifest"
+      ],
+      "synthetic_success": [
+        [
+          "/api/Users",
+          "user_list"
+        ],
+        [
+          "/api/Users/1",
+          "user_object"
+        ],
+        [
+          "/rest/saveLoginIp",
+          "ack"
+        ],
+        [
+          "/rest/deluxe-membership",
+          "deluxe_denied"
+        ],
+        [
+          "/rest/basket/1",
+          "empty_basket"
+        ]
       ]
     },
     "run_id": "overlay-v1-decoy",
     "secure_cookie": false,
-    "site_adapter": "juice_shop",
     "static_paths": []
   },
   "decoy-for:overlay-v2.toml": {
@@ -375,6 +456,11 @@
     "origin": "",
     "origin_policy": "sealed",
     "profile": {
+      "account_api_prefixes": [
+        "/api/Users",
+        "/administration",
+        "/account"
+      ],
       "account_terms": [
         "login",
         "account",
@@ -388,6 +474,7 @@
         "/swagger",
         "/openapi"
       ],
+      "challenge_api": "/api/Challenges",
       "decoy_admin_email": "administrator@internal.invalid",
       "decoy_brand": "Internal Administration",
       "decoy_namespaces": [
@@ -444,11 +531,32 @@
         "/ftp",
         "/ops/recovery/accounts",
         "/ops/service/manifest"
+      ],
+      "synthetic_success": [
+        [
+          "/api/Users",
+          "user_list"
+        ],
+        [
+          "/api/Users/1",
+          "user_object"
+        ],
+        [
+          "/rest/saveLoginIp",
+          "ack"
+        ],
+        [
+          "/rest/deluxe-membership",
+          "deluxe_denied"
+        ],
+        [
+          "/rest/basket/1",
+          "empty_basket"
+        ]
       ]
     },
     "run_id": "overlay-v2-decoy",
     "secure_cookie": false,
-    "site_adapter": "juice_shop",
     "static_paths": []
   },
   "decoy:decoy-production-juice-v2.toml": {
@@ -488,6 +596,11 @@
     "origin": "",
     "origin_policy": "sealed",
     "profile": {
+      "account_api_prefixes": [
+        "/api/Users",
+        "/administration",
+        "/account"
+      ],
       "account_terms": [
         "login",
         "account",
@@ -501,6 +614,7 @@
         "/swagger",
         "/openapi"
       ],
+      "challenge_api": "/api/Challenges",
       "decoy_admin_email": "administrator@internal.invalid",
       "decoy_brand": "Internal Administration",
       "decoy_namespaces": [
@@ -557,11 +671,32 @@
         "/ftp",
         "/ops/recovery/accounts",
         "/ops/service/manifest"
+      ],
+      "synthetic_success": [
+        [
+          "/api/Users",
+          "user_list"
+        ],
+        [
+          "/api/Users/1",
+          "user_object"
+        ],
+        [
+          "/rest/saveLoginIp",
+          "ack"
+        ],
+        [
+          "/rest/deluxe-membership",
+          "deluxe_denied"
+        ],
+        [
+          "/rest/basket/1",
+          "empty_basket"
+        ]
       ]
     },
     "run_id": "juice-overlay-v2",
     "secure_cookie": false,
-    "site_adapter": "juice_shop",
     "static_paths": []
   },
   "decoy:decoy-production-ruby-v2.toml": {
@@ -601,6 +736,11 @@
     "origin": "",
     "origin_policy": "sealed",
     "profile": {
+      "account_api_prefixes": [
+        "/api/Users",
+        "/administration",
+        "/account"
+      ],
       "account_terms": [
         "login",
         "account",
@@ -614,6 +754,7 @@
         "/swagger",
         "/openapi"
       ],
+      "challenge_api": "/api/Challenges",
       "decoy_admin_email": "administrator@internal.invalid",
       "decoy_brand": "Internal Administration",
       "decoy_namespaces": [
@@ -670,11 +811,32 @@
         "/ftp",
         "/ops/recovery/accounts",
         "/ops/service/manifest"
+      ],
+      "synthetic_success": [
+        [
+          "/api/Users",
+          "user_list"
+        ],
+        [
+          "/api/Users/1",
+          "user_object"
+        ],
+        [
+          "/rest/saveLoginIp",
+          "ack"
+        ],
+        [
+          "/rest/deluxe-membership",
+          "deluxe_denied"
+        ],
+        [
+          "/rest/basket/1",
+          "empty_basket"
+        ]
       ]
     },
     "run_id": "ruby-overlay-v2",
     "secure_cookie": false,
-    "site_adapter": "generic",
     "static_paths": []
   },
   "decoy:decoy-v1.toml": {
@@ -714,6 +876,11 @@
     "origin": "",
     "origin_policy": "sealed",
     "profile": {
+      "account_api_prefixes": [
+        "/api/Users",
+        "/administration",
+        "/account"
+      ],
       "account_terms": [
         "login",
         "account",
@@ -727,6 +894,7 @@
         "/swagger",
         "/openapi"
       ],
+      "challenge_api": "/api/Challenges",
       "decoy_admin_email": "administrator@internal.invalid",
       "decoy_brand": "Internal Administration",
       "decoy_namespaces": [
@@ -783,11 +951,32 @@
         "/ftp",
         "/ops/recovery/accounts",
         "/ops/service/manifest"
+      ],
+      "synthetic_success": [
+        [
+          "/api/Users",
+          "user_list"
+        ],
+        [
+          "/api/Users/1",
+          "user_object"
+        ],
+        [
+          "/rest/saveLoginIp",
+          "ack"
+        ],
+        [
+          "/rest/deluxe-membership",
+          "deluxe_denied"
+        ],
+        [
+          "/rest/basket/1",
+          "empty_basket"
+        ]
       ]
     },
     "run_id": "overlay-v1-decoy",
     "secure_cookie": false,
-    "site_adapter": "juice_shop",
     "static_paths": []
   },
   "decoy:decoy-v2.toml": {
@@ -827,6 +1016,11 @@
     "origin": "",
     "origin_policy": "sealed",
     "profile": {
+      "account_api_prefixes": [
+        "/api/Users",
+        "/administration",
+        "/account"
+      ],
       "account_terms": [
         "login",
         "account",
@@ -840,6 +1034,7 @@
         "/swagger",
         "/openapi"
       ],
+      "challenge_api": "/api/Challenges",
       "decoy_admin_email": "administrator@internal.invalid",
       "decoy_brand": "Internal Administration",
       "decoy_namespaces": [
@@ -896,11 +1091,32 @@
         "/ftp",
         "/ops/recovery/accounts",
         "/ops/service/manifest"
+      ],
+      "synthetic_success": [
+        [
+          "/api/Users",
+          "user_list"
+        ],
+        [
+          "/api/Users/1",
+          "user_object"
+        ],
+        [
+          "/rest/saveLoginIp",
+          "ack"
+        ],
+        [
+          "/rest/deluxe-membership",
+          "deluxe_denied"
+        ],
+        [
+          "/rest/basket/1",
+          "empty_basket"
+        ]
       ]
     },
     "run_id": "overlay-v2-decoy",
     "secure_cookie": false,
-    "site_adapter": "juice_shop",
     "static_paths": []
   },
   "overlay:overlay-production-juice-v2.toml": {
@@ -936,6 +1152,11 @@
     "timeout_seconds": 10.0
   },
   "site:site-generic-example.toml": {
+    "account_api_prefixes": [
+      "/api/Users",
+      "/administration",
+      "/account"
+    ],
     "account_terms": [
       "login",
       "account",
@@ -948,6 +1169,7 @@
       "/swagger",
       "/openapi"
     ],
+    "challenge_api": "",
     "decoy_admin_email": "administrator@internal.invalid",
     "decoy_brand": "Internal Administration",
     "decoy_namespaces": [
@@ -995,9 +1217,15 @@
       "/ftp",
       "/ops/recovery/accounts",
       "/ops/service/manifest"
-    ]
+    ],
+    "synthetic_success": []
   },
   "site:site-juice-shop.toml": {
+    "account_api_prefixes": [
+      "/api/Users",
+      "/administration",
+      "/account"
+    ],
     "account_terms": [
       "login",
       "account",
@@ -1011,6 +1239,7 @@
       "/swagger",
       "/openapi"
     ],
+    "challenge_api": "/api/Challenges",
     "decoy_admin_email": "administrator@internal.invalid",
     "decoy_brand": "Internal Administration",
     "decoy_namespaces": [
@@ -1067,9 +1296,36 @@
       "/ftp",
       "/ops/recovery/accounts",
       "/ops/service/manifest"
+    ],
+    "synthetic_success": [
+      [
+        "/api/Users",
+        "user_list"
+      ],
+      [
+        "/api/Users/1",
+        "user_object"
+      ],
+      [
+        "/rest/saveLoginIp",
+        "ack"
+      ],
+      [
+        "/rest/deluxe-membership",
+        "deluxe_denied"
+      ],
+      [
+        "/rest/basket/1",
+        "empty_basket"
+      ]
     ]
   },
   "site:site-ruby-shop.toml": {
+    "account_api_prefixes": [
+      "/api/Users",
+      "/administration",
+      "/account"
+    ],
     "account_terms": [
       "login",
       "account",
@@ -1083,6 +1339,7 @@
       "/swagger",
       "/openapi"
     ],
+    "challenge_api": "",
     "decoy_admin_email": "administrator@archive.invalid",
     "decoy_brand": "RUBY Market Archive",
     "decoy_namespaces": [
@@ -1131,6 +1388,7 @@
       "/ftp",
       "/ops/recovery/accounts",
       "/ops/service/manifest"
-    ]
+    ],
+    "synthetic_success": []
   }
 }
