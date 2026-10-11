@@ -143,6 +143,7 @@ test("로그인·비밀번호 재설정·보안질문에서 이메일 집계 키
       method: "POST",
       normalizedPath: "/rest/user/reset-password",
       body: { email: " User@Example.Test " },
+      profile: JUICE_PROFILE,
     }),
     "user@example.test"
   );
@@ -151,6 +152,7 @@ test("로그인·비밀번호 재설정·보안질문에서 이메일 집계 키
       method: "GET",
       normalizedPath: "/rest/user/security-question",
       url: "/rest/user/security-question?email=User%40Example.Test",
+      profile: JUICE_PROFILE,
     }),
     "user@example.test"
   );

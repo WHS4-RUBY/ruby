@@ -49,11 +49,7 @@ test("juice-shop 프로파일은 지금 살아 있는 모듈 상수와 정확히
   // loginBruteForce 는 이미 프로파일을 읽으므로 비교할 상수가 없다. 그 보장은
   // characterizeLoginBruteForce.test.js 가 이어받는다 — 상수 비교보다 동작 비교가 강하다.
 
-  const { RESET_PASSWORD_ROUTE, SECURITY_QUESTION_ROUTE } = require("../lib/passwordResetAbuse");
-  assert.deepEqual(juice.passwordResetAbuse.resetRoute,
-    { method: RESET_PASSWORD_ROUTE.method, normalizedPath: RESET_PASSWORD_ROUTE.normalizedPath });
-  assert.deepEqual(juice.passwordResetAbuse.securityQuestionRoute,
-    { method: SECURITY_QUESTION_ROUTE.method, normalizedPath: SECURITY_QUESTION_ROUTE.normalizedPath });
+  // passwordResetAbuse 도 프로파일을 읽는다 — 보장은 characterizePasswordResetAbuse 로.
 
   const pt = require("../lib/priceTampering");
   assert.deepEqual(juice.priceTampering.quantityFields, [...pt.QUANTITY_FIELDS]);

@@ -510,11 +510,13 @@ function prepareRequestObservation(req) {
     method: req.method,
     normalizedPath,
     body: req.body,
+    profile: req.siteProfile,
   });
   req.securityQuestionEmail = extractSecurityQuestionEmail({
     method: req.method,
     normalizedPath,
     url: req.originalUrl,
+    profile: req.siteProfile,
   });
 }
 

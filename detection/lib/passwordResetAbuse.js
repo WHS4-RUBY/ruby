@@ -34,8 +34,16 @@
  * distinctEmailsAttempted가 쌓여 점수가 오른다.
  */
 
-const RESET_PASSWORD_ROUTE = Object.freeze({ method: 'POST', normalizedPath: '/rest/user/reset-password' });
-const SECURITY_QUESTION_ROUTE = Object.freeze({ method: 'GET', normalizedPath: '/rest/user/security-question' });
+/**
+ * 재설정·보안질문 라우트와 계정 식별 필드명은 사이트마다 다르고, **한쪽만 있는
+ * 사이트도 있다** — RUBY Market 에는 `/api/auth/password-reset/{request,confirm}` 이
+ * 있지만 보안질문 라우트가 아예 없다. 그래서 프로파일의 두 반쪽
+ * (`passwordResetAbuse.resetRoute`/`.resetEmailField`,
+ *  `.securityQuestionRoute`/`.securityQuestionEmailField`)을 **따로** 본다.
+ *
+ * 한쪽이 없으면 그 반쪽만 꺼지고 나머지는 계속 돈다. 꺼진 사실은 siteProfiles.js 의
+ * 기동 경고와 /__detection/api/site-profile-status 로 드러난다.
+ */
 
 function normalizeEmail(value) {
   if (typeof value !== 'string') return null;
@@ -48,11 +56,16 @@ function normalizeEmail(value) {
  * @param {string} req.method
  * @param {string} req.normalizedPath
  * @param {object|string|null} req.body
- * @returns {string|null} 소문자로 정규화된 email, 재설정 라우트가 아니거나 email 필드가 없으면 null
+ * @param {object|null} req.profile 활성 사이트 프로파일(`req.siteProfile`)
+ * @returns {string|null} 소문자로 정규화된 email, 재설정 라우트가 아니거나 email 필드가
+ *   없거나 프로파일에 설정이 없으면 null
  */
-function extractResetPasswordEmail({ method, normalizedPath, body }) {
+function extractResetPasswordEmail({ method, normalizedPath, body, profile }) {
+  const route = profile?.passwordResetAbuse?.resetRoute;
+  if (!route) return null;
+
   const upperMethod = String(method || '').toUpperCase();
-  if (upperMethod !== RESET_PASSWORD_ROUTE.method || normalizedPath !== RESET_PASSWORD_ROUTE.normalizedPath) {
+  if (upperMethod !== route.method || normalizedPath !== route.normalizedPath) {
     return null;
   }
 
@@ -62,7 +75,7 @@ function extractResetPasswordEmail({ method, normalizedPath, body }) {
   }
   if (!bodyObj || typeof bodyObj !== 'object') return null;
 
-  return normalizeEmail(bodyObj.email);
+  return normalizeEmail(bodyObj[profile.passwordResetAbuse.resetEmailField]);
 }
 
 /**
@@ -73,17 +86,25 @@ function extractResetPasswordEmail({ method, normalizedPath, body }) {
  * @param {string} req.method
  * @param {string} req.normalizedPath
  * @param {string} req.url
+ * @param {object|null} req.profile 활성 사이트 프로파일(`req.siteProfile`)
  * @returns {string|null}
  */
-function extractSecurityQuestionEmail({ method, normalizedPath, url }) {
+function extractSecurityQuestionEmail({ method, normalizedPath, url, profile }) {
+  const route = profile?.passwordResetAbuse?.securityQuestionRoute;
+  if (!route) return null;
+
   const upperMethod = String(method || '').toUpperCase();
-  if (upperMethod !== SECURITY_QUESTION_ROUTE.method || normalizedPath !== SECURITY_QUESTION_ROUTE.normalizedPath) {
+  if (upperMethod !== route.method || normalizedPath !== route.normalizedPath) {
     return null;
   }
 
   try {
     const parsed = new URL(url || '', 'http://detection.local');
-    return normalizeEmail(parsed.searchParams.get('email'));
+    // 대소문자를 구분해서 찾는다(기존 동작). identityMismatch 의 extractQueryValue 는
+    // 일부러 대소문자 무관인데, 두 모듈의 이 차이는 이번 범위에서 바꾸지 않는다.
+    return normalizeEmail(
+      parsed.searchParams.get(profile.passwordResetAbuse.securityQuestionEmailField)
+    );
   } catch {
     return null;
   }
@@ -92,6 +113,4 @@ function extractSecurityQuestionEmail({ method, normalizedPath, url }) {
 module.exports = {
   extractResetPasswordEmail,
   extractSecurityQuestionEmail,
-  RESET_PASSWORD_ROUTE,
-  SECURITY_QUESTION_ROUTE,
 };

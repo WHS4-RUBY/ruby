@@ -1,10 +1,21 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
+const path = require("node:path");
+
 const {
-  extractResetPasswordEmail,
-  extractSecurityQuestionEmail,
+  extractResetPasswordEmail: extractReset,
+  extractSecurityQuestionEmail: extractQuestion,
 } = require("../lib/passwordResetAbuse");
+const { loadSiteProfile } = require("../lib/siteProfile");
+
+const profileAt = (id) =>
+  loadSiteProfile(path.join(__dirname, "..", "config", "site-profiles", `${id}.json`));
+
+// juice-shop 프로파일을 주입하면 아래 단정은 한 글자도 바뀌지 않고 통과해야 한다.
+const JUICE_PROFILE = profileAt("juice-shop");
+const extractResetPasswordEmail = (args) => extractReset({ ...args, profile: JUICE_PROFILE });
+const extractSecurityQuestionEmail = (args) => extractQuestion({ ...args, profile: JUICE_PROFILE });
 
 /**
  * passwordResetAbuse.js 의 특성화 테스트. 사이트 프로파일로 바꾸기 전에 현재 동작을
@@ -30,14 +41,14 @@ test("특성화: 재설정 라우트의 본문 email 을 소문자로 정규화�
 });
 
 test("특성화: 재설정 라우트가 아니거나 email 이 쓸 수 없으면 null 이다", () => {
-  for (const [method, path] of [
+  for (const [method, routePath] of [
     ["GET", "/rest/user/reset-password"],
     ["POST", "/rest/user/reset-password/"],
     ["POST", "/rest/user/security-question"],
     ["POST", "/api/auth/password-reset/confirm"],
   ]) {
-    assert.equal(extractResetPasswordEmail({ method, normalizedPath: path, body: { email: "a@b" } }), null,
-      `${method} ${path} 가 재설정으로 잡혔다`);
+    assert.equal(extractResetPasswordEmail({ method, normalizedPath: routePath, body: { email: "a@b" } }), null,
+      `${method} ${routePath} 가 재설정으로 잡혔다`);
   }
   for (const body of [{ email: "" }, { email: "  " }, { email: 7 }, { email: null }, {}, null, 42, ["a"]]) {
     assert.equal(extractResetPasswordEmail({ ...RESET, body }), null,
@@ -76,13 +87,13 @@ test("특성화: 보안질문의 쿼리 파라미터 이름은 대소문자를 �
 });
 
 test("특성화: 보안질문 라우트가 아니거나 email 이 없으면 null 이다", () => {
-  for (const [method, path] of [
+  for (const [method, routePath] of [
     ["POST", "/rest/user/security-question"],
     ["GET", "/rest/user/security-question/"],
     ["GET", "/rest/user/reset-password"],
   ]) {
-    assert.equal(extractSecurityQuestionEmail({ method, normalizedPath: path, url: "?email=a@b" }), null,
-      `${method} ${path} 가 보안질문으로 잡혔다`);
+    assert.equal(extractSecurityQuestionEmail({ method, normalizedPath: routePath, url: "?email=a@b" }), null,
+      `${method} ${routePath} 가 보안질문으로 잡혔다`);
   }
   for (const url of ["", "/rest/user/security-question", "?email=", "?email=%20%20", "?user=a@b", undefined]) {
     assert.equal(extractSecurityQuestionEmail({ ...QUESTION, url }), null,
@@ -93,4 +104,96 @@ test("특성화: 보안질문 라우트가 아니거나 email 이 없으면 null
 test("특성화: 두 추출기 모두 method/path 부재에 던지지 않는다", () => {
   assert.equal(extractResetPasswordEmail({ body: { email: "a@b" } }), null);
   assert.equal(extractSecurityQuestionEmail({ url: "?email=a@b" }), null);
+});
+
+// ---------------------------------------------------------------------------
+// 프로파일화 이후: 두 반쪽의 독립, 다른 사이트, 비활성 상태
+// ---------------------------------------------------------------------------
+
+const GENERIC_PROFILE = profileAt("generic");
+const RUBY_PROFILE = profileAt("ruby-shop");
+
+test("다른 사이트의 재설정 라우트와 필드명으로도 같은 신호가 나온다", () => {
+  const otherSite = {
+    ...GENERIC_PROFILE,
+    passwordResetAbuse: {
+      resetRoute: { method: "POST", normalizedPath: "/api/auth/password-reset/request" },
+      resetEmailField: "account",
+      securityQuestionRoute: { method: "GET", normalizedPath: "/api/auth/recovery-hint" },
+      securityQuestionEmailField: "account",
+    },
+  };
+
+  assert.equal(
+    extractReset({ method: "POST", normalizedPath: "/api/auth/password-reset/request",
+                   body: { account: "  Bender@Example.Test " }, profile: otherSite }),
+    "bender@example.test"
+  );
+  assert.equal(
+    extractQuestion({ method: "GET", normalizedPath: "/api/auth/recovery-hint",
+                      url: "?account=Bender%40Example.Test", profile: otherSite }),
+    "bender@example.test"
+  );
+  // Juice Shop 의 경로·필드명은 이 프로파일에서 잡히지 않는다.
+  assert.equal(
+    extractReset({ ...RESET, body: { email: "a@b" }, profile: otherSite }),
+    null
+  );
+  assert.equal(
+    extractQuestion({ ...QUESTION, url: "?email=a@b", profile: otherSite }),
+    null
+  );
+});
+
+// RUBY 에는 재설정 라우트는 있고 보안질문 라우트는 없다. 한쪽만 선언한 프로파일에서
+// 그 반쪽만 돌고 나머지는 꺼져야 한다 — 블록 전체가 함께 꺼지면 안 된다.
+test("두 반쪽은 독립이다 — 한쪽만 선언하면 그쪽만 돈다", () => {
+  const resetOnly = {
+    ...GENERIC_PROFILE,
+    passwordResetAbuse: {
+      resetRoute: { method: "POST", normalizedPath: "/api/auth/password-reset/request" },
+      resetEmailField: "email",
+    },
+  };
+  assert.equal(
+    extractReset({ method: "POST", normalizedPath: "/api/auth/password-reset/request",
+                   body: { email: "a@b" }, profile: resetOnly }),
+    "a@b",
+    "재설정 반쪽은 돌아야 한다"
+  );
+  assert.equal(
+    extractQuestion({ method: "GET", normalizedPath: "/api/auth/recovery-hint",
+                      url: "?email=a@b", profile: resetOnly }),
+    null,
+    "보안질문 반쪽은 선언이 없으므로 꺼져야 한다"
+  );
+
+  const questionOnly = {
+    ...GENERIC_PROFILE,
+    passwordResetAbuse: {
+      securityQuestionRoute: { method: "GET", normalizedPath: "/api/auth/recovery-hint" },
+      securityQuestionEmailField: "email",
+    },
+  };
+  assert.equal(
+    extractQuestion({ method: "GET", normalizedPath: "/api/auth/recovery-hint",
+                      url: "?email=a@b", profile: questionOnly }),
+    "a@b"
+  );
+  assert.equal(
+    extractReset({ method: "POST", normalizedPath: "/api/auth/password-reset/request",
+                   body: { email: "a@b" }, profile: questionOnly }),
+    null
+  );
+});
+
+test("프로파일에 설정이 없으면 양쪽 모두 비활성이고 그 사실이 드러난다", () => {
+  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE, null, undefined, {}]) {
+    assert.equal(extractReset({ ...RESET, body: { email: "a@b" }, profile }), null);
+    assert.equal(extractQuestion({ ...QUESTION, url: "?email=a@b", profile }), null);
+  }
+  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+    assert.ok(profile.disabledFeatures.includes("passwordResetAbuse"),
+      `${profile.profileId} 가 passwordResetAbuse 비활성을 선언하지 않았다`);
+  }
 });
