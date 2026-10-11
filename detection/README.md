@@ -240,6 +240,8 @@ npm test
 | `PORT` | `8080` | 독립 실행 기본 포트. Compose에서는 공개 리스너 `8081` |
 | `ADMIN_PORT` | 없음 | 분리된 관리 리스너 포트. 운영 Compose에서는 컨테이너 `8080`을 서버 루프백 `8088`에 연결 |
 | `POLICY_CONFIG_PATH` | `config/policy.json` | 위험도 구간별 방어 전략 정의 |
+| `SITE_PROFILES_DIR` | `config/site-profiles` | 대상 사이트별 라우트·필드명·JWT 클레임·쿠키 선언 |
+| `DETECTION_DEFAULT_SITE_PROFILE` | 없음(= `generic`) | 프로파일 파일이 없는 대상에 적용할 프로파일 ID. 모르는 ID 면 기동 실패 |
 | `DETECTION_LEVEL` | `medium` | `low` 0.3, `medium` 0.5, `high` 0.7 |
 | `DETECTION_STORE_DB` | `data/detection.sqlite3` | Detection 의 모든 SQLite 상태(XSS 후보·확정 증거·reflected 증거·스키마 학습). `detection-data` 볼륨 |
 | `XSS_STORE` | `sqlite` | `memory` 로 두면 영속화 없이 인메모리만 사용 |

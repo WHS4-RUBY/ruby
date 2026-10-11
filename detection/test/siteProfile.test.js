@@ -451,3 +451,56 @@ test("status() 는 활성 대상과 비활성 기능을 관리 API 모양으로 
   registry.forTarget("legacy");
   assert.ok(registry.status().unmappedTargets.includes("legacy"));
 });
+
+// ---------------------------------------------------------------------------
+// 5. 점수 격리 — 규칙 1 의 기계적 집행
+// ---------------------------------------------------------------------------
+
+// blTags 는 점수에 직접 들어간다: featureExtractor.js:244,348 이 그 개수와 종류를
+// businessLogicHits / distinctBusinessLogicCategories 로 만들고, classifier.js:179,287 의
+// scoreBusinessLogicViolation 이 가중치 0.12 로 반영한다. 거기에 "프로파일 비활성" 같은
+// 태그를 하나 더하면 서브스코어가 0 에서 0.7 이상으로 뛴다. 그래서 프로파일 상태는
+// 전용 채널(관리 API + 대시보드)로만 흐르고 요청 특징에는 한 글자도 넣지 않는다.
+test("프로파일 상태는 요청 특징에 새지 않는다", () => {
+  const { extractStreamFeatures } = require("../lib/featureExtractor");
+  const registry = new SiteProfileRegistry({ dir: PROFILES_DIR, warn: () => {} });
+  const resolution = registry.forTarget("legacy");
+  assert.ok(resolution.profile.disabledFeatures.length, "이 테스트는 비활성 기능이 있어야 의미가 있다");
+
+  const request = {
+    ts: 1_000,
+    method: "GET",
+    url: "/",
+    operation: "GET /",
+    status: 200,
+    tags: [],
+    blTags: [],
+    experimentRunId: null,
+    // 요청 객체에 프로파일이 붙어 있어도(server.js 가 붙인다) 특징에는 나오지 않아야 한다.
+    siteProfile: resolution.profile,
+    siteProfileResolution: resolution,
+  };
+  const stream = (requests) => extractStreamFeatures({
+    requests,
+    headerSample: { "user-agent": "curl/8.0" },
+    fingerprint: "test",
+    userAgent: "curl/8.0",
+    telemetry: null,
+    firstSeen: 0,
+    lastSeen: 2_000,
+    sessionChurn: 1,
+  });
+  const features = stream([request]);
+  const serialized = JSON.stringify(features);
+
+  assert.doesNotMatch(serialized, /siteProfile/i, "특징에 프로파일 상태가 섞였다");
+  assert.doesNotMatch(serialized, /disabledFeatures/i);
+  assert.doesNotMatch(serialized, /no profile/i);
+  assert.equal(features.attack.businessLogicHits, 0);
+  assert.equal(features.attack.distinctBusinessLogicCategories, 0);
+  assert.deepEqual(features.attack.businessLogicCategories, []);
+
+  // 프로파일을 붙이지 않은 같은 요청과 특징이 완전히 같아야 한다.
+  const { siteProfile, siteProfileResolution, ...bare } = request;
+  assert.deepEqual(features, stream([bare]));
+});

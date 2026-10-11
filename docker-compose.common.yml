@@ -14,6 +14,9 @@ services:
       - TARGET_CHOICES=${TARGET_CHOICES:-}
       - TARGET_DEFAULT_ID=${TARGET_DEFAULT_ID:-legacy}
       - TARGET_SELECTION_FILE=/app/data/target-selection.json
+      # 프로파일 파일이 없는 대상에 적용할 프로파일 ID. 비우면 generic 으로 떨어지고
+      # 라우트에 묶인 탐지는 비활성 + 경고가 된다.
+      - DETECTION_DEFAULT_SITE_PROFILE=${DETECTION_DEFAULT_SITE_PROFILE:-}
       - LEGACY_TARGET_URL=http://host.docker.internal:${TARGET_PORT:-3000}
       - PORT=8081
       - ADMIN_PORT=8080

@@ -114,6 +114,8 @@
   .target-control .select-input { width:auto; min-width:180px; }
   .target-control .target-feedback { width:100%; font-size:12px; }
   .target-control .target-feedback.error { color:var(--red); }
+  .target-control .profile-chip { display:inline-block; margin:2px 4px 0 0; padding:1px 7px; border:1px solid var(--border); border-radius:999px; font-size:11.5px; color:var(--muted); }
+  .target-control .profile-chip.off { border-color:var(--red); color:var(--red); }
   .summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:0; margin-bottom:16px; border-bottom:1px solid var(--border); }
   .stat-card { min-width:0; padding:8px 16px 16px; }
   .stat-label { color:var(--muted); font-size:12.5px; font-weight:600; }
@@ -641,6 +643,7 @@
       <div>
         <h3>실험 대상</h3>
         <p id="activeTargetRun">현재 대상을 확인하는 중입니다.</p>
+        <p id="activeSiteProfile">사이트 프로파일을 확인하는 중입니다.</p>
       </div>
       <form id="targetSelectionForm">
         <label for="targetSelectionChoice">대상</label>
@@ -2330,6 +2333,30 @@ function fingerprintFieldsText(fields) {
   return [...new Set(fields || [])].map(field => fingerprintFieldNames[field] || field).join(' · ') || '없음';
 }
 
+// 사이트 프로파일 상태. 순수 함수로 두는 이유: dashboardPresentation.test.js 의
+// 하네스가 closeButton 등록 줄까지만 스크립트를 잘라 실행하므로, 그 뒤에 정의하면
+// 테스트가 닿지 못한다(지금 refreshTargetSelection 이 그런 처지다).
+function renderSiteProfileStatus(status) {
+  const active = status?.active;
+  if (!active) return '사이트 프로파일을 확인할 수 없습니다.';
+  const profile = (status.profiles || []).find(item => item.profileId === active.profileId) || {};
+  const source = {
+    'target-id': '대상 ID로 선택',
+    'default-env': 'DETECTION_DEFAULT_SITE_PROFILE 기본값',
+    'generic-fallback': '프로파일 없음 → generic 폴백',
+  }[active.source] || active.source;
+  const disabled = profile.disabledFeatures || [];
+  const generic = profile.genericDefaultFeatures || [];
+  const chips = [
+    ...disabled.map(feature => `<span class="profile-chip off">${feature} 비활성(프로파일 없음)</span>`),
+    ...generic.map(feature => `<span class="profile-chip">${feature} generic 기본값</span>`),
+  ].join('');
+  const summary = disabled.length
+    ? `${disabled.length}개 기능 비활성(프로파일 없음)`
+    : '모든 기능 활성';
+  return `프로파일 ${active.label || active.profileId} · ${source} · ${summary}${chips ? `<br>${chips}` : ''}`;
+}
+
 function renderEvidenceOverview(detail, kind, sessionNodes) {
   const isResolved = kind === 'resolved-actors';
   const isClientFlow = kind === 'client-flows';
@@ -2892,6 +2919,18 @@ async function refreshTargetSelection() {
   }
   choice.disabled = !selection.targets?.length;
   document.getElementById('targetSelectionSubmit').disabled = choice.disabled;
+
+  // 프로파일 상태는 점수와 무관한 별도 채널이다. 실패해도 대상 선택을 막지 않는다.
+  try {
+    const profileResponse = await fetch('/__detection/api/site-profile-status');
+    if (profileResponse.ok) {
+      document.getElementById('activeSiteProfile').innerHTML =
+        renderSiteProfileStatus(await profileResponse.json());
+    }
+  } catch {
+    document.getElementById('activeSiteProfile').textContent =
+      '사이트 프로파일을 확인할 수 없습니다.';
+  }
 }
 
 document.getElementById('targetSelectionForm').addEventListener('submit', async event => {

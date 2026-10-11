@@ -80,6 +80,7 @@ const {
   parseTargetChoices,
 } = require("./lib/targetSelection");
 const { installTargetSelectionRoutes } = require("./lib/targetSelectionRoutes");
+const { SiteProfileRegistry } = require("./lib/siteProfiles");
 const { listenerBoundary } = require("./lib/listenerBoundary");
 
 const PORT = Number(process.env.PORT || 8080);
@@ -168,6 +169,13 @@ const targetSelection = new TargetSelectionStore({
   defaultId: process.env.TARGET_DEFAULT_ID || "legacy",
   filePath: process.env.TARGET_SELECTION_FILE,
   publicOrigin: process.env.PUBLIC_TARGET_ORIGIN,
+});
+// 대상별 사이트 프로파일. 기동 시 디렉터리 전체를 읽고 잘못된 프로파일이면 던진다 —
+// 절반만 동작하는 탐지보다 기동 실패가 낫다. 비활성 기능 경고도 여기서 한 번 나온다.
+// require 시점이 아니라 여기서 만드는 이유: 테스트가 임시 디렉터리를 줄 수 있어야 한다.
+const siteProfiles = new SiteProfileRegistry({
+  dir: process.env.SITE_PROFILES_DIR || undefined,
+  defaultProfileId: process.env.DETECTION_DEFAULT_SITE_PROFILE || "",
 });
 
 const app = express();
@@ -463,6 +471,11 @@ function prepareRequestObservation(req) {
   if (req._detectionPrepared) return;
   req._detectionPrepared = true;
   req.activeTarget = targetSelection.read();
+  // 활성 대상이 정해진 직후에 프로파일을 붙인다. 모듈 전역이 아니라 요청마다 주입하는
+  // 이유: Detection 은 한 프로세스가 여러 대상을 서비스하고 활성 대상이 런타임에
+  // 전환되므로, 전역이면 전환과 진행 중인 요청 사이에 경쟁 조건이 생긴다.
+  req.siteProfileResolution = siteProfiles.forTarget(req.activeTarget?.targetId);
+  req.siteProfile = req.siteProfileResolution.profile;
   req._detectionStart = Date.now();
   req.experimentRunId = ENABLE_EXPERIMENT_RUN_ID
     ? sanitizeExperimentRunId(req.headers[EXPERIMENT_RUN_HEADER])
@@ -1286,6 +1299,14 @@ app.get("/__detection/api/crs-status", (req, res) => {
 
 app.get("/__detection/api/deception-status", (req, res) => {
   res.json(deceptionEngine.status());
+});
+
+// 프로파일 상태는 점수와 분리된 채널이다. blTags 에는 아무것도 넣지 않는다 —
+// featureExtractor.js:244,348 이 blTags 개수를 세고 classifier.js:179 가 그걸
+// businessLogicViolation 서브스코어(가중치 0.12)로 바꾸므로, 태그를 하나 더하면
+// 위험도가 바뀐다.
+app.get("/__detection/api/site-profile-status", (req, res) => {
+  res.json(siteProfiles.status(targetSelection.read().targetId));
 });
 
 app.get("/__detection/api/resolution-status", (req, res) => {
