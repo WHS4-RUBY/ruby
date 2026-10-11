@@ -389,12 +389,14 @@ function computeBusinessLogicTags(req) {
     body: req.body,
     authorizationHeader: req.headers.authorization,
     cookieHeader: req.headers.cookie,
+    profile: req.siteProfile,
   });
   const roleGateHits = checkRoleGatedAccess({
     method: req.method,
     normalizedPath,
     authorizationHeader: req.headers.authorization,
     cookieHeader: req.headers.cookie,
+    profile: req.siteProfile,
   });
   const priceResult = detectPriceTampering(req.body, req.siteProfile);
   const tags = [
@@ -453,8 +455,13 @@ function observeSchemaLearning(req, statusCode, normalizedPath) {
     ),
   });
 
-  const token = extractToken(req.headers.authorization, req.headers.cookie);
-  const claimed = token ? decodeClaimedIdentity(token) : null;
+  const identity = req.siteProfile?.identity;
+  const token = identity?.tokenSources
+    ? extractToken(req.headers.authorization, req.headers.cookie, identity.tokenSources)
+    : null;
+  const claimed = token && identity?.claimMap
+    ? decodeClaimedIdentity(token, identity.claimMap)
+    : null;
   const role = claimed?.role ? String(claimed.role).toLowerCase() : null;
   schemaLearning.observeRoleAccess({
     method: req.method,

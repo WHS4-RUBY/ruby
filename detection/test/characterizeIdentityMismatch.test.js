@@ -8,12 +8,25 @@ const schemaDir = fs.mkdtempSync(path.join(os.tmpdir(), "characterize-identity-"
 process.env.DETECTION_STORE_DB = path.join(schemaDir, "detection.sqlite3");
 
 const {
-  checkIdentityMismatch,
-  decodeClaimedIdentity,
-  extractToken,
-  isHardcodedIdentityRoute,
+  checkIdentityMismatch: checkMismatch,
+  decodeClaimedIdentity: decodeClaims,
+  extractToken: extract,
+  isHardcodedIdentityRoute: isHardcodedRoute,
 } = require("../lib/identityMismatch");
 const schemaLearning = require("../lib/schemaLearning");
+const { loadSiteProfile } = require("../lib/siteProfile");
+
+const profileAt = (id) =>
+  loadSiteProfile(path.join(__dirname, "..", "config", "site-profiles", `${id}.json`));
+
+// juice-shop 프로파일을 주입하면 아래 단정은 한 글자도 바뀌지 않고 통과해야 한다.
+const JUICE_PROFILE = profileAt("juice-shop");
+const checkIdentityMismatch = (args) => checkMismatch({ ...args, profile: JUICE_PROFILE });
+const decodeClaimedIdentity = (value) => decodeClaims(value, JUICE_PROFILE.identity.claimMap);
+const extractToken = (auth, cookie) =>
+  extract(auth, cookie, JUICE_PROFILE.identity.tokenSources);
+const isHardcodedIdentityRoute = (method, route) =>
+  isHardcodedRoute(method, route, JUICE_PROFILE);
 
 after(() => fs.rmSync(schemaDir, { recursive: true, force: true }));
 
@@ -275,4 +288,144 @@ test("특성화: 학습 폴백은 하드코딩 없는 라우트에만 적용된�
     );
   }
   schemaLearning.resetAll();
+});
+
+// ---------------------------------------------------------------------------
+// 프로파일화 이후
+// ---------------------------------------------------------------------------
+
+const GENERIC_PROFILE = profileAt("generic");
+const RUBY_PROFILE = profileAt("ruby-shop");
+
+// D3-R: 토큰 추출과 클레임 해독은 지금 모든 대상에서 돌고 있으므로 generic·ruby-shop
+// 에도 들어간다. 라우트 규칙 셋만 사이트 종속이다.
+test("토큰 추출과 클레임 해독은 세 프로파일에서 모두 같다", () => {
+  const value = token(CUSTOMER);
+  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+    assert.equal(
+      extract(`Bearer ${value}`, null, profile.identity.tokenSources),
+      extract(`Bearer ${value}`, null, JUICE_PROFILE.identity.tokenSources)
+    );
+    assert.deepEqual(
+      decodeClaims(value, profile.identity.claimMap),
+      decodeClaims(value, JUICE_PROFILE.identity.claimMap),
+      `${profile.profileId} 의 클레임 해독이 juice-shop 과 다르다`
+    );
+    for (const feature of ["identity.tokenSources", "identity.claimMap"]) {
+      assert.ok(!profile.disabledFeatures.includes(feature),
+        `${profile.profileId} 가 ${feature} 를 비활성으로 선언했다 — 동작이 바뀐다`);
+    }
+  }
+});
+
+test("라우트 규칙 셋은 generic·ruby-shop 에서 비활성이고 그 사실이 드러난다", () => {
+  const auth = `Bearer ${token(CUSTOMER)}`;
+  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+    for (const args of [
+      { method: "GET", normalizedPath: "/rest/basket/:id", url: "/rest/basket/99" },
+      { method: "GET", normalizedPath: "/api/Users/:id", url: "/api/Users/99" },
+      { method: "POST", normalizedPath: "/api/Feedbacks", url: "/api/Feedbacks", body: { UserId: 99 } },
+      { method: "GET", normalizedPath: "/api/Baskets", url: "/api/Baskets?UserId=99" },
+    ]) {
+      assert.deepEqual(
+        checkMismatch({ ...args, authorizationHeader: auth, profile }), [],
+        `${profile.profileId} 의 ${args.normalizedPath} 에서 태그가 나왔다`);
+    }
+    assert.equal(isHardcodedRoute("GET", "/api/Users/:id", profile), false);
+    for (const feature of ["identity.routeRules", "identity.bodyRules", "identity.queryRules"]) {
+      assert.ok(profile.disabledFeatures.includes(feature),
+        `${profile.profileId} 가 ${feature} 비활성을 선언하지 않았다`);
+    }
+  }
+});
+
+test("다른 사이트의 쿠키 이름·클레임 맵·라우트로도 같은 판정이 나온다", () => {
+  const otherSite = {
+    ...GENERIC_PROFILE,
+    identity: {
+      tokenSources: { bearer: true, cookieNames: ["ruby_session", "ruby_remember"] },
+      claimMap: {
+        wrapperKey: "",                       // 래퍼 없음 — 루트에서 읽는다
+        id: "sub", email: "mail", role: "scope",
+        basketId: { at: "wrapper", key: "cart" },
+      },
+      learnedFallback: false,
+      routeRules: [
+        { tag: "identity-mismatch:order", normalizedPath: "/api/orders/:id", claimField: "id" },
+      ],
+      bodyRules: [
+        { tag: "identity-mismatch:ticket", method: "POST", normalizedPath: "/api/tickets",
+          field: "customer_id", claimField: "id" },
+      ],
+      queryRules: [
+        { tag: "identity-mismatch:orders-query", method: "GET", normalizedPath: "/api/orders",
+          field: "customer_id", claimField: "id" },
+      ],
+    },
+  };
+
+  const other = token({ sub: 7, mail: "a@b", scope: "customer", cart: 12 });
+  assert.deepEqual(decodeClaims(other, otherSite.identity.claimMap),
+    { id: 7, email: "a@b", role: "customer", bid: 12 });
+
+  // 쿠키 이름이 다르다 — 첫 번째로 일치하는 이름을 쓴다.
+  assert.equal(extract(null, `ruby_session=${other}`, otherSite.identity.tokenSources), other);
+  assert.equal(extract(null, `ruby_remember=${other}`, otherSite.identity.tokenSources), other);
+  assert.equal(extract(null, `token=${other}`, otherSite.identity.tokenSources), null,
+    "선언하지 않은 쿠키 이름은 보지 않는다");
+
+  const call = (args) => checkMismatch({
+    ...args, authorizationHeader: `Bearer ${other}`, profile: otherSite,
+  });
+  assert.equal(call({ method: "GET", normalizedPath: "/api/orders/:id", url: "/api/orders/99" })[0].tag,
+    "identity-mismatch:order");
+  assert.deepEqual(call({ method: "GET", normalizedPath: "/api/orders/:id", url: "/api/orders/7" }), []);
+  assert.equal(call({ method: "POST", normalizedPath: "/api/tickets", url: "/api/tickets",
+                      body: { customer_id: 99 } })[0].tag, "identity-mismatch:ticket");
+  assert.equal(call({ method: "GET", normalizedPath: "/api/orders",
+                      url: "/api/orders?customer_id=99" })[0].tag, "identity-mismatch:orders-query");
+
+  // Juice Shop 의 라우트는 이 프로파일에서 잡히지 않는다.
+  assert.deepEqual(call({ method: "GET", normalizedPath: "/rest/basket/:id", url: "/rest/basket/99" }), []);
+});
+
+// basketId.at 이 'wrapper' 면 래퍼 안에서, 'root' 면 루트에서 읽는다.
+test("바스켓 ID 를 래퍼 안에서 읽는 선언도 받는다", () => {
+  const wrapperClaim = {
+    wrapperKey: "data", id: "id", email: "email", role: "role",
+    basketId: { at: "wrapper", key: "cart" },
+  };
+  assert.equal(decodeClaims(token({ data: { id: 1, cart: 5 } }), wrapperClaim).bid, 5);
+  assert.equal(decodeClaims(token({ data: { id: 1 }, cart: 5 }), wrapperClaim).bid, null);
+  // basketId 를 선언하지 않으면 항상 null 이다.
+  const noBasket = { wrapperKey: "data", id: "id", email: "email", role: "role" };
+  assert.equal(decodeClaims(token({ data: { id: 1 }, bid: 5 }), noBasket).bid, null);
+});
+
+// 학습 폴백은 프로파일이 켜야 돈다.
+test("학습 폴백은 프로파일이 켤 때만 돈다", () => {
+  const off = {
+    ...GENERIC_PROFILE,
+    identity: { ...GENERIC_PROFILE.identity, learnedFallback: false },
+  };
+  assert.deepEqual(
+    checkMismatch({ method: "GET", normalizedPath: "/api/Orders/:id", url: "/api/Orders/99",
+                    authorizationHeader: `Bearer ${token(CUSTOMER)}`, profile: off }),
+    []
+  );
+  assert.equal(GENERIC_PROFILE.identity.learnedFallback, true,
+    "generic 은 학습 폴백을 켜 둬야 한다 — 프로파일 없는 사이트의 부트스트랩 경로다");
+});
+
+test("프로파일에 identity 블록이 없으면 던지지 않고 비어 있다", () => {
+  for (const profile of [null, undefined, {}, { identity: null }]) {
+    assert.deepEqual(
+      checkMismatch({ method: "GET", normalizedPath: "/api/Users/:id", url: "/api/Users/99",
+                      authorizationHeader: `Bearer ${token(CUSTOMER)}`, profile }),
+      []
+    );
+    assert.equal(isHardcodedRoute("GET", "/api/Users/:id", profile), false);
+  }
+  assert.equal(decodeClaims(token(CUSTOMER), null), null);
+  assert.equal(extract("Bearer x", null, null), null);
 });

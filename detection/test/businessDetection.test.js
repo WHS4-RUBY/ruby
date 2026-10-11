@@ -77,12 +77,14 @@ test("JWT claimed basket ownership 불일치와 관리자 엔드포인트 무단
     normalizedPath: "/rest/basket/:id",
     url: "/rest/basket/12",
     authorizationHeader: `Bearer ${userToken}`,
+    profile: JUICE_PROFILE,
   });
   const mismatching = checkIdentityMismatch({
     method: "GET",
     normalizedPath: "/rest/basket/:id",
     url: "/rest/basket/99",
     authorizationHeader: `Bearer ${userToken}`,
+    profile: JUICE_PROFILE,
   });
   assert.deepEqual(matching, []);
   assert.equal(mismatching[0].tag, "identity-mismatch:basket");
@@ -91,6 +93,7 @@ test("JWT claimed basket ownership 불일치와 관리자 엔드포인트 무단
     method: "GET",
     normalizedPath: "/rest/admin/application-configuration",
     authorizationHeader: `Bearer ${userToken}`,
+    profile: JUICE_PROFILE,
   });
   assert.equal(denied[0].tag, "role-gated:admin-config");
   const adminToken = token({ data: { id: 1, role: "admin" }, bid: 1 });
@@ -99,6 +102,7 @@ test("JWT claimed basket ownership 불일치와 관리자 엔드포인트 무단
       method: "GET",
       normalizedPath: "/rest/admin/application-configuration",
       authorizationHeader: `Bearer ${adminToken}`,
+      profile: JUICE_PROFILE,
     }),
     []
   );
@@ -201,11 +205,13 @@ test("스키마 학습은 제안 후 명시적 승인 전까지 탐지 규칙에
 test("쿠키의 깨진 퍼센트 인코딩이 500 을 만들지 않고 신원 판정도 눈감지 않는다", () => {
   const userToken = token({ data: { id: 7, role: "customer" }, bid: 12 });
 
-  assert.doesNotThrow(() => extractToken(undefined, "token=%"));
-  assert.equal(extractToken(undefined, "token=%"), "%");
+  const TOKEN_SOURCES = JUICE_PROFILE.identity.tokenSources;
+  assert.doesNotThrow(() => extractToken(undefined, "token=%", TOKEN_SOURCES));
+  assert.equal(extractToken(undefined, "token=%", TOKEN_SOURCES), "%");
 
   // 디코딩 가능한 값은 그대로 디코딩한다(기존 동작).
-  assert.equal(extractToken(undefined, `token=${encodeURIComponent(userToken)}`), userToken);
+  assert.equal(extractToken(undefined, `token=${encodeURIComponent(userToken)}`, TOKEN_SOURCES),
+    userToken);
 
   // 깨진 인코딩이 뒤에 붙어도 토큰을 버리지 않는다 — 그러지 않으면 % 한 글자로 회피된다.
   for (const cookie of [`token=${userToken}%`, `token=%${userToken}`]) {
@@ -214,6 +220,7 @@ test("쿠키의 깨진 퍼센트 인코딩이 500 을 만들지 않고 신원 �
       normalizedPath: "/rest/basket/:id",
       url: "/rest/basket/99",
       cookieHeader: cookie,
+      profile: JUICE_PROFILE,
     });
     assert.equal(hits.length, 1, `${cookie} 에서 신원 불일치를 놓쳤다`);
     assert.equal(hits[0].tag, "identity-mismatch:basket");
@@ -225,6 +232,7 @@ test("쿠키의 깨진 퍼센트 인코딩이 500 을 만들지 않고 신원 �
       method: "GET",
       normalizedPath: "/rest/admin/application-configuration",
       cookieHeader: "token=%",
+      profile: JUICE_PROFILE,
     })
   );
 });

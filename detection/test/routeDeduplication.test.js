@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const nodePath = require("node:path");
 
 const { detectMassAssignment } = require("../lib/businessLogicSignatures");
-const { IDENTITY_ROUTE_RULES } = require("../lib/identityMismatch");
+const { checkIdentityMismatch } = require("../lib/identityMismatch");
 const { loadSiteProfile } = require("../lib/siteProfile");
 
 // 같은 라우트를 두 번 적던 자리들. 한쪽만 고치면 조용히 어긋나므로 정본을 하나로
@@ -57,19 +57,32 @@ test("뒤 슬래시가 붙어도 같은 라우트로 판정한다", () => {
 });
 
 test("신원 규칙은 라우트를 한 번만 적고 추출 정규식을 거기서 만든다", () => {
-  assert.ok(IDENTITY_ROUTE_RULES.length > 0);
-  for (const rule of IDENTITY_ROUTE_RULES) {
-    assert.equal(typeof rule.normalizedPath, "string");
+  // 규칙이 프로파일 선언으로 옮겨갔다. 선언한 템플릿 하나에서 추출 정규식이 만들어지는지
+  // 실제 판정으로 확인한다 — 두 번 적을 자리가 구조적으로 없어졌다.
+  const juice = PROFILES.find((profile) => profile.profileId === "juice-shop");
+  const rules = juice.identity.routeRules;
+  assert.ok(rules.length > 0);
+
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  for (const rule of rules) {
     assert.ok(rule.normalizedPath.includes(":id"), rule.normalizedPath);
-    // 템플릿에서 만든 추출기가 그 템플릿의 경로에서 숫자를 꺼낸다.
+    // 템플릿의 :id 자리에 42 를 넣은 URL 에서, 클레임이 42 면 통과하고 다르면 잡힌다.
     const concrete = rule.normalizedPath.replace(":id", "42");
-    assert.equal(rule.extractRequestedId(concrete), 42, rule.normalizedPath);
-    assert.equal(rule.extractRequestedId(`${concrete}?from=list`), 42, rule.normalizedPath);
-    assert.equal(rule.extractRequestedId(rule.normalizedPath.replace(":id", "abc")), null);
-    assert.equal(rule.extractRequestedId(""), null);
-    assert.equal(rule.extractRequestedId(null), null);
-    // test() 와 추출기가 같은 템플릿을 본다.
-    assert.equal(rule.test("GET", rule.normalizedPath), true);
-    assert.equal(rule.test("GET", `${rule.normalizedPath}/extra`), false);
+    const claimFor = (value) => {
+      const payload = rule.claimField === "bid"
+        ? { data: { id: 1 }, bid: value }
+        : { data: { id: value } };
+      return `Bearer ${encode({ alg: "none", typ: "JWT" })}.${encode(payload)}.`;
+    };
+    const call = (url, claimValue) => checkIdentityMismatch({
+      method: "GET", normalizedPath: rule.normalizedPath, url,
+      authorizationHeader: claimFor(claimValue), profile: juice,
+    });
+    assert.deepEqual(call(concrete, 42), [], `${rule.normalizedPath} 에서 본인 요청이 잡혔다`);
+    assert.equal(call(concrete, 99).length, 1, `${rule.normalizedPath} 에서 타인 요청을 놓쳤다`);
+    // 쿼리스트링이 붙어도 같은 추출이 된다.
+    assert.equal(call(`${concrete}?from=list`, 99).length, 1, rule.normalizedPath);
+    // 숫자가 아니면 추출하지 않는다.
+    assert.deepEqual(call(rule.normalizedPath.replace(":id", "abc"), 99), []);
   }
 });

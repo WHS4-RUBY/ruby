@@ -92,15 +92,22 @@ function isHardcodedSensitiveRoute(method, normalizedPath, routes = SENSITIVE_RO
 /**
  * @returns {Array<{tag:string, detail:object}>}
  */
-function checkRoleGatedAccess({ method, normalizedPath, authorizationHeader, cookieHeader }) {
+function checkRoleGatedAccess({
+  method, normalizedPath, authorizationHeader, cookieHeader, profile,
+}) {
   const results = [];
+  const identity = profile?.identity;
+  // 토큰 추출과 클레임 해독은 identityMismatch 가 프로파일에서 읽는다 — 그 설정이
+  // 없으면 역할을 알 수 없으므로 이 검사도 성립하지 않는다.
+  if (!identity?.tokenSources || !identity?.claimMap) return results;
+
   const upperMethod = String(method || '').toUpperCase();
   const matches = SENSITIVE_ROUTES.filter(
     (route) => route.method === upperMethod && route.normalizedPath === normalizedPath
   );
 
-  const token = extractToken(authorizationHeader, cookieHeader);
-  const claimed = token ? decodeClaimedIdentity(token) : null;
+  const token = extractToken(authorizationHeader, cookieHeader, identity.tokenSources);
+  const claimed = token ? decodeClaimedIdentity(token, identity.claimMap) : null;
   const claimedRole = claimed && claimed.role ? String(claimed.role).toLowerCase() : null;
 
   for (const route of matches) {

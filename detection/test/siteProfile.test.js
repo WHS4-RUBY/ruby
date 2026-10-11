@@ -69,28 +69,7 @@ test("juice-shop 프로파일은 지금 살아 있는 모듈 상수와 정확히
     }))
   );
 
-  const im = require("../lib/identityMismatch");
-  assert.deepEqual(
-    juice.identity.routeRules,
-    im.IDENTITY_ROUTE_RULES.map((rule) => ({
-      tag: rule.tag, normalizedPath: rule.normalizedPath, claimField: rule.claimField,
-    }))
-  );
-  // 본문·쿼리 규칙은 method/path 를 test 클로저 안에 숨기고 있어 직접 비교할 수 없다.
-  // 태그·필드·클레임만 맞추고, 클로저가 프로파일이 적은 라우트를 실제로 받는지 확인한다.
-  for (const [rules, declared] of [
-    [im.IDENTITY_BODY_RULES, juice.identity.bodyRules],
-    [im.IDENTITY_QUERY_RULES, juice.identity.queryRules],
-  ]) {
-    assert.equal(rules.length, declared.length);
-    rules.forEach((rule, index) => {
-      assert.equal(rule.tag, declared[index].tag);
-      assert.equal(rule.field, declared[index].field);
-      assert.equal(rule.claimField, declared[index].claimField);
-      assert.equal(rule.test(declared[index].method, declared[index].normalizedPath), true,
-        `${rule.tag} 의 test 가 프로파일이 선언한 라우트를 받지 않는다`);
-    });
-  }
+  // identityMismatch 도 프로파일을 읽는다 — 보장은 characterizeIdentityMismatch 로.
 
   const de = require("../lib/deceptionEngine");
   assert.deepEqual(juice.deception.apiPathPrefixes, ["/rest/", "/api/"]);

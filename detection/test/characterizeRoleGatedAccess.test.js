@@ -7,8 +7,19 @@ const path = require("node:path");
 const schemaDir = fs.mkdtempSync(path.join(os.tmpdir(), "characterize-rolegated-"));
 process.env.DETECTION_STORE_DB = path.join(schemaDir, "detection.sqlite3");
 
-const { checkRoleGatedAccess, isHardcodedSensitiveRoute } = require("../lib/roleGatedAccess");
+const {
+  checkRoleGatedAccess: checkRoleGated,
+  isHardcodedSensitiveRoute,
+} = require("../lib/roleGatedAccess");
 const schemaLearning = require("../lib/schemaLearning");
+const { loadSiteProfile } = require("../lib/siteProfile");
+
+const profileAt = (id) =>
+  loadSiteProfile(path.join(__dirname, "..", "config", "site-profiles", `${id}.json`));
+
+// juice-shop 프로파일을 주입하면 아래 단정은 한 글자도 바뀌지 않고 통과해야 한다.
+const JUICE_PROFILE = profileAt("juice-shop");
+const checkRoleGatedAccess = (args) => checkRoleGated({ ...args, profile: JUICE_PROFILE });
 
 after(() => fs.rmSync(schemaDir, { recursive: true, force: true }));
 
