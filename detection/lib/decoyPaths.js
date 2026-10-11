@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 // Defense 쪽 미끼 경로를 Detection 에서도 알아보기 위한 공용 판별.
-// 원본은 shared/decoy-catalog.json 이고 이 사본은 scripts/sync-decoy-catalog.sh 가 만든다.
+// 원본은 shared/decoy-catalog.json 이고 이 사본은 scripts/sync-shared.sh 가 만든다.
 const DEFAULT_CATALOG_PATH = path.join(__dirname, "..", "config", "decoy-catalog.json");
 
 function loadDecoyCatalog(catalogPath = process.env.DECOY_CATALOG_PATH || DEFAULT_CATALOG_PATH) {

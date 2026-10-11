@@ -123,19 +123,82 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 `docs/token-gate-plan.md`와 새벽 테스트 기록은 이전 설계의 이력입니다.
 이후 검증 결과는 [진행 기록](docs/token-gate-docker-progress.md)에 이어 기록합니다.
 
-## 새 사이트 추가 (미끼 경로 카탈로그, 2026-10-11)
+## 새 사이트 추가 (2026-10-11)
 
-미끼 경로는 `shared/decoy-catalog.json` 한 곳에서만 고친다. 루트 `shared/`는 네 이미지의 빌드 컨텍스트가 모두 하위 디렉터리라 Docker `COPY`로 가져올 수 없으므로, 서비스 트리의 사본을 함께 커밋하고 `scripts/sync-decoy-catalog.sh`로 갱신한다. 사본을 손으로 고치면 `defense/tests/test_decoy_catalog_contract.py`가 CI에서 실패한다.
+새 사이트를 붙이는 데 필요한 것은 **설정 파일 셋**이다. 세 계층 어디에도 사이트 이름
+분기가 없고, 그 사실을 테스트가 강제한다
+(`test_site_adapter.py::test_no_module_branches_on_a_site_name`).
 
-```bash
-# 카탈로그를 고친 뒤
-scripts/sync-decoy-catalog.sh          # 원본 -> 사본 복사
-scripts/sync-decoy-catalog.sh --check  # 불일치 확인
-```
+| 계층 | 고칠 파일 | 없으면 |
+| --- | --- | --- |
+| Detection 탐지 | `detection/config/site-profiles/<대상 ID>.json` | 라우트에 묶인 탐지가 비활성 + 경고 |
+| Defense 오버레이 | `defense/account-response-overlay/config/site-<이름>.toml` | 미끼가 사이트 고유 엔드포인트를 모방하지 않음 |
+| Defense CHeaT | `defense_proxy_v2/profiles.py` 의 프리셋 (`TARGET_PRESET`) | 미로가 대상과 다른 서버 종류로 위장함 |
 
-카탈로그에는 **사이트와 무관한** 미끼의 모양만 둔다: 네임스페이스와 자산, 진입·단계 경로, 세션 별칭 루트, 단서 헤더, 미끼 쿠키·신원. `namespaces.*.detectionSignal`이 Detection의 `decoy_path_hit` 공격 신호 대상을 정한다.
+미끼 경로 자체는 **사이트와 무관**하므로 세 계층이 `shared/decoy-catalog.json` 하나를
+공유한다 — 아래 "미끼 경로 카탈로그" 참조.
 
-**사이트별 차이는 프로파일 1개로 끝난다.** `config/site-generic-example.toml`을 복사해 아래를 채우고 오버레이의 `site_profile`이 그 파일을 가리키게 한다.
+### 1. Detection 프로파일
+
+`detection/config/site-profiles/` 에 **대상 ID 와 같은 이름**으로 JSON 하나를 둔다
+(`TARGET_CHOICES` 의 ID. 예: `ruby-shop` → `ruby-shop.json`). 기동 시 디렉터리 전체를
+읽고 검증에 실패하면 **기동이 실패한다** — 잘못된 프로파일로 절반만 동작하는 탐지보다
+낫다. `generic.json` 은 반드시 있어야 한다(폴백).
+
+해결 순서: `<대상 ID>.json` → `DETECTION_DEFAULT_SITE_PROFILE` → `generic`.
+
+| 키 | 뜻 | 없으면 꺼지는 것 |
+| --- | --- | --- |
+| `loginBruteForce.route`, `.emailField` | 로그인 라우트와 본문 식별자 필드 | 로그인 브루트포스·credential stuffing 집계 |
+| `passwordResetAbuse.resetRoute`, `.resetEmailField` | 비밀번호 재설정 | 재설정 남용 집계 |
+| `passwordResetAbuse.securityQuestionRoute`, `.securityQuestionEmailField` | 보안질문 조회(쿼리스트링) | 보안질문 순회 집계 (**둘은 독립**) |
+| `priceTampering.{quantity,unitPrice,total}Fields`, `.amountTolerance` | 수량·단가·총액 필드명과 허용 오차 | 요청 내부 총액 검산 |
+| `priceIntegrity.{listRoute,itemRoute}`, `.priceDropRatio`, `.idField`, `.priceField`, `.responseEnvelope` | 상품 API 와 응답 엔벌로프 | 관찰가 대비 급락 탐지 |
+| `businessLogic.massAssignmentWhitelist` | 라우트별 허용 필드 | mass-assignment 추가 필드 판정 |
+| `businessLogic.alwaysSuspiciousFields`, `.suspiciousRoleValues`, `.numericFieldRules` | 권한 필드명·역할 값·숫자 범위 | 각각 그 판정 (**라우트 무관** — generic 에도 둔다) |
+| `identity.tokenSources` | Bearer 사용 여부와 인증 쿠키 이름 | 신원·역할 판정 전체 |
+| `identity.claimMap` | JWT 래퍼 키와 id/email/role/바스켓 클레임 위치 | 같음 |
+| `identity.{route,body,query}Rules` | "이 리소스는 내 것이어야 한다" 규칙 | IDOR 판정 |
+| `roleGated.sensitiveRoutes` | 민감 라우트와 요구 역할 | 인가 우회 판정 |
+| `deception.loginPath` | 423 locked 미끼를 돌릴 로그인 경로 | 그 미끼만 |
+| `deception.apiPathPrefixes` | "API 성 요청" 접두어 (뒤 슬래시 필수) | `no_asset_loading` 자동화 신호의 분모 |
+| `deception.plaintextBaitPaths` | 평문 응답에 신호를 심을 경로 | 그 주입만 |
+| `deception.frontendFlavor` | 위장 JS 방언 (`angular-httpclient` / `fetch`) | — (기본은 `angular-httpclient`) |
+
+`_needsConfirmation` 에는 **없는 기능 경로를 전부** 적어야 한다. 하나라도 빠지면 로드가
+실패한다 — 블록 이름을 오타내면 "일부러 끈 것" 으로 위장하지 못한다. generic 에서
+그대로 가져왔을 뿐 이 사이트에서 검증하지 않은 값은 `_genericDefaults` 에 적는다.
+
+#### 설정이 없으면 — 조용히 꺼지지 않는다
+
+1. **기동 로그**가 프로파일·기능·사유를 한 번씩 남긴다(요청마다 찍지 않는다):
+   `[siteProfile] profile=ruby-shop feature=roleGated missing -> disabled (no profile)`
+2. 프로파일이 아예 없는 대상은 대상당 한 번:
+   `[siteProfile] target=legacy has no profile -> using generic; 9 features disabled`
+3. **관리 API** `GET /__detection/api/site-profile-status` 가 해결 결과와 비활성 목록을
+   돌려준다.
+4. **관리 화면**의 "실험 대상" 섹션이 `프로파일 … · 대상 ID로 선택 · N개 기능
+   비활성(프로파일 없음)` 과 기능별 칩을 보여준다.
+
+프로파일 상태는 **점수에 들어가지 않는다.** `blTags` 에 넣으면
+`businessLogicHits` → `scoreBusinessLogicViolation`(가중치 0.12)로 위험도가 바뀌므로
+전용 채널로만 흐른다. `siteProfile.test.js` 가 이 격리를 기계적으로 집행한다.
+
+#### generic 에 무엇을 둘지
+
+> **기능 블록은 지금 코드 경로가 라우트와 무관할 때에만 `generic.json` 에 넣는다.**
+
+라우트 무관한 기능(`priceTampering`, 숫자 범위, 권한 필드명, `identity.tokenSources`/
+`claimMap`, `deception.apiPathPrefixes` 등)은 지금 **모든 대상에서** 돌고 있으므로
+generic 에도 있어야 프로파일 없는 대상의 동작이 보존된다. 라우트에 묶인 기능은 다른
+사이트에서 이미 부동이라 생략해도 결과가 같고, 비활성으로 보고된다.
+`siteProfile.test.js` 와 `test_site_profile_contract.py` 가 양방향으로 강제한다.
+
+### 2. Defense 오버레이 프로파일
+
+`config/site-generic-example.toml` 을 복사해 아래를 채우고 오버레이 TOML 의
+`site_profile` 이 그 파일을 가리키게 한다. 지정하지 않으면 `DEFAULT_SITE_PROFILE`
+환경변수, 그것도 없으면 내장 기본값(`site-juice-shop.toml`)을 쓴다.
 
 | 키 | 뜻 |
 | --- | --- |
@@ -147,12 +210,55 @@ scripts/sync-decoy-catalog.sh --check  # 불일치 확인
 | `decoy_namespaces` | **이 사이트에서 미끼가 차지할 경로 네임스페이스.** 생략하면 카탈로그 값을 쓴다 |
 | `robots_disallow` | robots.txt에 남길 단서. 전부 `decoy_namespaces` 안이어야 한다 |
 | `decoy_brand`, `decoy_admin_email`, `decoy_service`, `decoy_profile_image` | 미끼 화면의 신원 |
+| `challenge_api` | 이 사이트에만 있는 챌린지 API 경로. 비우면 미끼가 404 를 준다 |
+| `synthetic_success` | 미끼가 "성공한 척" 응답할 `{path, kind}` 목록. `kind` 는 코드가 구현한 것만(`ack`, `deluxe_denied`, `empty_basket`, `user_list`, `user_object`) |
+| `account_api_prefixes` | 계정 관련으로 취급할 추가 경로 접두어 |
 
-프로파일 검증은 로드 시점에 실패한다: 모든 경로는 절대경로여야 하고 `//`·`\`·개행을 포함할 수 없으며, `robots_disallow`는 전부 선언한 네임스페이스 안에 있어야 하고 `login_paths`는 네임스페이스와 겹칠 수 없다. 코드에는 `juice`/`ruby` 분기도 `/ftp`·`/ops` 리터럴도 없다.
+프로파일 검증은 로드 시점에 실패한다: 모든 경로는 절대경로여야 하고 `//`·`\`·개행을
+포함할 수 없으며, `robots_disallow` 는 전부 선언한 네임스페이스 안에 있어야 하고
+`login_paths`·`synthetic_success`·`challenge_api` 는 네임스페이스와 겹칠 수 없다.
+모르는 `kind` 와 중복 경로도 거부한다. 코드에는 사이트 이름 분기도 `/ftp`·`/ops`
+리터럴도 없다 — 예전의 `site_adapter` 닫힌 enum 은 제거됐다.
 
-CHeaT sidecar의 미로 경로는 별개 장치인 `defense_proxy_v2/profiles.py`의 프리셋(`TARGET_PRESET`, `TARGET_PROFILE`)으로 정한다. 카탈로그는 그 진입 경로를 선언만 하고, 두 값의 일치는 계약 테스트가 강제한다.
+### 3. CHeaT sidecar 프리셋
 
-**이 절차의 범위는 Defense(계정 오버레이·CHeaT)까지다.** Detection의 비즈니스 로직 탐지 7개 모듈(`businessLogicSignatures.js`, `roleGatedAccess.js`, `priceIntegrity.js`, `priceTampering.js`, `loginBruteForce.js`, `passwordResetAbuse.js`, `identityMismatch.js`)은 아직 Juice Shop의 라우트·JWT 클레임·쿠키 이름에 묶여 있고 `detection/config/policy.json`에 이를 바꿀 설정 항목이 없다. 즉 **새 사이트를 붙여도 Defense의 미끼·오버레이는 동작하지만 Detection의 비즈니스 로직 탐지는 그 사이트에서 조용히 무력화된다.** 현황은 [리팩토링 인벤토리 1-D](../docs/refactor-inventory.md#1-d-juice-shop-하드코딩-목록)에 모듈별로 정리했고, 설정화는 후속 작업이다.
+미로와 위장 배너는 별개 장치인 `defense_proxy_v2/profiles.py` 의 프리셋으로 정한다
+(`TARGET_PRESET`, 필드만 덮어쓰는 `TARGET_PROFILE` JSON, 개별 `T21_*` env).
+대상 스택과 맞는 프리셋을 고른다 — 지금은 `apache-php`(기본)와 `nginx-fastapi` 다.
+
+프리셋 안의 세 값은 다른 곳에도 적혀 있고, 일치를 계약 테스트
+(`defense/tests/test_cheat_path_contract.py`)가 강제한다:
+`migration.api_prefix` ↔ 카탈로그의 `namespaces.detection.roots[0]`,
+`migration.login_path` ↔ 그 사이트 TOML 의 `login_paths[0]`,
+`migration.config_path` 와 `t21_version_path` 기본값 ↔ 같은 TOML 의
+`ordinary_api_exact`. 런타임에 읽어 파생시키지 않는 이유는 CHeaT 의 Dockerfile `COPY`
+가 파일 단위 allowlist 라 그 파일들이 빌드 컨텍스트 밖이기 때문이다.
+
+### 미끼 경로 카탈로그
+
+미끼 경로는 `shared/decoy-catalog.json` 한 곳에서만 고친다. 루트 `shared/` 는 네 이미지의
+빌드 컨텍스트가 모두 하위 디렉터리라 Docker `COPY` 로 가져올 수 없으므로, 서비스 트리의
+사본을 함께 커밋하고 `scripts/sync-shared.sh` 로 갱신한다.
+
+```bash
+# 카탈로그를 고친 뒤
+scripts/sync-shared.sh          # 원본 -> 사본 복사
+scripts/sync-shared.sh --check  # 불일치 확인 (CI 단계로도 돈다)
+```
+
+사본을 손으로 고치면 `defense/tests/test_shared_sources.py` 가 CI 에서 실패한다(사본
+동일성). 세 서비스가 그 선언을 같은 뜻으로 읽는지는
+`defense/tests/test_decoy_catalog_contract.py` 가 본다(의미 일치).
+
+카탈로그에는 **사이트와 무관한** 미끼의 모양만 둔다: 네임스페이스와 자산, 진입·단계 경로,
+세션 별칭 루트, 단서 헤더, 미끼 쿠키·신원. `namespaces.*.detectionSignal` 이 Detection 의
+`decoy_path_hit` 공격 신호 대상을 정하고, `namespaces.detection.roots[0]` 은 Detection 의
+트랩 네임스페이스와 CHeaT 의 `migration.api_prefix` 양쪽이 읽는 정본이다.
+
+### 되돌리기
+
+커밋 단위 revert 와 기능 플래그는 [`docs/site-generalization-rollback.md`](../docs/site-generalization-rollback.md)
+에 정리했다.
 
 ## 영속 저장소 (2026-10-11)
 

@@ -1,5 +1,5 @@
 {
-  "_source": "shared/decoy-catalog.json — 사본은 scripts/sync-decoy-catalog.sh 로만 갱신한다",
+  "_source": "shared/decoy-catalog.json — 사본은 scripts/sync-shared.sh 로만 갱신한다",
   "schemaVersion": 1,
   "namespaces": {
     "overlay": {

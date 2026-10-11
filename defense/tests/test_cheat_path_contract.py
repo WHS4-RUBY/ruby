@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CHEAT = ROOT / 'defense/CHeat-defense-proxy/defense_proxy_v2'
 OVERLAY_CONFIG = ROOT / 'defense/account-response-overlay/config'
 
-# 프리셋 이름과 그 프리셋이 흉내 내는 대상의 사이트 프로파일.
+# 프리셋 이름과 그 프리셋이 위장하는 대상의 사이트 프로파일.
 PRESET_SITES = {
     'apache-php': 'site-juice-shop.toml',
     'nginx-fastapi': 'site-ruby-shop.toml',
