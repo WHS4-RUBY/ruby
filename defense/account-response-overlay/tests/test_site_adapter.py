@@ -109,4 +109,6 @@ def test_the_site_object_identity_comes_from_the_profile_not_the_package():
     site = get_site(settings)
     assert isinstance(site, ProfileSite)
     assert site.brand == settings.profile.decoy_brand
+    # 출하된 프로파일은 카탈로그와 같은 네임스페이스를 선언하므로 값이 같다.
+    # 네임스페이스를 옮긴 경우는 test_site_capabilities 가 본다.
     assert site.docs_path == decoy_paths.LEGACY

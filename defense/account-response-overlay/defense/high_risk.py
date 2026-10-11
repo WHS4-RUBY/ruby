@@ -13,6 +13,7 @@ from .detector import sign_headers
 from .gateway_contract import isolation_headers
 from .model import page
 from .site_profile import SiteProfile
+from .sites import docs_path_for
 
 CONSOLE_CARDS = (
     ('Account Registry', RECOVERY, 'Review account records and pending access references.'),
@@ -24,9 +25,11 @@ CONSOLE_CARDS = (
 CONSOLE_BRAND = IDENTITY['consoleBrand']
 
 
-def _local_page(title: str, body: str, *, head: bool) -> Response:
+def _local_page(title: str, body: str, *, head: bool, docs_path: str) -> Response:
+    # docs_path 를 인자로 받는다. 예전에는 카탈로그의 LEGACY 를 그대로 써서, 프로파일이
+    # 미끼 네임스페이스를 옮겨도 이 링크만 미끼 밖을 가리켰다(sites.docs_path_for 참고).
     response = page(title, body, brand=CONSOLE_BRAND,
-                    home_label='Dashboard', docs_path=LEGACY)
+                    home_label='Dashboard', docs_path=docs_path)
     response.headers.update({
         'Cache-Control': 'no-store, private',
         'X-Content-Type-Options': 'nosniff',
@@ -39,7 +42,7 @@ def _local_page(title: str, body: str, *, head: bool) -> Response:
     return response
 
 
-def _console(*, head: bool) -> Response:
+def _console(*, head: bool, docs_path: str) -> Response:
     cards = ''.join(
         '<a class="console-card" href="' + escape(path, quote=True) + '">'
         '<span class="console-label">MODULE ' + f'{index:02d}' + '</span>'
@@ -62,10 +65,10 @@ def _console(*, head: bool) -> Response:
         'records and pending references.</p><nav class="console-grid" aria-label="Operations modules">'
         + cards + '</nav>'
     )
-    return _local_page(CONSOLE_BRAND, body, head=head)
+    return _local_page(CONSOLE_BRAND, body, head=head, docs_path=docs_path)
 
 
-def _audit_index(*, head: bool) -> Response:
+def _audit_index(*, head: bool, docs_path: str) -> Response:
     # Synthetic index only. The defender's private audit database is never read here.
     rows = (
         ('Account reconciliation', RECOVERY, 'Pending review'),
@@ -78,7 +81,7 @@ def _audit_index(*, head: bool) -> Response:
     body = ('<p>Retained operations events are indexed by their source records.</p>'
             '<table><thead><tr><th>Event</th><th>Status</th><th>Reference</th></tr></thead>'
             '<tbody>' + table + '</tbody></table>')
-    return _local_page('Audit Logs', body, head=head)
+    return _local_page('Audit Logs', body, head=head, docs_path=docs_path)
 
 
 def _inner_response(result: httpx.Response, *, head: bool) -> Response:
@@ -136,9 +139,9 @@ class HighRiskIsolation:
         path, method = request.url.path, request.method
         head = method == 'HEAD'
         if method in {'GET', 'HEAD'} and path in {'/', '/index.html', SERVICE, SERVICE + '/'}:
-            return _console(head=head)
+            return _console(head=head, docs_path=docs_path_for(self.profile))
         if method in {'GET', 'HEAD'} and path in {AUDIT, AUDIT + '/'}:
-            return _audit_index(head=head)
+            return _audit_index(head=head, docs_path=docs_path_for(self.profile))
         if is_overlay_decoy(path):
             return await self._decoy(request, actor, target, body)
         if path == LURE_SCRIPT and method in {'GET', 'HEAD'}:

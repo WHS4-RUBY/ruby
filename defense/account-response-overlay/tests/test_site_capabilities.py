@@ -183,12 +183,33 @@ def test_the_account_family_needs_a_context():
 # 미끼 문서 경로의 출처
 # ---------------------------------------------------------------------------
 
-def test_the_docs_path_source():
-    """지금은 공용 카탈로그에서 온다 — 프로파일의 네임스페이스 선언을 보지 않는다."""
+def test_the_docs_path_stays_inside_the_declared_namespace():
+    """미끼 화면의 Documents 링크가 프로파일이 선언한 네임스페이스 안에 있어야 한다.
+
+    출하된 세 프로파일은 모두 /ftp·/ops 를 선언하므로 카탈로그 값과 같다 — 동작 보존.
+    """
+    from dataclasses import replace as dataclass_replace
+    from defense.decoy_paths import prefixed
+    from defense.sites import docs_path_for
+
     settings = load_decoy_config(str(ROOT / 'config/decoy-production-ruby-v2.toml'))
     site = get_site(settings)
     assert isinstance(site, ProfileSite)
     assert site.docs_path == decoy_paths.LEGACY
+
+    for profile in (JUICE, RUBY):
+        assert docs_path_for(profile) == decoy_paths.LEGACY, profile.login_path
+
+    # 네임스페이스를 옮긴 사이트에서는 링크도 따라 옮겨야 한다. 예전에는 카탈로그의
+    # /ftp 가 그대로 남아 미끼 밖을 가리켰다.
+    moved = dataclass_replace(JUICE, decoy_namespaces=('/archive',),
+                              robots_disallow=('/archive/records',))
+    assert docs_path_for(moved) == '/archive/records'
+    assert any(prefixed(docs_path_for(moved), root) for root in moved.decoy_namespaces)
+
+    # robots 단서가 없으면 네임스페이스 루트를 쓴다 — 어쨌든 미끼 안이다.
+    bare = dataclass_replace(JUICE, decoy_namespaces=('/archive',), robots_disallow=())
+    assert docs_path_for(bare) == '/archive'
 
 
 # ---------------------------------------------------------------------------
