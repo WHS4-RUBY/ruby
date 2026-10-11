@@ -53,10 +53,7 @@ test("juice-shop 프로파일은 지금 살아 있는 모듈 상수와 정확히
 
   // priceTampering 도 프로파일을 읽는다 — 보장은 characterizePriceTampering 으로.
 
-  const pi = require("../lib/priceIntegrity");
-  assert.equal(juice.priceIntegrity.listRoute, pi.PRODUCTS_LIST_PATH);
-  assert.equal(juice.priceIntegrity.itemRoute, pi.PRODUCTS_ITEM_PATH);
-  assert.equal(juice.priceIntegrity.priceDropRatio, pi.PRICE_DROP_RATIO);
+  // priceIntegrity 도 프로파일을 읽는다 — 보장은 characterizePriceIntegrity 로.
 
   const bl = require("../lib/businessLogicSignatures");
   assert.deepEqual(

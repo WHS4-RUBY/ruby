@@ -45,11 +45,19 @@
  *   - computeBusinessLogicTags()에서 PUT /api/Products/:id 요청마다 checkPriceDelta() 호출.
  */
 
-const PRODUCTS_LIST_PATH = '/api/Products';
-const PRODUCTS_ITEM_PATH = '/api/Products/:id';
-
-// 캐시된 관찰가 대비 이 비율 이하로 떨어지면 의심(기본: 50% 이상 하락)
-const PRICE_DROP_RATIO = 0.5;
+/**
+ * 상품 라우트, 응답 엔벌로프, id·price 필드명, 하락 임계 비율은 모두 사이트마다
+ * 다르므로 프로파일의 `priceIntegrity` 블록에서 읽는다.
+ *
+ * 엔벌로프는 일반화하지 않고 지금의 세 분기를 그대로 둔다 — itemsKey 에 배열이
+ * 있는 경우, itemsKey 에 객체가 있는 경우, 본문이 bareObjectHasField 를 가진 맨몸
+ * 객체인 경우. JSONPath 같은 표현식 언어를 들이면 프로파일이 코드가 된다.
+ *
+ * 프로파일에 블록이 없으면 기능이 꺼진다. 라우트는 알지만 엔벌로프를 모르는 상태로
+ * **반쯤 채우면 더 나쁘다** — 캐시가 영원히 비어 checkPriceDelta 가 항상
+ * {hit:false} 를 돌려주는 조용한 무력화가 된다. 그래서 ruby-shop 프로파일은
+ * 라우트까지 알면서도 이 블록을 비워 두고 비활성으로 보고한다.
+ */
 
 // productId(문자열) -> 마지막으로 관찰된 price(숫자)
 const priceCache = new Map();
@@ -66,25 +74,34 @@ function recordObservedPrice(productId, price) {
 }
 
 /**
- * Juice Shop 상품 API JSON 응답에서 {id, price} 쌍을 찾아 캐시에 반영한다.
- * 단일 상품 응답({id,price,...} 또는 {data:{id,price,...}})과 목록 응답({data:[{...},...]})
- * 둘 다 지원한다.
+ * 상품 API JSON 응답에서 {id, price} 쌍을 찾아 캐시에 반영한다.
+ * 프로파일의 responseEnvelope 가 정하는 세 모양을 받는다:
+ * 목록(`{<itemsKey>: [...]}`), 단일(`{<itemsKey>: {...}}`), 맨몸(`{<idField>, ...}`).
+ *
+ * @param {object} parsedBody
+ * @param {object|null} profile 활성 사이트 프로파일(`req.siteProfile`)
  */
-function ingestProductResponseBody(parsedBody) {
+function ingestProductResponseBody(parsedBody, profile) {
+  const config = profile?.priceIntegrity;
+  if (!config) return;
   if (!parsedBody || typeof parsedBody !== 'object') return;
 
+  const { itemsKey, bareObjectHasField } = config.responseEnvelope;
+  // itemsKey 가 빈 문자열이면 본문 자체가 컨테이너다.
+  const container = itemsKey ? parsedBody[itemsKey] : parsedBody;
+
   let candidates = [];
-  if (Array.isArray(parsedBody.data)) {
-    candidates = parsedBody.data;
-  } else if (parsedBody.data && typeof parsedBody.data === 'object') {
-    candidates = [parsedBody.data];
-  } else if (typeof parsedBody.id !== 'undefined') {
+  if (Array.isArray(container)) {
+    candidates = container;
+  } else if (container && typeof container === 'object' && itemsKey) {
+    candidates = [container];
+  } else if (typeof parsedBody[bareObjectHasField] !== 'undefined') {
     candidates = [parsedBody];
   }
 
   for (const item of candidates) {
-    if (item && typeof item === 'object' && typeof item.id !== 'undefined') {
-      recordObservedPrice(item.id, item.price);
+    if (item && typeof item === 'object' && typeof item[config.idField] !== 'undefined') {
+      recordObservedPrice(item[config.idField], item[config.priceField]);
     }
   }
 }
@@ -104,9 +121,14 @@ function extractTrailingNumericId(url) {
 }
 
 /**
+ * @param {string|number} productId
+ * @param {number} submittedPrice
+ * @param {object|null} profile 활성 사이트 프로파일(`req.siteProfile`)
  * @returns {{hit:boolean, observed?:number, submitted?:number, dropRatio?:number}}
  */
-function checkPriceDelta(productId, submittedPrice) {
+function checkPriceDelta(productId, submittedPrice, profile) {
+  const config = profile?.priceIntegrity;
+  if (!config) return { hit: false };
   if (productId === undefined || productId === null) return { hit: false };
   if (typeof submittedPrice !== 'number' || !Number.isFinite(submittedPrice)) return { hit: false };
 
@@ -114,16 +136,13 @@ function checkPriceDelta(productId, submittedPrice) {
   if (typeof observed !== 'number') return { hit: false }; // 기준값 없으면 판단 보류 — 오탐보다 미탐을 택한다
 
   const dropRatio = submittedPrice / observed;
-  if (submittedPrice < observed && dropRatio <= PRICE_DROP_RATIO) {
+  if (submittedPrice < observed && dropRatio <= config.priceDropRatio) {
     return { hit: true, observed, submitted: submittedPrice, dropRatio };
   }
   return { hit: false, observed, submitted: submittedPrice, dropRatio };
 }
 
 module.exports = {
-  PRODUCTS_LIST_PATH,
-  PRODUCTS_ITEM_PATH,
-  PRICE_DROP_RATIO,
   recordObservedPrice,
   ingestProductResponseBody,
   extractTrailingNumericId,

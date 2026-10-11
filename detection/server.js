@@ -58,8 +58,6 @@ const {
   ingestProductResponseBody,
   extractTrailingNumericId,
   checkPriceDelta,
-  PRODUCTS_LIST_PATH,
-  PRODUCTS_ITEM_PATH,
 } = require("./lib/priceIntegrity");
 const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
@@ -405,10 +403,18 @@ function computeBusinessLogicTags(req) {
   ];
   if (priceResult.hit) tags.push("price-tampering:total-mismatch");
 
-  if (String(req.method).toUpperCase() === "PUT" && normalizedPath === PRODUCTS_ITEM_PATH) {
+  // 상품 쓰기 라우트와 가격 필드명도 프로파일이 정한다. 블록이 없으면 이 분기 전체가
+  // 꺼지고, 꺼진 사실은 기동 경고와 관리 API 로 드러난다.
+  const integrity = req.siteProfile?.priceIntegrity;
+  if (integrity && String(req.method).toUpperCase() === "PUT" &&
+      normalizedPath === integrity.itemRoute) {
     const productId = extractTrailingNumericId(req.originalUrl);
-    const submittedPrice = req.body && typeof req.body === "object" ? req.body.price : undefined;
-    if (checkPriceDelta(productId, submittedPrice).hit) tags.push("price-tampering:delta");
+    const submittedPrice = req.body && typeof req.body === "object"
+      ? req.body[integrity.priceField]
+      : undefined;
+    if (checkPriceDelta(productId, submittedPrice, req.siteProfile).hit) {
+      tags.push("price-tampering:delta");
+    }
   }
   return [...new Set(tags)];
 }
@@ -1553,13 +1559,15 @@ const detectionHook = {
     }
 
     const normalizedPath = normalizePath(req.originalUrl);
+    const priceIntegrity = req.siteProfile?.priceIntegrity;
     if (
+      priceIntegrity &&
       String(req.method).toUpperCase() === "GET" &&
-      (normalizedPath === PRODUCTS_LIST_PATH || normalizedPath === PRODUCTS_ITEM_PATH) &&
+      (normalizedPath === priceIntegrity.listRoute || normalizedPath === priceIntegrity.itemRoute) &&
       contentType.includes("application/json")
     ) {
       try {
-        ingestProductResponseBody(JSON.parse(responseBuffer.toString("utf8")));
+        ingestProductResponseBody(JSON.parse(responseBuffer.toString("utf8")), req.siteProfile);
       } catch {
         // 가격 기준 캐시는 관찰 가능한 정상 JSON 응답만 best-effort로 반영한다.
       }

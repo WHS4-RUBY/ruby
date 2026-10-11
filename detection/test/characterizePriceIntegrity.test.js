@@ -1,16 +1,24 @@
 const assert = require("node:assert/strict");
 const { beforeEach, test } = require("node:test");
 
+const path = require("node:path");
+
 const {
   recordObservedPrice,
-  ingestProductResponseBody,
+  ingestProductResponseBody: ingest,
   extractTrailingNumericId,
-  checkPriceDelta,
+  checkPriceDelta: checkDelta,
   resetPriceCache,
-  PRODUCTS_LIST_PATH,
-  PRODUCTS_ITEM_PATH,
-  PRICE_DROP_RATIO,
 } = require("../lib/priceIntegrity");
+const { loadSiteProfile } = require("../lib/siteProfile");
+
+const profileAt = (id) =>
+  loadSiteProfile(path.join(__dirname, "..", "config", "site-profiles", `${id}.json`));
+
+// juice-shop 프로파일을 주입하면 아래 단정은 한 글자도 바뀌지 않고 통과해야 한다.
+const JUICE_PROFILE = profileAt("juice-shop");
+const ingestProductResponseBody = (body) => ingest(body, JUICE_PROFILE);
+const checkPriceDelta = (id, price) => checkDelta(id, price, JUICE_PROFILE);
 
 /**
  * priceIntegrity.js 의 특성화 테스트.
@@ -22,10 +30,16 @@ const {
 
 beforeEach(() => resetPriceCache());
 
-test("특성화: 라우트 상수와 임계 비율", () => {
-  assert.equal(PRODUCTS_LIST_PATH, "/api/Products");
-  assert.equal(PRODUCTS_ITEM_PATH, "/api/Products/:id");
-  assert.equal(PRICE_DROP_RATIO, 0.5);
+// 상수였던 값이 프로파일로 옮겨갔다. 같은 값인지 여기서 고정한다 — 이것이
+// 리팩토링 전 모듈 상수와 juice-shop 프로파일이 같다는 증거다.
+test("특성화: 라우트와 임계 비율이 리팩토링 전 상수와 같다", () => {
+  assert.equal(JUICE_PROFILE.priceIntegrity.listRoute, "/api/Products");
+  assert.equal(JUICE_PROFILE.priceIntegrity.itemRoute, "/api/Products/:id");
+  assert.equal(JUICE_PROFILE.priceIntegrity.priceDropRatio, 0.5);
+  assert.equal(JUICE_PROFILE.priceIntegrity.idField, "id");
+  assert.equal(JUICE_PROFILE.priceIntegrity.priceField, "price");
+  assert.deepEqual(JUICE_PROFILE.priceIntegrity.responseEnvelope,
+    { itemsKey: "data", bareObjectHasField: "id" });
 });
 
 test("특성화: 쓸 수 있는 가격만 캐시에 들어간다", () => {
@@ -143,4 +157,77 @@ test("특성화: 같은 상품의 관찰가는 마지막 값으로 갱신된다"
   assert.equal(checkPriceDelta(1, 10).hit, true);
   // 30 은 75% — hit 아님.
   assert.equal(checkPriceDelta(1, 30).hit, false);
+});
+
+// ---------------------------------------------------------------------------
+// 프로파일화 이후
+// ---------------------------------------------------------------------------
+
+const GENERIC_PROFILE = profileAt("generic");
+const RUBY_PROFILE = profileAt("ruby-shop");
+
+test("다른 사이트의 엔벌로프·필드명·임계 비율로도 같은 판정이 나온다", () => {
+  const otherSite = {
+    ...GENERIC_PROFILE,
+    priceIntegrity: {
+      listRoute: "/api/products",
+      itemRoute: "/api/products/:id",
+      priceDropRatio: 0.8,
+      idField: "product_id",
+      priceField: "unit_price",
+      responseEnvelope: { itemsKey: "items", bareObjectHasField: "product_id" },
+    },
+  };
+
+  // 목록: {items: [...]}
+  ingest({ items: [{ product_id: 9, unit_price: 100 }] }, otherSite);
+  assert.equal(checkDelta(9, 70, otherSite).hit, true, "70% 는 임계 0.8 이하라 hit");
+  assert.equal(checkDelta(9, 90, otherSite).hit, false);
+
+  // 맨몸: {product_id, unit_price}
+  resetPriceCache();
+  ingest({ product_id: 10, unit_price: 100 }, otherSite);
+  assert.equal(checkDelta(10, 50, otherSite).hit, true);
+
+  // juice-shop 의 엔벌로프·필드명은 이 프로파일에서 잡히지 않는다.
+  resetPriceCache();
+  ingest({ data: [{ id: 11, price: 100 }] }, otherSite);
+  assert.deepEqual(checkDelta(11, 10, otherSite), { hit: false });
+});
+
+// itemsKey 가 빈 문자열이면 본문 자체가 컨테이너다 — 응답이 맨 배열인 API 를 위해.
+test("itemsKey 가 빈 문자열이면 본문 자체를 컨테이너로 본다", () => {
+  const bareArray = {
+    ...GENERIC_PROFILE,
+    priceIntegrity: {
+      listRoute: "/api/products",
+      itemRoute: "/api/products/:id",
+      priceDropRatio: 0.5,
+      idField: "id",
+      priceField: "price",
+      responseEnvelope: { itemsKey: "", bareObjectHasField: "id" },
+    },
+  };
+  ingest([{ id: 1, price: 100 }, { id: 2, price: 200 }], bareArray);
+  assert.equal(checkDelta(1, 10, bareArray).hit, true);
+  assert.equal(checkDelta(2, 20, bareArray).hit, true);
+
+  resetPriceCache();
+  ingest({ id: 3, price: 100 }, bareArray);
+  assert.equal(checkDelta(3, 10, bareArray).hit, true);
+});
+
+// 규칙 3: ruby-shop 은 라우트(/api/products, /api/products/{product_id})를 알면서도
+// 이 블록을 비워 둔다. 엔벌로프와 필드명 근거가 없는데 반쯤 채우면 캐시가 영원히
+// 비어 checkPriceDelta 가 항상 {hit:false} 를 돌려주는 **조용한 무력화**가 된다.
+test("프로파일에 설정이 없으면 비활성이고 그 사실이 드러난다", () => {
+  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE, null, undefined, {}]) {
+    resetPriceCache();
+    ingest({ data: [{ id: 1, price: 100 }] }, profile);
+    assert.deepEqual(checkDelta(1, 10, profile), { hit: false });
+  }
+  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+    assert.ok(profile.disabledFeatures.includes("priceIntegrity"),
+      `${profile.profileId} 가 priceIntegrity 비활성을 선언하지 않았다`);
+  }
 });
