@@ -3,11 +3,14 @@
 from contextlib import asynccontextmanager
 import asyncio
 from dataclasses import dataclass, field
+import hashlib
+import hmac
 import json
+import math
 import os
 import re
 import time
-from urllib.parse import quote, unquote, urlsplit, urlunsplit
+from urllib.parse import quote, quote_from_bytes, unquote, urlsplit, urlunsplit
 
 import httpx
 import websockets
@@ -19,7 +22,9 @@ from .dashboard import router as dashboard_router
 from .dashboard import DASHBOARD_SESSION_COOKIE, auth_manager
 from .decoy_routing import (
     ACTION_HEADER, BLOCK_ACTIONS, STRATEGIES_HEADER,
-    applied_decoy_strategies, decoy_action, decoy_plan_header, parse_decoy_upstreams,
+    applied_decoy_strategies, decoy_action, decoy_plan_header,
+    is_maze_decoy_request, parse_decoy_upstreams, parse_maze_extra_roots,
+    parse_maze_excluded_roots,
 )
 from .monitoring import event_store
 from .overlay_routing import (
@@ -32,16 +37,38 @@ from .strategies.registry import STRATEGY_REGISTRY
 from . import target_selection, path_alias, token_gate
 
 TOKEN_GATE = token_gate.TokenGateConfig.from_env()
-PATH_ALIAS = path_alias.PathAliasConfig.from_env()
+_TARGET_ALIAS_CONFIGS = path_alias.target_configs_from_env()
+# A mapped deployment selects one document per app.  Keep the original globals for
+# single-target installations and tests that configure the legacy route file.
+PATH_ALIAS = (path_alias.PathAliasConfig() if _TARGET_ALIAS_CONFIGS
+              else path_alias.PathAliasConfig.from_env())
 PATH_ALIAS_TABLE = path_alias.PathAliasTable(PATH_ALIAS)
+PATH_ALIAS_TARGETS = {target_id: (cfg, path_alias.PathAliasTable(cfg))
+                      for target_id, cfg in _TARGET_ALIAS_CONFIGS.items()}
 if PATH_ALIAS.mode != "off":
     path_alias.emit(PATH_ALIAS_TABLE.describe())
+for target_id, (_, table) in PATH_ALIAS_TARGETS.items():
+    path_alias.emit({**table.describe(), "target_id": target_id})
 from .target_selection import TargetSelectionError, resolve_target_url
+
+
+def _alias_for_target(target_id: str) -> tuple[path_alias.PathAliasConfig, path_alias.PathAliasTable] | None:
+    if PATH_ALIAS_TARGETS:
+        return PATH_ALIAS_TARGETS.get(target_id)
+    if PATH_ALIAS_TABLE.applies_to(target_id):
+        return PATH_ALIAS, PATH_ALIAS_TABLE
+    return None
 
 
 TARGET_URL = target_selection.target_selector.choices[target_selection.target_selector.default_id]
 DECOY_UPSTREAMS = parse_decoy_upstreams(
     os.getenv("DECOY_UPSTREAM_CHOICES"), target_selection.target_selector.choices,
+)
+MAZE_EXTRA_ROOTS = parse_maze_extra_roots(
+    os.getenv("DECOY_MAZE_EXTRA_ROOT_CHOICES"), target_selection.target_selector.choices,
+)
+MAZE_EXCLUDED_ROOTS = parse_maze_excluded_roots(
+    os.getenv("DECOY_MAZE_EXCLUDED_ROOT_CHOICES"), target_selection.target_selector.choices,
 )
 OVERLAY_UPSTREAMS = parse_overlay_upstreams(
     os.getenv("OVERLAY_UPSTREAM_CHOICES"), target_selection.target_selector.choices,
@@ -82,6 +109,9 @@ _RESPONSE_SKIP = {
     "server",
     "x-defense-signal",
     "x-defense-applied",
+    "x-ruby-resolved-url",
+    "x-ruby-resolved-url-sig",
+    "x-ruby-overlay-active",
     ACTION_HEADER,
     STRATEGIES_HEADER,
 }
@@ -100,6 +130,9 @@ _DEFENSE_INTERNAL_HEADERS = {
     "x-ruby-candidate-id",
     "x-ruby-client-flow-id",
     "x-ruby-defense-tier",
+    "x-ruby-resolved-url",
+    "x-ruby-resolved-url-sig",
+    "x-ruby-overlay-active",
     "x-defense-signal",
     ACTION_HEADER,
     STRATEGIES_HEADER,
@@ -110,8 +143,20 @@ _CONDITIONAL_REQUEST_HEADERS = {"if-none-match", "if-modified-since"}
 _REWRITTEN_RESPONSE_SKIP = _RESPONSE_SKIP | {"etag", "last-modified", "cache-control"}
 _STREAM_RESPONSE_SKIP = _HOP_BY_HOP | {
     "date", "server", "x-defense-signal", "x-defense-applied",
+    "x-ruby-resolved-url", "x-ruby-resolved-url-sig", "x-ruby-overlay-active",
     ACTION_HEADER, STRATEGIES_HEADER,
 }
+_INTERNAL_RESPONSE_HEADERS = frozenset({
+    b"x-ruby-resolved-url", b"x-ruby-resolved-url-sig", b"x-ruby-overlay-active",
+})
+_DETECTION_REQUEST_ID = re.compile(
+    r"request:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
+_POLICY_GATE_BODY_LIMIT = 8192
+_POLICY_GATE_SIGNATURE = re.compile(r"[0-9a-f]{64}\Z")
+_POLICY_GATE_FIELDS = frozenset({
+    "targetId", "runId", "clientId", "riskScore", "confirmedAttackScore",
+    "plan", "requestId", "issuedAt",
+})
 _WEBSOCKET_SKIP = _HOP_BY_HOP | {
     "sec-websocket-accept",
     "sec-websocket-extensions",
@@ -135,6 +180,118 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="RUBY Defense Proxy", lifespan=lifespan)
+
+
+def _sign_policy_gate_response(response: Response, request_body: bytes, tier: str | None) -> None:
+    """Bind the private gate result to the exact request and visible controls."""
+    fields = (
+        "ruby:policy-gate-response:v1",
+        hashlib.sha256(request_body).hexdigest(),
+        str(response.status_code),
+        tier or "",
+        response.headers.get("x-defense-delay-ms", ""),
+        response.headers.get("x-defense-signal", ""),
+    )
+    response.headers["X-Defense-Policy-Response-Signature"] = hmac.new(
+        OVERLAY_DETECTOR_KEY, "\n".join(fields).encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
+
+@app.post("/__defense/policy-gate")
+async def policy_gate(request: Request):
+    """Apply pre-route defenses to a Detection-owned, locally served trap.
+
+    The signed body contains policy identity only. Trap paths, credentials, and
+    request bodies never cross this private control route.
+    """
+    if len(OVERLAY_DETECTOR_KEY) < 32:
+        return Response(status_code=503)
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        if not content_length.isdecimal():
+            return Response(status_code=400)
+        if int(content_length) > _POLICY_GATE_BODY_LIMIT:
+            return Response(status_code=413)
+    signature = request.headers.get("x-defense-policy-signature", "")
+    if not _POLICY_GATE_SIGNATURE.fullmatch(signature):
+        return Response(status_code=403)
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > _POLICY_GATE_BODY_LIMIT:
+            return Response(status_code=413)
+    expected = hmac.new(OVERLAY_DETECTOR_KEY, body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return Response(status_code=403)
+    try:
+        payload = json.loads(body)
+    except (TypeError, ValueError):
+        return Response(status_code=400)
+    if not isinstance(payload, dict) or payload.keys() != _POLICY_GATE_FIELDS:
+        return Response(status_code=400)
+    client_id = payload["clientId"]
+    request_id = payload["requestId"]
+    issued_at = payload["issuedAt"]
+    risk_score = payload["riskScore"]
+    confirmed_score = payload["confirmedAttackScore"]
+    if (not isinstance(client_id, str) or not 0 < len(client_id) <= 128
+            or not isinstance(request_id, str)
+            or not _DETECTION_REQUEST_ID.fullmatch(request_id)
+            or type(issued_at) is not int or abs(time.time() - issued_at) > 30
+            or any(type(score) not in (int, float) or not math.isfinite(score)
+                   or not 0 <= score <= 1 for score in (risk_score, confirmed_score))):
+        return Response(status_code=400)
+    target_id, run_id, plan = payload["targetId"], payload["runId"], payload["plan"]
+    if (not isinstance(target_id, str) or not isinstance(run_id, str)
+            or not isinstance(plan, list) or len(plan) > 16):
+        return Response(status_code=400)
+    try:
+        selected = target_selection.target_selector.for_request({
+            "x-ruby-target-id": target_id, "x-ruby-run-id": run_id,
+        })
+        requested_tier(plan, risk_score=risk_score,
+                       confirmed_attack_score=confirmed_score)
+    except (TargetSelectionError, OverlayRouteError):
+        return Response(status_code=503)
+
+    # Build the same trusted request headers that an ordinary proxied request
+    # receives. _apply_plan therefore uses the same run/client rate-limit key.
+    trusted_headers = {
+        "x-client-id": client_id,
+        "x-ruby-request-id": request_id,
+        "x-ruby-target-id": target_id,
+        "x-ruby-run-id": run_id,
+        "x-ruby-risk-score": str(risk_score),
+        "x-ruby-confirmed-attack-score": str(confirmed_score),
+        "x-defense-plan": json.dumps(plan, separators=(",", ":")),
+    }
+    scope = dict(request.scope)
+    scope["headers"] = [(key.encode("ascii"), value.encode("utf-8"))
+                        for key, value in trusted_headers.items()]
+    trusted_request = Request(scope)
+    pre_route_plan = [step for step in plan if step["name"] in {"delay", "rate_limit_strict"}]
+    try:
+        applied = await _apply_plan(pre_route_plan, trusted_request, selected)
+        if applied.short_circuit is not None:
+            response = applied.short_circuit
+            for key, value in applied.headers.items():
+                response.headers[key] = value
+            if response.status_code == 429:
+                _sign_policy_gate_response(response, body, None)
+            return response
+        overlay = await _overlay_route(trusted_request, selected, plan)
+    except Exception:
+        return Response(status_code=503)
+    response = Response(
+        content=json.dumps({"tier": overlay[1] if overlay else None}),
+        media_type="application/json",
+    )
+    for key, value in applied.headers.items():
+        response.headers[key] = value
+    _sign_policy_gate_response(response, body, overlay[1] if overlay else None)
+    return response
+
+
 app.include_router(dashboard_router)
 strategy_state = StrategyStateStore()
 
@@ -142,6 +299,19 @@ strategy_state = StrategyStateStore()
 @app.middleware("http")
 async def secure_dashboard_responses(request: Request, call_next):
     response = await call_next(request)
+    # The upstream, a sidecar, and a strategy can all add arbitrary response headers.
+    # Only this process may produce trusted internal routing feedback.
+    response.raw_headers = [(key, value) for key, value in response.raw_headers
+                            if key.lower() not in _INTERNAL_RESPONSE_HEADERS]
+    feedback = getattr(request.state, "resolved_url_feedback", None)
+    if feedback is not None:
+        resolved_url, signature = feedback
+        response.raw_headers.extend([
+            (b"x-ruby-resolved-url", resolved_url.encode("ascii")),
+            (b"x-ruby-resolved-url-sig", signature.encode("ascii")),
+        ])
+    if getattr(request.state, "overlay_active", False):
+        response.raw_headers.append((b"x-ruby-overlay-active", b"1"))
     if request.url.path == "/__defense" or request.url.path.startswith("/__defense/"):
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -190,6 +360,35 @@ def _event_metadata(request: Request | WebSocket, selected=None) -> dict:
         "target_id": selected.target_id if selected else None,
         "run_id": selected.run_id if selected else None,
     }
+
+
+def _signed_resolved_url(request: Request, selected, restored: Request) -> tuple[str, str] | None:
+    """Return feedback only for a Detection request with a safe restored URL."""
+    request_id = request.headers.get("x-ruby-request-id", "")
+    if len(OVERLAY_DETECTOR_KEY) < 32 or not _DETECTION_REQUEST_ID.fullmatch(request_id):
+        return None
+    raw_path = restored.scope.get("raw_path")
+    raw_query = restored.scope.get("query_string", b"")
+    if not isinstance(raw_path, bytes) or not isinstance(raw_query, bytes):
+        return None
+    try:
+        path = raw_path.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    if (not path.startswith("/") or path.startswith("//")
+            or any(ord(char) < 33 or ord(char) > 126 or char in "#?\\" for char in path)):
+        return None
+    # Preserve ordinary raw queries. Encode bytes that cannot appear in a safe
+    # response header, including non-ASCII and control bytes, as percent escapes.
+    query = quote_from_bytes(raw_query, safe="/?:@!$&'()*+,;=-._~%")
+    resolved_url = path + ("?" + query if raw_query else "")
+    if len(resolved_url) > 8192:
+        return None
+    fields = ("ruby:route-feedback:v1", request_id, request.method,
+              selected.target_id, selected.run_id or "", resolved_url)
+    signature = hmac.new(OVERLAY_DETECTOR_KEY, "\n".join(fields).encode("utf-8"),
+                         hashlib.sha256).hexdigest()
+    return resolved_url, signature
 
 
 def _client_id(request: Request | WebSocket) -> str:
@@ -427,12 +626,14 @@ def _log_alias(request: Request | WebSocket, resolution: path_alias.Resolution, 
                upstream_status: int | None = None, rewrites: int = 0,
                skipped: str | None = None, alias_client: str | None = None,
                rotation: str | None = None, *, method: str | None = None,
-               target_id: str | None = None, would_rewrite: int = 0) -> None:
-    if PATH_ALIAS.mode == "off" or (resolution.kind == "other" and not rewrites and not would_rewrite
+               target_id: str | None = None, would_rewrite: int = 0,
+               alias_config: path_alias.PathAliasConfig | None = None) -> None:
+    cfg = alias_config or PATH_ALIAS
+    if cfg.mode == "off" or (resolution.kind == "other" and not rewrites and not would_rewrite
                                     and skipped is None):
         return
     log = path_alias.build_log(
-        resolution, decision, now=time.time(), mode=PATH_ALIAS.mode,
+        resolution, decision, now=time.time(), mode=cfg.mode,
         method=method or request.method, path=request.url.path, headers=request.headers,
         upstream_status=upstream_status, rewrites=rewrites, rewrite_skipped=skipped,
         ua_family=token_gate.ua_family(request.headers.get("user-agent")),
@@ -444,26 +645,30 @@ def _log_alias(request: Request | WebSocket, resolution: path_alias.Resolution, 
     path_alias.emit(log)
 
 
-async def _alias_db(call, *args, **kwargs):
+async def _alias_db(call, *args, alias_config: path_alias.PathAliasConfig | None = None, **kwargs):
     """Alias table calls block on the database; keep them off the event loop."""
-    if not PATH_ALIAS.rewrites:
+    if not (alias_config or PATH_ALIAS).rewrites:
         return call(*args, **kwargs)
     return await asyncio.to_thread(call, *args, **kwargs)
 
 
-async def _rotate_on_event(resolution: path_alias.Resolution, alias_client: str | None) -> str | None:
+async def _rotate_on_event(resolution: path_alias.Resolution, alias_client: str | None,
+                           alias_config: path_alias.PathAliasConfig | None = None,
+                           alias_table: path_alias.PathAliasTable | None = None) -> str | None:
     """Replace a client's aliases when it hits a real route or a bad alias (per reason).
 
     Stale and revoked aliases never rotate: an old tab or the back button produces them.
     A rotation that fails is reported, but the request decision stays the same.
     """
+    cfg, table = alias_config or PATH_ALIAS, alias_table or PATH_ALIAS_TABLE
     reason = path_alias.rotation_reason(resolution)
-    if reason not in PATH_ALIAS.rotate_on or alias_client is None:
+    if reason not in cfg.rotate_on or alias_client is None:
         return None
-    if path_alias.effective_mode(resolution, PATH_ALIAS) != "enforce":
+    if path_alias.effective_mode(resolution, cfg) != "enforce":
         return "would_rotate"
     try:
-        return await _alias_db(PATH_ALIAS_TABLE.rotate_client, alias_client, time.time(), reason)
+        return await _alias_db(table.rotate_client, alias_client, time.time(), reason,
+                               alias_config=cfg)
     except path_alias.AliasStoreError:
         return "failed"
 
@@ -508,7 +713,9 @@ def _prefixed_receive(prefix: bytes, receive):
 
 
 async def _body_routing(request: Request, alias: path_alias.Resolution,
-                        alias_client: str | None) -> tuple[path_alias.Resolution, object, str | None]:
+                        alias_client: str | None,
+                        alias_config: path_alias.PathAliasConfig | None = None,
+                        alias_table: path_alias.PathAliasTable | None = None) -> tuple[path_alias.Resolution, object, str | None]:
     """Check the body of a configured dispatcher for a routing selector.
 
     Returns (resolution, receive callable that replays the body or None, note). Up to
@@ -516,10 +723,11 @@ async def _body_routing(request: Request, alias: path_alias.Resolution,
     cannot be inspected (larger than the limit, unknown or malformed encoding) is refused by
     enforce as ``body_uninspectable``; in observe it is forwarded intact and logged.
     """
+    cfg, table = alias_config or PATH_ALIAS, alias_table or PATH_ALIAS_TABLE
     if (request.method in {"GET", "HEAD", "OPTIONS"} or alias.kind in ("direct", "reject", "channel")
-            or not PATH_ALIAS_TABLE.is_dispatcher(alias.upstream_path)):
+            or not table.is_dispatcher(alias.upstream_path)):
         return alias, None, None
-    limit = PATH_ALIAS.body_inspect_limit
+    limit = cfg.body_inspect_limit
     chunks, size, more = [], 0, True
     # Read ASGI messages directly so we know whether the client stream has really ended.
     while more and size <= limit:
@@ -537,10 +745,10 @@ async def _body_routing(request: Request, alias: path_alias.Resolution,
     receive = (_replay_receive(body) if not more
                else _prefixed_receive(body, request.receive))
     if not complete:
-        return PATH_ALIAS_TABLE.body_uninspectable(alias.upstream_path), receive, "body_uninspectable"
-    found = await _alias_db(PATH_ALIAS_TABLE.body_selector, alias.upstream_path,
+        return table.body_uninspectable(alias.upstream_path), receive, "body_uninspectable"
+    found = await _alias_db(table.body_selector, alias.upstream_path,
                             request.headers.get("content-type", ""), body, request.method,
-                            time.time(), alias_client)
+                            time.time(), alias_client, alias_config=cfg)
     note = "body_uninspectable" if found is not None and found.reason == "body_uninspectable" else None
     return (found or alias), receive, note
 
@@ -568,7 +776,9 @@ async def alias_proxy_response(
     *,
     target_url: str | None = None,
     keep_server: bool = False,
-    on_complete=None
+    on_complete=None,
+    alias_config: path_alias.PathAliasConfig | None = None,
+    alias_table: path_alias.PathAliasTable | None = None,
 ) -> tuple[Response, int, str | None, int]:
     """Serve an upstream response with configured routes replaced by this client's aliases.
 
@@ -578,6 +788,7 @@ async def alias_proxy_response(
     observe the original body is served unchanged.
     """
 
+    cfg, table = alias_config or PATH_ALIAS, alias_table or PATH_ALIAS_TABLE
     rewrites, skipped, would_rewrite = 0, None, 0
     client_id = alias_client or path_alias.new_client_id()
     returned = alias_client is not None
@@ -594,9 +805,9 @@ async def alias_proxy_response(
         async for chunk in stream:
             consumed.append(chunk)
             size += len(chunk)
-            if size > PATH_ALIAS.max_rewrite_bytes:
+            if size > cfg.max_rewrite_bytes:
                 break
-        if size > PATH_ALIAS.max_rewrite_bytes:
+        if size > cfg.max_rewrite_bytes:
             skipped = "too_large"
             response = streaming_proxy_response(upstream, request, target_url=target_url, keep_server=keep_server,
                                                 body=_replay_body(consumed, stream, upstream, on_complete))
@@ -605,15 +816,15 @@ async def alias_proxy_response(
             body = b"".join(consumed)
             kind = path_alias.media_kind(content_type)
             origins = path_alias.public_origins(host)
-            if PATH_ALIAS.mode == "audit":
-                would_rewrite = PATH_ALIAS_TABLE.count_references(body, kind, origins)
+            if cfg.mode == "audit":
+                would_rewrite = table.count_references(body, kind, origins)
             else:
                 try:
-                    body, rewrites = await _alias_db(PATH_ALIAS_TABLE.rewrite_body, body, time.time(),
+                    body, rewrites = await _alias_db(table.rewrite_body, body, time.time(),
                                                      client_id, kind=kind, origins=origins,
-                                                     returned=returned)
+                                                     returned=returned, alias_config=cfg)
                 except path_alias.AliasStoreError as exc:
-                    if PATH_ALIAS.enforcing:
+                    if cfg.enforcing:
                         raise
                     skipped = ("capacity" if isinstance(exc, path_alias.AliasCapacityError)
                                else "db_error")
@@ -634,13 +845,14 @@ async def alias_proxy_response(
                 response.headers["cache-control"] = "no-store"
     raw_headers, location_rewritten = [], False
     for key, value in response.raw_headers:
-        if key.lower() == b"location" and PATH_ALIAS.rewrites:
+        if key.lower() == b"location" and cfg.rewrites:
             original = value.decode("latin-1")
             try:
-                rewritten = await _alias_db(PATH_ALIAS_TABLE.rewrite_location, original, host,
-                                            time.time(), client_id, returned=returned)
+                rewritten = await _alias_db(table.rewrite_location, original, host,
+                                            time.time(), client_id, returned=returned,
+                                            alias_config=cfg)
             except path_alias.AliasStoreError:
-                if PATH_ALIAS.enforcing:
+                if cfg.enforcing:
                     raise
                 rewritten, skipped = original, skipped or "db_error"
             location_rewritten |= rewritten != original
@@ -650,7 +862,7 @@ async def alias_proxy_response(
     if alias_client is None and (rewrites or location_rewritten):
         # Aliases were issued to a new client id; bind them to this browser.
         response.raw_headers.append(
-            (b"set-cookie", path_alias.build_set_cookie(PATH_ALIAS, client_id).encode("latin-1"))
+            (b"set-cookie", path_alias.build_set_cookie(cfg, client_id).encode("latin-1"))
         )
         response.headers["cache-control"] = "no-store"
     if not isinstance(response, StreamingResponse) and on_complete is not None:
@@ -753,27 +965,66 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
         return
     metadata = _event_metadata(websocket, selected)
     plan = parse_plan(websocket.headers.get("x-defense-plan"))
+    pre_route_plan = [step for step in plan if step["name"] in {"delay", "rate_limit_strict"}]
+    post_route_plan = [step for step in plan if step["name"] not in {"delay", "rate_limit_strict"}]
     ws_path, ws_query = full_path, websocket.url.query
-    if PATH_ALIAS_TABLE.applies_to(selected.target_id):
-        # Same stage-1 rules as HTTP for the upgrade URL. Frames are never rewritten.
+    try:
+        # A rejected alias must still pay the selected delay and strict rate limit.
+        applied = await _apply_plan(pre_route_plan, websocket, selected)
+    except Exception:
+        event_store.record(method="WEBSOCKET", path=websocket.url.path, status=500,
+                           strategies=[], outcome="error",
+                           duration_ms=(time.perf_counter() - started_at) * 1000, **metadata)
+        await websocket.close(code=1011, reason="defense strategy failed")
+        return
+    if applied.short_circuit is not None or applied.transforms:
+        capacity_error = applied.short_circuit is not None and applied.short_circuit.status_code == 503
+        outcome = "error" if capacity_error or applied.transforms else "blocked"
+        event_store.record(
+            method="WEBSOCKET", path=websocket.url.path,
+            status=(applied.short_circuit.status_code if applied.short_circuit else 503),
+            strategies=applied.names, outcome=outcome,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            signal=applied.short_circuit.headers.get("x-defense-signal") if applied.short_circuit else None,
+            **metadata,
+        )
+        await websocket.close(
+            code=1013 if capacity_error else 1008,
+            reason="strategy unavailable" if capacity_error or applied.transforms else "request blocked by defense policy",
+        )
+        return
+    alias_binding = _alias_for_target(selected.target_id)
+    alias_eligible = (_score_header(websocket.headers, "x-ruby-risk-score") or 0) >= 0.5
+    alias_config, alias_table = alias_binding or (PATH_ALIAS, PATH_ALIAS_TABLE)
+    alias_routing = alias_binding is not None and (
+        alias_eligible or path_alias.may_reference_alias(websocket.url.path)
+        or alias_table.may_reference_query_alias(
+            websocket.url.path, websocket.scope.get("query_string", b"")))
+    if alias_routing:
+        # Restore issued aliases even if the score later falls. Frames are never rewritten.
         alias_client = path_alias.valid_client_id(websocket.cookies.get(path_alias.COOKIE_NAME))
         try:
-            alias = await _alias_db(PATH_ALIAS_TABLE.resolve_request, websocket.url.path,
+            alias = await _alias_db(alias_table.resolve_request, websocket.url.path,
                                     websocket.scope.get("query_string", b""), "GET", time.time(),
-                                    alias_client, websocket.headers)
+                                    alias_client, websocket.headers, alias_config=alias_config)
         except path_alias.AliasStoreError:
             event_store.record(method="WEBSOCKET", path=websocket.url.path, status=503,
-                               strategies=["path_alias"], outcome="error",
+                               strategies=applied.names + ["path_alias"], outcome="error",
                                duration_ms=(time.perf_counter() - started_at) * 1000, **metadata)
             await websocket.close(code=1013, reason="route check unavailable")
             return
-        decision = path_alias.decide(alias, PATH_ALIAS, "GET")
-        rotation = await _rotate_on_event(alias, alias_client)
+        decision = path_alias.decide(alias, alias_config, "GET")
+        if not alias_eligible and alias.kind == "stale":
+            decision = "translate"
+        elif not alias_eligible and alias.kind == "direct":
+            decision = "pass"
+        rotation = (await _rotate_on_event(alias, alias_client, alias_config, alias_table)
+                    if alias_eligible else None)
         _log_alias(websocket, alias, decision, alias_client=alias_client, rotation=rotation,
-                   method="WEBSOCKET", target_id=selected.target_id)
+                   method="WEBSOCKET", target_id=selected.target_id, alias_config=alias_config)
         if decision in ("block", "redirect"):  # an upgrade cannot follow a redirect
             event_store.record(method="WEBSOCKET", path=websocket.url.path, status=404,
-                               strategies=["path_alias"], outcome="blocked",
+                               strategies=applied.names + ["path_alias"], outcome="blocked",
                                duration_ms=(time.perf_counter() - started_at) * 1000, **metadata)
             await websocket.close(code=1008, reason="not found")
             return
@@ -799,29 +1050,26 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
                         if overlay_route else [])
     action_name = f"account-overlay-{overlay_route[1]}" if overlay_route else None
     try:
-        applied = await _apply_plan(plan, websocket, selected)
+        later = await _apply_plan(post_route_plan, websocket, selected)
     except Exception:
-        event_store.record(
-            method="WEBSOCKET",
-            path=websocket.url.path,
-            status=500,
-            strategies=overlay_strategy,
-            outcome="error",
-            duration_ms=(time.perf_counter() - started_at) * 1000,
-            decoy_action=action_name,
-            **metadata,
-        )
+        event_store.record(method="WEBSOCKET", path=websocket.url.path, status=500,
+                           strategies=applied.names + overlay_strategy, outcome="error",
+                           duration_ms=(time.perf_counter() - started_at) * 1000,
+                           decoy_action=action_name, **metadata)
         await websocket.close(code=1011, reason="defense strategy failed")
         return
+    applied.names.extend(later.names)
+    applied.headers.update(later.headers)
+    applied.transforms.extend(later.transforms)
+    if later.short_circuit is not None:
+        applied.short_circuit = later.short_circuit
     if applied.short_circuit is not None or applied.transforms:
         capacity_error = applied.short_circuit is not None and applied.short_circuit.status_code == 503
-        outcome = "error" if capacity_error or applied.transforms else "blocked"
         event_store.record(
-            method="WEBSOCKET",
-            path=websocket.url.path,
+            method="WEBSOCKET", path=websocket.url.path,
             status=(applied.short_circuit.status_code if applied.short_circuit else 503),
             strategies=applied.names,
-            outcome=outcome,
+            outcome="error" if capacity_error or applied.transforms else "blocked",
             duration_ms=(time.perf_counter() - started_at) * 1000,
             signal=applied.short_circuit.headers.get("x-defense-signal") if applied.short_circuit else None,
             **metadata,
@@ -831,7 +1079,6 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
             reason="strategy unavailable" if capacity_error or applied.transforms else "request blocked by defense policy",
         )
         return
-
     if overlay_route is not None:
         # PR34 accepts HTTP only. An isolated actor's upgrade must not reach
         # the real target through the ordinary WebSocket forwarding path.
@@ -938,41 +1185,88 @@ async def catch_all(request: Request, full_path: str):
         return Response(status_code=503)
     plan = parse_plan(request.headers.get("x-defense-plan"))
     metadata = _event_metadata(request, selected)
-    alias_client = path_alias.valid_client_id(request.cookies.get(path_alias.COOKIE_NAME))
-    # Stage 1 of the pipeline: restore a valid alias (or refuse) before any later strategy.
-    # The decision depends only on configuration, the route and the alias cookie; Detection's
-    # risk scores never switch an ongoing session into enforcement.
-    alias_active = PATH_ALIAS_TABLE.applies_to(selected.target_id)
-    alias = path_alias.Resolution("other", request.url.path)
-    body_note, body_receive = None, None
-    if alias_active:
-        try:
-            alias = await _alias_db(PATH_ALIAS_TABLE.resolve_request, request.url.path,
-                                    request.scope.get("query_string", b""), request.method,
-                                    time.time(), alias_client, request.headers)
-            alias, body_receive, body_note = await _body_routing(request, alias, alias_client)
-        except path_alias.AliasStoreError as exc:
-            # Fail closed: an alias that cannot be checked is never forwarded as the original.
-            _log_alias(request, alias, "error", skipped=str(exc) or "db_error",
-                       alias_client=alias_client, target_id=selected.target_id)
-            event_store.record(method=request.method, path=request.url.path, status=503,
-                               strategies=["path_alias"], outcome="error",
-                               duration_ms=(time.perf_counter() - started_at) * 1000, **metadata)
-            return _alias_unavailable()
-    alias_decision = path_alias.decide(alias, PATH_ALIAS, request.method)
-    rotation = await _rotate_on_event(alias, alias_client) if alias_active else None
-    translated = alias_decision not in ("block", "redirect") and (
-        alias.upstream_path != request.url.path or (
-            alias.query_string is not None
-            and alias.query_string != request.scope.get("query_string", b"")))
-    record_path = alias.upstream_path if translated else request.url.path
-
     gate = None
     if TOKEN_GATE.mode != "off":
         gate = token_gate.evaluate(
             request.method, request.url.path, request.headers,
             request.cookies.get(token_gate.COOKIE_NAME), time.time(), TOKEN_GATE,
         )
+    # These two strategies need no restored route and must run before alias lookup,
+    # including requests that will become an alias 404 or 307.
+    pre_route_plan = [step for step in plan if step["name"] in {"delay", "rate_limit_strict"}]
+    post_route_plan = [step for step in plan if step["name"] not in {"delay", "rate_limit_strict"}]
+    try:
+        applied = await _apply_plan(pre_route_plan, request, selected)
+    except Exception:
+        _log_gate(request, gate)
+        event_store.record(method=request.method, path=request.url.path, status=500,
+                           strategies=[], outcome="error",
+                           duration_ms=(time.perf_counter() - started_at) * 1000, **metadata)
+        return Response(status_code=500)
+    if applied.short_circuit is not None:
+        response = applied.short_circuit
+        for key, value in applied.headers.items():
+            response.headers[key] = value
+        response.headers["X-Defense-Applied"] = ",".join(applied.names) or "none"
+        _log_gate(request, gate)
+        event_store.record(
+            method=request.method, path=request.url.path, status=response.status_code,
+            strategies=applied.names,
+            outcome="error" if response.status_code == 503 else "blocked",
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            signal=response.headers.get("x-defense-signal"), **metadata,
+        )
+        return response
+    alias_client = path_alias.valid_client_id(request.cookies.get(path_alias.COOKIE_NAME))
+    # New aliases and original-route enforcement start at risk 0.5. Previously issued
+    # alias URLs keep resolving below that score without new issuance or enforcement.
+    alias_binding = _alias_for_target(selected.target_id)
+    alias_active = (alias_binding is not None
+                    and (_score_header(request.headers, "x-ruby-risk-score") or 0) >= 0.5)
+    alias_config, alias_table = alias_binding or (PATH_ALIAS, PATH_ALIAS_TABLE)
+    alias_routing = alias_binding is not None and (
+        alias_active or path_alias.may_reference_alias(request.url.path)
+        or alias_table.may_reference_query_alias(
+            request.url.path, request.scope.get("query_string", b"")))
+    alias = path_alias.Resolution("other", request.url.path)
+    body_note, body_receive = None, None
+    if alias_routing:
+        try:
+            alias = await _alias_db(alias_table.resolve_request, request.url.path,
+                                    request.scope.get("query_string", b""), request.method,
+                                    time.time(), alias_client, request.headers,
+                                    alias_config=alias_config)
+            if alias_active:
+                alias, body_receive, body_note = await _body_routing(
+                    request, alias, alias_client, alias_config, alias_table)
+        except path_alias.AliasStoreError as exc:
+            # Fail closed: an alias that cannot be checked is never forwarded as the original.
+            _log_alias(request, alias, "error", skipped=str(exc) or "db_error",
+                       alias_client=alias_client, target_id=selected.target_id,
+                       alias_config=alias_config)
+            _log_gate(request, gate)
+            event_store.record(method=request.method, path=request.url.path, status=503,
+                               strategies=applied.names + ["path_alias"], outcome="error",
+                               duration_ms=(time.perf_counter() - started_at) * 1000, **metadata)
+            response = _alias_unavailable()
+            for key, value in applied.headers.items():
+                response.headers[key] = value
+            response.headers["X-Defense-Applied"] = ",".join(applied.names + ["path_alias"])
+            return response
+    alias_decision = (path_alias.decide(alias, alias_config, request.method)
+                      if alias_routing else "pass")
+    if not alias_active and alias.kind == "stale":
+        # Reuse the restored real route; redirect_target would mint a new alias.
+        alias_decision = "translate"
+    elif not alias_active and alias.kind == "direct":
+        alias_decision = "pass"
+    rotation = (await _rotate_on_event(alias, alias_client, alias_config, alias_table)
+                if alias_active else None)
+    translated = alias_decision not in ("block", "redirect") and (
+        alias.upstream_path != request.url.path or (
+            alias.query_string is not None
+            and alias.query_string != request.scope.get("query_string", b"")))
+    record_path = alias.upstream_path if translated else request.url.path
 
     strategy_request = request
     if translated:
@@ -986,6 +1280,10 @@ async def catch_all(request: Request, full_path: str):
         if alias.query_string is not None:
             scope["query_string"] = alias.query_string
         strategy_request = Request(scope, body_receive or request.receive)
+        if alias.kind in ("alias", "stale"):
+            feedback = _signed_resolved_url(request, selected, strategy_request)
+            if feedback is not None:
+                request.state.resolved_url_feedback = feedback
     elif body_receive is not None:
         # The body was read for inspection: later strategies and the target get it replayed.
         strategy_request = Request(request.scope, body_receive)
@@ -1009,30 +1307,39 @@ async def catch_all(request: Request, full_path: str):
     def log_alias(decision: str = alias_decision, *args, **kwargs) -> None:
         kwargs.setdefault("skipped", body_note)
         _log_alias(request, alias, decision, *args, alias_client=alias_client, rotation=rotation,
-                   target_id=selected.target_id, **kwargs)
+                   target_id=selected.target_id, alias_config=alias_config, **kwargs)
 
     if alias_decision == "redirect":
         # Auto-recovery for an expired alias of this same client (old tab, back button).
         # Only GET/HEAD reach here; unsafe methods are never replayed or redirected.
         try:
-            target = await _alias_db(PATH_ALIAS_TABLE.redirect_target, alias, time.time(), alias_client)
+            target = await _alias_db(alias_table.redirect_target, alias, time.time(), alias_client,
+                                     alias_config=alias_config)
         except path_alias.AliasStoreError:
             target = None
         if target is not None:
             _log_gate(request, gate)
             log_alias()
-            record(307, "redirected", ["path_alias"])
+            record(307, "redirected", applied.names + ["path_alias"])
             raw_query = request.scope.get("query_string", b"").decode("latin-1")
-            return Response(status_code=307, headers={
+            response = Response(status_code=307, headers={
                 "Location": target + ("?" + raw_query if raw_query else ""),
                 "Cache-Control": "no-store"})
+            for key, value in applied.headers.items():
+                response.headers[key] = value
+            response.headers["X-Defense-Applied"] = ",".join(applied.names + ["path_alias"])
+            return response
         alias_decision = "block"
 
     if alias_decision == "block":
         _log_gate(request, gate)
         log_alias(alias_decision)
-        record(404, "blocked", ["path_alias"])
-        return _alias_not_found()
+        record(404, "blocked", applied.names + ["path_alias"])
+        response = _alias_not_found()
+        for key, value in applied.headers.items():
+            response.headers[key] = value
+        response.headers["X-Defense-Applied"] = ",".join(applied.names + ["path_alias"])
+        return response
 
     try:
         overlay_route = await _overlay_route(strategy_request, selected, plan)
@@ -1041,20 +1348,38 @@ async def catch_all(request: Request, full_path: str):
         log_alias()
         record(503, "error", [])
         return Response(status_code=503)
+    if overlay_route is not None:
+        request.state.overlay_active = True
 
+    # A sticky overlay actor keeps following the maze on reserved decoy paths.
+    # All other requests use the signed account overlay. The private sidecar
+    # receives a decoy-only marker so it cannot fall through to the real app.
+    decoy_only = (overlay_route is not None
+                  and selected.target_id in DECOY_UPSTREAMS
+                  and is_maze_decoy_request(
+                      request.method, strategy_request.url.path,
+                      extra_roots=MAZE_EXTRA_ROOTS.get(selected.target_id, ()),
+                      excluded_roots=MAZE_EXCLUDED_ROOTS.get(selected.target_id, ())))
+    use_overlay_upstream = overlay_route is not None and not decoy_only
     overlay_strategy = ([OVERLAY_HIGH if overlay_route[1] == "high" else OVERLAY_MEDIUM]
-                        if overlay_route else [])
-    action_name = f"account-overlay-{overlay_route[1]}" if overlay_route else None
+                        if use_overlay_upstream else [])
+    action_name = f"account-overlay-{overlay_route[1]}" if use_overlay_upstream else None
 
     try:
-        applied = await _apply_plan(plan, strategy_request, selected)
+        later = await _apply_plan(post_route_plan, strategy_request, selected)
     except Exception:
         _log_gate(request, gate)
         log_alias()
-        record(500, "error", overlay_strategy, decoy_action_name=action_name)
+        record(500, "error", applied.names + overlay_strategy,
+               decoy_action_name=action_name)
         return Response(status_code=500)
+    applied.names.extend(later.names)
+    applied.headers.update(later.headers)
+    applied.transforms.extend(later.transforms)
+    if later.short_circuit is not None:
+        applied.short_circuit = later.short_circuit
 
-    if alias.kind != "other":
+    if alias_routing and (alias_active or alias.kind in ("alias", "stale", "reject")):
         applied.names.insert(0, "path_alias")
     applied_header = ",".join(applied.names) or "none"
     if applied.short_circuit is not None:
@@ -1078,8 +1403,8 @@ async def catch_all(request: Request, full_path: str):
 
     attempted_strategies = applied.names + overlay_strategy
     applied.headers["X-Defense-Applied"] = applied_header
-    decoy_url = None if overlay_route else DECOY_UPSTREAMS.get(selected.target_id)
-    if overlay_route:
+    decoy_url = DECOY_UPSTREAMS.get(selected.target_id) if not use_overlay_upstream else None
+    if use_overlay_upstream:
         overlay_url, tier, actor = overlay_route
         try:
             target = raw_target(strategy_request.scope)
@@ -1109,13 +1434,15 @@ async def catch_all(request: Request, full_path: str):
             build_decoy_headers(request, applied.headers, selected, plan)
             if decoy_url else build_upstream_headers(request, applied.headers)
         )
+        if decoy_only:
+            headers["X-Defense-Decoy-Only"] = "1"
         upstream_path = alias.upstream_path.lstrip("/") if translated else full_path
         upstream_url = httpx.URL(f"{(decoy_url or selected.url).rstrip('/')}/{upstream_path}")
         raw_query = strategy_request.scope.get("query_string", b"")
         if raw_query:
             upstream_url = upstream_url.copy_with(query=raw_query)
 
-    if alias_active and PATH_ALIAS.rewrites:
+    if alias_active and alias_config.rewrites:
         headers = {key: value for key, value in headers.items()
                    if key.lower() not in _CONDITIONAL_REQUEST_HEADERS}
 
@@ -1124,16 +1451,16 @@ async def catch_all(request: Request, full_path: str):
             method=request.method,
             url=str(upstream_url),
             headers=headers,
-            content=bytes(body) if overlay_route else (
+            content=bytes(body) if use_overlay_upstream else (
                 strategy_request.stream() if request.method not in {"GET", "HEAD"} else None
             ),
         )
-        if overlay_route and upstream_request.url.raw_path != target.encode("ascii"):
+        if use_overlay_upstream and upstream_request.url.raw_path != target.encode("ascii"):
             record(400, "error", attempted_strategies, decoy_action_name=action_name)
             return Response(status_code=400)
         upstream = await request.app.state.http_client.send(upstream_request, stream=True)
     except (httpx.InvalidURL, ValueError):
-        status = 400 if overlay_route else 502
+        status = 400 if use_overlay_upstream else 502
         record(status, "error", attempted_strategies, decoy_action_name=action_name)
         return Response(status_code=status)
     except httpx.RequestError:
@@ -1148,7 +1475,7 @@ async def catch_all(request: Request, full_path: str):
     applied_header = ",".join(recorded_strategies) or "none"
     # 공개 응답에는 공식 전략 이름만 싣는다 — decoy_* 이름은 곧 "이 응답은 미끼"라는 신호라서(기록용 recorded_strategies 는 그대로).
     public_applied_header = ",".join(applied.names) or "none"
-    if overlay_route:
+    if use_overlay_upstream:
         sidecar_outcome = (
             "error" if upstream.status_code < 200 or upstream.status_code >= 500
             or upstream.status_code in {400, 403, 413}
@@ -1178,7 +1505,8 @@ async def catch_all(request: Request, full_path: str):
                                           stream=httpx.ByteStream(response.body))
                 response, rewrites, skipped, counted = await alias_proxy_response(
                     buffered, request, alias_client, target_url=selected.url,
-                    keep_server=bool(decoy_url))
+                    keep_server=bool(decoy_url), alias_config=alias_config,
+                    alias_table=alias_table)
                 log_alias(alias_decision, upstream.status_code, rewrites,
                           skipped=skipped or body_note, would_rewrite=counted)
 
@@ -1215,7 +1543,8 @@ async def catch_all(request: Request, full_path: str):
         try:
             response, rewrites, skipped, counted = await alias_proxy_response(
                 upstream, request, alias_client, target_url=selected.url, on_complete=on_complete,
-                keep_server=bool(decoy_url))
+                keep_server=bool(decoy_url), alias_config=alias_config,
+                alias_table=alias_table)
         except path_alias.AliasStoreError as exc:
             # Enforcing and the alias store is down or full: the page would only work with
             # original routes, which enforcement refuses. Report instead of serving it broken.

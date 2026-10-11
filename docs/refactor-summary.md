@@ -160,8 +160,8 @@ CHeaT 와 `path_alias` 는 별도 명령이 없다 — 기동 시 기존 볼륨�
 | 항목 | 이유 |
 | --- | --- |
 | `routes.sqlite3`·`security.sqlite3` 를 합치기 | fail-closed 저장소다. `main.py` 는 `OverlayRouteError` 를, `core.py` 는 감사 쓰기 실패를 503 으로 돌려준다. 요청마다 쓰는 저장소와 파일을 공유하면 그쪽 쓰기 락이 정상 요청을 503 으로 만든다. 접근 계층만 통일했다 |
-| Detection 7개 모듈의 사이트 일반화 | `businessLogicSignatures`·`roleGated`·`priceIntegrity`·`priceTampering`·`loginBruteForce`·`passwordResetAbuse`·`identityMismatch` 는 여전히 Juice Shop 라우트·JWT 클레임·쿠키명에 묶여 있다. CI 가 Juice Shop 을 전혀 쓰지 않아(정적 index.html 하나) 테스트로 보호되지 않는 상태에서 손대는 위험이 컸다. 모듈별 현황은 인벤토리 1-D 에 있다 |
-| `sites/account_decoy/` 파일 단위 분할 | `cycle.py`·`facade.py` 에 Juice 전용 `/api/Challenges` 가 있어 가르려면 decoy 엔진 수술이 된다. 디렉터리 이름만 내용에 맞추고 종속 지점을 `site_adapter` 로 게이트했다 |
+| ~~Detection 7개 모듈의 사이트 일반화~~ | **후속 작업에서 해결됐다**(`251ef4f` → `5355b4d`, 커밋 25개). 일곱 모듈과 `deceptionEngine` 이 `detection/config/site-profiles/*.json` 을 읽는다. "CI 가 Juice Shop 을 전혀 쓰지 않아 테스트로 보호되지 않는다" 는 전제는 **수정 전 코드에서 통과를 먼저 확인한** 모듈별 특성화 테스트 82건으로 메웠다(같은 파일들에 프로파일화 이후 교차·비활성 테스트를 더해 현재 117건). 거기에 프로파일 교차 계약 테스트와 CI 의 이름 붙은 계약 단계를 얹었다. 절차는 `defense/README.md` 의 "새 사이트 추가", 되돌리기는 `docs/site-generalization-rollback.md` |
+| `sites/account_decoy/` 파일 단위 분할 | `cycle.py`·`facade.py` 에 Juice 전용 `/api/Challenges` 가 있어 가르려면 decoy 엔진 수술이 된다. 디렉터리 이름만 내용에 맞추고 종속 지점을 `site_adapter` 로 게이트했다. **후속 작업에서 그 게이트를 없앴다**(`0c7ef4f`) — 파일을 가르는 대신 사이트별 능력을 프로파일이 선언하게 해서 `site_adapter` 닫힌 enum 자체를 제거했다 |
 | 이벤트 필드명 강제 통일 | Detection 의 `targetRunId` 는 `experimentRunId` 와 구별해야 하고, CHeaT·오버레이의 snake_case 컬럼은 경계 밖에서 읽는 곳이 없다. 정본 이름과 별칭을 선언하고 테스트로 고정했다 |
 | CHeaT v1 삭제 | Markdown 참조 16건 |
 | 미끼 경로 시드화 | `/ops/recovery/accounts` 같은 경로 자체가 배포 간 고정 지문이다. 카탈로그가 생겨 이제 구조적으로 가능해졌지만 범위 외다 |
@@ -174,9 +174,14 @@ CHeaT 와 `path_alias` 는 별도 명령이 없다 — 기동 시 기존 볼륨�
 2. **`decoy_path_hit` 의 오탐** — `/ftp` 는 Juice Shop 에 실제로 있는 경로다. 정찰
    목적이 아닌 접근까지 공격 신호가 될 수 있다. 끄려면 `policy.json` 에
    `detection.deception.points.attack.decoy_path_hit = 0`.
-3. **Detection 비즈니스 로직의 사이트 종속** — 새 사이트를 붙이면 Defense 의
-   미끼·오버레이는 동작하지만 Detection 의 7개 모듈은 조용히 무력화된다.
-   `defense/README.md` 의 사이트 추가 절에 명시했다.
+3. ~~**Detection 비즈니스 로직의 사이트 종속**~~ — **해결됨**(`251ef4f` → `5355b4d`).
+   일곱 모듈과 `deceptionEngine` 이 사이트 프로파일을 읽고, 설정이 없으면 기능이 꺼지되
+   **조용히 꺼지지 않는다**: 기동 로그가 프로파일·기능·사유를 남기고,
+   `GET /__detection/api/site-profile-status` 와 관리 화면이 "비활성(프로파일 없음)" 으로
+   보고한다. 프로파일 상태는 `blTags` 에 들어가지 않아 점수에 영향이 없다
+   (`siteProfile.test.js` 가 격리를 집행한다).
+   새 절차는 `defense/README.md` 의 "새 사이트 추가" 한 절에 세 계층(Detection 프로파일,
+   오버레이 프로파일, CHeaT 프리셋)으로 정리했다.
 4. **CHeaT 테스트 3건이 불안정** — 전부 리팩토링과 무관하며 CHeaT 디렉터리는
    Phase 3 시작 시점과 byte-identical 이다(`git diff` 로 확인).
    - `test_dashboard_and_preset.py` — 컨테이너 기본 uid(10001)에서만 실패.
@@ -217,16 +222,20 @@ Phase 단위로 되돌리려면 역순으로 revert 한다. Phase 3 의 저장�
 
 ## 9. 검증 현황
 
-| 스위트 | Phase 1 기준선 | 현재 |
-| --- | --- | --- |
-| Detection `npm test` | 237 | **265** |
-| Detection CRS 바이너리 | 12 | **12** |
-| Defense `unittest` | 185 | **250** |
-| CHeaT `run_all.py` | 16~17/19 (아래 참조) | **17~18/20** (아래 참조) |
-| Overlay `pytest` | 64 | **81** |
-| Overlay lure UI | 6 | **6** |
-| Defense Node 2종 | 12 + 6 | **12 + 6** |
-| `MANIFEST.sha256` | 54/61, **7 FAILED** | **72/72, 0 FAILED** + CI 검증 |
+| 스위트 | Phase 1 기준선 | 이 보고서 시점 | 사이트 일반화 후(`5355b4d`) |
+| --- | --- | --- | --- |
+| Detection `npm test` | 237 | **265** | **413** |
+| Detection CRS 바이너리 | 12 | **12** | **12** |
+| Defense `unittest` | 185 | **250** | **270** |
+| CHeaT `run_all.py` | 16~17/19 (아래 참조) | **17~18/20** (아래 참조) | **18/20** |
+| Overlay `pytest` | 64 | **81** | **92** |
+| Overlay lure UI | 6 | **6** | **6** |
+| Defense Node 2종 | 12 + 6 | **12 + 6** | **12 + 6** |
+| `MANIFEST.sha256` | 54/61, **7 FAILED** | **72/72, 0 FAILED** + CI 검증 | **73/73** |
+
+사이트 일반화(`251ef4f` → `5355b4d`) 열은 후속 작업 결과다. 그 작업은 7-3 을 해결했고
+자세한 내용은 `defense/README.md` 의 "새 사이트 추가" 와
+`docs/site-generalization-rollback.md` 에 있다.
 
 측정은 Docker 전용이다. 로컬 호스트에는 의존성이 없고 `defense`(fastapi 0.115 /
 httpx 0.27.2)와 오버레이(fastapi 0.141.1 / httpx 0.28.1)의 핀이 충돌해 단일 venv 로는

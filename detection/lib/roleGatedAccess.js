@@ -32,59 +32,37 @@ const { decodeClaimedIdentity, extractToken } = require('./identityMismatch');
 const schemaLearning = require('./schemaLearning');
 
 /**
- * method + normalizedPath로 매칭한다. normalizedPath는 requestMetadata.normalizePath()
- * 결과와 동일한 형식(숫자 세그먼트는 :id로 치환됨)이라고 가정한다.
+ * 민감 라우트 목록과 요구 역할은 프로파일의 `roleGated.sensitiveRoutes` 에서 온다.
+ * normalizedPath 는 requestMetadata.normalizePath() 결과와 동일한 형식(숫자 세그먼트는
+ * :id 로 치환됨)이라고 가정한다.
+ *
+ * 역할 이름은 소문자로만 선언할 수 있다 — 이 모듈이 claimed.role 을 소문자로 비교하므로
+ * 대문자로 선언하면 영구 미스매치가 된다. siteProfile.js 의 검증기가 막는다.
+ *
+ * 요청마다 Set 을 다시 만들지 않도록 프로파일당 한 번만 만들어 WeakMap 에 담는다.
  */
-const SENSITIVE_ROUTES = [
-  {
-    tag: 'role-gated:admin-config',
-    method: 'GET',
-    normalizedPath: '/rest/admin/application-configuration',
-    requiredRoles: new Set(['admin']),
-  },
-  {
-    // 1차 실전 공격 테스트 미탐: application-configuration은 잡히는데 같은 급의
-    // application-version은 SENSITIVE_ROUTES에 빠져 있었다.
-    tag: 'role-gated:admin-version',
-    method: 'GET',
-    normalizedPath: '/rest/admin/application-version',
-    requiredRoles: new Set(['admin']),
-  },
-  {
-    tag: 'role-gated:metrics',
-    method: 'GET',
-    normalizedPath: '/metrics',
-    requiredRoles: new Set(['admin']),
-  },
-  {
-    tag: 'role-gated:user-list',
-    method: 'GET',
-    normalizedPath: '/api/Users', // 전체 유저 목록 조회 (개별 조회 /api/Users/:id 와는 다른 라우트)
-    requiredRoles: new Set(['admin']),
-  },
-  {
-    tag: 'role-gated:product-write',
-    method: 'PUT',
-    normalizedPath: '/api/Products/:id',
-    requiredRoles: new Set(['admin']),
-  },
-  {
-    tag: 'role-gated:product-create',
-    method: 'POST',
-    normalizedPath: '/api/Products',
-    requiredRoles: new Set(['admin']),
-  },
-  {
-    tag: 'role-gated:product-delete',
-    method: 'DELETE',
-    normalizedPath: '/api/Products/:id',
-    requiredRoles: new Set(['admin']),
-  },
-];
+const routeCache = new WeakMap();
 
-// 하드코딩된 SENSITIVE_ROUTES에 이 라우트가 있는지 — server.js가 schemaLearning 관찰 시점에
-// "이미 하드코딩돼 있으니 학습 대상 아님"을 판단할 때 재사용한다.
-function isHardcodedSensitiveRoute(method, normalizedPath, routes = SENSITIVE_ROUTES) {
+function sensitiveRoutesFor(profile) {
+  const declared = profile?.roleGated?.sensitiveRoutes;
+  if (!declared) return null;
+  const cached = routeCache.get(profile);
+  if (cached) return cached;
+  const built = declared.map((route) => ({
+    tag: route.tag,
+    method: route.method,
+    normalizedPath: route.normalizedPath,
+    requiredRoles: new Set(route.requiredRoles),
+  }));
+  routeCache.set(profile, built);
+  return built;
+}
+
+// 프로파일이 선언한 민감 라우트에 이 라우트가 있는지 — server.js가 schemaLearning 관찰
+// 시점에 "이미 선언돼 있으니 학습 대상 아님"을 판단할 때 재사용한다.
+function isHardcodedSensitiveRoute(method, normalizedPath, profile) {
+  const routes = sensitiveRoutesFor(profile);
+  if (!routes) return false;
   const upperMethod = String(method || '').toUpperCase();
   return routes.some((route) => route.method === upperMethod && route.normalizedPath === normalizedPath);
 }
@@ -92,15 +70,23 @@ function isHardcodedSensitiveRoute(method, normalizedPath, routes = SENSITIVE_RO
 /**
  * @returns {Array<{tag:string, detail:object}>}
  */
-function checkRoleGatedAccess({ method, normalizedPath, authorizationHeader, cookieHeader }) {
+function checkRoleGatedAccess({
+  method, normalizedPath, authorizationHeader, cookieHeader, profile,
+}) {
   const results = [];
+  const identity = profile?.identity;
+  // 토큰 추출과 클레임 해독은 identityMismatch 가 프로파일에서 읽는다 — 그 설정이
+  // 없으면 역할을 알 수 없으므로 이 검사도 성립하지 않는다.
+  if (!identity?.tokenSources || !identity?.claimMap) return results;
+
   const upperMethod = String(method || '').toUpperCase();
-  const matches = SENSITIVE_ROUTES.filter(
+  const declared = sensitiveRoutesFor(profile);
+  const matches = (declared || []).filter(
     (route) => route.method === upperMethod && route.normalizedPath === normalizedPath
   );
 
-  const token = extractToken(authorizationHeader, cookieHeader);
-  const claimed = token ? decodeClaimedIdentity(token) : null;
+  const token = extractToken(authorizationHeader, cookieHeader, identity.tokenSources);
+  const claimed = token ? decodeClaimedIdentity(token, identity.claimMap) : null;
   const claimedRole = claimed && claimed.role ? String(claimed.role).toLowerCase() : null;
 
   for (const route of matches) {
@@ -117,8 +103,10 @@ function checkRoleGatedAccess({ method, normalizedPath, authorizationHeader, coo
     }
   }
 
-  // 하드코딩된 매치가 하나도 없을 때만 학습된(승인된) 민감 라우트를 확인한다 — 하드코딩이
-  // 우선이고, schemaLearning은 하드코딩이 없는 빈틈만 메운다(15차, 2026-09-02).
+  // 선언된 매치가 하나도 없을 때만 학습된(승인된) 민감 라우트를 확인한다 — 선언이
+  // 우선이고, schemaLearning은 선언이 없는 빈틈만 메운다(15차, 2026-09-02).
+  // 프로파일에 roleGated 블록이 아예 없으면 학습 폴백만 남는다 — 리팩토링 이전에도
+  // 다른 사이트에서는 그 상태였다(7개 라우트가 전부 Juice Shop 전용이었으므로).
   if (!matches.length) {
     const learnedRoles = schemaLearning.getApprovedSensitiveRoute(method, normalizedPath);
     if (learnedRoles) {
@@ -140,4 +128,4 @@ function checkRoleGatedAccess({ method, normalizedPath, authorizationHeader, coo
   return results;
 }
 
-module.exports = { checkRoleGatedAccess, isHardcodedSensitiveRoute, SENSITIVE_ROUTES };
+module.exports = { checkRoleGatedAccess, isHardcodedSensitiveRoute };

@@ -17,7 +17,7 @@
  *
  *   const { extractLoginAttemptEmail } = require('./lib/loginBruteForce');
  *   const loginAttemptEmail = extractLoginAttemptEmail({
- *     method: req.method, normalizedPath, body: req.body,
+ *     method: req.method, normalizedPath, body: req.body, profile: req.siteProfile,
  *   });
  *   // recordRequest()에 loginAttemptEmail로 전달 -> requestRecord.loginAttemptEmail
  *   // -> featureExtractor가 status===401인 것만 골라 이메일별로 집계
@@ -28,18 +28,34 @@
  * featureExtractor 단계에서 status와 결합해서 판단해야 한다.
  */
 
-const LOGIN_ROUTE = Object.freeze({ method: 'POST', normalizedPath: '/rest/user/login' });
-
 /**
+ * 로그인 라우트와 본문 필드명은 사이트마다 다르다 — Juice Shop 은
+ * `POST /rest/user/login` 의 `email`, RUBY Market 은 `POST /api/auth/login` 이다.
+ * 그래서 프로파일(`loginBruteForce.route`, `loginBruteForce.emailField`)에서 읽는다.
+ *
+ * 프로파일에 블록이 없으면 이 기능은 꺼진다. 조용히 꺼지지는 않는다 —
+ * siteProfiles.js 가 기동 시 프로파일·기능·사유를 경고하고,
+ * /__detection/api/site-profile-status 와 대시보드가 "비활성(프로파일 없음)" 으로
+ * 표시한다. 리팩토링 전에는 라우트가 다른 사이트에서 이 함수가 아무 신호 없이
+ * 영구히 null 을 돌려줬다.
+ *
+ * 프로파일을 모듈 전역으로 받지 않고 호출마다 받는 이유는 siteProfiles.js 주석 참고 —
+ * 한 프로세스가 여러 대상을 서비스하고 활성 대상이 런타임에 전환된다.
+ *
  * @param {object} req
  * @param {string} req.method
  * @param {string} req.normalizedPath
  * @param {object|string|null} req.body
- * @returns {string|null} 소문자로 정규화된 email, 로그인 라우트가 아니거나 email 필드가 없으면 null
+ * @param {object|null} req.profile 활성 사이트 프로파일(`req.siteProfile`)
+ * @returns {string|null} 소문자로 정규화된 email, 로그인 라우트가 아니거나 email 필드가
+ *   없거나 프로파일에 설정이 없으면 null
  */
-function extractLoginAttemptEmail({ method, normalizedPath, body }) {
+function extractLoginAttemptEmail({ method, normalizedPath, body, profile }) {
+  const config = profile?.loginBruteForce;
+  if (!config) return null;
+
   const upperMethod = String(method || '').toUpperCase();
-  if (upperMethod !== LOGIN_ROUTE.method || normalizedPath !== LOGIN_ROUTE.normalizedPath) {
+  if (upperMethod !== config.route.method || normalizedPath !== config.route.normalizedPath) {
     return null;
   }
 
@@ -49,7 +65,7 @@ function extractLoginAttemptEmail({ method, normalizedPath, body }) {
   }
   if (!bodyObj || typeof bodyObj !== 'object') return null;
 
-  const email = bodyObj.email;
+  const email = bodyObj[config.emailField];
   if (typeof email !== 'string' || !email.trim()) return null;
 
   return email.trim().toLowerCase();
@@ -57,5 +73,4 @@ function extractLoginAttemptEmail({ method, normalizedPath, body }) {
 
 module.exports = {
   extractLoginAttemptEmail,
-  LOGIN_ROUTE,
 };

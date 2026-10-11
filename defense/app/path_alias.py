@@ -378,6 +378,38 @@ def _load_query_routes(file_name: str) -> tuple[QueryRoute, ...]:
     return load_route_document(file_name).query_routes
 
 
+def target_configs_from_env(environ: Mapping[str, str] = os.environ) -> dict[str, "PathAliasConfig"]:
+    """Load a separate route document and SQLite namespace for each selected target.
+
+    The optional mapping is used by a Defense instance that serves more than one app.
+    Its absence preserves the original single-document configuration.  An explicit
+    global ``off`` disables every target, including entries in the mapping.
+    """
+    raw = environ.get("PATH_ALIAS_TARGET_ROUTES", "").strip()
+    if not raw or environ.get("PATH_ALIAS_MODE", "off").strip().lower() == "off":
+        return {}
+    if environ.get("PATH_ALIAS_TARGET_IDS", "").strip():
+        raise ValueError("PATH_ALIAS_TARGET_IDS cannot be used with PATH_ALIAS_TARGET_ROUTES")
+    configured: dict[str, PathAliasConfig] = {}
+    base_app_id = environ.get("PATH_ALIAS_APP_ID", "").strip()
+    for entry in raw.split(","):
+        target_id, separator, route_file = entry.strip().partition("=")
+        route_file = route_file.strip()
+        if (not separator or not re.fullmatch(r"[a-z][a-z0-9-]{0,31}", target_id)
+                or not route_file or target_id in configured):
+            raise ValueError("PATH_ALIAS_TARGET_ROUTES requires unique target-id=route-file entries")
+        declared_ids = load_route_document(route_file).target_ids
+        if declared_ids and target_id not in declared_ids:
+            raise ValueError(f"Route file {route_file!r} does not declare target {target_id!r}")
+        target_env = dict(environ)
+        target_env["PATH_ALIAS_ROUTES_FILE"] = route_file
+        target_env["PATH_ALIAS_TARGET_IDS"] = target_id
+        # Each app must own its alias rows even when its browser returns the same cookie.
+        target_env["PATH_ALIAS_APP_ID"] = f"{base_app_id}:{target_id}" if base_app_id else target_id
+        configured[target_id] = PathAliasConfig.from_env(target_env)
+    return configured
+
+
 @dataclass(frozen=True)
 class PathAliasConfig:
     mode: str = "off"
@@ -530,6 +562,26 @@ def _canonical(path: str) -> str:
         elif part and part != ".":
             parts.append(part.rstrip("."))
     return "/" + "/".join(parts) + ("/" if path.endswith("/") else "")
+
+
+def _alias_selector(value: str, *, action: bool) -> bool:
+    """A selector starts with the reserved alias token, allowing encoded spellings."""
+    for _ in range(3):
+        candidate = value.lower()
+        if action and candidate.startswith(_ALIAS_MARKER):
+            return True
+        if not action and may_reference_alias(candidate.partition("?")[0].partition("#")[0]):
+            return True
+        decoded = unquote_plus(value)
+        if decoded == value:
+            break
+        value = decoded
+    return False
+
+
+def may_reference_alias(path: str) -> bool:
+    """Recognize the reserved root alias namespace, including alternate spellings."""
+    return _canonical(path).startswith("/" + _ALIAS_MARKER)
 
 
 # Portable DDL: SQLite maps BIGINT/DOUBLE PRECISION to INTEGER/REAL affinity.
@@ -1171,6 +1223,25 @@ class PathAliasTable:
 
     def is_dispatcher(self, path: str) -> bool:
         return bool(self._dispatcher_rules(path))
+
+    def may_reference_query_alias(self, path: str, query: bytes) -> bool:
+        """Check only declared selector parameters for an old alias after score drops."""
+        if not query:
+            return False
+        rules = self._dispatcher_rules(path)
+        if not rules:
+            return False
+        fields = query.decode("ascii", errors="surrogateescape").split("&")
+        for field in fields:
+            name, separator, value = field.partition("=")
+            if not separator:
+                continue
+            parameter = unquote_plus(name)
+            for rule in rules:
+                if parameter == rule.parameter and _alias_selector(
+                        value, action=isinstance(rule, ActionRoute)):
+                    return True
+        return False
 
     def body_uninspectable(self, path: str) -> Resolution:
         """A dispatcher body that could carry a selector but cannot be checked (too large,

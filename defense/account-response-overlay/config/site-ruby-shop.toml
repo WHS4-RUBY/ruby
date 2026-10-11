@@ -20,3 +20,9 @@ decoy_brand = "RUBY Market Archive"
 decoy_admin_email = "administrator@archive.invalid"
 decoy_service = "Internal Account Registry"
 decoy_profile_image = ""
+
+# 계정 관련으로 취급할 추가 경로 접두어. 이 셋은 리팩토링 이전에 engagement.py 와
+# cycle.py 에 **사이트와 무관하게** 박혀 있었으므로 동작 보존을 위해 그대로 둔다.
+# /administration 과 /account 는 웹 전반의 관례지만 /api/Users 는 Juice Shop 경로다 —
+# 이 사이트의 실제 계정 경로로 바꾸는 것이 맞고, 근거가 생기면 교체할 항목이다.
+account_api_prefixes = ["/api/Users", "/administration", "/account"]

@@ -36,8 +36,14 @@ class Engagement(ProxyHook):
             ctx.meta['engagement_event'].update(track=track, partition=partition, stage=stage)
 
     def family(self, path, ctx=None):
-        login_root = ctx.settings.profile.login_path.rsplit('/', 1)[0] if ctx else '/rest/user'
-        if path.startswith((login_root + '/', '/api/Users', '/administration', '/account')):
+        # ctx 가 없으면 어떤 사이트인지 알 수 없다. 예전에는 Juice Shop 의 로그인 루트를
+        # 가정했는데, 그건 "모르면 Juice Shop" 이라는 숨은 기본값이었다. 이제 로그인
+        # 경로 없이 프로파일이 선언한 계정 접두어만 본다.
+        if ctx is None:
+            return None
+        profile = ctx.settings.profile
+        login_root = profile.login_path.rsplit('/', 1)[0]
+        if path.startswith((login_root + '/', *profile.account_api_prefixes)):
             return 'accounts'
         return None
 

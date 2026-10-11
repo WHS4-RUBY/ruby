@@ -21,6 +21,12 @@ jobs:
         working-directory: detection
         run: npm ci
 
+      # npm test 가 이 파일들도 수집한다. 먼저 따로 돌리는 이유는 사이트 프로파일
+      # 드리프트가 400여 건 안에 묻히지 않고 이름 붙은 단계로 실패하게 하려는 것이다.
+      - name: Verify the site profiles and the cross-site contract
+        working-directory: detection
+        run: node --test test/siteProfile.test.js test/profileCrossSite.test.js
+
       - name: Test Detection
         working-directory: detection
         run: npm test
@@ -62,6 +68,24 @@ jobs:
       - name: Import check (문법/의존성 오류 조기 발견)
         working-directory: ${{ matrix.service }}
         run: python -c "import app.main"
+
+      # 공용 원본과 사본이 어긋났는지 — 가장 값싼 실패라 먼저 본다.
+      # test_shared_sources.py 가 같은 검사를 하지만 이 단계는 고치는 명령을 바로 알려준다.
+      - name: Verify the shared sources have no drift
+        run: scripts/sync-shared.sh --check
+
+      # 서비스 경계를 넘는 계약. discover 가 이 파일들도 수집하지만, 한 서비스의 변경이
+      # 다른 서비스의 선언과 어긋났을 때 이름 붙은 단계로 실패하게 한다.
+      - name: Verify the cross-service contracts
+        run: >-
+          python -m unittest
+          defense.tests.test_site_profile_contract
+          defense.tests.test_cheat_path_contract
+          defense.tests.test_decoy_catalog_contract
+          defense.tests.test_shared_sources
+          defense.tests.test_event_schema
+          defense.tests.test_target_selection_contract
+          defense.tests.test_compose_env
 
       - name: Test ${{ matrix.service }}
         run: python -m unittest discover -s ${{ matrix.service }}/tests -p 'test_*.py'
@@ -178,6 +202,22 @@ jobs:
             http://127.0.0.1:18088/__detection/api/sessions >/dev/null
           curl --fail --silent --show-error -b detection.cookies \
             http://127.0.0.1:18088/__detection/api/target-selection >/dev/null
+
+          # 사이트 프로파일 해결 결과가 관리 API 에 보이는지. 이 타깃(legacy)에는
+          # 프로파일 파일이 없으므로 generic 폴백이어야 하고, 라우트에 묶인 기능은
+          # "비활성(프로파일 없음)" 으로 보고돼야 한다 — 조용히 0점을 돌려주는 동작 금지.
+          curl --fail --silent --show-error -b detection.cookies \
+            http://127.0.0.1:18088/__detection/api/site-profile-status \
+            | python3 -c 'import json,sys; s=json.load(sys.stdin); \
+                assert s["active"]["source"] == "generic-fallback", s["active"]; \
+                assert s["active"]["profileId"] == "generic", s["active"]; \
+                names = {p["profileId"] for p in s["profiles"]}; \
+                assert names == {"generic", "juice-shop", "ruby-shop"}, names; \
+                juice = next(p for p in s["profiles"] if p["profileId"] == "juice-shop"); \
+                assert juice["disabledFeatures"] == [], juice; \
+                generic = next(p for p in s["profiles"] if p["profileId"] == "generic"); \
+                assert "roleGated" in generic["disabledFeatures"], generic; \
+                assert "legacy" in s["unmappedTargets"], s["unmappedTargets"]'
           curl --fail --silent --show-error -b detection.cookies \
             -H 'Origin: http://127.0.0.1:18088' \
             -H 'X-Ruby-Target-Selection: 1' \
@@ -202,27 +242,30 @@ jobs:
           docker compose -f docker-compose.local.yml exec -T \
             -e DECOY_ENTRY_PATH="$DECOY_ENTRY_PATH" detection node - <<'JS'
           (async () => {
+            const stage4 = require('/app/config/policy.json').defense.rules
+              .find(rule => rule.tier === 'stage4');
+            if (!stage4) throw new Error('stage4 policy is missing');
+            const started = Date.now();
             const response = await fetch(`http://defense:8080${process.env.DECOY_ENTRY_PATH}`, {
               headers: {
                 'X-Client-Id': 'integration-decoy-client',
-                'X-Defense-Plan': JSON.stringify([
-                  { name: 'rate_limit_strict', params: { max_rps: 1 } },
-                  { name: 'decoy_maze', params: {} },
-                ]),
+                'X-Defense-Plan': JSON.stringify(stage4.strategies),
                 'X-Ruby-Risk-Score': '0.85',
                 'X-Ruby-Confirmed-Attack-Score': '0.85',
                 'X-Ruby-Request-Id': 'integration-decoy-request',
               },
             });
             const body = await response.text();
+            const elapsed = Date.now() - started;
             const applied = response.headers.get('x-defense-applied') ?? '';
             if (
                 response.status !== 200 ||
                 !body ||
-                applied .includes('decoy_maze') ||
+                elapsed < 650 ||
+                applied.includes('decoy_maze') ||
                 response.headers.has('x-ruby-decoy-action')
             ) {
-              throw new Error(`decoy response ${response.status}: ${body.slice(0, 160)}`);
+              throw new Error(`decoy response ${response.status} in ${elapsed}ms, applied=${applied}: ${body.slice(0, 160)}`);
             }
           })().catch(error => { console.error(error); process.exitCode = 1; });
           JS
@@ -238,11 +281,16 @@ jobs:
             const unsigned = await fetch('http://overlay-alternate:8080/');
             if (unsigned.status !== 403) throw new Error(`unsigned overlay: ${unsigned.status}`);
 
+            const rules = require('/app/config/policy.json').defense.rules;
+
             async function check(tier, score, clientId) {
               const marker = `account_overlay_${tier}`;
-              const plan = tier === 'high'
-                ? [{ name: 'rate_limit_strict', params: { max_rps: 1 } }, { name: marker, params: {} }]
-                : [{ name: marker, params: {} }];
+              const stage = tier === 'high' ? 'stage4' : 'stage3';
+              const plan = rules.find(rule => rule.tier === stage)?.strategies;
+              if (!plan?.some(step => step.name === marker)) {
+                throw new Error(`${stage} overlay policy is missing`);
+              }
+              const started = Date.now();
               const response = await fetch('http://defense:8080/', {
                 headers: {
                   'X-Client-Id': clientId,
@@ -253,9 +301,12 @@ jobs:
                 },
               });
               const body = await response.text();
+              const elapsed = Date.now() - started;
               const expected = tier === 'high' ? 'Internal Operations Console' : '/assets/account-recovery.js';
-              if (response.status !== 200 || !body.includes(expected)) {
-                throw new Error(`${tier} overlay returned ${response.status}: ${body.slice(0, 160)}`);
+              const minimumDelay = tier === 'high' ? 650 : 450;
+              if (response.status !== 200 || !body.includes(expected) ||
+                  elapsed < minimumDelay) {
+                throw new Error(`${tier} overlay returned ${response.status} in ${elapsed}ms: ${body.slice(0, 160)}`);
               }
             }
 

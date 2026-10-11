@@ -1,0 +1,279 @@
+{
+  "schemaVersion": 1,
+  "profileId": "juice-shop",
+  "label": "OWASP Juice Shop",
+  "_note": "리팩토링 이전 코드의 모듈 상수를 그대로 옮긴 것이다. detection/test/siteProfile.test.js 가 살아 있는 상수와의 deepEqual 을 강제한다.",
+  "_needsConfirmation": [],
+  "deception": {
+    "loginPath": "/rest/user/login",
+    "apiPathPrefixes": [
+      "/rest/",
+      "/api/"
+    ],
+    "plaintextBaitPaths": [
+      "/robots.txt",
+      "/security.txt",
+      "/.well-known/security.txt",
+      "/metrics"
+    ],
+    "frontendFlavor": "angular-httpclient"
+  },
+  "loginBruteForce": {
+    "route": {
+      "method": "POST",
+      "normalizedPath": "/rest/user/login"
+    },
+    "emailField": "email"
+  },
+  "passwordResetAbuse": {
+    "resetRoute": {
+      "method": "POST",
+      "normalizedPath": "/rest/user/reset-password"
+    },
+    "resetEmailField": "email",
+    "securityQuestionRoute": {
+      "method": "GET",
+      "normalizedPath": "/rest/user/security-question"
+    },
+    "securityQuestionEmailField": "email"
+  },
+  "priceTampering": {
+    "quantityFields": [
+      "quantity",
+      "qty"
+    ],
+    "unitPriceFields": [
+      "price",
+      "unitprice",
+      "itemprice"
+    ],
+    "totalFields": [
+      "totalprice",
+      "total",
+      "amount",
+      "ordertotal",
+      "linetotal"
+    ],
+    "amountTolerance": 0.01
+  },
+  "priceIntegrity": {
+    "listRoute": "/api/Products",
+    "itemRoute": "/api/Products/:id",
+    "priceDropRatio": 0.5,
+    "idField": "id",
+    "priceField": "price",
+    "responseEnvelope": {
+      "itemsKey": "data",
+      "bareObjectHasField": "id"
+    }
+  },
+  "businessLogic": {
+    "alwaysSuspiciousFields": [
+      "role",
+      "isadmin",
+      "is_admin",
+      "admin",
+      "permissions",
+      "scope",
+      "accesslevel",
+      "is_staff",
+      "is_superuser",
+      "usertype",
+      "roles",
+      "authority",
+      "authorities",
+      "grants",
+      "privilege",
+      "privileges",
+      "acl",
+      "superuser",
+      "root",
+      "roleid",
+      "role_id"
+    ],
+    "suspiciousRoleValues": [
+      "admin",
+      "administrator",
+      "root",
+      "superadmin",
+      "super_admin",
+      "sysadmin",
+      "owner"
+    ],
+    "numericFieldRules": [
+      {
+        "field": "price",
+        "min": 0.01
+      },
+      {
+        "field": "deluxeprice",
+        "min": 0
+      },
+      {
+        "field": "quantity",
+        "min": 1,
+        "max": 100
+      },
+      {
+        "field": "rating",
+        "min": 1,
+        "max": 5
+      }
+    ],
+    "massAssignmentWhitelist": [
+      {
+        "route": "POST /api/Users",
+        "fields": [
+          "email",
+          "password",
+          "passwordRepeat",
+          "securityQuestion",
+          "securityAnswer"
+        ]
+      },
+      {
+        "route": "POST /api/Feedbacks",
+        "fields": [
+          "comment",
+          "rating",
+          "captchaId",
+          "captcha"
+        ]
+      },
+      {
+        "route": "PUT /rest/products/:id/reviews",
+        "fields": [
+          "message"
+        ]
+      },
+      {
+        "route": "PATCH /rest/products/reviews",
+        "fields": [
+          "id",
+          "message"
+        ]
+      },
+      {
+        "route": "PUT /api/Products/:id",
+        "fields": [
+          "name",
+          "description",
+          "price",
+          "deluxePrice",
+          "image",
+          "category",
+          "CategoryId"
+        ]
+      }
+    ]
+  },
+  "identity": {
+    "tokenSources": {
+      "bearer": true,
+      "cookieNames": [
+        "token"
+      ]
+    },
+    "claimMap": {
+      "wrapperKey": "data",
+      "id": "id",
+      "email": "email",
+      "role": "role",
+      "basketId": {
+        "at": "root",
+        "key": "bid"
+      }
+    },
+    "learnedFallback": true,
+    "routeRules": [
+      {
+        "tag": "identity-mismatch:basket",
+        "normalizedPath": "/rest/basket/:id",
+        "claimField": "bid"
+      },
+      {
+        "tag": "identity-mismatch:user",
+        "normalizedPath": "/api/Users/:id",
+        "claimField": "id"
+      }
+    ],
+    "bodyRules": [
+      {
+        "tag": "identity-mismatch:feedback-userid",
+        "method": "POST",
+        "normalizedPath": "/api/Feedbacks",
+        "field": "UserId",
+        "claimField": "id"
+      }
+    ],
+    "queryRules": [
+      {
+        "tag": "identity-mismatch:baskets-query",
+        "method": "GET",
+        "normalizedPath": "/api/Baskets",
+        "field": "UserId",
+        "claimField": "id"
+      }
+    ]
+  },
+  "roleGated": {
+    "sensitiveRoutes": [
+      {
+        "tag": "role-gated:admin-config",
+        "method": "GET",
+        "normalizedPath": "/rest/admin/application-configuration",
+        "requiredRoles": [
+          "admin"
+        ]
+      },
+      {
+        "tag": "role-gated:admin-version",
+        "method": "GET",
+        "normalizedPath": "/rest/admin/application-version",
+        "requiredRoles": [
+          "admin"
+        ]
+      },
+      {
+        "tag": "role-gated:metrics",
+        "method": "GET",
+        "normalizedPath": "/metrics",
+        "requiredRoles": [
+          "admin"
+        ]
+      },
+      {
+        "tag": "role-gated:user-list",
+        "method": "GET",
+        "normalizedPath": "/api/Users",
+        "requiredRoles": [
+          "admin"
+        ]
+      },
+      {
+        "tag": "role-gated:product-write",
+        "method": "PUT",
+        "normalizedPath": "/api/Products/:id",
+        "requiredRoles": [
+          "admin"
+        ]
+      },
+      {
+        "tag": "role-gated:product-create",
+        "method": "POST",
+        "normalizedPath": "/api/Products",
+        "requiredRoles": [
+          "admin"
+        ]
+      },
+      {
+        "tag": "role-gated:product-delete",
+        "method": "DELETE",
+        "normalizedPath": "/api/Products/:id",
+        "requiredRoles": [
+          "admin"
+        ]
+      }
+    ]
+  }
+}

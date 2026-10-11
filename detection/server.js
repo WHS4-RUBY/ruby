@@ -58,12 +58,10 @@ const {
   ingestProductResponseBody,
   extractTrailingNumericId,
   checkPriceDelta,
-  PRODUCTS_LIST_PATH,
-  PRODUCTS_ITEM_PATH,
 } = require("./lib/priceIntegrity");
 const schemaLearning = require("./lib/schemaLearning");
 const { stripDetectionHeaders, buildPolicyDecision } = require("./lib/rubyPolicy");
-const { applyDefenseRule, loadDeceptionPoints, loadPolicyRules } = require("./lib/policyEngine");
+const { applyDefenseRule, loadDeceptionPoints, loadPolicyRules, selectRule } = require("./lib/policyEngine");
 const { createRunScopedPolicyAnalyzer } = require("./lib/runScopedPolicy");
 const { createProxyCore, fixRequestBody } = require("./lib/proxyCore");
 const { loadInspectionConfig, createRequestInspection, replayInspectedBody } = require("./lib/requestInspection");
@@ -80,6 +78,7 @@ const {
   parseTargetChoices,
 } = require("./lib/targetSelection");
 const { installTargetSelectionRoutes } = require("./lib/targetSelectionRoutes");
+const { SiteProfileRegistry } = require("./lib/siteProfiles");
 const { listenerBoundary } = require("./lib/listenerBoundary");
 
 const PORT = Number(process.env.PORT || 8080);
@@ -88,14 +87,113 @@ if (process.env.NODE_ENV === "production" && ADMIN_PORT === null) {
   throw new Error("production requires an isolated ADMIN_PORT listener");
 }
 const TARGET = process.env.TARGET_URL || "http://localhost:3000";
-// 2026-09-01 추가: HTML(index.html) 하나만 보는 정찰 대신, 자주 조회되는
-// 정적 텍스트 응답에도 기만 신호를 심는다 — deceptionEngine.injectSignalsPlaintext 참고.
-const PLAINTEXT_BAIT_PATHS = new Set([
-  "/robots.txt",
-  "/security.txt",
-  "/.well-known/security.txt",
-  "/metrics",
-]);
+// 2026-09-01 추가: HTML(index.html) 하나만 보는 정찰 대신, 자주 조회되는 정적 텍스트
+// 응답에도 기만 신호를 심는다 — deceptionEngine.injectSignalsPlaintext 참고. 그 경로
+// 목록은 사이트 프로파일의 deception.plaintextBaitPaths 가 정한다(아래 onProxyRes).
+// Defense signs restored alias routes before Detection uses them for completed-request scoring.
+// A direct application target has no key or feedback and retains the ingress URL.
+const configuredRouteFeedbackKey = process.env.OVERLAY_DETECTOR_KEY || "";
+const ROUTE_FEEDBACK_KEY = Buffer.byteLength(configuredRouteFeedbackKey, "utf8") >= 32
+  ? Buffer.from(configuredRouteFeedbackKey, "utf8") : null;
+const POLICY_GATE_ENABLED = process.env.DETECTION_POLICY_GATE_ENABLED === "true";
+if (POLICY_GATE_ENABLED && !ROUTE_FEEDBACK_KEY) {
+  throw new Error("DETECTION_POLICY_GATE_ENABLED requires OVERLAY_DETECTOR_KEY of at least 32 bytes");
+}
+const RESOLVED_URL_HEADER = "x-ruby-resolved-url";
+const RESOLVED_URL_SIGNATURE_HEADER = "x-ruby-resolved-url-sig";
+
+function verifyPolicyGateResponse(response, requestBody, tier, delay, signal) {
+  const signature = response.headers.get("x-defense-policy-response-signature");
+  if (!signature || !/^[0-9a-f]{64}$/.test(signature)) return false;
+  const fields = [
+    "ruby:policy-gate-response:v1",
+    crypto.createHash("sha256").update(requestBody).digest("hex"),
+    String(response.status), tier || "", delay || "", signal || "",
+  ];
+  const expected = crypto.createHmac("sha256", ROUTE_FEEDBACK_KEY)
+    .update(fields.join("\n"), "utf8").digest();
+  return crypto.timingSafeEqual(expected, Buffer.from(signature, "hex"));
+}
+
+// A local deception response still consumes the same Defense delay and rate
+// state as a proxied request. Only bounded policy metadata enters this call;
+// the trap URL, request body, and credentials stay in Detection.
+async function checkLocalTrapPolicy(req) {
+  if (!ROUTE_FEEDBACK_KEY) throw new Error("policy gate key unavailable");
+  const decision = req.rubyPolicyDecision;
+  const body = Buffer.from(JSON.stringify({
+    targetId: req.activeTarget.targetId,
+    runId: req.activeTarget.runId,
+    clientId: decision.clientId,
+    riskScore: decision.riskScore,
+    confirmedAttackScore: decision.confirmedAttackScore,
+    plan: decision.plan,
+    requestId: req.rubyRequestId,
+    issuedAt: Math.floor(Date.now() / 1000),
+  }), "utf8");
+  if (body.length > 8192) throw new Error("policy gate request too large");
+  const signature = crypto.createHmac("sha256", ROUTE_FEEDBACK_KEY).update(body).digest("hex");
+  const response = await fetch(new URL("/__defense/policy-gate", TARGET), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Defense-Policy-Signature": signature,
+    },
+    body,
+    redirect: "manual",
+    signal: AbortSignal.timeout(5000),
+  });
+  const delay = response.headers.get("x-defense-delay-ms");
+  const expectedDelay = decision.plan.find((step) => step.name === "delay");
+  if (delay !== (expectedDelay ? String(expectedDelay.params.delay_ms) : null)) {
+    await response.body?.cancel();
+    throw new Error("policy gate delay does not match selected stage");
+  }
+  const signal = response.headers.get("x-defense-signal");
+  if (response.status === 429 && response.headers.get("x-defense-signal") === "rate_limited") {
+    if (!decision.plan.some((step) => step.name === "rate_limit_strict") ||
+        !verifyPolicyGateResponse(response, body, null, delay, signal)) {
+      await response.body?.cancel();
+      throw new Error("policy gate rate response authentication failed");
+    }
+    await response.body?.cancel();
+    return { status: 429, delay };
+  }
+  if (response.status !== 200) {
+    await response.body?.cancel();
+    throw new Error("policy gate rejected request");
+  }
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of response.body) {
+    size += chunk.byteLength;
+    if (size > 256) throw new Error("policy gate response too large");
+    chunks.push(Buffer.from(chunk));
+  }
+  const result = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (!result || Object.keys(result).length !== 1 ||
+      ![null, "medium", "high"].includes(result.tier) || signal !== null ||
+      !verifyPolicyGateResponse(response, body, result.tier, delay, signal)) {
+    throw new Error("policy gate returned an invalid route");
+  }
+  return { status: 200, tier: result.tier, delay };
+}
+
+function verifiedResolvedUrl(req, headers = {}) {
+  if (!ROUTE_FEEDBACK_KEY) return null;
+  const url = headers?.[RESOLVED_URL_HEADER];
+  const signature = headers?.[RESOLVED_URL_SIGNATURE_HEADER];
+  if (typeof url !== "string" || typeof signature !== "string" ||
+      url.length > 8192 || !url.startsWith("/") || url.startsWith("//") ||
+      /[^\x21-\x7e]|[#\\]/.test(url) || !/^[0-9a-f]{64}$/.test(signature) ||
+      !req.rubyRequestId || !req.activeTarget?.targetId) return null;
+  const message = ["ruby:route-feedback:v1", req.rubyRequestId, req.method,
+    req.activeTarget.targetId, req.activeTarget.runId || "", url].join("\n");
+  const expected = crypto.createHmac("sha256", ROUTE_FEEDBACK_KEY)
+    .update(message, "utf8").digest();
+  const supplied = Buffer.from(signature, "hex");
+  return crypto.timingSafeEqual(expected, supplied) ? url : null;
+}
 const BLOCK_MODE = process.env.BLOCK_MODE === "true";
 const DETECTION_LEVEL = normalizeDetectionLevel(process.env.DETECTION_LEVEL);
 const ENABLE_EXPERIMENT_RUN_ID = process.env.ENABLE_EXPERIMENT_RUN_ID === "true";
@@ -168,6 +266,13 @@ const targetSelection = new TargetSelectionStore({
   defaultId: process.env.TARGET_DEFAULT_ID || "legacy",
   filePath: process.env.TARGET_SELECTION_FILE,
   publicOrigin: process.env.PUBLIC_TARGET_ORIGIN,
+});
+// 대상별 사이트 프로파일. 기동 시 디렉터리 전체를 읽고 잘못된 프로파일이면 던진다 —
+// 절반만 동작하는 탐지보다 기동 실패가 낫다. 비활성 기능 경고도 여기서 한 번 나온다.
+// require 시점이 아니라 여기서 만드는 이유: 테스트가 임시 디렉터리를 줄 수 있어야 한다.
+const siteProfiles = new SiteProfileRegistry({
+  dir: process.env.SITE_PROFILES_DIR || undefined,
+  defaultProfileId: process.env.DETECTION_DEFAULT_SITE_PROFILE || "",
 });
 
 const app = express();
@@ -367,29 +472,32 @@ function buildPriorPolicyDecision(req) {
     confirmedAttackScore: confirmedAttackScore(analyses) }), observation };
 }
 
-function computeBusinessLogicTags(req) {
-  const normalizedPath = normalizePath(req.originalUrl);
+function computeBusinessLogicTags(req, url = req.originalUrl) {
+  const normalizedPath = normalizePath(url);
   const businessLogicHits = analyzeBusinessLogic({
     method: req.method,
     normalizedPath,
     body: req.body,
-    rawQueryOrBody: req.originalUrl,
+    rawQueryOrBody: url,
+    profile: req.siteProfile,
   });
   const identityHits = checkIdentityMismatch({
     method: req.method,
     normalizedPath,
-    url: req.originalUrl,
+    url,
     body: req.body,
     authorizationHeader: req.headers.authorization,
     cookieHeader: req.headers.cookie,
+    profile: req.siteProfile,
   });
   const roleGateHits = checkRoleGatedAccess({
     method: req.method,
     normalizedPath,
     authorizationHeader: req.headers.authorization,
     cookieHeader: req.headers.cookie,
+    profile: req.siteProfile,
   });
-  const priceResult = detectPriceTampering(req.body);
+  const priceResult = detectPriceTampering(req.body, req.siteProfile);
   const tags = [
     ...businessLogicHits.map((hit) => hit.tag),
     ...identityHits.map((hit) => hit.tag),
@@ -397,19 +505,28 @@ function computeBusinessLogicTags(req) {
   ];
   if (priceResult.hit) tags.push("price-tampering:total-mismatch");
 
-  if (String(req.method).toUpperCase() === "PUT" && normalizedPath === PRODUCTS_ITEM_PATH) {
-    const productId = extractTrailingNumericId(req.originalUrl);
-    const submittedPrice = req.body && typeof req.body === "object" ? req.body.price : undefined;
-    if (checkPriceDelta(productId, submittedPrice).hit) tags.push("price-tampering:delta");
+  // 상품 쓰기 라우트와 가격 필드명도 프로파일이 정한다. 블록이 없으면 이 분기 전체가
+  // 꺼지고, 꺼진 사실은 기동 경고와 관리 API 로 드러난다.
+  const integrity = req.siteProfile?.priceIntegrity;
+  if (integrity && String(req.method).toUpperCase() === "PUT" &&
+      normalizedPath === integrity.itemRoute) {
+    const productId = extractTrailingNumericId(url);
+    const submittedPrice = req.body && typeof req.body === "object"
+      ? req.body[integrity.priceField]
+      : undefined;
+    if (checkPriceDelta(productId, submittedPrice, req.siteProfile,
+                        req.activeTarget?.targetId).hit) {
+      tags.push("price-tampering:delta");
+    }
   }
   return [...new Set(tags)];
 }
 
-function computeCsrfTags(req) {
+function computeCsrfTags(req, url = req.originalUrl) {
   return checkCsrf(
     {
       method: req.method,
-      normalizedPath: normalizePath(req.originalUrl),
+      normalizedPath: normalizePath(url),
       originHeader: req.headers.origin,
       refererHeader: req.headers.referer,
     },
@@ -417,7 +534,7 @@ function computeCsrfTags(req) {
   ).map((hit) => hit.tag);
 }
 
-function observeSchemaLearning(req, statusCode, normalizedPath) {
+function observeSchemaLearning(req, statusCode, normalizedPath, url = req.originalUrl) {
   let bodyObj = req.body;
   if (typeof bodyObj === "string") {
     try {
@@ -432,21 +549,28 @@ function observeSchemaLearning(req, statusCode, normalizedPath) {
     normalizedPath,
     bodyObj,
     statusCode,
-    hasHardcodedWhitelist: hasHardcodedMassAssignmentWhitelist(req.method, normalizedPath),
+    hasHardcodedWhitelist: hasHardcodedMassAssignmentWhitelist(
+      req.method, normalizedPath, req.siteProfile
+    ),
   });
 
-  const token = extractToken(req.headers.authorization, req.headers.cookie);
-  const claimed = token ? decodeClaimedIdentity(token) : null;
+  const identity = req.siteProfile?.identity;
+  const token = identity?.tokenSources
+    ? extractToken(req.headers.authorization, req.headers.cookie, identity.tokenSources)
+    : null;
+  const claimed = token && identity?.claimMap
+    ? decodeClaimedIdentity(token, identity.claimMap)
+    : null;
   const role = claimed?.role ? String(claimed.role).toLowerCase() : null;
   schemaLearning.observeRoleAccess({
     method: req.method,
     normalizedPath,
     statusCode,
     role,
-    hasHardcodedRule: isHardcodedSensitiveRoute(req.method, normalizedPath),
+    hasHardcodedRule: isHardcodedSensitiveRoute(req.method, normalizedPath, req.siteProfile),
   });
 
-  const requestedId = extractTrailingNumericId(req.originalUrl);
+  const requestedId = extractTrailingNumericId(url);
   const claimedIds = claimed
     ? [claimed.id, claimed.bid].filter((value) => value !== null && value !== undefined)
     : [];
@@ -459,10 +583,41 @@ function observeSchemaLearning(req, statusCode, normalizedPath) {
   });
 }
 
+function preparePathObservation(req, url) {
+  req.effectiveUrl = url;
+  req.backgroundTraffic = classifyBackgroundTraffic(url);
+  const normalizedPath = normalizePath(url);
+  req.blTags = computeBusinessLogicTags(req, url);
+  req.csrfTags = computeCsrfTags(req, url);
+  req.loginAttemptEmail = extractLoginAttemptEmail({
+    method: req.method,
+    normalizedPath,
+    body: req.body,
+    profile: req.siteProfile,
+  });
+  req.resetPasswordEmail = extractResetPasswordEmail({
+    method: req.method,
+    normalizedPath,
+    body: req.body,
+    profile: req.siteProfile,
+  });
+  req.securityQuestionEmail = extractSecurityQuestionEmail({
+    method: req.method,
+    normalizedPath,
+    url,
+    profile: req.siteProfile,
+  });
+}
+
 function prepareRequestObservation(req) {
   if (req._detectionPrepared) return;
   req._detectionPrepared = true;
   req.activeTarget = targetSelection.read();
+  // 활성 대상이 정해진 직후에 프로파일을 붙인다. 모듈 전역이 아니라 요청마다 주입하는
+  // 이유: Detection 은 한 프로세스가 여러 대상을 서비스하고 활성 대상이 런타임에
+  // 전환되므로, 전역이면 전환과 진행 중인 요청 사이에 경쟁 조건이 생긴다.
+  req.siteProfileResolution = siteProfiles.forTarget(req.activeTarget?.targetId);
+  req.siteProfile = req.siteProfileResolution.profile;
   req._detectionStart = Date.now();
   req.experimentRunId = ENABLE_EXPERIMENT_RUN_ID
     ? sanitizeExperimentRunId(req.headers[EXPERIMENT_RUN_HEADER])
@@ -476,32 +631,10 @@ function prepareRequestObservation(req) {
     req.headers["content-type"] || "",
     PAYLOAD_FINGERPRINT_KEY
   );
-  req.deceptionEvents = deceptionEngine.inspectRequest({
-    sessionId: req.detectionSessionId,
-    method: req.method,
-    url: req.originalUrl,
-    rawBody: req.detectionRequestBodyBuffer,
-    body: req.body,
-  });
-  req.backgroundTraffic = classifyBackgroundTraffic(req.originalUrl);
-  const normalizedPath = normalizePath(req.originalUrl);
-  req.blTags = computeBusinessLogicTags(req);
-  req.csrfTags = computeCsrfTags(req);
-  req.loginAttemptEmail = extractLoginAttemptEmail({
-    method: req.method,
-    normalizedPath,
-    body: req.body,
-  });
-  req.resetPasswordEmail = extractResetPasswordEmail({
-    method: req.method,
-    normalizedPath,
-    body: req.body,
-  });
-  req.securityQuestionEmail = extractSecurityQuestionEmail({
-    method: req.method,
-    normalizedPath,
-    url: req.originalUrl,
-  });
+  // A signed Defense route may replace an opaque alias after the response.
+  // Score deception paths and API coverage once, when the final route is known.
+  req.deceptionEvents = [];
+  preparePathObservation(req, req.originalUrl);
 }
 
 // Stored XSS 대조용 저장소: 쓰기 요청에서 관찰한 값을 나중 응답과 대조한다.
@@ -567,9 +700,10 @@ const XSS_WRITE_METHODS = new Set(["POST", "PUT", "PATCH"]);
 function computeXssDetection(req, responseBuffer, responseHeaders) {
   try {
     const method = String(req.method || "").toUpperCase();
+    const effectiveUrl = req.effectiveUrl || req.originalUrl;
     const xssReq = {
       method,
-      url: req.originalUrl,
+      url: effectiveUrl,
       body: req.body,
       contentType: req.headers["content-type"],
       responseContentType: responseHeaders && responseHeaders["content-type"],
@@ -587,7 +721,7 @@ function computeXssDetection(req, responseBuffer, responseHeaders) {
     for (const f of result.findings || []) {
       if (f.vulnerabilityType === "stored") xssEvidenceStore.recordConfirmed(f);
       else if (f.vulnerabilityType === "reflected") {
-        xssEvidenceStore.recordReflected(f, { endpoint: normalizePath(req.originalUrl) });
+        xssEvidenceStore.recordReflected(f, { endpoint: normalizePath(effectiveUrl) });
       }
     }
     return result.reflected;
@@ -630,10 +764,10 @@ function observeXssWrite(req, session, status) {
   const origin = session.requests.at(-1);
   if (!origin) return;
   xssCandidateStore.observe(extractXssCandidates({
-    url: req.originalUrl,
+    url: req.effectiveUrl || req.originalUrl,
     body: req.body,
     contentType: req.headers["content-type"],
-  }), normalizePath(req.originalUrl), origin);
+  }), normalizePath(req.effectiveUrl || req.originalUrl), origin);
 }
 
 function recordCompletedRequest(req, {
@@ -653,14 +787,29 @@ function recordCompletedRequest(req, {
     categories: [],
     hits: [],
   };
-  const tags = detection.available ? detection.categories : tagPayload(req.originalUrl, req.body);
-  const normalizedPath = normalizePath(req.originalUrl);
+  const effectiveUrl = req.effectiveUrl || req.originalUrl;
+  if (!req._deceptionInspected) {
+    req.deceptionEvents.unshift(...deceptionEngine.inspectRequest({
+      sessionId: req.detectionSessionId,
+      method: req.method,
+      url: effectiveUrl,
+      rawBody: req.detectionRequestBodyBuffer,
+      body: req.body,
+      profile: req.siteProfile,
+    }));
+    req._deceptionInspected = true;
+  }
+  const tags = detection.available ? detection.categories : tagPayload(effectiveUrl, req.body);
+  const normalizedPath = normalizePath(effectiveUrl);
   // A partial upstream response must not teach the schema learner that a
   // write succeeded just because its HTTP headers contained a 2xx status.
-  if (upstreamReached && responseTransportOutcome !== "error") observeSchemaLearning(req, status, normalizedPath);
+  if (upstreamReached && responseTransportOutcome !== "error") {
+    observeSchemaLearning(req, status, normalizedPath, effectiveUrl);
+  }
   const session = store.recordRequest(req.detectionSessionId, ip, {
     method: req.method,
-    url: req.originalUrl,
+    url: effectiveUrl,
+    observedUrl: effectiveUrl === req.originalUrl ? null : req.originalUrl,
     status,
     headers: req.detectionHeaders,
     rawHeaders: req.rawHeaders,
@@ -857,29 +1006,65 @@ installTargetSelectionRoutes({ app, targetSelection });
 
 // 팀원 Python 프록시의 미끼 라우트를 현재 Express 프록시 안에서 직접 처리한다.
 // 이 요청도 일반 요청과 동일하게 CRS, Session, Actor, Auth Group과 타임라인에 기록한다.
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
+  if (req.path === "/__detection" || req.path.startsWith("/__detection/")) return next();
+  prepareRequestObservation(req);
   const trap = deceptionEngine.matchTrap({
     sessionId: req.detectionSessionId,
     method: req.method,
     url: req.originalUrl,
     rawBody: req.detectionRequestBodyBuffer,
     body: req.body,
+    profile: req.siteProfile,
   });
   if (!trap) return next();
+  // An overlay actor's login is signed and handled by Defense. Avoid serving
+  // the local 423 or charging a gate request and then delaying it again there.
+  let policy = { status: 200, tier: null, delay: null };
+  let loginTrap = false;
+  if (POLICY_GATE_ENABLED) {
+    const decision = buildPriorPolicyDecision(req);
+    const rule = selectRule(decision.riskScore, policyRules,
+      { confirmedAttackScore: decision.confirmedAttackScore });
+    req.rubyPolicyDecision = { ...decision, plan: rule?.strategies || [], tier: rule?.tier || null };
+    loginTrap = trap.status === 423 &&
+      req.siteProfile?.deception?.loginPath === req.path && req.method === "POST";
+    const selectedOverlay = req.rubyPolicyDecision.plan.some((step) =>
+      step.name === "account_overlay_medium" || step.name === "account_overlay_high");
+    if (loginTrap && selectedOverlay) return next();
+    try {
+      policy = await checkLocalTrapPolicy(req);
+    } catch {
+      policy = { status: 503 };
+    }
+  }
+  if (loginTrap && policy.status === 200 && policy.tier) return next();
 
-  prepareRequestObservation(req);
-  req.deceptionEvents.push(...trap.events);
-  const responseBuffer = Buffer.from(trap.body, "utf8");
-  crsScanner.scan(req, getClientIp(req)).then((attackDetection) => {
-    recordCompletedRequest(req, {
-      status: trap.status,
-      responseContentType: trap.contentType,
-      responseContentLength: responseBuffer.length,
-      responseBodyBytes: responseBuffer.length,
-      attackDetection,
-    });
-    res.status(trap.status).type(trap.contentType).send(responseBuffer);
-  }).catch(next);
+  let attackDetection;
+  try {
+    attackDetection = await crsScanner.scan(req, getClientIp(req));
+  } catch (error) {
+    return next(error);
+  }
+  const status = policy.status === 429 ? 429 : policy.status === 503 ? 503 : trap.status;
+  const responseBuffer = Buffer.from(status === trap.status ? trap.body
+    : status === 429 ? '{"error":"rate_limited"}'
+      : '{"error":"defense_policy_unavailable"}', "utf8");
+  const contentType = status === trap.status ? trap.contentType : "application/json; charset=utf-8";
+  if (status === trap.status) req.deceptionEvents.push(...trap.events);
+  if (status === 429) req.defenseSignal = "rate_limited";
+  recordCompletedRequest(req, {
+    status,
+    responseContentType: contentType,
+    responseContentLength: responseBuffer.length,
+    responseBodyBytes: responseBuffer.length,
+    attackDetection,
+    upstreamReached: false,
+  });
+  res.setHeader("Cache-Control", "no-store");
+  if (policy.delay) res.setHeader("X-Defense-Delay-Ms", policy.delay);
+  if (status === 429) res.setHeader("X-Defense-Signal", "rate_limited");
+  res.status(status).type(contentType).send(responseBuffer);
 });
 
 app.post("/__detection/telemetry", (req, res) => {
@@ -1288,6 +1473,14 @@ app.get("/__detection/api/deception-status", (req, res) => {
   res.json(deceptionEngine.status());
 });
 
+// 프로파일 상태는 점수와 분리된 채널이다. blTags 에는 아무것도 넣지 않는다 —
+// featureExtractor.js:244,348 이 blTags 개수를 세고 classifier.js:179 가 그걸
+// businessLogicViolation 서브스코어(가중치 0.12)로 바꾸므로, 태그를 하나 더하면
+// 위험도가 바뀐다.
+app.get("/__detection/api/site-profile-status", (req, res) => {
+  res.json(siteProfiles.status(targetSelection.read().targetId));
+});
+
 app.get("/__detection/api/resolution-status", (req, res) => {
   res.json({
     ...store.getResolutionStatus(),
@@ -1459,15 +1652,48 @@ const detectionHook = {
     if (!replayInspectedBody(proxyReq, req)) fixRequestBody(proxyReq, req);
   },
 
-  async onResponse({ responseBuffer, proxyRes, req, bodyAvailable = true, responseBodyBytes }) {
+  async onResponse({ responseBuffer, proxyRes, req, res, bodyAvailable = true, responseBodyBytes }) {
     if (req.rubyResponseRecorded) return responseBuffer;
+    const restoredUrl = verifiedResolvedUrl(req, proxyRes.headers);
+    if (restoredUrl) preparePathObservation(req, restoredUrl);
+    // A direct login URL is handled by the pre-proxy trap. An alias becomes
+    // recognizable only after Defense returns its signed restored route.
+    // The response must still be buffered, and sticky overlay responses win.
+    let loginTrap = null;
+    if (restoredUrl && req.siteProfile?.deception?.loginPath &&
+        restoredUrl.split("?", 1)[0] === req.siteProfile.deception.loginPath &&
+        String(req.method).toUpperCase() === "POST" &&
+        req.rubyPolicyDecision?.plan?.some((step) => step.name === "decoy_maze") &&
+        bodyAvailable &&
+        proxyRes.statusCode === 401 &&
+        proxyRes.headers["x-ruby-overlay-active"] !== "1") {
+      const matched = deceptionEngine.matchTrap({
+        sessionId: req.detectionSessionId,
+        method: req.method,
+        url: restoredUrl,
+        rawBody: req.detectionRequestBodyBuffer,
+        body: req.body,
+        profile: req.siteProfile,
+      });
+      if (matched?.status === 423) {
+        loginTrap = matched;
+        req.deceptionEvents.push(...matched.events);
+        responseBuffer = Buffer.from(matched.body, "utf8");
+        res.statusCode = matched.status;
+        res.statusMessage = "Locked";
+        res.setHeader("content-type", matched.contentType);
+        res.setHeader("cache-control", "no-store");
+        res.removeHeader("www-authenticate");
+      }
+    }
     req.defenseSignal = proxyRes.headers["x-defense-signal"] === "rate_limited"
       ? "rate_limited" : null;
     const attackDetection = req.attackDetection
       ? req.attackDetection
       : { available: false, error: "scan was not started", categories: [], hits: [] };
     const xssDetection = computeXssDetection(
-      req, bodyAvailable ? responseBuffer : Buffer.alloc(0), proxyRes.headers
+      req, bodyAvailable ? responseBuffer : Buffer.alloc(0),
+      loginTrap ? { ...proxyRes.headers, "content-type": loginTrap.contentType } : proxyRes.headers
     );
     req.xssTags = xssDetection.tags;
     req.xssMaxRisk = xssDetection.maxRisk;
@@ -1476,17 +1702,17 @@ const detectionHook = {
       effectiveDetectionSource,
       effectiveDetectionAnalysis,
     } = recordCompletedRequest(req, {
-      status: proxyRes.statusCode,
-      responseContentType: proxyRes.headers["content-type"],
-      responseContentLength: proxyRes.headers["content-length"],
-      responseBodyBytes: Number.isSafeInteger(responseBodyBytes)
+      status: loginTrap?.status ?? proxyRes.statusCode,
+      responseContentType: loginTrap?.contentType ?? proxyRes.headers["content-type"],
+      responseContentLength: loginTrap ? responseBuffer.length : proxyRes.headers["content-length"],
+      responseBodyBytes: loginTrap ? responseBuffer.length : Number.isSafeInteger(responseBodyBytes)
         ? responseBodyBytes : responseBuffer.length,
       responseTransportOutcome: "complete",
       responseBodyInspected: bodyAvailable && responseBuffer.length <= XSS_MAX_BODY_BYTES,
       attackDetection,
     });
     req.rubyResponseRecorded = true;
-    observeXssWrite(req, session, proxyRes.statusCode);
+    observeXssWrite(req, session, loginTrap?.status ?? proxyRes.statusCode);
 
     // 실험 검증 전에는 BLOCK_MODE도 log-only다. 응답 상태나 body를 변경하지 않는다.
     if (BLOCK_MODE) {
@@ -1511,6 +1737,7 @@ const detectionHook = {
     // request/CRS/header evidence is recorded, but no response body claim or
     // injection is made without a complete, bounded body.
     if (!bodyAvailable) return responseBuffer;
+    if (loginTrap) return responseBuffer;
 
     // HTML 응답이면 telemetry.js 를 </body> 직전에 주입
     const contentType = proxyRes.headers["content-type"] || "";
@@ -1528,14 +1755,17 @@ const detectionHook = {
       return injected;
     }
 
-    const normalizedPath = normalizePath(req.originalUrl);
+    const normalizedPath = normalizePath(req.effectiveUrl || req.originalUrl);
+    const priceIntegrity = req.siteProfile?.priceIntegrity;
     if (
+      priceIntegrity &&
       String(req.method).toUpperCase() === "GET" &&
-      (normalizedPath === PRODUCTS_LIST_PATH || normalizedPath === PRODUCTS_ITEM_PATH) &&
+      (normalizedPath === priceIntegrity.listRoute || normalizedPath === priceIntegrity.itemRoute) &&
       contentType.includes("application/json")
     ) {
       try {
-        ingestProductResponseBody(JSON.parse(responseBuffer.toString("utf8")));
+        ingestProductResponseBody(JSON.parse(responseBuffer.toString("utf8")),
+                                  req.siteProfile, req.activeTarget?.targetId);
       } catch {
         // 가격 기준 캐시는 관찰 가능한 정상 JSON 응답만 best-effort로 반영한다.
       }
@@ -1545,11 +1775,16 @@ const detectionHook = {
     // 자주 조회되는 다른 정적 텍스트 응답(포맷 자체가 "#"/"//" 주석을
     // 지원하는 곳)에도 같은 신호를 심는다 — deceptionEngine.injectSignals*
     // 참고 주석.
-    if (PLAINTEXT_BAIT_PATHS.has(req.path)) {
+    // 평문 유인 경로는 프로파일이 정한다. 선언이 없으면 이 주입만 꺼진다.
+    const baitPaths = req.siteProfile?.deception?.plaintextBaitPaths;
+    const effectivePath = (req.effectiveUrl || req.originalUrl).split("?", 1)[0];
+    if (baitPaths?.includes(effectivePath)) {
       return deceptionEngine.injectSignalsPlaintext(responseBuffer.toString("utf8"), session.id);
     }
-    if (req.path.endsWith(".js") || contentType.includes("javascript")) {
-      return deceptionEngine.injectSignalsJs(responseBuffer.toString("utf8"), session.id);
+    if (effectivePath.endsWith(".js") || contentType.includes("javascript")) {
+      return deceptionEngine.injectSignalsJs(
+        responseBuffer.toString("utf8"), session.id, req.siteProfile
+      );
     }
 
     return responseBuffer;
@@ -1557,6 +1792,8 @@ const detectionHook = {
 
   async onResponseError({ req, proxyRes, responseBodyBytes }) {
     if (req.rubyResponseRecorded || !req._detectionPrepared) return;
+    const restoredUrl = verifiedResolvedUrl(req, proxyRes?.headers);
+    if (restoredUrl) preparePathObservation(req, restoredUrl);
     req.defenseSignal = proxyRes?.headers?.["x-defense-signal"] === "rate_limited"
       ? "rate_limited" : null;
     const attackDetection = req.attackDetection

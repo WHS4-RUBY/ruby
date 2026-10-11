@@ -49,7 +49,8 @@ function base64UrlDecode(segment) {
 /**
  * @returns {{id:number|string|null, email:string|null, role:string|null, bid:number|string|null}|null}
  */
-function decodeClaimedIdentity(token) {
+function decodeClaimedIdentity(token, claimMap) {
+  if (!claimMap) return null;
   if (!token || typeof token !== 'string') return null;
   const parts = token.split('.');
   if (parts.length < 2) return null;
@@ -60,23 +61,44 @@ function decodeClaimedIdentity(token) {
   let payload;
   try { payload = JSON.parse(payloadRaw); } catch { return null; }
 
-  const data = payload.data || payload; // 혹시 다른 사이트에서 data 래핑이 없을 경우 대비
+  // 래퍼 키가 선언돼 있으면 그 안을, 없거나 falsy 면 루트를 본다(기존 `||` 의미 보존).
+  const data = (claimMap.wrapperKey ? payload[claimMap.wrapperKey] : null) || payload;
+  const basketId = claimMap.basketId;
   return {
-    id: data.id ?? null,
-    email: data.email ?? null,
-    role: data.role ?? null,
-    bid: payload.bid ?? null,
+    id: data[claimMap.id] ?? null,
+    email: data[claimMap.email] ?? null,
+    role: data[claimMap.role] ?? null,
+    // 바스켓 ID 는 표준 클레임이 아니고 래퍼 안이 아니라 루트에 있을 수 있다 —
+    // Juice Shop 의 `bid` 가 그렇다. 어디서 읽을지 프로파일이 정한다.
+    bid: basketId
+      ? ((basketId.at === 'root' ? payload : data)[basketId.key] ?? null)
+      : null,
   };
 }
 
-function extractToken(authorizationHeader, cookieHeader) {
-  if (authorizationHeader && /^Bearer\s+/i.test(authorizationHeader)) {
+/**
+ * @param {string|undefined} authorizationHeader
+ * @param {string|undefined} cookieHeader
+ * @param {object|null} tokenSources 프로파일의 `identity.tokenSources`
+ */
+function extractToken(authorizationHeader, cookieHeader, tokenSources) {
+  if (!tokenSources) return null;
+  if (tokenSources.bearer && authorizationHeader && /^Bearer\s+/i.test(authorizationHeader)) {
     return authorizationHeader.replace(/^Bearer\s+/i, '').trim();
   }
-  // CSRF 라운드(3차)에서 관측된 패턴: Authorization 헤더 대신 Cookie: token=<JWT> 로 세팅
+  // CSRF 라운드(3차)에서 관측된 패턴: Authorization 헤더 대신 Cookie: <이름>=<JWT> 로 세팅.
+  // 쿠키 이름은 사이트마다 다르다(Juice Shop `token`, RUBY `ruby_session` 등).
   if (cookieHeader) {
-    const m = /(?:^|;\s*)token=([^;]+)/.exec(cookieHeader);
-    if (m) return decodeURIComponent(m[1]);
+    for (const name of tokenSources.cookieNames) {
+      // siteProfile.js 의 검증기가 쿠키 이름을 [A-Za-z0-9._-] 로 제한하므로 여기서
+      // 정규식에 보간해도 주입이 되지 않는다.
+      const m = new RegExp(`(?:^|;\\s*)${name}=([^;]+)`).exec(cookieHeader);
+      // 깨진 퍼센트 인코딩은 raw 로 되돌린다. 던지면 app.use 래퍼가 없어 500 이 되고,
+      // null 로 두면 쿠키 끝에 % 한 글자를 붙여 신원·역할 판정을 눈감게 만들 수 있다.
+      if (m) {
+        try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+      }
+    }
   }
   return null;
 }
@@ -98,34 +120,6 @@ function numericIdFrom(normalizedPath) {
   };
 }
 
-function identityRoute(tag, normalizedPath, claimField) {
-  return {
-    tag,
-    normalizedPath,
-    test: (method, candidatePath) => candidatePath === normalizedPath,
-    extractRequestedId: numericIdFrom(normalizedPath),
-    claimField,
-  };
-}
-
-const IDENTITY_ROUTE_RULES = [
-  identityRoute('identity-mismatch:basket', '/rest/basket/:id', 'bid'),
-  identityRoute('identity-mismatch:user', '/api/Users/:id', 'id'),
-];
-
-/**
- * 요청 바디 안에서 "본인 UserId여야 하는데 남의 것을 넣었다"를 잡는 규칙.
- */
-const IDENTITY_BODY_RULES = [
-  {
-    tag: 'identity-mismatch:feedback-userid',
-    test: (method, normalizedPath) =>
-      routeMatches(method, normalizedPath, 'POST', '/api/Feedbacks'),
-    field: 'UserId',
-    claimField: 'id',
-  },
-];
-
 // 뒤 슬래시는 같은 라우트다. 예전에는 '/api/Feedbacks' 와 '/api/Feedbacks/' 를
 // 규칙마다 따로 나열했다.
 function withoutTrailingSlash(path) {
@@ -139,19 +133,53 @@ function routeMatches(method, normalizedPath, expectedMethod, expectedPath) {
 }
 
 /**
- * 요청 URL의 쿼리스트링 안에서 "본인 UserId여야 하는데 남의 것을 넣었다"를 잡는 규칙.
- * IDENTITY_ROUTE_RULES(경로 세그먼트)/IDENTITY_BODY_RULES(요청 바디)와 대상은 같지만
- * 값이 실려오는 위치만 다르다 — `GET /api/Baskets?UserId=18`처럼 필터링용 쿼리파라미터로
- * 대상 리소스 소유자를 지정하는 라우트용.
+ * 세 규칙(경로 세그먼트 / 요청 바디 / 쿼리스트링)을 프로파일 선언에서 컴파일한다.
+ * 셋의 대상은 같고 값이 실려오는 위치만 다르다 — `GET /api/Baskets?UserId=18` 처럼
+ * 필터링용 쿼리파라미터로 대상 리소스 소유자를 지정하는 라우트가 쿼리 쪽이다.
+ *
+ * 경로 규칙은 **엄격 비교**, 본문·쿼리 규칙은 뒤 슬래시를 떼고 비교한다 — 리팩토링
+ * 이전의 차이를 그대로 보존한다(characterizeIdentityMismatch 가 양쪽을 고정한다).
+ *
+ * 요청마다 정규식을 다시 컴파일하지 않도록 프로파일 객체당 한 번만 만들어 WeakMap 에
+ * 담는다(프로파일은 frozen 이라 속성을 붙일 수 없다).
  */
-const IDENTITY_QUERY_RULES = [
-  {
-    tag: 'identity-mismatch:baskets-query',
-    test: (method, normalizedPath) => routeMatches(method, normalizedPath, 'GET', '/api/Baskets'),
-    field: 'UserId',
-    claimField: 'id',
-  },
-];
+const ruleCache = new WeakMap();
+
+function rulesFor(profile) {
+  const config = profile?.identity;
+  if (!config) return null;
+  const cached = ruleCache.get(profile);
+  if (cached) return cached;
+
+  const built = {
+    claimMap: config.claimMap || null,
+    tokenSources: config.tokenSources || null,
+    learnedFallback: config.learnedFallback === true,
+    routeRules: (config.routeRules || []).map((rule) => ({
+      tag: rule.tag,
+      normalizedPath: rule.normalizedPath,
+      test: (method, candidatePath) => candidatePath === rule.normalizedPath,
+      extractRequestedId: numericIdFrom(rule.normalizedPath),
+      claimField: rule.claimField,
+    })),
+    bodyRules: (config.bodyRules || []).map((rule) => ({
+      tag: rule.tag,
+      test: (method, normalizedPath) =>
+        routeMatches(method, normalizedPath, rule.method, rule.normalizedPath),
+      field: rule.field,
+      claimField: rule.claimField,
+    })),
+    queryRules: (config.queryRules || []).map((rule) => ({
+      tag: rule.tag,
+      test: (method, normalizedPath) =>
+        routeMatches(method, normalizedPath, rule.method, rule.normalizedPath),
+      field: rule.field,
+      claimField: rule.claimField,
+    })),
+  };
+  ruleCache.set(profile, built);
+  return built;
+}
 
 // URLSearchParams는 키 대소문자를 구분하므로, 쿼리파라미터 이름 표기가 흔들려도
 // (UserId/userId/userid) 놓치지 않도록 대소문자 무관 비교로 값을 찾는다.
@@ -171,11 +199,13 @@ function extractQueryValue(url, field) {
 // 세 규칙(경로/바디/쿼리) 중 하나라도 이 method+normalizedPath에 매칭되면 하드코딩된 규칙이
 // 있는 라우트다 — schemaLearning 학습 fallback은 이런 라우트에는 적용하지 않는다(하드코딩이
 // 우선, businessLogicSignatures.js/roleGatedAccess.js와 같은 원칙).
-function isHardcodedIdentityRoute(method, normalizedPath) {
+function isHardcodedIdentityRoute(method, normalizedPath, profile) {
+  const rules = rulesFor(profile);
+  if (!rules) return false;
   return (
-    IDENTITY_ROUTE_RULES.some((rule) => rule.test(method, normalizedPath)) ||
-    IDENTITY_BODY_RULES.some((rule) => rule.test(method, normalizedPath)) ||
-    IDENTITY_QUERY_RULES.some((rule) => rule.test(method, normalizedPath))
+    rules.routeRules.some((rule) => rule.test(method, normalizedPath)) ||
+    rules.bodyRules.some((rule) => rule.test(method, normalizedPath)) ||
+    rules.queryRules.some((rule) => rule.test(method, normalizedPath))
   );
 }
 
@@ -183,8 +213,10 @@ function isHardcodedIdentityRoute(method, normalizedPath) {
 // 필드(id vs bid)와 비교해야 하는지 라우트마다 다르다는 문제를 피하려고, URL 끝 숫자
 // 세그먼트(extractTrailingNumericId — priceIntegrity.js와 동일한 일반화된 추출기)가 claimed.id/
 // claimed.bid 둘 중 아무거나와도 안 맞으면 탐지하는 넓은 규칙 하나만 쓴다.
-function checkLearnedIdentityMismatch(method, normalizedPath, url, claimed) {
-  if (isHardcodedIdentityRoute(method, normalizedPath)) return null; // 하드코딩이 우선
+function checkLearnedIdentityMismatch(method, normalizedPath, url, claimed, profile) {
+  const rules = rulesFor(profile);
+  if (!rules || !rules.learnedFallback) return null;
+  if (isHardcodedIdentityRoute(method, normalizedPath, profile)) return null; // 선언이 우선
   if (!schemaLearning.getApprovedIdentityRule(method, normalizedPath)) return null;
 
   const requestedId = extractTrailingNumericId(url);
@@ -207,15 +239,20 @@ function checkLearnedIdentityMismatch(method, normalizedPath, url, claimed) {
 /**
  * @returns {Array<{tag:string, detail:object}>}
  */
-function checkIdentityMismatch({ method, normalizedPath, url, body, authorizationHeader, cookieHeader }) {
+function checkIdentityMismatch({
+  method, normalizedPath, url, body, authorizationHeader, cookieHeader, profile,
+}) {
   const results = [];
-  const token = extractToken(authorizationHeader, cookieHeader);
+  const rules = rulesFor(profile);
+  if (!rules) return results;
+
+  const token = extractToken(authorizationHeader, cookieHeader, rules.tokenSources);
   if (!token) return results; // 비인증 요청은 이 검사 대상이 아님(다른 IDOR 신호가 커버)
 
-  const claimed = decodeClaimedIdentity(token);
+  const claimed = decodeClaimedIdentity(token, rules.claimMap);
   if (!claimed) return results; // JWT처럼 안 생겼으면 조용히 패스
 
-  for (const rule of IDENTITY_ROUTE_RULES) {
+  for (const rule of rules.routeRules) {
     if (!rule.test(method, normalizedPath)) continue;
     const requestedId = rule.extractRequestedId(url);
     const claimedValue = claimed[rule.claimField];
@@ -232,7 +269,7 @@ function checkIdentityMismatch({ method, normalizedPath, url, body, authorizatio
     try { bodyObj = JSON.parse(bodyObj); } catch { bodyObj = null; }
   }
   if (bodyObj && typeof bodyObj === 'object') {
-    for (const rule of IDENTITY_BODY_RULES) {
+    for (const rule of rules.bodyRules) {
       if (!rule.test(method, normalizedPath)) continue;
       const bodyValue = bodyObj[rule.field];
       const claimedValue = claimed[rule.claimField];
@@ -245,7 +282,7 @@ function checkIdentityMismatch({ method, normalizedPath, url, body, authorizatio
     }
   }
 
-  for (const rule of IDENTITY_QUERY_RULES) {
+  for (const rule of rules.queryRules) {
     if (!rule.test(method, normalizedPath)) continue;
     const queryValue = extractQueryValue(url, rule.field);
     const claimedValue = claimed[rule.claimField];
@@ -257,7 +294,7 @@ function checkIdentityMismatch({ method, normalizedPath, url, body, authorizatio
     }
   }
 
-  const learnedHit = checkLearnedIdentityMismatch(method, normalizedPath, url, claimed);
+  const learnedHit = checkLearnedIdentityMismatch(method, normalizedPath, url, claimed, profile);
   if (learnedHit) results.push(learnedHit);
 
   return results;
@@ -268,7 +305,4 @@ module.exports = {
   decodeClaimedIdentity,
   extractToken,
   isHardcodedIdentityRoute,
-  IDENTITY_ROUTE_RULES,
-  IDENTITY_BODY_RULES,
-  IDENTITY_QUERY_RULES,
 };

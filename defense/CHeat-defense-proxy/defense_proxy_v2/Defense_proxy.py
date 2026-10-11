@@ -405,7 +405,13 @@ MAZE_MAX_KB = int(os.environ.get("MAZE_MAX_KB", "900"))
 MAZE_LINKS = int(os.environ.get("MAZE_LINKS", "5"))
 # version 프로파일 배너. 기본은 SPOOF_SERVER 와 일치시켜 모순을 없앤다. "내부 레거시 박스"
 # 서사로 취약 버전(Apache 2.4.49 등)을 노출하려면 env 로 명시 (edge=nginx, internal=apache 는 정합).
-MAZE_VERSION = os.environ.get("MAZE_VERSION", "") or SPOOF_SERVER or "Apache/2.4.49 (Unix)"
+#
+# 마지막 폴백이 Apache 리터럴이었다. SPOOF_SERVER= (빈 값, "위조하지 않음") 으로 두면
+# SPOOF_SERVER 가 falsy 가 되어, **어떤 프리셋을 골랐든** 미로의 version 페이지만
+# Apache 를 주장했다 — nginx-fastapi 프리셋에서 모순이고, Server 위조를 끈 운영자가
+# 날조된 배너를 계속 내보내는 셈이었다. 이제 프리셋의 배너로 떨어진다.
+MAZE_VERSION = (os.environ.get("MAZE_VERSION", "") or SPOOF_SERVER
+                or transforms.PROFILE["web"]["server_banner"])
 # 미로 입구 경로 목록 — robots.txt 의 Disallow 줄로 광고하고, 같은 목록이 판정 정규식에도 합쳐진다
 # (광고한 경로가 실제로는 평범한 404 인 어긋남이 없다). 기본은 프로필 maze.paths, env MAZE_PATHS(쉼표)가 덮어씀.
 # MAZE_PATTERN 은 정규식 전체를 직접 바꾸는 고급 옵션 — 이때는 목록과의 일관성을 preflight 가 점검한다.

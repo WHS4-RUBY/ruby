@@ -5,7 +5,7 @@ receives origin responses with local leads; high risk never dispatches origin.
 """
 import asyncio
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from http.cookies import CookieError, SimpleCookie
 import json
 import os
@@ -29,21 +29,23 @@ from .gateway_contract import isolation_headers
 from .high_risk import HighRiskIsolation
 from .lure_metrics import LureMetrics
 from .security_store import SecurityStoreError
-from .site_profile import SiteProfile, load_site_profile
+from .site_profile import SiteProfile, load_site_profile, default_site_profile_path
 
 
 LURE_SCRIPT_PATH = decoy_paths.LURE_SCRIPT
 RECOVERY_PATH = decoy_paths.RECOVERY
 RECOVERY_LINK = clue_headers('recovery')['Link']
 LURE_SCRIPT_TEMPLATE = Path(__file__).with_name('account_recovery.js').read_bytes()
-DEFAULT_PROFILE_PATH = str(Path(__file__).resolve().parent.parent / 'config/site-juice-shop.toml')
+# 오버레이 TOML 이 site_profile 을 지정하지 않으면 DEFAULT_SITE_PROFILE 환경변수를,
+# 그것도 없으면 내장 기본값을 쓴다 — site_profile.py 와 같은 해결 경로를 공유한다.
+# 예전에는 여기서 site-juice-shop.toml 을 따로 적어 두 곳에 기본값이 있었다.
 
 
 @dataclass(frozen=True)
 class OverlaySettings:
     origin_url: str
     decoy_config: str
-    site_profile: str = DEFAULT_PROFILE_PATH
+    site_profile: str = field(default_factory=default_site_profile_path)
     max_request_bytes: int = 1_048_576
     max_response_bytes: int = 16_777_216
     timeout_seconds: float = 10.0

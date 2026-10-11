@@ -17,7 +17,7 @@ RUBY의 방어 계층을 개발하는 영역입니다. Detection Proxy의 Policy
 
 운영 Compose에서는 Detection과 Defense가 같은 `TARGET_CHOICES`를 읽습니다. 관리 화면에서 선택한 대상 ID와 실행 ID가 공유 선택 파일에 저장되고, Defense가 그 ID의 내부 주소로 요청을 전달합니다. 현재 운영 대상은 `juice-shop=http://juice-shop-target:3000`과 `ruby-shop=http://ruby-web-target:8080`입니다. `TARGET_DEFAULT_ID`는 이 목록에 있는 ID로 지정해야 합니다. 실험 공격은 공개 포트 80으로 보내야 Detection과 Defense를 통과합니다. 벤치마크 선택 화면의 포트 3020으로 직접 보낸 요청은 이 파이프라인과 두 대시보드에 기록되지 않습니다.
 
-운영 Compose는 두 대상에 각각 비공개 CHeaT sidecar(`cheat-juice:3012`, `cheat-ruby:3012`)와 계정 Response Overlay(`overlay-juice:8080`, `overlay-ruby:8080`)를 연결합니다. 정상 HTTP 요청은 `Detection → Defense → 대상별 CHeaT → Target`으로 흐릅니다. 계정 오버레이로 분류된 요청은 Defense가 서명해 대상별 오버레이로 보내며, 고위험 격리에서는 Target에 전달하지 않습니다. 다른 대상 ID에 기만 경로가 없으면 Defense가 Target에 직접 전달합니다. 격리된 클라이언트의 WebSocket은 거부하고 정상 클라이언트의 WebSocket은 Target으로 연결합니다.
+운영 Compose는 두 대상에 각각 비공개 CHeaT sidecar(`cheat-juice:3012`, `cheat-ruby:3012`)와 계정 Response Overlay(`overlay-juice:8080`, `overlay-ruby:8080`)를 연결합니다. 정상 HTTP 요청은 `Detection → Defense → 대상별 CHeaT → Target`으로 흐릅니다. 계정 오버레이로 분류된 행위자의 일반 요청은 Defense가 서명해 대상별 오버레이로 보내며, 고위험 격리에서는 Target에 전달하지 않습니다. 이 행위자가 CHeaT 기본 미로 패턴이나 대상별 추가 미끼 경로에 `GET`/`HEAD`로 접근하면 CHeaT에 보내고, CHeaT는 실제 Target에 접근하지 않습니다. 실제 앱 경로와 겹치는 RUBY Shop의 `/admin`은 양쪽 미로에서 제외합니다. 오버레이가 처리한 일반 응답에는 CHeaT의 미로 입구 힌트가 새로 삽입되지 않습니다. 다른 대상 ID에 기만 경로가 없으면 Defense가 Target에 직접 전달합니다. 격리된 클라이언트의 WebSocket은 거부하고 정상 클라이언트의 WebSocket은 Target으로 연결합니다.
 
 | 환경변수 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -71,12 +71,12 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 설치·운영·검증 결과는 [경로 별칭 설치·운영 가이드](docs/path-alias-operations.md)에 정리했습니다. 요약:
 
 - `PATH_ALIAS_ROUTES_FILE`의 경로마다 **클라이언트별** 난수 별칭을 응답에 실제로 나온 것만 발급하고, Defense가 발급하는 `ruby_alias_client` 쿠키에 묶습니다. 별칭은 원래 경로로 복원해 후속 전략과 대상에 전달합니다.
-- 모드: `off`(기본) / `audit`(응답을 바꾸지 않고 집계만) / `observe`(응답 치환·쿠키 발급, 원본도 전달) / `enforce`(원본 404). **enforce는 경로 파일이 `enforce_ready`와 검증한 흐름·갱신 방식을 기록해야 적용되며, 없으면 observe로 동작합니다.** 경로별 `"mode":"observe"`, 대상별 `target_ids`로 범위를 좁힐 수 있습니다.
+- 모드: `off` / `audit`(응답을 바꾸지 않고 집계만) / `observe`(응답 치환·쿠키 발급, 원본도 전달) / `enforce`(원본 404). 운영 Compose는 `enforce`, 로컬 Compose는 `off`가 기본입니다. **enforce는 경로 파일이 `enforce_ready`와 검증한 흐름·갱신 방식을 기록해야 적용되며, 없으면 observe로 동작합니다.** 경로별 `"mode":"observe"`, 대상별 `target_ids`로 범위를 좁힐 수 있습니다.
 - 저장소는 **SQLite 파일 하나**(`PATH_ALIAS_DB_PATH`, `defense-alias-data` 볼륨, WAL)입니다. 별도 DB 서비스나 비밀번호가 필요 없고, PostgreSQL 지원은 제거했습니다. 기존 PostgreSQL 설치의 전환·롤백과 여러 호스트가 필요해지는 기준은 가이드 9절을 보세요. DB 오류는 원본 우회가 아니라 503으로 끝납니다.
 - 최종 PR의 수정·검증 결과와 연구적 한계는 [PR 검증 요약](docs/path-alias-pr-review-ko.md)에 정리했습니다.
 - 교체는 사유별(`PATH_ALIAS_ROTATE_ON`)이며 기본값은 `malformed_alias,foreign_alias`입니다. 원본 경로 직접 호출은 enforce에서 404로 차단하지만 열린 탭의 별칭은 유지합니다. 만료·폐기된 자기 별칭도 교체를 일으키지 않습니다. 만료된 자기 별칭의 GET/HEAD는 현재 별칭으로 307 연결하고, POST 등은 앱별 `stale_redirect_unsafe` 설정을 따릅니다.
 - 치환은 URL 문맥(JSON 값 전체, HTML 속성, JS 문자열, 같은 출처 절대 URL)에만 적용하고 설명 문장·주석·다른 출처는 건드리지 않습니다. 후속 전략의 응답 변형 뒤에 적용하며, 전략이 직접 만든 즉시 반환 응답은 치환하지 않습니다.
-- 쿠키를 돌려주지 않는 클라이언트는 미확인 클라이언트로 상한(`PATH_ALIAS_MAX_PENDING_CLIENTS`)·수명(`PATH_ALIAS_PENDING_TTL_S`)이 있고, 넘으면 enforce에서 503입니다. 쿠키가 없어도 원본 보호 경로는 허용하지 않습니다.
+- 쿠키를 돌려주지 않는 클라이언트는 미확인 클라이언트로 상한(`PATH_ALIAS_MAX_PENDING_CLIENTS`)·수명(`PATH_ALIAS_PENDING_TTL_S`)이 있고, 넘으면 enforce에서 503입니다. 위험 점수 0.5 이상이면 첫 요청부터 쿠키가 없어도 원본 보호 경로를 enforce에서 차단합니다.
 - `query_routes`(경로 선택형 `/gateway?route=/api/items`)와 `action_routes`(기능 선택형 `/api.php?action=login`)를 지원합니다. 보호하지 않는 dispatcher 값은 통과하고 일반 쿼리 필드는 바이트 그대로 보존합니다. 본문 속 라우팅은 지원하지 않으며 보호 대상이면 거부·기록합니다. 검사 한도(`PATH_ALIAS_BODY_INSPECT_BYTES`, 1 MiB)를 넘거나 해석할 수 없는 dispatcher 본문은 enforce에서 거부합니다.
 - WebSocket은 업그레이드 URL에만 같은 규칙을 적용하고 프레임은 치환하지 않습니다.
 
@@ -87,19 +87,21 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 두 도구의 기본 보호 경로 접두사는 `/rest/,/api/`입니다. 다른 앱에서는 두 명령에 같은 `--prefixes /graphql,/v1/` 값을 지정해 해당 앱의 API 경로 관례에 맞춥니다.
 운영은 [설치·운영 가이드](docs/path-alias-operations.md), 연구 설계·실험 기록은 [경로 별칭 설계](docs/path-alias-plan.md), 경로 수집은 [경로 발견 설계](docs/route-discovery-design.md)를 참고하세요.
 
-### 방어 단계에서의 위치: 1단계 (2026-10-07)
+### 위험 점수에 따라 시작하는 경로 별칭
 
-설계상 요청은 탐지 프록시를 거친 뒤 방어 프록시의 4단계를 차례로 통과합니다. 경로 별칭은 방어 프록시에서 **가장 먼저 적용되는 1단계**입니다. 현재 코드는 `catch_all`에서 별칭 해석·차단을 마친 뒤 `X-Defense-Plan`의 전략을 배열 순서대로 실행합니다. 2~4단계를 구분하는 실행기와 각 단계의 구체적인 구성은 아직 구현되어 있지 않습니다.
+`path_alias`는 `stage1`~`stage4`의 전략 목록에는 없지만, Defense는 위험 점수 0.5 이상에서 별칭을 해석하고 새 별칭을 발급합니다. 선택된 계획의 지연·속도 제한을 먼저 실행하고, 별칭을 복원한 경로를 나머지 전략에 전달합니다. 확정 공격 점수는 별칭 적용 조건이 아니므로 위험 점수만 높은 요청은 `stage1`의 미끼와 별칭을 함께 받을 수 있습니다. 운영 Compose는 검증된 Juice Shop 경로를 enforce로, 검증 전인 RUBY Shop 경로를 observe로 적용합니다. 로컬 Compose 기본값은 off입니다.
 
-- **뒤 단계가 진짜 경로를 봅니다.** 1단계에서 복원한 요청 객체를 뒤 전략에 전달합니다. URL·ASGI 경로·라우트 매개변수와 설정된 쿼리 라우팅 값이 복원됩니다. 일반 쿼리 필드와 요청 본문은 유지합니다. 쿼리 라우팅 앱의 후속 전략은 복원된 파라미터를 확인해야 하며 dispatcher의 pathname 자체는 유지됩니다. 별칭 로그에는 원래 들어온 요청을 사용합니다.
-- **값싸고 확실한 차단을 먼저 합니다.** DB 조회 한 번으로 발급받은 주소를 아는 클라이언트인지 판정합니다. 원래 주소를 직접 호출하는 스캐너·에이전트를 여기서 404로 막으면 뒤 단계의 부담이 줄어듭니다.
-- **교체 신호를 놓치지 않습니다.** 별칭 교체는 원본 직접 호출·위조/타인 별칭 같은 사유를 보고 일어납니다. 앞 단계가 그런 요청을 먼저 막으면 교체가 일어나지 않습니다.
+- **후속 전략이 진짜 경로를 봅니다.** 별칭에서 복원한 요청 객체를 정책 전략에 전달합니다. URL·ASGI 경로·라우트 매개변수와 설정된 쿼리 라우팅 값이 복원됩니다. 일반 쿼리 필드와 요청 본문은 유지합니다. 쿼리 라우팅 앱의 후속 전략은 복원된 파라미터를 확인해야 하며 dispatcher의 pathname 자체는 유지됩니다. 별칭 로그에는 원래 들어온 요청을 사용합니다.
+- **원본 경로 직접 호출을 대상에 전달하기 전에 차단합니다.** 지연·속도 제한 뒤 별칭 테이블을 조회해 발급받은 주소를 아는 클라이언트인지 판정합니다. 원본 경로를 직접 호출하는 스캐너·에이전트를 여기서 404로 막으며, 그 404에도 선택된 단계의 지연이 적용됩니다.
+- **교체 신호를 기록합니다.** 원본 직접 호출과 위조·타인 별칭을 판별한 뒤 설정된 `PATH_ALIAS_ROTATE_ON` 사유에 따라서만 별칭을 교체합니다. 기본 설정에서는 위조·타인 별칭이 교체를 일으키고 원본 직접 호출은 차단·기록만 합니다.
 - **마지막 단계에서 응답을 치환합니다.** 후속 전략의 응답 변형이 끝난 본문에 별칭을 넣습니다.
 - **응답 치환은 클라이언트에 가장 가까운 곳에서 마지막으로 하는 것이 설계 목표입니다.** 현재는 업스트림 응답의 경로와 `Location`을 치환합니다. 전략의 응답 처리 훅과 역순 실행은 아직 없으며, 전략이 즉시 반환한 응답(`short_circuit`)도 현재 치환 대상이 아닙니다. 뒤 단계가 응답에 미끼 링크 등을 추가하려면 이 응답 처리 구조를 먼저 구현해야 합니다.
 
-단계가 위험도에 따라 올라가는 구조여도 별칭은 **모든 클라이언트에 처음부터 적용**해야 합니다. 이미 원래 경로가 담긴 JS를 받은 클라이언트에게 도중에 별칭을 켜면 앱이 깨지고, 공격자에게 탐지됐다는 신호를 줍니다. 위험도가 오르면 별칭을 새로 켜는 대신 교체 강도를 올립니다(짧은 주기, 유예 0, 즉시 교체). 클라이언트별로 이 값을 다르게 주려면 추가 구현이 필요합니다.
+위험 점수가 0.5에 도달하는 첫 요청부터 Juice Shop의 원본 보호 경로에 enforce를 적용합니다. 별칭은 이후 경로 참조가 담긴 응답을 치환할 때 발급됩니다. 이미 원래 경로가 담긴 JS를 받은 탭은 원본 API 경로를 계속 호출해 404를 받을 수 있으므로, 보호되지 않은 화면을 새로고침해 치환된 URL을 다시 받아야 합니다. 점수가 0.5 미만으로 내려가면 새 발급·응답 치환·원본 경로 차단을 중지하되 기존 별칭 URL은 복원합니다. 대상별 enforce·observe 모드의 상한과 교체 주기·유예·즉시 교체 조건은 점수에 따라 바뀌지 않습니다.
 
-별칭은 **경로를 아는가**만 거릅니다. JS나 브라우저에서 정상 별칭을 얻은 공격자의 요청 내용은 통과하므로, 페이로드 검사(SQLi·XSS 등)는 2단계 이후에 원래 경로를 기준으로 해야 합니다. 경로가 필요 없는 아주 가벼운 차단(IP 차단 등)은 1단계보다 앞에 둘 수 있습니다. 탐지 프록시는 방어 프록시보다 앞에 있으므로 별칭 주소(`/__ruby_alias_...`)를 그대로 봅니다. `path_alias_rotation` 로그의 `direct`·`reject`를 탐지 쪽 공격 신호로 넘길지는 탐지 담당과 정합니다.
+이 순서 때문에 Juice Shop의 3·4단계에서 원본 `/rest/user/login` 요청은 오버레이 분기 전에 지연 후 404가 됩니다. Detection은 미끼 자격 증명 로그인 요청을 자체 처리하지 않고 Defense에 보내며, 발급된 별칭으로 들어온 요청은 오버레이에 도달합니다.
+
+별칭은 **경로를 아는가**만 거릅니다. JS나 브라우저에서 정상 별칭을 얻은 공격자의 요청 내용은 통과합니다. 탐지 프록시는 Defense보다 앞에 있어 요청 전 CRS에서 별칭 주소(`/__ruby_alias_...`)를 봅니다. Defense가 복원한 원래 URL은 응답에 서명해 Detection으로 보내고, Detection은 완료 이력의 로그인 시도·비밀번호 재설정·경로별 업무 로직 등의 점수에 사용합니다. 피드백 헤더는 클라이언트에 전달하지 않습니다. 원래 URL을 요청 전에 알 수 없는 CRS의 경로별 검사는 여전히 별칭 URL을 사용합니다. `path_alias_rotation` 로그의 `direct`·`reject`를 탐지 쪽 공격 신호로 넘기는 연동은 아직 없습니다.
 
 ## 토큰 관찰과 CRS 차단 (2026-09-30)
 
@@ -123,19 +125,82 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 `docs/token-gate-plan.md`와 새벽 테스트 기록은 이전 설계의 이력입니다.
 이후 검증 결과는 [진행 기록](docs/token-gate-docker-progress.md)에 이어 기록합니다.
 
-## 새 사이트 추가 (미끼 경로 카탈로그, 2026-10-11)
+## 새 사이트 추가 (2026-10-11)
 
-미끼 경로는 `shared/decoy-catalog.json` 한 곳에서만 고친다. 루트 `shared/`는 네 이미지의 빌드 컨텍스트가 모두 하위 디렉터리라 Docker `COPY`로 가져올 수 없으므로, 서비스 트리의 사본을 함께 커밋하고 `scripts/sync-decoy-catalog.sh`로 갱신한다. 사본을 손으로 고치면 `defense/tests/test_decoy_catalog_contract.py`가 CI에서 실패한다.
+새 사이트를 붙이는 데 필요한 것은 **설정 파일 셋**이다. 세 계층 어디에도 사이트 이름
+분기가 없고, 그 사실을 테스트가 강제한다
+(`test_site_adapter.py::test_no_module_branches_on_a_site_name`).
 
-```bash
-# 카탈로그를 고친 뒤
-scripts/sync-decoy-catalog.sh          # 원본 -> 사본 복사
-scripts/sync-decoy-catalog.sh --check  # 불일치 확인
-```
+| 계층 | 고칠 파일 | 없으면 |
+| --- | --- | --- |
+| Detection 탐지 | `detection/config/site-profiles/<대상 ID>.json` | 라우트에 묶인 탐지가 비활성 + 경고 |
+| Defense 오버레이 | `defense/account-response-overlay/config/site-<이름>.toml` | 미끼가 사이트 고유 엔드포인트를 모방하지 않음 |
+| Defense CHeaT | `defense_proxy_v2/profiles.py` 의 프리셋 (`TARGET_PRESET`) | 미로가 대상과 다른 서버 종류로 위장함 |
 
-카탈로그에는 **사이트와 무관한** 미끼의 모양만 둔다: 네임스페이스와 자산, 진입·단계 경로, 세션 별칭 루트, 단서 헤더, 미끼 쿠키·신원. `namespaces.*.detectionSignal`이 Detection의 `decoy_path_hit` 공격 신호 대상을 정한다.
+미끼 경로 자체는 **사이트와 무관**하므로 세 계층이 `shared/decoy-catalog.json` 하나를
+공유한다 — 아래 "미끼 경로 카탈로그" 참조.
 
-**사이트별 차이는 프로파일 1개로 끝난다.** `config/site-generic-example.toml`을 복사해 아래를 채우고 오버레이의 `site_profile`이 그 파일을 가리키게 한다.
+### 1. Detection 프로파일
+
+`detection/config/site-profiles/` 에 **대상 ID 와 같은 이름**으로 JSON 하나를 둔다
+(`TARGET_CHOICES` 의 ID. 예: `ruby-shop` → `ruby-shop.json`). 기동 시 디렉터리 전체를
+읽고 검증에 실패하면 **기동이 실패한다** — 잘못된 프로파일로 절반만 동작하는 탐지보다
+낫다. `generic.json` 은 반드시 있어야 한다(폴백).
+
+해결 순서: `<대상 ID>.json` → `DETECTION_DEFAULT_SITE_PROFILE` → `generic`.
+
+| 키 | 뜻 | 없으면 꺼지는 것 |
+| --- | --- | --- |
+| `loginBruteForce.route`, `.emailField` | 로그인 라우트와 본문 식별자 필드 | 로그인 브루트포스·credential stuffing 집계 |
+| `passwordResetAbuse.resetRoute`, `.resetEmailField` | 비밀번호 재설정 | 재설정 남용 집계 |
+| `passwordResetAbuse.securityQuestionRoute`, `.securityQuestionEmailField` | 보안질문 조회(쿼리스트링) | 보안질문 순회 집계 (**둘은 독립**) |
+| `priceTampering.{quantity,unitPrice,total}Fields`, `.amountTolerance` | 수량·단가·총액 필드명과 허용 오차 | 요청 내부 총액 검산 |
+| `priceIntegrity.{listRoute,itemRoute}`, `.priceDropRatio`, `.idField`, `.priceField`, `.responseEnvelope` | 상품 API 와 응답 엔벌로프 | 관찰가 대비 급락 탐지 |
+| `businessLogic.massAssignmentWhitelist` | 라우트별 허용 필드 | mass-assignment 추가 필드 판정 |
+| `businessLogic.alwaysSuspiciousFields`, `.suspiciousRoleValues`, `.numericFieldRules` | 권한 필드명·역할 값·숫자 범위 | 각각 그 판정 (**라우트 무관** — generic 에도 둔다) |
+| `identity.tokenSources` | Bearer 사용 여부와 인증 쿠키 이름 | 신원·역할 판정 전체 |
+| `identity.claimMap` | JWT 래퍼 키와 id/email/role/바스켓 클레임 위치 | 같음 |
+| `identity.{route,body,query}Rules` | "이 리소스는 내 것이어야 한다" 규칙 | IDOR 판정 |
+| `roleGated.sensitiveRoutes` | 민감 라우트와 요구 역할 | 인가 우회 판정 |
+| `deception.loginPath` | 423 locked 미끼를 돌릴 로그인 경로 | 그 미끼만 |
+| `deception.apiPathPrefixes` | "API 성 요청" 접두어 (뒤 슬래시 필수) | `no_asset_loading` 자동화 신호의 분모 |
+| `deception.plaintextBaitPaths` | 평문 응답에 신호를 심을 경로 | 그 주입만 |
+| `deception.frontendFlavor` | 위장 JS 방언 (`angular-httpclient` / `fetch`) | — (기본은 `angular-httpclient`) |
+
+`_needsConfirmation` 에는 **없는 기능 경로를 전부** 적어야 한다. 하나라도 빠지면 로드가
+실패한다 — 블록 이름을 오타내면 "일부러 끈 것" 으로 위장하지 못한다. generic 에서
+그대로 가져왔을 뿐 이 사이트에서 검증하지 않은 값은 `_genericDefaults` 에 적는다.
+
+#### 설정이 없으면 — 조용히 꺼지지 않는다
+
+1. **기동 로그**가 프로파일·기능·사유를 한 번씩 남긴다(요청마다 찍지 않는다):
+   `[siteProfile] profile=ruby-shop feature=roleGated missing -> disabled (no profile)`
+2. 프로파일이 아예 없는 대상은 대상당 한 번:
+   `[siteProfile] target=legacy has no profile -> using generic; 9 features disabled`
+3. **관리 API** `GET /__detection/api/site-profile-status` 가 해결 결과와 비활성 목록을
+   돌려준다.
+4. **관리 화면**의 "실험 대상" 섹션이 `프로파일 … · 대상 ID로 선택 · N개 기능
+   비활성(프로파일 없음)` 과 기능별 칩을 보여준다.
+
+프로파일 상태는 **점수에 들어가지 않는다.** `blTags` 에 넣으면
+`businessLogicHits` → `scoreBusinessLogicViolation`(가중치 0.12)로 위험도가 바뀌므로
+전용 채널로만 흐른다. `siteProfile.test.js` 가 이 격리를 기계적으로 집행한다.
+
+#### generic 에 무엇을 둘지
+
+> **기능 블록은 지금 코드 경로가 라우트와 무관할 때에만 `generic.json` 에 넣는다.**
+
+라우트 무관한 기능(`priceTampering`, 숫자 범위, 권한 필드명, `identity.tokenSources`/
+`claimMap`, `deception.apiPathPrefixes` 등)은 지금 **모든 대상에서** 돌고 있으므로
+generic 에도 있어야 프로파일 없는 대상의 동작이 보존된다. 라우트에 묶인 기능은 다른
+사이트에서 이미 부동이라 생략해도 결과가 같고, 비활성으로 보고된다.
+`siteProfile.test.js` 와 `test_site_profile_contract.py` 가 양방향으로 강제한다.
+
+### 2. Defense 오버레이 프로파일
+
+`config/site-generic-example.toml` 을 복사해 아래를 채우고 오버레이 TOML 의
+`site_profile` 이 그 파일을 가리키게 한다. 지정하지 않으면 `DEFAULT_SITE_PROFILE`
+환경변수, 그것도 없으면 내장 기본값(`site-juice-shop.toml`)을 쓴다.
 
 | 키 | 뜻 |
 | --- | --- |
@@ -147,12 +212,55 @@ scripts/sync-decoy-catalog.sh --check  # 불일치 확인
 | `decoy_namespaces` | **이 사이트에서 미끼가 차지할 경로 네임스페이스.** 생략하면 카탈로그 값을 쓴다 |
 | `robots_disallow` | robots.txt에 남길 단서. 전부 `decoy_namespaces` 안이어야 한다 |
 | `decoy_brand`, `decoy_admin_email`, `decoy_service`, `decoy_profile_image` | 미끼 화면의 신원 |
+| `challenge_api` | 이 사이트에만 있는 챌린지 API 경로. 비우면 미끼가 404 를 준다 |
+| `synthetic_success` | 미끼가 "성공한 척" 응답할 `{path, kind}` 목록. `kind` 는 코드가 구현한 것만(`ack`, `deluxe_denied`, `empty_basket`, `user_list`, `user_object`) |
+| `account_api_prefixes` | 계정 관련으로 취급할 추가 경로 접두어 |
 
-프로파일 검증은 로드 시점에 실패한다: 모든 경로는 절대경로여야 하고 `//`·`\`·개행을 포함할 수 없으며, `robots_disallow`는 전부 선언한 네임스페이스 안에 있어야 하고 `login_paths`는 네임스페이스와 겹칠 수 없다. 코드에는 `juice`/`ruby` 분기도 `/ftp`·`/ops` 리터럴도 없다.
+프로파일 검증은 로드 시점에 실패한다: 모든 경로는 절대경로여야 하고 `//`·`\`·개행을
+포함할 수 없으며, `robots_disallow` 는 전부 선언한 네임스페이스 안에 있어야 하고
+`login_paths`·`synthetic_success`·`challenge_api` 는 네임스페이스와 겹칠 수 없다.
+모르는 `kind` 와 중복 경로도 거부한다. 코드에는 사이트 이름 분기도 `/ftp`·`/ops`
+리터럴도 없다 — 예전의 `site_adapter` 닫힌 enum 은 제거됐다.
 
-CHeaT sidecar의 미로 경로는 별개 장치인 `defense_proxy_v2/profiles.py`의 프리셋(`TARGET_PRESET`, `TARGET_PROFILE`)으로 정한다. 카탈로그는 그 진입 경로를 선언만 하고, 두 값의 일치는 계약 테스트가 강제한다.
+### 3. CHeaT sidecar 프리셋
 
-**이 절차의 범위는 Defense(계정 오버레이·CHeaT)까지다.** Detection의 비즈니스 로직 탐지 7개 모듈(`businessLogicSignatures.js`, `roleGatedAccess.js`, `priceIntegrity.js`, `priceTampering.js`, `loginBruteForce.js`, `passwordResetAbuse.js`, `identityMismatch.js`)은 아직 Juice Shop의 라우트·JWT 클레임·쿠키 이름에 묶여 있고 `detection/config/policy.json`에 이를 바꿀 설정 항목이 없다. 즉 **새 사이트를 붙여도 Defense의 미끼·오버레이는 동작하지만 Detection의 비즈니스 로직 탐지는 그 사이트에서 조용히 무력화된다.** 현황은 [리팩토링 인벤토리 1-D](../docs/refactor-inventory.md#1-d-juice-shop-하드코딩-목록)에 모듈별로 정리했고, 설정화는 후속 작업이다.
+미로와 위장 배너는 별개 장치인 `defense_proxy_v2/profiles.py` 의 프리셋으로 정한다
+(`TARGET_PRESET`, 필드만 덮어쓰는 `TARGET_PROFILE` JSON, 개별 `T21_*` env).
+대상 스택과 맞는 프리셋을 고른다 — 지금은 `apache-php`(기본)와 `nginx-fastapi` 다.
+
+프리셋 안의 세 값은 다른 곳에도 적혀 있고, 일치를 계약 테스트
+(`defense/tests/test_cheat_path_contract.py`)가 강제한다:
+`migration.api_prefix` ↔ 카탈로그의 `namespaces.detection.roots[0]`,
+`migration.login_path` ↔ 그 사이트 TOML 의 `login_paths[0]`,
+`migration.config_path` 와 `t21_version_path` 기본값 ↔ 같은 TOML 의
+`ordinary_api_exact`. 런타임에 읽어 파생시키지 않는 이유는 CHeaT 의 Dockerfile `COPY`
+가 파일 단위 allowlist 라 그 파일들이 빌드 컨텍스트 밖이기 때문이다.
+
+### 미끼 경로 카탈로그
+
+미끼 경로는 `shared/decoy-catalog.json` 한 곳에서만 고친다. 루트 `shared/` 는 네 이미지의
+빌드 컨텍스트가 모두 하위 디렉터리라 Docker `COPY` 로 가져올 수 없으므로, 서비스 트리의
+사본을 함께 커밋하고 `scripts/sync-shared.sh` 로 갱신한다.
+
+```bash
+# 카탈로그를 고친 뒤
+scripts/sync-shared.sh          # 원본 -> 사본 복사
+scripts/sync-shared.sh --check  # 불일치 확인 (CI 단계로도 돈다)
+```
+
+사본을 손으로 고치면 `defense/tests/test_shared_sources.py` 가 CI 에서 실패한다(사본
+동일성). 세 서비스가 그 선언을 같은 뜻으로 읽는지는
+`defense/tests/test_decoy_catalog_contract.py` 가 본다(의미 일치).
+
+카탈로그에는 **사이트와 무관한** 미끼의 모양만 둔다: 네임스페이스와 자산, 진입·단계 경로,
+세션 별칭 루트, 단서 헤더, 미끼 쿠키·신원. `namespaces.*.detectionSignal` 이 Detection 의
+`decoy_path_hit` 공격 신호 대상을 정하고, `namespaces.detection.roots[0]` 은 Detection 의
+트랩 네임스페이스와 CHeaT 의 `migration.api_prefix` 양쪽이 읽는 정본이다.
+
+### 되돌리기
+
+커밋 단위 revert 와 기능 플래그는 [`docs/site-generalization-rollback.md`](../docs/site-generalization-rollback.md)
+에 정리했다.
 
 ## 영속 저장소 (2026-10-11)
 
@@ -184,21 +292,27 @@ docker compose exec overlay-juice python -m defense.cli \
 
 ## 전략 계약과 요청 추적
 
-Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사용합니다. Defense 이벤트는 이전 완료 요청 기반 Automation·Attack·확정 Attack·Risk 점수, 정책 출처, `X-Ruby-Defense-Tier`의 `confirmed`/`suspected` 단계, 대상 ID·실행 ID, 실제 실행 전략과 기만 동작, 백엔드 HTTP 상태 및 `forwarded`·`blocked`·`error` 결과를 기록합니다. `X-Ruby-Candidate-Id`와 `X-Ruby-Client-Flow-Id`는 방어 대시보드의 관찰 흐름 표시용으로만 기록하고 전략 선택에는 쓰지 않습니다. Detection은 쿠키를 돌려주지 않는 요청의 후보·한 IP 흐름 이력으로 위험 점수 0.8 이상을 확인하면 `suspected` 단계의 `decoy_maze`만 선택할 수 있습니다. 확정 공격 점수 0.5/0.8/0.95 구간의 계정 오버레이·속도 제한은 반환·검증된 signed DCID 이력이 필요합니다. Defense는 CHeaT에 `X-Defense-Plan`의 기만 전략만 전달하고 속도 제한을 자체 실행합니다. 오버레이 계획은 위험 점수와 확정 공격 점수의 구간이 일치할 때만 처리하고, 대상·실행 ID·클라이언트에서 만든 가명 actor에 원본 경로·쿼리·본문을 HMAC으로 서명합니다. 속도 제한이 429를 반환하면 오버레이나 sidecar로 전달하지 않습니다. 현재 공통 정책은 점수에 따른 일괄 지연을 선택하지 않습니다. Sidecar와 오버레이는 내부 제어 헤더를 Target으로 전달하지 않습니다. 응답의 `X-Ruby-Decoy-Action`·`X-Ruby-Decoy-Strategies`는 Defense가 기록한 뒤 클라이언트 응답에서 제거합니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
+Detection이 보낸 `X-Ruby-Request-Id`를 두 대시보드의 요청 ID로 사용합니다. Defense 이벤트는 이전 완료 요청 기반 Automation·Attack·확정 Attack·Risk 점수, 정책 출처, `X-Ruby-Defense-Tier`의 `stage1`~`stage4`, 대상 ID·실행 ID, 실제 실행 전략과 기만 동작, 백엔드 HTTP 상태 및 `forwarded`·`blocked`·`error` 결과를 기록합니다. `X-Ruby-Candidate-Id`와 `X-Ruby-Client-Flow-Id`는 방어 대시보드의 관찰 흐름 표시용으로만 기록하고 전략 선택에는 쓰지 않습니다.
+
+현재 정책은 0점을 포함한 `stage1`부터 모든 단계에 `decoy_maze`를 넣습니다. 위험 점수와 확정 공격 점수가 모두 0.25 이상이면 `stage2`에 중간 계정 오버레이와 300ms 지연을 추가하고, 모두 0.5 이상이며 확정 공격 점수가 0.8 미만이면 `stage3`에서 중간 오버레이를 유지하고 지연을 500ms로 바꿉니다. 둘 다 0.8 이상이면 `stage4`에서 중간 오버레이를 높은 오버레이로 대체하고 지연을 700ms로 바꾸며 초당 1요청 속도 제한을 추가합니다. 지연은 이전 단계 값과 합산하지 않습니다. Detection이 쿠키 미반환 요청의 후보·한 IP 흐름 이력으로 높은 위험 점수를 계산해도 확정 공격 점수가 없으면 전략 계획은 `stage1`에 머뭅니다. 다만 위험 점수가 0.5 이상이면 별칭을 적용합니다. 계정 오버레이·속도 제한은 반환·검증된 signed DCID 이력이 필요합니다.
+
+매 요청에는 해당 단계의 전략 목록을 전달합니다. `decoy_maze`는 모든 단계에 남고, 중간 오버레이는 4단계에서 높은 오버레이로 승격하며, 지연은 해당 단계 값 하나만 실행합니다. 이미 중간·높은 오버레이에 들어간 같은 검증된 행위자는 점수가 내려가도 그 오버레이 경로에 남습니다. Defense는 CHeaT에 기만 전략만 전달하고 지연과 속도 제한을 자체 실행합니다. 운영·로컬 Compose는 CHeaT의 내부 지연을 0으로 설정합니다. 오버레이 행위자의 `GET`/`HEAD` 미끼 경로는 내부 decoy-only 표시와 함께 CHeaT에 보내 실제 Target으로 빠져나가지 않게 하고, 일반 요청은 오버레이로 보냅니다. 오버레이 계획은 점수와 전략 목록을 검증한 뒤 대상·실행 ID·클라이언트에서 만든 가명 actor에 원본 경로·쿼리·본문을 HMAC으로 서명합니다. `stage4`의 700ms 지연은 속도 제한보다 먼저 실행하므로 429 응답에도 적용됩니다. 429가 반환되면 오버레이나 sidecar로 전달하지 않습니다. Sidecar와 오버레이는 내부 제어 헤더를 Target으로 전달하지 않습니다. 응답의 `X-Ruby-Decoy-Action`·`X-Ruby-Decoy-Strategies`는 Defense가 기록한 뒤 클라이언트 응답에서 제거합니다. `X-Defense-Signal: rate_limited`는 Defense가 429를 반환한 경우에만 Detection으로 되돌립니다. Target이 보낸 같은 이름의 신호 헤더는 제거합니다.
+
+Compose에서는 `DETECTION_POLICY_GATE_ENABLED=true`로 실행합니다. Detection이 프록시 전에 자체 응답하는 미끼 요청은 HMAC 인증된 `POST /__defense/policy-gate`를 호출합니다. 요청 본문·자격 증명·미끼 URL 없이 정책 식별 정보만 보내며, Defense는 일반 프록시 요청과 같은 상태 키로 지연·속도 제한을 적용합니다. Defense의 게이트 응답도 요청 내용과 상태·단계·지연에 묶인 HMAC으로 인증합니다. 이미 오버레이에 들어간 행위자의 로그인 미끼는 Detection이 직접 응답하지 않고 Defense의 오버레이로 보냅니다. CRS가 먼저 차단한 요청은 이 내부 게이트를 통과하지 않습니다. Defense 없이 앱에 직접 연결하는 독립 실행에서는 이 게이트가 기본적으로 꺼집니다.
 
 전략의 `apply(request, params, state)`는 요청 단계에서 실행합니다. `DefenseResult`는 즉시 반환할 응답, Target에 보낼 헤더, 백엔드 응답 변형 함수, 다음 클라이언트 상태를 담을 수 있습니다. 일반 공식 Defense 전략의 상태는 전략 이름, 선택된 실행 ID(없으면 대상 ID), `X-Client-Id`별로 분리하고, 기본 10분 미사용 시 만료되며 최대 10,000개를 유지합니다. `DEFENSE_STATE_TTL_SECONDS`와 `DEFENSE_STATE_LIMIT`로 조절합니다. 계정 오버레이의 중·고위험 경로는 별도 SQLite 볼륨에 영속 저장하며 키가 바뀌거나 DB가 사라지면 원본으로 우회하지 않고 실패합니다. 경로 상태의 식별 범위는 같은 대상·실행 ID·검증된 `dcid`입니다. 쿠키를 지우면 새 식별자가 되어 기존 격리가 자동 승계되지 않습니다. 동일 클라이언트의 동시 상태 변경은 순서대로 처리합니다. Sidecar의 기만 상태도 실행 ID와 클라이언트별로 분리됩니다.
 
 응답 변형 전략이 있으면 백엔드 본문을 받아 변형한 뒤 전송합니다. 본문은 기본 4 MiB까지 허용하며 `DEFENSE_TRANSFORM_BODY_LIMIT`로 조절합니다. 한도를 넘으면 502와 오류 이벤트를 반환합니다. 변형 전략이 없는 공식 Defense 응답은 스트리밍하지만, 현재 CHeaT sidecar는 HTTP 요청·응답 본문을 버퍼링하므로 sidecar를 거치는 경로는 종단 간 스트리밍이 아닙니다. 스트림이 중간에 끊기면 이미 보낸 HTTP 상태를 502로 바꿀 수 없으므로 연결이 중단되고 Defense 이벤트는 `outcome=error`로 남습니다. 이벤트의 `status`는 이미 전송한 백엔드 상태일 수 있으므로 결과와 함께 읽어야 합니다.
 
-WebSocket은 업그레이드 URL에 경로 별칭 1단계를 먼저 적용하고(원본 보호 경로·위조 별칭은 수락 전 거부, 프레임 치환 없음), 공식 Defense 전략을 한 번 적용합니다. 오버레이에 분류되지 않은 클라이언트만 선택된 Target에 직접 연결하고 텍스트·바이너리 프레임을 중계합니다. 오버레이로 분류된 클라이언트의 업그레이드는 원본 우회를 막기 위해 거부합니다. Sidecar 기만과 프레임별 탐지·응답 변형은 적용하지 않습니다. `/__defense` 관리 경로는 WebSocket 엔드포인트가 없으므로 업그레이드를 거부합니다.
+WebSocket은 선택된 지연·속도 제한을 거친 뒤 위험 점수 0.5 이상에서 업그레이드 URL에 경로 별칭을 적용합니다(원본 보호 경로·위조 별칭은 수락 전 거부, 프레임 치환 없음). 점수가 내려가도 기존 별칭 URL은 복원합니다. 오버레이에 분류되지 않은 클라이언트만 선택된 Target에 직접 연결하고 텍스트·바이너리 프레임을 중계합니다. 오버레이로 분류된 클라이언트의 업그레이드는 원본 우회를 막기 위해 거부합니다. Sidecar 기만과 프레임별 탐지·응답 변형은 적용하지 않습니다. `/__defense` 관리 경로는 WebSocket 엔드포인트가 없으므로 업그레이드를 거부합니다.
 
-`X-Client-Id`와 `X-Ruby-*`는 내부 Detection 프록시가 재생성하는 헤더입니다. 반환·검증된 DCID가 있으면 정책 키는 해당 가명 ID이고, 쿠키를 돌려주지 않는 요청은 관찰 후보 또는 한 IP의 Client Flow ID를 정책 키로 사용합니다. 후자의 공유 지문은 차단·계정 격리 근거가 아니며 `suspected` 미끼 단계에만 사용됩니다. Defense에 직접 접속할 수 있으면 헤더를 위조할 수 있으므로 배포에서는 Defense 포트를 외부에 공개하지 말고 Detection과 같은 비공개 네트워크에서만 접근시키세요. 최근 대시보드 이벤트와 일반 전략 상태는 단일 프로세스 메모리에 보관되고 재시작 시 사라지지만, 계정 오버레이 경로와 격리 상태는 영속 볼륨에 남습니다.
+`X-Client-Id`와 `X-Ruby-*`는 내부 Detection 프록시가 재생성하는 헤더입니다. 반환·검증된 DCID가 있으면 정책 키는 해당 가명 ID이고, 쿠키를 돌려주지 않는 요청은 관찰 후보 또는 한 IP의 Client Flow ID를 정책 키로 사용합니다. 후자의 공유 지문은 계정 격리·속도 제한 근거가 아니며 단계별 전략에서는 `stage1` 미끼 계획에만 사용됩니다. 별칭은 별도 위험 점수 0.5 기준을 적용합니다. Defense에 직접 접속할 수 있으면 헤더를 위조할 수 있으므로 배포에서는 Defense 포트를 외부에 공개하지 말고 Detection과 같은 비공개 네트워크에서만 접근시키세요. 최근 대시보드 이벤트와 일반 전략 상태는 단일 프로세스 메모리에 보관되고 재시작 시 사라지지만, 계정 오버레이 경로와 격리 상태는 영속 볼륨에 남습니다.
 
 ## 참여 방법
 
 쿼리로 API 경로를 선택하는 웹은 `PATH_ALIAS_ROUTES_FILE`의 `query_routes`(경로 선택형, 예: `{"path":"/gateway","parameter":"route"}`) 또는 `action_routes`(기능 선택형, 예: `{"path":"/api.php","parameter":"action","actions":{"login":["POST"]}}`)를 지정한다. 보호 대상 값만 별칭으로 치환·복원하고, 원본 값·다른 사용자 별칭·보호 대상이 섞인 중복 키는 enforce에서 차단하며, 보호하지 않는 값은 그대로 통과시킨다. [설정 예시](config/query-routing-example.json)와 [설치·운영 가이드 3절](docs/path-alias-operations.md#3-경로-파일-형식)을 참고한다.
 
-기본 `juice-shop-routes.json`에는 Juice Shop 서버 코드에서 확인한 `/rest/`, `/api/`, `/b2b/` 경로 67개 패턴이 들어 있다. RUBY Market 설정은 `ruby-shop-routes.json`이며, Ruby Shop 저장소의 FastAPI `/api/` 선언 63개에서 경로 템플릿을 포함해 가져왔다. 대상에 맞는 파일을 `PATH_ALIAS_ROUTES_FILE`로 선택한다. Juice Shop 파일은 실제 스택 브라우저 검증을 기록해 `enforce_ready`이며 `target_ids: ["juice-shop"]`이고 67개 경로 모두 enforce입니다(보수적 운영). 로컬 `legacy` 대상에 쓸 때는 `PATH_ALIAS_TARGET_IDS=legacy`를 지정합니다. Ruby Shop 파일은 아직 검증 전이라 enforce를 지정해도 observe로 동작한다. Ruby Shop을 로컬에서 실행할 때는 예를 들어 `PATH_ALIAS_ROUTES_FILE=/app/config/ruby-shop-routes.json`을 지정한다. 두 목록은 각각 `juice-shop/juice-shop`의 `1618a61`과 `WHS4-RUBY/web-defense-benchmark`의 `bba11eb` 소스 기준이며, 새 API나 플러그인이 추가되면 다시 수집하고 실제 브라우저 흐름을 확인해야 한다. Ruby Shop 목록에는 취약점 모듈이 켜졌을 때만 등록되는 API 한 개도 포함한다.
+기본 `juice-shop-routes.json`에는 Juice Shop 서버 코드에서 확인한 `/rest/`, `/api/`, `/b2b/` 경로 67개 패턴이 들어 있다. RUBY Market 설정은 `ruby-shop-routes.json`이며, Ruby Shop 저장소의 FastAPI `/api/` 선언 63개에서 경로 템플릿을 포함해 가져왔다. 운영 Compose는 `PATH_ALIAS_TARGET_ROUTES`로 두 파일을 대상별로 선택한다. Juice Shop 파일은 실제 스택 브라우저 검증을 기록해 `enforce_ready`이며 `target_ids: ["juice-shop"]`이고 67개 경로 모두 enforce다. Ruby Shop 파일은 `target_ids: ["ruby-shop"]`이며 브라우저 검증 전이라 운영에서도 observe로 동작한다. 매핑에 없는 대상에는 적용하지 않는다. 단일 대상 설치는 `PATH_ALIAS_ROUTES_FILE`을 사용하고, 로컬 `legacy` 대상에 쓸 때는 `PATH_ALIAS_TARGET_IDS=legacy`를 지정한다. 두 목록은 각각 `juice-shop/juice-shop`의 `1618a61`과 `WHS4-RUBY/web-defense-benchmark`의 `bba11eb` 소스 기준이며, 새 API나 플러그인이 추가되면 다시 수집하고 실제 브라우저 흐름을 확인해야 한다. Ruby Shop 목록에는 취약점 모듈이 켜졌을 때만 등록되는 API 한 개도 포함한다.
 
 `main`에 직접 push하지 않고 작업 브랜치에서 변경한 뒤 Pull Request를 제출합니다. 자세한 규칙은 [루트 CONTRIBUTING.md](../CONTRIBUTING.md)를 확인하세요.
 

@@ -1,6 +1,8 @@
 """Compatibility, routing and cookieless policies of the path alias stage."""
 
 import json
+import hashlib
+import hmac
 import sqlite3
 import tempfile
 import unittest
@@ -99,7 +101,33 @@ class ConfigFileTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 pa.PathAliasConfig.from_env(env)
         self.assertFalse(ruby.enforce_ready)  # source-only route list: stays at observe
+        self.assertEqual(ruby.target_ids, ("ruby-shop",))
         self.assertFalse(example.enforce_ready)
+
+    def test_target_route_map_keeps_verified_and_unverified_apps_separate(self):
+        config = Path(__file__).resolve().parents[1] / "config"
+        mapping = (f"juice-shop={config / 'juice-shop-routes.json'},"
+                   f"ruby-shop={config / 'ruby-shop-routes.json'}")
+        with tempfile.TemporaryDirectory() as directory:
+            env = {"PATH_ALIAS_MODE": "enforce", "PATH_ALIAS_TARGET_ROUTES": mapping,
+                   "PATH_ALIAS_PREFIXES": "/rest/,/api/,/b2b/",
+                   "PATH_ALIAS_DB_PATH": str(Path(directory) / "aliases.sqlite3")}
+            configured = pa.target_configs_from_env(env)
+            self.assertEqual(set(configured), {"juice-shop", "ruby-shop"})
+            self.assertEqual(configured["juice-shop"].default_mode, "enforce")
+            self.assertEqual(configured["ruby-shop"].default_mode, "observe")
+            self.assertNotEqual(configured["juice-shop"].app_id, configured["ruby-shop"].app_id)
+            self.assertEqual(configured["ruby-shop"].target_ids, ("ruby-shop",))
+            self.assertEqual(pa.target_configs_from_env({**env, "PATH_ALIAS_MODE": "off"}), {})
+            with self.assertRaisesRegex(ValueError, "cannot be used"):
+                pa.target_configs_from_env({**env, "PATH_ALIAS_TARGET_IDS": "legacy"})
+            with self.assertRaisesRegex(ValueError, "does not declare"):
+                pa.target_configs_from_env({**env, "PATH_ALIAS_TARGET_ROUTES":
+                                            f"ruby-shop={config / 'juice-shop-routes.json'}"})
+            with self.assertRaisesRegex(ValueError, "unique"):
+                pa.target_configs_from_env({**env, "PATH_ALIAS_TARGET_ROUTES":
+                                            f"juice-shop={config / 'juice-shop-routes.json'},"
+                                            f"juice-shop={config / 'juice-shop-routes.json'}"})
 
     def test_unsafe_stale_redirect_is_per_app_opt_in(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -274,14 +302,83 @@ class AliasPolicyIntegrationTests(IntegrationTests):
         self.upstream = self.JSON
         self.assertEqual(self.client.get("/rest/products/search").status_code, 200)
 
-    def test_risk_scores_never_switch_alias_decisions(self):
+    def test_target_specific_modes_start_at_half_risk(self):
+        juice_cfg = replace(self.cfg, routes=(pa.Route("/rest/products/search"),),
+                            target_ids=("juice-shop",), app_id="juice-shop")
+        ruby_cfg = replace(self.cfg, routes=(pa.Route("/api/orders"),),
+                           target_ids=("ruby-shop",), app_id="ruby-shop",
+                           enforce_ready=False)
+        juice = pa.PathAliasTable(juice_cfg)
+        ruby = pa.PathAliasTable(ruby_cfg)
+        selected_target = ["juice-shop"]
+        key = b"x" * 32
+        request_id = "request:123e4567-e89b-42d3-a456-426614174000"
+
+        def select(_headers):
+            return main.target_selection.SelectedTarget(
+                selected_target[0], "http://localhost:9000", None, None)
+
+        with patch.object(main, "PATH_ALIAS_TARGETS", {
+            "juice-shop": (juice_cfg, juice), "ruby-shop": (ruby_cfg, ruby),
+        }), patch.object(main.target_selection.target_selector, "for_request", side_effect=select), patch.object(
+                main, "OVERLAY_DETECTOR_KEY", key):
+            self.upstream = self.PAGE
+            page = self.client.get("/", headers={"x-ruby-risk-score": "0.49"})
+            self.assertIn('/rest/products/search"', page.text)
+            self.assertIsNone(self.client.cookies.get(pa.COOKIE_NAME))
+            page = self.client.get("/", headers={"x-ruby-risk-score": "0.5"})
+            self.assertNotIn('/rest/products/search"', page.text)
+            alias_client = self.client.cookies.get(pa.COOKIE_NAME)
+            juice_alias = juice.current_aliases(NOW, alias_client)["/rest/products/search"]
+            self.upstream = self.JSON
+            restored = self.client.get(juice_alias, headers={
+                "x-ruby-request-id": request_id, "x-ruby-risk-score": "0.49"})
+            self.assertEqual(restored.headers["x-ruby-resolved-url"], "/rest/products/search")
+            fields = ("ruby:route-feedback:v1", request_id, "GET", "juice-shop", "",
+                      "/rest/products/search")
+            self.assertEqual(restored.headers["x-ruby-resolved-url-sig"],
+                             hmac.new(key, "\n".join(fields).encode(), hashlib.sha256).hexdigest())
+            self.assertEqual(self.client.get("/rest/products/search", headers={
+                "x-ruby-risk-score": "0.49"}).status_code, 200)
+            self.assertEqual(self.client.get("/rest/products/search").status_code, 404)
+            self.assertEqual(self.logs()[-1]["mode"], "enforce")
+
+            selected_target[0] = "ruby-shop"
+            self.upstream = (200, [("content-type", "text/html")],
+                             b'<script>fetch("/api/orders")</script>')
+            page = self.client.get("/", headers={"x-ruby-risk-score": "0.99"})
+            self.assertNotIn('/api/orders"', page.text)
+            self.upstream = self.JSON
+            ruby_alias = ruby.current_aliases(NOW, alias_client)["/api/orders"]
+            restored = self.client.get(ruby_alias, headers={"x-ruby-request-id": request_id})
+            self.assertEqual(restored.headers["x-ruby-resolved-url"], "/api/orders")
+            fields = ("ruby:route-feedback:v1", request_id, "GET", "ruby-shop", "", "/api/orders")
+            self.assertEqual(restored.headers["x-ruby-resolved-url-sig"],
+                             hmac.new(key, "\n".join(fields).encode(), hashlib.sha256).hexdigest())
+            self.assertEqual(self.client.get("/api/orders").status_code, 200)
+            self.assertEqual(self.logs()[-1]["effective_mode"], "observe")
+            self.assertEqual(self.logs()[-1]["decision"], "would_block")
+
+            selected_target[0] = "legacy"
+            self.upstream = self.PAGE
+            page = self.client.get("/")
+            self.assertIn('/rest/products/search"', page.text)
+            self.upstream = self.JSON
+            self.assertEqual(self.client.get("/rest/products/search").status_code, 200)
+
+    def test_observe_mode_only_runs_at_half_risk(self):
         self.configure(mode="observe")
-        for score in ("0.1", "0.99"):
+        for score in ("0.5", "0.99"):
             with self.subTest(score=score):
                 response = self.client.get("/rest/products/search", headers={
                     "x-ruby-risk-score": score, "x-ruby-confirmed-attack-score": score})
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(self.logs()[-1]["decision"], "would_block")
+        before = len(self.logs())
+        response = self.client.get("/rest/products/search", headers={
+            "x-ruby-risk-score": "0.49", "x-ruby-confirmed-attack-score": "0.99"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(self.logs()), before)
 
     def test_cookieless_page_loads_in_two_tabs_share_nothing_but_still_work(self):
         self.upstream = self.PAGE

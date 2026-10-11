@@ -36,7 +36,7 @@ function loadPresentation(fetchImpl = async () => ({ status: 200 })) {
   });
   context.fetch = (...args) => context.window.fetch(...args);
   vm.runInContext(
-    `${script.slice(0, bootstrapAt)}\nglobalThis.presentation = { state, scoreNumber, detectionFor, buildUserRows, filterAndSortUsers, renderEvidenceOverview, renderUserList, renderUserDetail, selectUser, loadUserDetail, buildSessionNodes, renderRelation, renderConnectionDetails, renderTimeline, renderRequests, renderLogDetail, renderModalDetail, parseLogQuery, matchesLogQuery, buildLogEntries, highlightText, highlightJson, toggleLogQueryToken, requestSeverity };`,
+    `${script.slice(0, bootstrapAt)}\nglobalThis.presentation = { renderSiteProfileStatus, state, scoreNumber, detectionFor, buildUserRows, filterAndSortUsers, renderEvidenceOverview, renderUserList, renderUserDetail, selectUser, loadUserDetail, buildSessionNodes, renderRelation, renderConnectionDetails, renderTimeline, renderRequests, renderLogDetail, renderModalDetail, parseLogQuery, matchesLogQuery, buildLogEntries, highlightText, highlightJson, toggleLogQueryToken, requestSeverity };`,
     context,
     { filename: dashboardPath }
   );
@@ -955,4 +955,52 @@ test("화면 이동 기록의 주소는 HTML로 해석하지 않는다", () => {
   const html = ui.renderTimeline(detail, nodes);
   assert.doesNotMatch(html, /<img src=x/);
   assert.match(html, /&lt;img src=x/);
+});
+
+// 프로파일 상태는 blTags 와 분리된 채널이므로 점수에 영향이 없다. 그래도 화면에는
+// "비활성(프로파일 없음)" 이 반드시 보여야 한다 — 에러 없이 0점을 돌려주는 동작은
+// 허용하지 않는다.
+test("비활성 기능이 있는 프로파일은 대상 선택 옆에 비활성 사유까지 보여준다", () => {
+  const { renderSiteProfileStatus } = loadPresentation();
+
+  const fallback = renderSiteProfileStatus({
+    defaultProfileId: "generic",
+    active: { targetId: "legacy", profileId: "generic", source: "generic-fallback", label: "알 수 없는 대상" },
+    profiles: [{
+      profileId: "generic",
+      disabledFeatures: ["loginBruteForce", "roleGated"],
+      genericDefaultFeatures: [],
+    }],
+    unmappedTargets: ["legacy"],
+  });
+  assert.match(fallback, /알 수 없는 대상/);
+  assert.match(fallback, /프로파일 없음 → generic 폴백/);
+  assert.match(fallback, /2개 기능 비활성\(프로파일 없음\)/);
+  assert.match(fallback, /loginBruteForce 비활성\(프로파일 없음\)/);
+  assert.match(fallback, /roleGated 비활성\(프로파일 없음\)/);
+
+  // generic 기본값을 쓰는 기능은 비활성과 구별해서 표시한다.
+  const partial = renderSiteProfileStatus({
+    active: { targetId: "ruby-shop", profileId: "ruby-shop", source: "target-id", label: "RUBY Market" },
+    profiles: [{
+      profileId: "ruby-shop",
+      disabledFeatures: ["priceIntegrity"],
+      genericDefaultFeatures: ["identity.claimMap"],
+    }],
+  });
+  assert.match(partial, /대상 ID로 선택/);
+  assert.match(partial, /priceIntegrity 비활성\(프로파일 없음\)/);
+  assert.match(partial, /identity\.claimMap generic 기본값/);
+
+  // 전부 설정된 프로파일은 칩 없이 한 줄로 끝난다.
+  const complete = renderSiteProfileStatus({
+    active: { targetId: "juice-shop", profileId: "juice-shop", source: "target-id", label: "OWASP Juice Shop" },
+    profiles: [{ profileId: "juice-shop", disabledFeatures: [], genericDefaultFeatures: [] }],
+  });
+  assert.match(complete, /모든 기능 활성/);
+  assert.doesNotMatch(complete, /profile-chip/);
+
+  // 상태를 못 받아도 던지지 않는다.
+  assert.match(renderSiteProfileStatus(null), /확인할 수 없습니다/);
+  assert.match(renderSiteProfileStatus({}), /확인할 수 없습니다/);
 });

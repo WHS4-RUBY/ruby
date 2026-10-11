@@ -1,4 +1,3 @@
-site_adapter = "juice_shop"
 frontend_dir = ""
 modules = ["cycle"]
 origin_policy = "sealed"

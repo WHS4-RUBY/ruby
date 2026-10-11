@@ -22,6 +22,7 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 _METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
+_DECOY_ONLY_HEADER = "x-defense-decoy-only"
 
 # 프록시가 종단해야 하는 hop-by-hop 헤더 (RFC 9110 §7.6.1).
 _HOP_BY_HOP = {
@@ -173,6 +174,9 @@ def create_app(
 
     @app.api_route("/{full_path:path}", methods=_METHODS)
     async def _proxy(request: Request, full_path: str) -> Response:
+        # Official Defense sends overlay clients here only for decoy paths.  A
+        # missed maze match must fail closed instead of reaching the real site.
+        decoy_only = request.headers.get(_DECOY_ONLY_HEADER) == "1"
         forward_headers: dict[str, str] = {}
         for key, value in request.headers.items():
             if key.lower() in _REQUEST_SKIP or _is_internal_request_header(key):
@@ -200,8 +204,13 @@ def create_app(
                 _adopt_short_circuit(ctx, early)
                 break
 
-        # 2. 백엔드로 전달 (단축되지 않았을 때만)
-        if not ctx.short_circuited:
+        # 2. Private decoy-only traffic never reaches the real backend.  Keep
+        # on_response in the pipeline so the maze can turn this 404 into bait.
+        if decoy_only and not ctx.short_circuited:
+            ctx.response_status = 404
+            ctx.response_body = b""
+            ctx.response_headers = []
+        elif not ctx.short_circuited:
             try:
                 # Hooks may add headers after the initial copy.  Enforce the
                 # trust boundary again at the actual upstream call.

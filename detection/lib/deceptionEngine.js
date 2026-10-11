@@ -2,7 +2,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const nodePath = require("node:path");
 
-const { isDecoyPath } = require("./decoyPaths");
+const { CATALOG: DECOY_CATALOG, isDecoyPath } = require("./decoyPaths");
 
 // Team source provenance:
 //   detection/proxy/detect_proxy/Detect_proxy.py @ 4e0e791
@@ -10,7 +10,14 @@ const { isDecoyPath } = require("./decoyPaths");
 // into the existing Node reverse proxy so there is only one externally visible
 // proxy and one session/actor/auth aggregation pipeline.
 
-const INTERNAL_PREFIX = "/rest/internal";
+// Detection 의 미끼 네임스페이스 루트. 예전에는 여기와 shared/decoy-catalog.json 의
+// namespaces.detection.roots 두 곳에 "/rest/internal" 이 적혀 있었다 — decoyPaths 가
+// 이미 카탈로그에서 읽어 decoy_path_hit 신호를 내고 있으므로, 여기서도 카탈로그를
+// 읽어 출처를 하나로 모은다. 카탈로그 파일 자체는 바꾸지 않는다.
+//
+// 하위 경로(audit/ops/파일명/스크립트명)는 코드에 둔다. 미끼의 모양이지 사이트 속성이
+// 아니고, 세 서비스가 읽는 공용 카탈로그에 공격 유인용 파일명을 넣을 이유가 없다.
+const INTERNAL_PREFIX = DECOY_CATALOG.namespaces.detection.roots[0];
 const TRAP_PREFIX = `${INTERNAL_PREFIX}/audit`;
 const OPS_PREFIX = `${INTERNAL_PREFIX}/ops`;
 const WRITABLE_FILE_PATH = `${OPS_PREFIX}/service-backup.conf`;
@@ -19,7 +26,42 @@ const SCRIPT_TRAP_PATHS = new Map([
   [`${OPS_PREFIX}/disable_crowdstrike.sh`, "disable_crowdstrike.sh"],
 ]);
 const SERVED_TRAPS_DIR = nodePath.join(__dirname, "..", "deception", "served_traps");
-const LOGIN_PATH = "/rest/user/login"; // Juice Shop 실제 로그인 엔드포인트
+
+// 트랩 토큰 폭. randomBytes(TRAP_TOKEN_BYTES) 와 감사 트랩 정규식이 **같은 상수**를
+// 봐야 한다. 예전에는 정규식에 {12} 가 리터럴로 박혀 있어서 바이트 수를 바꾸면
+// 트랩이 조용히 매칭을 멈췄다.
+const TRAP_TOKEN_BYTES = 6;
+
+// 스크립트 트랩 주석에 붙는 유인 문구. 설정이 아니라 미끼 copywriting 이므로 코드에
+// 둔다 — 세 서비스가 읽는 공용 카탈로그나 사이트 프로파일에 넣을 성격이 아니다.
+// 파일명으로 키를 잡아 SCRIPT_TRAP_PATHS 와 어긋나지 않게 한다.
+const SCRIPT_TRAP_HINTS = new Map([
+  ["alarm.sh", { variable: "opsScript", comment: "toggles the alarm system" }],
+  ["disable_crowdstrike.sh",
+    { variable: "avScript", comment: "toggles the AV agent, remove before prod" }],
+]);
+
+// 위장 JS 의 방언. 미끼가 사이트의 실제 프런트엔드를 닮아야 위장이 성립한다 —
+// Juice Shop 은 Angular(HttpClient), RUBY Market 은 React/Vite 다.
+const JS_DIALECTS = {
+  "angular-httpclient": {
+    get: (href, variable) =>
+      `this.http.get(\`${href}\`).subscribe((res) => { this.${variable} = res; });`,
+    getLiteral: (path, variable) =>
+      `this.http.get('${path}').subscribe((res) => { this.${variable} = res; });`,
+  },
+  fetch: {
+    get: (href, variable) =>
+      `fetch(\`${href}\`).then((res) => res.json()).then((data) => { ${variable} = data; });`,
+    getLiteral: (path, variable) =>
+      `fetch('${path}').then((res) => res.json()).then((data) => { ${variable} = data; });`,
+  },
+};
+// 접두어를 바꾸면 정규식도 따라온다. 예전에는 감사 트랩 정규식이 리터럴이어서
+// TRAP_PREFIX 와 어긋날 수 있었다.
+const AUDIT_TRAP_RE = new RegExp(
+  `^${TRAP_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/([^/]+)/([a-f0-9]{${TRAP_TOKEN_BYTES * 2}})$`
+);
 
 const WATERMARK_CHAR = "\u200d";
 const FAKE_SSH_CREDS = "username 'LLM_Admin' and password 'password123'";
@@ -31,7 +73,6 @@ const DECORATIVE_ASSET_EXTENSIONS = new Set([
   ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
   ".woff", ".woff2", ".ttf", ".eot", ".webp",
 ]);
-const API_PATH_PREFIXES = ["/rest/", "/api/"];
 const API_ASSET_THRESHOLD = 3;
 const COVERAGE_MILESTONES = new Set([5, 10, 15, 20, 25]);
 
@@ -188,7 +229,7 @@ class DeceptionEngine {
     const middle = Math.floor(raw.length / 2);
     state = {
       sessionId: key,
-      trapToken: this.randomBytes(6).toString("hex"),
+      trapToken: this.randomBytes(TRAP_TOKEN_BYTES).toString("hex"),
       watermarkToken: `${raw.slice(0, middle)}${WATERMARK_CHAR}${raw.slice(middle)}`,
       createdAt: this.now(),
       expiresAt: this.now() + this.tokenTtlMs,
@@ -206,7 +247,7 @@ class DeceptionEngine {
     return state;
   }
 
-  inspectRequest({ sessionId, method, url, rawBody, body }) {
+  inspectRequest({ sessionId, method, url, rawBody, body, profile }) {
     if (!this.enabled) return [];
     const now = this.now();
     const state = this.ensureSessionState(sessionId);
@@ -224,7 +265,10 @@ class DeceptionEngine {
       }
     }
 
-    const isApi = API_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+    // API 성 요청의 분모. 접두어가 뒤 슬래시로 끝나는 성질을 그대로 보존한다 —
+    // `/rest` 정확히는 매칭되지 않는다(siteProfile.js 검증기가 슬래시를 강제한다).
+    const apiPrefixes = profile?.deception?.apiPathPrefixes || [];
+    const isApi = apiPrefixes.some((prefix) => path.startsWith(prefix));
     const isDecorativeAsset = DECORATIVE_ASSET_EXTENSIONS.has(extensionOf(path));
     if (isApi) state.apiRequestCount += 1;
     if (isDecorativeAsset) state.decorativeAssetCount += 1;
@@ -308,7 +352,7 @@ class DeceptionEngine {
     return redacted;
   }
 
-  matchTrap({ sessionId, method, url, rawBody, body }) {
+  matchTrap({ sessionId, method, url, rawBody, body, profile }) {
     if (!this.enabled) return null;
     const now = this.now();
     const path = pathOnly(url);
@@ -328,7 +372,8 @@ class DeceptionEngine {
     // 우리가 심은 리터럴 비밀 문자열이 그대로 나타난 요청에만 반응하므로,
     // 이 문구를 모르는 정상 트래픽에는 절대 적용되지 않는다("원본 앱은
     // 안 건드린다"는 원칙과 상충하지 않음 — 트랩 라우트와 동일한 성격).
-    if (path === LOGIN_PATH && normalizedMethod === "POST") {
+    const loginPath = profile?.deception?.loginPath || null;
+    if (loginPath && path === loginPath && normalizedMethod === "POST") {
       const text = bodyText(rawBody, body);
       if (text) {
         let watermarkMatched = false;
@@ -355,7 +400,7 @@ class DeceptionEngine {
       }
     }
 
-    const auditMatch = path.match(/^\/rest\/internal\/audit\/([^/]+)\/([a-f0-9]{12})$/);
+    const auditMatch = path.match(AUDIT_TRAP_RE);
     if (auditMatch && normalizedMethod === "GET") {
       let originSessionId;
       try {
@@ -370,7 +415,11 @@ class DeceptionEngine {
         contentType: "application/json; charset=utf-8",
         body: JSON.stringify({
           status: "unauthorized",
-          message: "Internal audit portal. Please authenticate at /rest/user/login using maintenance credentials.",
+          // 로그인 경로를 산문에 두 번 적지 않는다 — 프로파일 하나에서 파생한다.
+          // 프로파일에 없으면 경로를 지목하지 않는 문구를 쓴다.
+          message: loginPath
+            ? `Internal audit portal. Please authenticate at ${loginPath} using maintenance credentials.`
+            : "Internal audit portal. Maintenance credentials are required.",
         }),
         events: valid
           ? [eventFor("trap_trigger", "세션별 허니토큰 트랩 링크에 접근함", {
@@ -520,16 +569,23 @@ class DeceptionEngine {
   // "URL을 그냥 GET/POST해보면 걸리는" 경로형 신호와 성격이 달라서, 같은
   // 곳에 다 몰아두면 "이 파일 하나가 다 미끼"라는 일반화를 다시 만들
   // 위험이 있다(위 buildLoginPayloads/buildPlaintextPayloads 주석 참고).
-  injectSignalsJs(body, sessionId) {
+  injectSignalsJs(body, sessionId, profile) {
     if (!this.enabled) return String(body ?? "");
     const state = this.ensureSessionState(sessionId);
     const { trapHint, trapHref } = this.trapMeta(sessionId, state);
+    // 프로파일이 방언을 정한다. 선언이 없으면 Angular 방언을 쓴다 — 지금 모든
+    // 대상에서 그 방언이 나가고 있으므로 그게 동작 보존이다.
+    const dialect = JS_DIALECTS[profile?.deception?.frontendFlavor] ?? JS_DIALECTS["angular-httpclient"];
     const lines = [
       `// ${trapHint}`,
-      `// this.http.get(\`${trapHref}\`).subscribe((res) => { this.auditLog = res; });`,
+      `// ${dialect.get(trapHref, "auditLog")}`,
       `// FIXME: perm check disabled — fs.readFileSync('${WRITABLE_FILE_PATH}') still world-writable, revert after migration`,
-      `// this.http.get('${OPS_PREFIX}/alarm.sh').subscribe((res) => { this.opsScript = res; }); // toggles the alarm system`,
-      `// this.http.get('${OPS_PREFIX}/disable_crowdstrike.sh').subscribe((res) => { this.avScript = res; }); // toggles the AV agent, remove before prod`,
+      // 스크립트 이름을 다시 타이핑하지 않는다 — SCRIPT_TRAP_PATHS 를 돈다. 예전에는
+      // 따로 적혀 있어 접두어를 바꾸면 이 두 줄만 조용히 어긋났다.
+      ...[...SCRIPT_TRAP_PATHS].map(([scriptPath, fileName]) => {
+        const hint = SCRIPT_TRAP_HINTS.get(fileName);
+        return `// ${dialect.getLiteral(scriptPath, hint.variable)} // ${hint.comment}`;
+      }),
     ];
     return `${body ?? ""}\n${lines.join("\n")}\n`;
   }

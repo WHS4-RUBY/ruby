@@ -31,12 +31,15 @@
  * 실측 트래픽에서 실제로 발동한 사례는 아직 없다. 정직하게 남겨둔다.
  */
 
-const QUANTITY_FIELDS = new Set(['quantity', 'qty']);
-const UNIT_PRICE_FIELDS = new Set(['price', 'unitprice', 'itemprice']);
-const TOTAL_FIELDS = new Set(['totalprice', 'total', 'amount', 'ordertotal', 'linetotal']);
-
-// 부동소수점/통화 반올림 오차 허용치 (1센트)
-const AMOUNT_TOLERANCE = 0.01;
+/**
+ * 수량·단가·총액의 필드명과 허용 오차는 사이트마다 다르므로 프로파일의
+ * `priceTampering` 블록에서 읽는다.
+ *
+ * **라우트 게이트는 일부러 두지 않는다.** server.js 가 모든 요청 본문에 무조건
+ * 호출하는 지금 동작을 그대로 유지한다 — 라우트를 요구하면 동작 변경이 된다.
+ * 그래서 이 블록은 generic 프로파일에도 같은 값으로 들어가고, 프로파일이 없는
+ * 대상(legacy 등)의 동작이 보존된다.
+ */
 
 function findKey(keys, fieldSet) {
   return keys.find((k) => fieldSet.has(k.toLowerCase()));
@@ -46,66 +49,83 @@ function findKey(keys, fieldSet) {
  * body를 재귀적으로 훑어(NoSQL 연산자 탐지와 동일한 순회 방식), 같은 객체 레벨에 quantity/
  * unit-price/total 세 필드가 전부 있으면 total ≈ quantity × price인지 확인한다.
  *
+ * 설정을 재귀 함수의 위치 인자로 꿰지 않는다 — 이 함수는 (node, path, acc) 세 자리를
+ * 이미 쓰고 있어 네 번째를 더하면 호출부가 전부 깨진다. 대신 Set 을 한 번만 만들고
+ * 내부 클로저로 순회한다.
+ *
+ * @param {object} node
+ * @param {object} config 프로파일의 `priceTampering` 블록
+ * @param {string} [path]
+ * @param {Array} [acc]
  * @returns {Array<{path:string, quantity:number, price:number, total:number, expected:number}>}
  */
-function findAmountMismatches(node, path = '', acc = []) {
-  if (!node || typeof node !== 'object') return acc;
+function findAmountMismatches(node, config, path = '', acc = []) {
+  if (!config) return acc;
+  const quantityFields = new Set(config.quantityFields.map((f) => f.toLowerCase()));
+  const unitPriceFields = new Set(config.unitPriceFields.map((f) => f.toLowerCase()));
+  const totalFields = new Set(config.totalFields.map((f) => f.toLowerCase()));
+  const tolerance = config.amountTolerance;
 
-  if (Array.isArray(node)) {
-    node.forEach((item, i) => findAmountMismatches(item, `${path}[${i}]`, acc));
-    return acc;
-  }
+  function walk(current, currentPath) {
+    if (!current || typeof current !== 'object') return;
 
-  const keys = Object.keys(node);
-  const quantityKey = findKey(keys, QUANTITY_FIELDS);
-  const priceKey = findKey(keys, UNIT_PRICE_FIELDS);
-  const totalKey = findKey(keys, TOTAL_FIELDS);
+    if (Array.isArray(current)) {
+      current.forEach((item, i) => walk(item, `${currentPath}[${i}]`));
+      return;
+    }
 
-  if (quantityKey && priceKey && totalKey) {
-    const quantity = node[quantityKey];
-    const price = node[priceKey];
-    const total = node[totalKey];
-    if (
-      typeof quantity === 'number' && Number.isFinite(quantity) &&
-      typeof price === 'number' && Number.isFinite(price) &&
-      typeof total === 'number' && Number.isFinite(total)
-    ) {
-      const expected = quantity * price;
-      if (Math.abs(expected - total) > AMOUNT_TOLERANCE) {
-        acc.push({ path: path || '(root)', quantity, price, total, expected });
+    const keys = Object.keys(current);
+    const quantityKey = findKey(keys, quantityFields);
+    const priceKey = findKey(keys, unitPriceFields);
+    const totalKey = findKey(keys, totalFields);
+
+    if (quantityKey && priceKey && totalKey) {
+      const quantity = current[quantityKey];
+      const price = current[priceKey];
+      const total = current[totalKey];
+      if (
+        typeof quantity === 'number' && Number.isFinite(quantity) &&
+        typeof price === 'number' && Number.isFinite(price) &&
+        typeof total === 'number' && Number.isFinite(total)
+      ) {
+        const expected = quantity * price;
+        if (Math.abs(expected - total) > tolerance) {
+          acc.push({ path: currentPath || '(root)', quantity, price, total, expected });
+        }
+      }
+    }
+
+    for (const [key, value] of Object.entries(current)) {
+      if (value && typeof value === 'object') {
+        walk(value, `${currentPath}${currentPath ? '.' : ''}${key}`);
       }
     }
   }
 
-  for (const [key, value] of Object.entries(node)) {
-    if (value && typeof value === 'object') {
-      findAmountMismatches(value, `${path}${path ? '.' : ''}${key}`, acc);
-    }
-  }
-
+  walk(node, path);
   return acc;
 }
 
 /**
  * @param {object|string|null} body
+ * @param {object|null} profile 활성 사이트 프로파일(`req.siteProfile`)
  * @returns {{hit:boolean, mismatches:Array}}
  */
-function detectPriceTampering(body) {
+function detectPriceTampering(body, profile) {
+  const config = profile?.priceTampering;
+  if (!config) return { hit: false, mismatches: [] };
+
   let bodyObj = body;
   if (typeof bodyObj === 'string') {
     try { bodyObj = JSON.parse(bodyObj); } catch { return { hit: false, mismatches: [] }; }
   }
   if (!bodyObj || typeof bodyObj !== 'object') return { hit: false, mismatches: [] };
 
-  const mismatches = findAmountMismatches(bodyObj);
+  const mismatches = findAmountMismatches(bodyObj, config);
   return { hit: mismatches.length > 0, mismatches };
 }
 
 module.exports = {
   detectPriceTampering,
   findAmountMismatches,
-  QUANTITY_FIELDS,
-  UNIT_PRICE_FIELDS,
-  TOTAL_FIELDS,
-  AMOUNT_TOLERANCE,
 };

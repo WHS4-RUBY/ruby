@@ -190,11 +190,13 @@ class CyclicDefense(UnifiedDefense):
                                    httponly=True, samesite='strict')
             response.delete_cookie('token', path='/', secure=ctx.settings.secure_cookie, samesite='strict')
             return response
-        if path == '/api/Challenges' and ctx.settings.site_adapter == 'juice_shop':
+        challenge_api = ctx.settings.profile.challenge_api
+        if challenge_api and path == challenge_api:
             if ctx.method not in {'GET', 'HEAD'}:
                 return error(405, 'GET required')
             return site_for(ctx).fallback(ctx)  # The sole login challenge remains unsolved.
-        protected = ('/api/Users', account_root + '/authentication-details')
+        protected = (*ctx.settings.profile.account_api_prefixes,
+                     account_root + '/authentication-details')
         if any(path == root or path.startswith(root + '/') for root in protected):
             self.event(ctx, 'goal_blocked', self.family(path, ctx) or 'accounts')
             return JSONResponse({'status': 'error', 'message': 'Authentication required.',

@@ -141,6 +141,28 @@ test("response hook의 반환 body를 다음 hook으로 전달한다", async () 
   assert.equal(result.toString(), "body-a-b");
 });
 
+test("signed route feedback is visible to hooks but never forwarded to clients", { timeout: 5000 }, async (t) => {
+  for (const contentType of ["text/plain", "application/octet-stream"]) {
+    const seen = [];
+    const url = await proxyPair(t, (_req, res) => {
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "X-Ruby-Resolved-Url": "/api/Users/7",
+        "X-Ruby-Resolved-Url-Sig": "a".repeat(64),
+        "X-Ruby-Overlay-Active": "1",
+      });
+      res.end("ok");
+    }, { hooks: [{ onResponse({ proxyRes }) { seen.push(proxyRes.headers); } }] });
+    const response = await get(url);
+    await bodyOf(response);
+    assert.equal(response.headers["x-ruby-resolved-url"], undefined);
+    assert.equal(response.headers["x-ruby-resolved-url-sig"], undefined);
+    assert.equal(response.headers["x-ruby-overlay-active"], undefined);
+    assert.equal(seen[0]["x-ruby-resolved-url"], "/api/Users/7");
+    assert.equal(seen[0]["x-ruby-overlay-active"], "1");
+  }
+});
+
 test("SSE 첫 청크를 upstream 종료 전에 전달하고 완료 뒤 빈 본문으로 기록한다", { timeout: 5000 }, async (t) => {
   let releaseBackend;
   let backendEnded = false;

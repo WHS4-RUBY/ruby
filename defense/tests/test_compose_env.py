@@ -82,6 +82,48 @@ class ComposeFilesShareTheirCommonEnvironment(unittest.TestCase):
                 with self.subTest(service=service, compose=name):
                     self.assertEqual(set(), base & set(parsed.get(service, {})))
 
+    def test_production_selects_alias_routes_per_target(self):
+        production = self.concrete['docker-compose.yml']['defense']
+        local = self.concrete['docker-compose.local.yml']['defense']
+        self.assertEqual(production['PATH_ALIAS_MODE'], '${PATH_ALIAS_MODE:-enforce}')
+        self.assertIn('juice-shop=/app/config/juice-shop-routes.json',
+                      production['PATH_ALIAS_TARGET_ROUTES'])
+        self.assertIn('ruby-shop=/app/config/ruby-shop-routes.json',
+                      production['PATH_ALIAS_TARGET_ROUTES'])
+        self.assertEqual(local['PATH_ALIAS_MODE'], '${PATH_ALIAS_MODE:-off}')
+        self.assertEqual(local['PATH_ALIAS_TARGET_ROUTES'], '${PATH_ALIAS_TARGET_ROUTES:-}')
+
+    def test_decoy_sidecars_do_not_add_their_own_delay_to_policy_delay(self):
+        for name, sidecars in (
+            ('docker-compose.yml', ('cheat-juice', 'cheat-ruby')),
+            ('docker-compose.local.yml', ('cheat-legacy', 'cheat-alternate')),
+        ):
+            for sidecar in sidecars:
+                with self.subTest(compose=name, sidecar=sidecar):
+                    environment = self.concrete[name][sidecar]
+                    for variable in ('MAZE_DELAY_MS', 'MAZE_ESC_DELAY_MS', 'ESCALATE_DELAY_MS'):
+                        self.assertEqual(environment[variable], '0')
+
+    def test_detection_enables_the_private_policy_gate_in_both_composes(self):
+        self.assertEqual(self.common['detection-base']['DETECTION_POLICY_GATE_ENABLED'],
+                         '${DETECTION_POLICY_GATE_ENABLED:-true}')
+        for name in self.concrete:
+            self.assertNotIn('DETECTION_POLICY_GATE_ENABLED',
+                             self.concrete[name]['detection'])
+
+    def test_sidecar_maze_preset_entries_and_real_admin_exclusion_are_target_specific(self):
+        production = self.concrete['docker-compose.yml']['defense']
+        local = self.concrete['docker-compose.local.yml']['defense']
+        apache_extra = '/.htpasswd|/actuator|/server-status|/server-info|/phpinfo'
+        self.assertEqual(production['DECOY_MAZE_EXTRA_ROOT_CHOICES'],
+                         f'juice-shop={apache_extra}')
+        self.assertEqual(production['DECOY_MAZE_EXCLUDED_ROOT_CHOICES'], 'ruby-shop=/admin')
+        self.assertEqual(self.concrete['docker-compose.yml']['cheat-ruby']['MAZE_EXCLUDE'],
+                         '^/admin(/|$)')
+        self.assertEqual(local['DECOY_MAZE_EXTRA_ROOT_CHOICES'],
+                         f'legacy={apache_extra},alternate={apache_extra}')
+        self.assertNotIn('DECOY_MAZE_EXCLUDED_ROOT_CHOICES', local)
+
 
 if __name__ == '__main__':
     unittest.main()
