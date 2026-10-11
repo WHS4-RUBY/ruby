@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "profileId": "generic",
+  "label": "알 수 없는 대상",
+  "_note": "프로파일이 없는 대상의 폴백. 지금 코드가 라우트와 무관하게 모든 대상에서 돌리고 있는 기능만 담는다 — 그래서 매핑 없는 대상의 동작이 바뀌지 않는다. 라우트에 묶인 기능은 여기 없고 비활성으로 보고된다.",
+  "_needsConfirmation": [
+    "loginBruteForce",
+    "passwordResetAbuse",
+    "priceIntegrity",
+    "businessLogic.massAssignmentWhitelist",
+    "roleGated",
+    "identity.routeRules",
+    "identity.bodyRules",
+    "identity.queryRules",
+    "deception.loginPath"
+  ],
+  "deception": {
+    "apiPathPrefixes": [
+      "/rest/",
+      "/api/"
+    ],
+    "plaintextBaitPaths": [
+      "/robots.txt",
+      "/security.txt",
+      "/.well-known/security.txt",
+      "/metrics"
+    ],
+    "frontendFlavor": "angular-httpclient"
+  },
+  "priceTampering": {
+    "quantityFields": [
+      "quantity",
+      "qty"
+    ],
+    "unitPriceFields": [
+      "price",
+      "unitprice",
+      "itemprice"
+    ],
+    "totalFields": [
+      "totalprice",
+      "total",
+      "amount",
+      "ordertotal",
+      "linetotal"
+    ],
+    "amountTolerance": 0.01
+  },
+  "businessLogic": {
+    "alwaysSuspiciousFields": [
+      "role",
+      "isadmin",
+      "is_admin",
+      "admin",
+      "permissions",
+      "scope",
+      "accesslevel",
+      "is_staff",
+      "is_superuser",
+      "usertype",
+      "roles",
+      "authority",
+      "authorities",
+      "grants",
+      "privilege",
+      "privileges",
+      "acl",
+      "superuser",
+      "root",
+      "roleid",
+      "role_id"
+    ],
+    "suspiciousRoleValues": [
+      "admin",
+      "administrator",
+      "root",
+      "superadmin",
+      "super_admin",
+      "sysadmin",
+      "owner"
+    ],
+    "numericFieldRules": [
+      {
+        "field": "price",
+        "min": 0.01
+      },
+      {
+        "field": "deluxeprice",
+        "min": 0
+      },
+      {
+        "field": "quantity",
+        "min": 1,
+        "max": 100
+      },
+      {
+        "field": "rating",
+        "min": 1,
+        "max": 5
+      }
+    ]
+  },
+  "identity": {
+    "tokenSources": {
+      "bearer": true,
+      "cookieNames": [
+        "token"
+      ]
+    },
+    "claimMap": {
+      "wrapperKey": "data",
+      "id": "id",
+      "email": "email",
+      "role": "role",
+      "basketId": {
+        "at": "root",
+        "key": "bid"
+      }
+    },
+    "learnedFallback": true
+  }
+}
