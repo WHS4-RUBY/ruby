@@ -397,7 +397,7 @@ function computeBusinessLogicTags(req) {
     authorizationHeader: req.headers.authorization,
     cookieHeader: req.headers.cookie,
   });
-  const priceResult = detectPriceTampering(req.body);
+  const priceResult = detectPriceTampering(req.body, req.siteProfile);
   const tags = [
     ...businessLogicHits.map((hit) => hit.tag),
     ...identityHits.map((hit) => hit.tag),

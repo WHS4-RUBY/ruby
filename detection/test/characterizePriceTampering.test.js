@@ -1,7 +1,22 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
-const { detectPriceTampering, findAmountMismatches } = require("../lib/priceTampering");
+const path = require("node:path");
+
+const {
+  detectPriceTampering: detect,
+  findAmountMismatches: findMismatches,
+} = require("../lib/priceTampering");
+const { loadSiteProfile } = require("../lib/siteProfile");
+
+const profileAt = (id) =>
+  loadSiteProfile(path.join(__dirname, "..", "config", "site-profiles", `${id}.json`));
+
+// juice-shop 프로파일을 주입하면 아래 단정은 한 글자도 바뀌지 않고 통과해야 한다.
+const JUICE_PROFILE = profileAt("juice-shop");
+const detectPriceTampering = (body) => detect(body, JUICE_PROFILE);
+const findAmountMismatches = (node, pathPrefix, acc) =>
+  findMismatches(node, JUICE_PROFILE.priceTampering, pathPrefix, acc);
 
 /**
  * priceTampering.js 의 특성화 테스트.
@@ -136,4 +151,56 @@ test("특성화: findAmountMismatches 는 누적기를 직접 받을 수 있다"
   const returned = findAmountMismatches({ quantity: 2, price: 10, total: 5 }, "", acc);
   assert.equal(returned, acc, "같은 배열을 돌려줘야 한다");
   assert.equal(acc.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// 프로파일화 이후
+// ---------------------------------------------------------------------------
+
+const GENERIC_PROFILE = profileAt("generic");
+const RUBY_PROFILE = profileAt("ruby-shop");
+
+// D3-R 의 핵심: 이 기능은 지금 모든 대상에서 라우트 게이트 없이 도므로 generic 과
+// ruby-shop 프로파일에도 같은 값으로 들어간다. 그래서 프로파일이 없는 대상
+// (legacy/alternate)의 동작이 바뀌지 않는다 — 비활성이 아니라 그대로 활성이다.
+test("generic·ruby-shop 프로파일에서도 juice-shop 과 똑같이 동작한다", () => {
+  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+    assert.deepEqual(
+      detect({ quantity: 2, price: 10, total: 5 }, profile),
+      detect({ quantity: 2, price: 10, total: 5 }, JUICE_PROFILE),
+      `${profile.profileId} 의 판정이 juice-shop 과 다르다`
+    );
+    assert.equal(detect({ quantity: 2, price: 10, total: 20 }, profile).hit, false);
+    // 비활성으로 보고되어서는 안 된다 — 지금 도는 기능이기 때문이다.
+    assert.ok(!profile.disabledFeatures.includes("priceTampering"),
+      `${profile.profileId} 가 priceTampering 을 비활성으로 선언했다 — 동작이 바뀐다`);
+  }
+});
+
+test("다른 사이트의 필드명과 허용 오차로도 같은 검산이 나온다", () => {
+  const otherSite = {
+    ...GENERIC_PROFILE,
+    priceTampering: {
+      quantityFields: ["count"],
+      unitPriceFields: ["unit_cost"],
+      totalFields: ["grand_total"],
+      amountTolerance: 1,
+    },
+  };
+  assert.equal(detect({ count: 2, unit_cost: 10, grand_total: 5 }, otherSite).hit, true);
+  assert.equal(detect({ count: 2, unit_cost: 10, grand_total: 20 }, otherSite).hit, false);
+  // 허용 오차가 1 이므로 0.5 차이는 넘어간다.
+  assert.equal(detect({ count: 1, unit_cost: 10, grand_total: 10.5 }, otherSite).hit, false);
+  assert.equal(detect({ count: 1, unit_cost: 10, grand_total: 12 }, otherSite).hit, true);
+  // juice-shop 의 필드명은 이 프로파일에서 잡히지 않는다.
+  assert.equal(detect({ quantity: 2, price: 10, total: 5 }, otherSite).hit, false);
+});
+
+test("프로파일에 설정이 없으면 던지지 않고 hit 없음이다", () => {
+  for (const profile of [null, undefined, {}, { priceTampering: null }]) {
+    assert.deepEqual(detect({ quantity: 2, price: 10, total: 5 }, profile),
+      { hit: false, mismatches: [] });
+  }
+  // findAmountMismatches 도 설정 없이 호출되면 빈 누적기를 돌려준다.
+  assert.deepEqual(findMismatches({ quantity: 2, price: 10, total: 5 }, null), []);
 });

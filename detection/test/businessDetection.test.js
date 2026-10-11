@@ -159,8 +159,8 @@ test("로그인·비밀번호 재설정·보안질문에서 이메일 집계 키
 });
 
 test("요청 내부 총액 불일치와 관찰 가격 대비 급락을 탐지한다", () => {
-  assert.equal(detectPriceTampering({ quantity: 2, price: 10, total: 20 }).hit, false);
-  assert.equal(detectPriceTampering({ quantity: 2, price: 10, total: 1 }).hit, true);
+  assert.equal(detectPriceTampering({ quantity: 2, price: 10, total: 20 }, JUICE_PROFILE).hit, false);
+  assert.equal(detectPriceTampering({ quantity: 2, price: 10, total: 1 }, JUICE_PROFILE).hit, true);
 
   resetPriceCache();
   assert.equal(checkPriceDelta(1, 20).hit, false);

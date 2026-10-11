@@ -51,11 +51,7 @@ test("juice-shop 프로파일은 지금 살아 있는 모듈 상수와 정확히
 
   // passwordResetAbuse 도 프로파일을 읽는다 — 보장은 characterizePasswordResetAbuse 로.
 
-  const pt = require("../lib/priceTampering");
-  assert.deepEqual(juice.priceTampering.quantityFields, [...pt.QUANTITY_FIELDS]);
-  assert.deepEqual(juice.priceTampering.unitPriceFields, [...pt.UNIT_PRICE_FIELDS]);
-  assert.deepEqual(juice.priceTampering.totalFields, [...pt.TOTAL_FIELDS]);
-  assert.equal(juice.priceTampering.amountTolerance, pt.AMOUNT_TOLERANCE);
+  // priceTampering 도 프로파일을 읽는다 — 보장은 characterizePriceTampering 으로.
 
   const pi = require("../lib/priceIntegrity");
   assert.equal(juice.priceIntegrity.listRoute, pi.PRODUCTS_LIST_PATH);
