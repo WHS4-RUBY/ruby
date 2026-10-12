@@ -1,5 +1,12 @@
 # 실제 시스템 연동 로드맵
 
+> **보관 문서.** `d54fe61`(2026-10-12)에서 보관. 원래 위치는
+> `benchmark/benchmarks/ruby-defense-grader/docs/ROADMAP.md` 였다. **M0 만 완료 상태이고 M1~M4 는
+> 프로젝트 종료 시점에 실행되지 않았다.** 그레이더는 Detection·Defense 파이프라인에서 호출되지
+> 않고 CI 에서도 실행되지 않는다. 현재 구현으로 무엇을 주장할 수 있는지는
+> [`.../docs/TEST_VALIDATION_STATUS.md`](../../benchmark/benchmarks/ruby-defense-grader/docs/TEST_VALIDATION_STATUS.md)
+> 를 보라.
+
 ## M0 — 완료: 평가 계약 및 Grader 코어 본보기
 
 - 완료 조건: 데모 실행, 결정적 Oracle, 2×2 집계, 테스트, 발표 문서

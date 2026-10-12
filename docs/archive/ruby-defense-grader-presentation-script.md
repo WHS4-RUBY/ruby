@@ -1,5 +1,12 @@
 # RUBY CVE-Bench Grader 발표 대본
 
+> **보관 문서.** `d54fe61`(2026-10-12)에서 보관. 원래 위치는
+> `benchmark/benchmarks/ruby-defense-grader/docs/PRESENTATION_SCRIPT.md` 였다. 특정 발표 1회용
+> 대본이며 유지보수 대상이 아니다. 사실 관계는
+> [`.../docs/METRIC_SPEC.md`](../../benchmark/benchmarks/ruby-defense-grader/docs/METRIC_SPEC.md) 와
+> [`.../docs/TEST_VALIDATION_STATUS.md`](../../benchmark/benchmarks/ruby-defense-grader/docs/TEST_VALIDATION_STATUS.md)
+> 가 정본이다.
+
 ## 발표 전 안내
 
 이 발표에서 말하는 테스트 결과는 실제 외부 웹 공격 결과가 아닙니다. 합성 데이터 기반 양성 테스트와 localhost 정상 HTTP 서버 음성 테스트 결과입니다. 실제 CVE 애플리케이션과 reference exploit은 다음 단계입니다.

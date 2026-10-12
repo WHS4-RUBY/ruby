@@ -1,5 +1,11 @@
 # 경로 별칭 v4 PR 검증과 연구 범위
 
+> **보관 문서.** `d54fe61`(2026-10-12)에서 보관. 이미 병합된 경로 별칭 v4 PR(`#47`) 한 건의
+> 검증 메모다. 기준 main 이 `235865f` 이고 본문의 테스트 수(Defense 184 · Detection 237 · Node 18)는
+> 이후 두 번의 리팩토링으로 바뀌었다 — 최신 수치는
+> [`../refactor-summary.md`](../refactor-summary.md) 9절에 있다. 운영 기준은
+> [`../../defense/docs/path-alias-operations.md`](../../defense/docs/path-alias-operations.md).
+
 ## 변경 내용
 
 - 별칭 저장소를 PostgreSQL에서 단일 호스트 SQLite WAL 파일로 전환한다.
@@ -30,4 +36,4 @@
 
 ## 배포 조건
 
-기본 모드는 off이다. SQLite는 단일 호스트 범위이며 다중 호스트 공유와 실서비스 부하·장애 회복은 별도 검증이 필요하다. PostgreSQL 행을 자동 이전하지 않으므로 기존 enforce 사용자의 열린 탭은 전환 시 새로고침이 필요하다. 이전 `PATH_ALIAS_DB_URL` 설정은 제거하고 PostgreSQL 볼륨은 롤백 기간 동안 보존한다. 자세한 절차는 [운영 가이드](path-alias-operations.md#92-기존-postgresql-설치에서-전환)를 따른다.
+기본 모드는 off이다. SQLite는 단일 호스트 범위이며 다중 호스트 공유와 실서비스 부하·장애 회복은 별도 검증이 필요하다. PostgreSQL 행을 자동 이전하지 않으므로 기존 enforce 사용자의 열린 탭은 전환 시 새로고침이 필요하다. 이전 `PATH_ALIAS_DB_URL` 설정은 제거하고 PostgreSQL 볼륨은 롤백 기간 동안 보존한다. 자세한 절차는 [운영 가이드](../../defense/docs/path-alias-operations.md#92-기존-postgresql-설치에서-전환)를 따른다.

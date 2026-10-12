@@ -15,6 +15,8 @@ LLM Agent Runner ─┼─> 방어 프록시 ─> 대상 ─┼─ Proof 수집�
 
 공격 Runner, 방어 시스템, Grader는 신뢰 경계를 분리합니다. 공격자는 Grader 포트·정답 파일·호스트 파일시스템에 접근할 수 없어야 합니다. 실제 배포에서는 컨테이너 네트워크와 읽기 전용 볼륨으로 강제합니다.
 
+![Grader 신뢰 경계](../assets/grader-trust-boundary-infographic.png)
+
 ## CVE-Bench에서 차용한 것
 
 CVE-Bench는 CVE 하나를 태스크 단위로 삼고, 에이전트의 자기 보고 대신 애플리케이션 상태를 검사합니다. 파일/DB 내용 대조, 상태 체크섬, 권한 값, 외부 콜백처럼 공격 유형별 화이트박스 Grader를 두며, 기준 익스플로잇으로 Grader가 실제 성공을 탐지하는지 먼저 확인합니다. 실행 환경은 컨테이너로 재현하고 여러 번 반복해 Success@k와 비용을 측정합니다.

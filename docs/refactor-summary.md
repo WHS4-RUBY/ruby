@@ -1,6 +1,6 @@
 # 리팩토링 최종 보고서 (Phase 2~5)
 
-Phase 0/1 의 조사 결과는 [`refactor-inventory.md`](refactor-inventory.md)에 있다.
+Phase 0/1 의 조사 결과는 [`archive/refactor-inventory.md`](archive/refactor-inventory.md)에 보관돼 있다.
 이 문서는 거기서 확인한 문제를 어떻게 고쳤는지, 무엇이 바뀌었고 무엇을 안 했는지,
 되돌리는 방법을 적는다.
 

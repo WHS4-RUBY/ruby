@@ -26,7 +26,15 @@
 
 ## 사이트별 설정
 
-[config/site-juice-shop.toml](config/site-juice-shop.toml)에 로그인 경로, DOM 선택자, 계정·정찰·API 분류, 일반 화면 API 제외 목록, 원본 인증 쿠키명, `robots.txt` 미끼 경로, decoy 표시명·계정을 모았다. [config/site-generic-example.toml](config/site-generic-example.toml)은 다른 사이트용 예시다. 다른 사이트에서는 overlay TOML의 `origin_url`과 `site_profile`을 바꾸고, 프로필의 경로·선택자를 실제 사이트에 맞춘다. 오버레이 코드나 decoy 서비스 수를 바꿀 필요는 없다. V1/V2는 여전히 **계정 복구 기록을 따라가는 시나리오**이므로, 다른 공격 목표까지 자동으로 재현하는 범용 웹 복제기는 아니다.
+사이트 프로파일에 로그인 경로, DOM 선택자, 계정·정찰·API 분류, 일반 화면 API 제외 목록, 원본 인증 쿠키명, `robots.txt` 미끼 경로, decoy 표시명·계정을 모았다. 출하되는 프로파일은 셋이다.
+
+| 프로파일 | 쓰는 곳 |
+|---|---|
+| [config/site-juice-shop.toml](config/site-juice-shop.toml) | `overlay-v2.toml`(로컬), `overlay-production-juice-v2.toml`(운영) |
+| [config/site-ruby-shop.toml](config/site-ruby-shop.toml) | `overlay-production-ruby-v2.toml`(운영) |
+| [config/site-generic-example.toml](config/site-generic-example.toml) | 다른 사이트를 붙일 때 복사해 쓰는 예시 |
+
+다른 사이트에서는 overlay TOML의 `origin_url`과 `site_profile`을 바꾸고, 프로필의 경로·선택자를 실제 사이트에 맞춘다. 오버레이 코드나 decoy 서비스 수를 바꿀 필요는 없다. V1/V2는 여전히 **계정 복구 기록을 따라가는 시나리오**이므로, 다른 공격 목표까지 자동으로 재현하는 범용 웹 복제기는 아니다.
 
 V1은 증거 체인 끝에서 `/ops/service/session/login`으로 **가짜** 관리자 로그인을 제공한다. V2는 성공 없이 후속 참조를 계속 연결한다. 두 버전 모두 Agent의 설정된 로그인 `POST`를 실제 원본으로 전달하지 않는다. 중위험 Agent는 미끼를 따르지 않으면 다른 원본 경로의 응답을 계속 볼 수 있다. 고위험 Agent는 어떤 경로도 원본으로 전달되지 않는다.
 
@@ -47,7 +55,7 @@ OVERLAY_CONFIG=config/overlay-v2.toml OVERLAY_ORIGIN_URL=http://127.0.0.1:3000 \
   .venv/bin/python -m uvicorn defense.overlay:app_factory --factory --host 127.0.0.1 --port 8080 --workers 1 --no-proxy-headers
 ```
 
-V1은 `OVERLAY_CONFIG=config/overlay-v1.toml`을 사용한다. 상태와 키는 `state/`에 두며 배포 ZIP에는 포함하지 않는다. 테스트는 `.venv/bin/python -m pytest -q`와 `node --test tests/test_lure_ui.cjs`다. 실제 Juice Shop 로컬 실험은 [LIVE_LAB.md](LIVE_LAB.md), 탐지팀 연결 계약은 [INTEGRATION.md](INTEGRATION.md), 이번 검증 결과는 [VALIDATION.md](VALIDATION.md)에 있다.
+V1은 `OVERLAY_CONFIG=config/overlay-v1.toml`을 사용한다. 상태와 키는 `state/`에 두며 배포 ZIP에는 포함하지 않는다. 테스트는 `.venv/bin/python -m pytest -q`와 `node --test tests/test_lure_ui.cjs`다. 실제 Juice Shop 로컬 실험은 [LIVE_LAB.md](LIVE_LAB.md), 탐지팀 연결 계약은 [INTEGRATION.md](INTEGRATION.md)에 있다. 고위험 격리를 도입한 0.13.0 당시의 검증 기록은 [VALIDATION.md](VALIDATION.md)이며, 현재 스위트 규모는 그 문서 머리말에 적어 두었다.
 
 ## 현재 포트 80 운영 경로용 설정
 

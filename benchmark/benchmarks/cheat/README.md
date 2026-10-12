@@ -18,7 +18,7 @@ CHeaT CLI(`cheat`)가 논문에 기술된 대로 자산(파일)에 기만 payloa
 2. 실제 생성되는 payload 문구가 논문 §5(Table 1)의 기법 예시와 일치하는지 확인한다.
 3. codex CLI로 15개 기법을 하나씩 실제 시행해, payload가 순정 에이전트를 실제로 속이는지(DSR의 예비 관찰) 확인한다. — **13/15 완료**, 상세는 아래 "결과" 및 [`results.md`](results.md) 참고.
 
-CHeaT 알고리즘·데이터셋은 재구현하지 않았으며 공식 저장소의 `cheat` CLI와 `cheat/database/*.json`(37개 항목, 26개 distinct 기법 코드)을 그대로 사용했다. 참고로 논문이 실제 평가에 쓴 프레이밍 payload 세트는 논문 §6이 명시한 대로 **249개**(`datasets/payloads/payloads.json` 102개 + `payloads_boosted_with_prompt_injection.json` 147개)다 — 자세한 파일별 개수와 출처는 [`results.md`](results.md#원본-payload-개수-재확인) 참고.
+CHeaT 알고리즘·데이터셋은 재구현하지 않았으며 공식 저장소의 `cheat` CLI와 `cheat/database/*.json`(37개 항목, 26개 distinct 기법 코드)을 그대로 사용했다. 참고로 논문이 실제 평가에 쓴 프레이밍 payload 세트는 논문 §6이 명시한 대로 **249개**(`datasets/payloads/payloads.json` 102개 + `payloads_boosted_with_prompt_injection.json` 147개)다 — 자세한 파일별 개수와 출처는 [`results.md`](results.md#원본-payload-개수-확인) 참고.
 
 ## 준비
 

@@ -1,9 +1,33 @@
-# 토큰 게이트 구현 기획 v2.1 (별칭 기법 1단계)
+# 토큰 게이트 — 보관된 설계·검증 이력
+
+> **보관 문서.** 기준: `d54fe61`(2026-10-12)에서 보관. 이 문서가 설명하는 **토큰 단독 차단은
+> 현재 구현에 없다** — `defense/app/token_gate.py` 의 첫 줄이
+> `"Cookie observations for proxied HTTP requests; token state never blocks traffic."` 이고,
+> `TOKEN_GATE_MODE=enforce` 는 경고와 함께 `observe` 로 강등된다. 공격 차단은 Detection 의
+> 전달 전 CRS 검사가 수행한다.
+>
+> **현재 동작은 [`defense/README.md`](../../defense/README.md) 의 "토큰 관찰과 CRS 차단" 절과
+> [`detection/README.md`](../../detection/README.md) 를 보라.** 아래는 2026-09-29~30 당시의
+> 설계서와 로컬 Docker 검증 기록을 하나로 합친 역사 기록이며, 본문의 "현재"·"다음 단계"·
+> 브랜치 이름은 모두 그 시점 기준이다.
+
+원래 두 파일이었다: `defense/docs/token-gate-plan.md`(설계 v2.1)와
+`defense/docs/token-gate-docker-progress.md`(로컬 Docker 검증 중간 기록). 같은 기능·같은 시기의
+기록이고 검증 내용이 서로 중복돼 보관 시점에 합쳤다.
+
+## 목차
+
+- [1부. 토큰 게이트 구현 기획 v2.1 (별칭 기법 1단계)](#1부-토큰-게이트-구현-기획-v21-별칭-기법-1단계)
+- [2부. Token gate Docker 실험 중간 기록](#2부-token-gate-docker-실험-중간-기록)
+
+---
+
+## 1부. 토큰 게이트 구현 기획 v2.1 (별칭 기법 1단계)
 
 > **2026-09-30 후속 변경:** 아래 문서는 v2.1 당시 설계와 검증 이력이다.
 > 현재 구현은 토큰 단독 차단을 제거했고, `enforce` 설정도 경고 후 관찰로 처리한다.
 > 공격 차단은 Detection의 전달 전 CRS 검사로 옮겼다. 현재 동작은
-> [Detection README](../../detection/README.md)와 [Defense README](../README.md)를 따른다.
+> [Detection README](../../detection/README.md)와 [Defense README](../../defense/README.md)를 따른다.
 
 > 작성: 심형섭 · 2026-09-29
 > v2: Codex 교차 검토(15개 항목) 반영
@@ -12,9 +36,9 @@
 
 ---
 
-## 0. 선행 조건 (통합 실험 전 반드시 해결)
+### 0. 선행 조건 (통합 실험 전 반드시 해결)
 
-### Detection이 백엔드 `Set-Cookie`로 자기 쿠키를 덮어쓴다
+#### Detection이 백엔드 `Set-Cookie`로 자기 쿠키를 덮어쓴다
 
 - 위치: `detection/lib/proxyCore.js`의 `responseInterceptor` (`http-proxy-middleware` 2.0.10, `selfHandleResponse: true`)
 - 현상: Detection은 `server.js`에서 `res.cookie()`로 `dlsid`, `dcid`를 먼저 설정한다. 그 뒤 응답 인터셉터가 백엔드 헤더를 `setHeader`로 복사하면서 **기존 `Set-Cookie`를 덮어쓴다.**
@@ -28,13 +52,13 @@
 
 ---
 
-## 1. 배경과 목표
+### 1. 배경과 목표
 
-### 1.1 처음 아이디어
+#### 1.1 처음 아이디어
 
 LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도록, 주소(별칭)를 주기마다 바꿔서 공급한다.
 
-### 1.2 논의하면서 바뀐 점
+#### 1.2 논의하면서 바뀐 점
 
 | 논의 | 결론 |
 |---|---|
@@ -46,14 +70,14 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
 | 토큰 갱신 (v2) | **활동 중 자동 갱신.** 주기적인 페이지 재방문을 강제하지 않음 (1.4 참고) |
 | 응답 불일치 (v2) | **약한 보조 신호로만 기록.** 차단이나 높은 위험도에 쓰지 않음 (2.6 참고) |
 
-### 1.3 근거로 쓴 관찰 (`defense-proxy` 브랜치 `defense/CHeat-defense-proxy/defense_proxy_v1/results.md`)
+#### 1.3 근거로 쓴 관찰 (`defense-proxy` 브랜치 `defense/CHeat-defense-proxy/defense_proxy_v1/results.md`)
 
 - codex는 알려진 API 목록(14개)을 **한 번에 직접 호출**했다. 페이지를 보고 경로를 찾지 않았다.
 - codex는 "토큰을 되돌려 보내라"는 관문(T4.2b-login)에 **금방 적응**했고, solved는 1.00×였다. 그래서 토큰으로 비용을 늘리는 효과는 작다고 보고, 목표를 C 중심으로 잡는다.
 - 관문은 에이전트가 **반복해서 치는 엔드포인트**에 걸려야 발동한다.
 - Juice Shop은 모르는 경로에 404 대신 `200 + index.html`을 돌려준다.
 
-### 1.4 단계 구조 (이 문서의 범위는 1~2단계)
+#### 1.4 단계 구조 (이 문서의 범위는 1~2단계)
 
 ```text
 1단계 (A) 토큰 없는 API 요청 → 차단(enforce) 또는 기록(observe)
@@ -64,7 +88,7 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
 
 **주의**: 토큰 회전 자체가 주기적인 페이지 재방문이나 공격 비용 증가를 **보장하지 않는다.** 쿠키를 관리하는 클라이언트는 사람이든 에이전트든 요청을 이어가는 한 계속 갱신받는다.
 
-### 1.5 이 기법이 증명하는 것과 증명하지 못하는 것
+#### 1.5 이 기법이 증명하는 것과 증명하지 못하는 것
 
 - 헤더만으로는 **GET 페이지와 GET API를 확실히 구분할 수 없다.** API 호출에 `Accept: text/html`을 붙이면 `page`로 분류돼 토큰 없이 통과하고 토큰까지 받는다. `Sec-Fetch-*`도 흉내 낼 수 있다.
 - 그래서 이 기법은 "페이지를 방문했다는 증명"이 아니라, **"페이지처럼 선언하지 않고 API를 직접 호출하는 요청"을 걸러내고 기록하는 장치**다.
@@ -73,16 +97,16 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
 
 ---
 
-## 2. 동작 설계
+### 2. 동작 설계
 
-### 2.1 적용 범위와 지원 조건
+#### 2.1 적용 범위와 지원 조건
 
 - 게이트는 **`catch_all`이 백엔드로 프록시하는 HTTP 요청에만** 적용한다. `/healthz`, FastAPI 기본 문서 라우트처럼 별도 라우트로 처리되는 요청은 대상이 아니다.
 - Detection은 `Accept`, `Sec-Fetch-*`, `Cookie` 헤더의 **값**을 Defense로 그대로 넘긴다(`detection/lib/rubyPolicy.js`의 제거 목록에 없음). 다만 Detection이 같은 응답에서 새로 발급한 `dcid`·`dlsid`는 그 요청의 `Cookie`에 포함되지 않는다.
 - WebSocket은 현재 Detection·Defense 모두 중계하지 않는 기존 한계다. 게이트와 무관하게 따로 기록한다.
 - 지원 조건: **동일 origin에서 쿠키를 전송하는 웹 앱.** 다른 origin의 리소스, `credentials: "omit"` 요청, 쿠키 없는 정상 클라이언트(모바일 앱, 외부 연동)는 지원 범위 밖이다.
 
-### 2.2 요청 분류
+#### 2.2 요청 분류
 
 모든 요청을 백엔드로 넘기기 **전에** 헤더만 보고 분류한다.
 
@@ -99,7 +123,7 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
 - 기본값: `/healthz,/__defense/,/__detection/`
 - `classify()`는 예외 목록을 인자로 받는다
 
-### 2.3 토큰
+#### 2.3 토큰
 
 - 쿠키 이름: `__ruby_tg` (Detection의 `dcid`, `dlsid`와 Juice Shop 쿠키와 겹치지 않게)
 - 정규 형식: `v1.<epoch>.<mac>`
@@ -114,7 +138,7 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
   - 고정 `Max-Age`를 쓸 때 생기던 **최대 한 주기의 불일치를 줄인다.** 완전히 없애지는 못한다. 남은 시간이 1초 미만이면 최소값 1초 때문에 서버 만료보다 길게 남고, 응답 전달 시간만큼의 차이도 남는다. 이 구간에 브라우저가 보내는 토큰은 `stale`로 관측될 수 있다.
   - `COOKIE_SECURE=true`면 `Secure` 추가
 
-### 2.4 토큰 상태
+#### 2.4 토큰 상태
 
 | 상태 | 의미 |
 |---|---|
@@ -124,7 +148,7 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
 | `invalid` | 형식 오류, mac 불일치, 미래 epoch |
 | `missing` | 쿠키 없음. 브라우저가 만료된 쿠키를 지운 과거 방문자도 여기에 해당 |
 
-### 2.5 판정표
+#### 2.5 판정표
 
 | 분류 | 토큰 상태 | observe | enforce | 쿠키 발급 |
 |---|---|---|---|---|
@@ -149,7 +173,7 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
 - 토큰 상태와 관계없이 **항상 같게** 만든다.
 - 차단된 요청은 **백엔드로 보내지 않는다.**
 
-### 2.6 응답 불일치 관찰 (약한 보조 신호)
+#### 2.6 응답 불일치 관찰 (약한 보조 신호)
 
 - 조건: 분류가 `page`이고, 메서드가 `GET`이고, 백엔드 응답 상태가 `200`이고, 응답 `Content-Type`이 `application/json` 또는 `+json`으로 끝남
 - 동작: 로그에 `"observation":"page_declared_json"`를 추가한다. **차단하지 않고, 응답도 바꾸지 않는다.**
@@ -157,7 +181,7 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
 - HEAD, 304, 오류 응답, JSON이 아닌 다른 형식은 이번에 관찰하지 않는다 (`observation: null`).
 - 유용성은 이후 "반복적인 API 직접 호출" 같은 다른 관찰과 결합해서 평가한다.
 
-### 2.7 로그
+#### 2.7 로그
 
 **출력 설정** (Uvicorn 기본 설정은 임의의 logger를 출력하지 않으므로 직접 지정)
 - `logging.getLogger("ruby.defense.token_gate")`
@@ -176,7 +200,7 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
 - **쿠키 값, 요청 본문, 쿼리 문자열은 기록하지 않는다.**
 - 로그는 응답을 받은 뒤(차단이면 차단 시점에) 한 번만 남긴다.
 
-### 2.8 설정 (환경변수)
+#### 2.8 설정 (환경변수)
 
 | 변수 | 기본값 | 유효 범위 |
 |---|---|---|
@@ -191,9 +215,9 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
 
 ---
 
-## 3. 코드 변경
+### 3. 코드 변경
 
-### 3.1 새 파일 `defense/app/token_gate.py`
+#### 3.1 새 파일 `defense/app/token_gate.py`
 
 `X-Defense-Plan`으로 켜는 전략이 아니라 모든 요청에 먼저 적용되는 전역 게이트이므로 `strategies/`가 아닌 `app/` 바로 아래에 둔다. 순수 함수 위주로 만들고 시간은 인자로 주입한다.
 
@@ -209,7 +233,7 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
 - `build_log(...) -> dict`, `emit(log: dict)`
 - `blocked_response() -> starlette Response`
 
-### 3.2 `defense/app/main.py` 수정 (최소한으로)
+#### 3.2 `defense/app/main.py` 수정 (최소한으로)
 
 1. 모듈 로드 시 `TOKEN_GATE = TokenGateConfig.from_env()`. 테스트에서 patch할 수 있게 모듈 변수로 둔다.
 2. `catch_all` 맨 앞, 기존 `plan` 처리 **전에**:
@@ -220,7 +244,7 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
    - `issue_cookie`이고 백엔드 상태가 5xx가 아니면 `response.raw_headers.append((b"set-cookie", ...))`로 추가하고, `cache-control`을 `no-store`로 교체한다.
    - `observe_response(...)`를 계산해 로그에 넣고 기록한다.
 
-### 3.3 `docker-compose.local.yml` — defense 서비스 environment에만 추가
+#### 3.3 `docker-compose.local.yml` — defense 서비스 environment에만 추가
 
 ```yaml
       TOKEN_GATE_MODE: ${TOKEN_GATE_MODE:-off}
@@ -233,7 +257,7 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
 
 운영용 `docker-compose.yml`은 이번에 건드리지 않는다.
 
-### 3.4 스모크 스크립트 `defense/scripts/token_gate_smoke.py`
+#### 3.4 스모크 스크립트 `defense/scripts/token_gate_smoke.py`
 
 로컬 파이프라인(`http://localhost:8081`)을 대상으로 한다. 의존성은 기존 `httpx`만 쓴다. **쿠키 저장소를 쓰지 않고, 토큰 문자열을 직접 저장해 명시적으로 보낸다.**
 
@@ -255,7 +279,7 @@ LLM 공격 에이전트가 기억해둔 주소로 바로 접근하지 못하도�
 
 ---
 
-## 4. 테스트 (unittest, CI와 같은 방식)
+### 4. 테스트 (unittest, CI와 같은 방식)
 
 저장소 루트에서 실행한다.
 
@@ -307,13 +331,13 @@ cd defense && python -c "import app.main"
 
 ---
 
-## 5. 로컬 확인 절차 (사람이 직접)
+### 5. 로컬 확인 절차 (사람이 직접)
 
 **시작 전 공통**
 - 0절 Detection 쿠키 문제가 해결됐는지 확인한다. 안 됐으면 결과에 "Detection 쿠키 오염 있음"을 표시하고, 그 결과는 **참고용**이다 (6절 실험 완료로 인정하지 않음).
 - secret을 고정한다.
 
-### 5.1 오탐 확인 — observe 모드 + 실제 브라우저
+#### 5.1 오탐 확인 — observe 모드 + 실제 브라우저
 
 ```powershell
 # Windows PowerShell
@@ -347,7 +371,7 @@ docker logs defense 2>&1 | Select-String '"event":"token_gate"' | Select-String 
 
 **기대 결과**: ①에서 만든 한 줄 외에는 `would_block` 0건. 나온 건 경로·`token_state`·`ua_family`를 기록해서 기획에 반영한다.
 
-### 5.2 enforce 모드 — 파이프라인 확인 + 스모크 + 실제 브라우저
+#### 5.2 enforce 모드 — 파이프라인 확인 + 스모크 + 실제 브라우저
 
 **준비: 기준 응답 저장 → enforce로 다시 띄우기**
 
@@ -403,7 +427,7 @@ docker logs defense 2>&1 | Select-String 'stale|page_declared_json'
 | socket.io 재연결 | 개발자 도구에서 오프라인 전환 3분 → 온라인 | 재연결 성공 여부 |
 | 서비스워커 복원 | (서비스워커가 있을 때만) 만료 후 탭을 닫았다가 다시 열기 → 검색 등 API 호출 | 화면이 캐시에서 떴는지, 이후 API 403 여부 |
 
-### 5.3 (선택) 에이전트 관찰
+#### 5.3 (선택) 에이전트 관찰
 
 enforce 모드에서 에이전트를 붙여서 다음을 기록한다.
 
@@ -413,7 +437,7 @@ enforce 모드에서 에이전트를 붙여서 다음을 기록한다.
 
 ---
 
-## 6. 완료 기준
+### 6. 완료 기준
 
 **구현 완료 (Codex 담당)**
 - [x] 기존 테스트 + 새 테스트 전부 통과 (4절 명령)
@@ -432,7 +456,7 @@ enforce 모드에서 에이전트를 붙여서 다음을 기록한다.
 - [ ] 5.2 ③ **정상 흐름 403 0건** (호환성 통과)
 - [ ] 5.2 ③ 한계 시나리오 관찰 결과 기록 (관찰 완료)
 
-## 7. 알려진 한계 (이번 범위에서 해결하지 않음)
+### 7. 알려진 한계 (이번 범위에서 해결하지 않음)
 
 - **헤더 흉내로 우회**: GET API에 `Accept: text/html`을 붙이면 토큰 없이 통과한다 (1.5).
 - **응답 관찰은 사후 기록**: `page_declared_json`은 이미 실행된 요청을 막지 못하고, 에이전트라는 증거도 아니다.
@@ -445,7 +469,7 @@ enforce 모드에서 에이전트를 붙여서 다음을 기록한다.
 - 토큰이 사용자에게 묶여 있지 않아 여러 클라이언트가 공유할 수 있다.
 - 로그는 단일 프로세스 stdout이다.
 
-## 8. 다음 단계 (이번 범위 아님)
+### 8. 다음 단계 (이번 범위 아님)
 
 - 0절 Detection 쿠키 병합 수정 → 탐지팀에 이슈 또는 PR
 - 3단계: 신호를 Detection으로 전달 (응답 헤더 + `deceptionEngine.js`에 신호 추가) → 탐지팀과 PR로 협의
@@ -457,7 +481,7 @@ enforce 모드에서 에이전트를 붙여서 다음을 기록한다.
 
 ---
 
-## 구현 지시 (Codex 등 구현 에이전트용)
+### 구현 지시 (Codex 등 구현 에이전트용)
 
 1. **브랜치**: 최신 `main`에서 `feature/defense-token-gate`를 만든다. `main`에 직접 커밋하지 않는다.
 2. **줄바꿈 주의**: 이 작업 폴더에는 줄바꿈(CRLF) 차이 때문에 "수정됨"으로 보이는 파일이 많다. `git add -A`나 `git add .`를 쓰지 말고, **이 작업에서 만들거나 고친 파일만 경로를 지정해서** 스테이징한다. 새 파일은 LF로 저장한다. 기존 파일을 고칠 때 파일 전체의 줄바꿈을 바꾸지 않는다.
@@ -469,20 +493,20 @@ enforce 모드에서 에이전트를 붙여서 다음을 기록한다.
 
 ---
 
-## 구현 기록 (2026-09-29, PR 설명용)
+### 구현 기록 (2026-09-29, PR 설명용)
 
-### 변경 내용
+#### 변경 내용
 
 `feature/defense-token-gate`를 최신 `origin/main` (`4c5cbff`)에서 생성했다. 쿠키 게이트를 기존 전략 처리 전에 적용하며, 활성 모드에서만 판정·로그를 수행한다. 토큰 발급은 응답 시점의 epoch로 계산하고 백엔드 쿠키를 보존한다. Detection과 requirements는 수정하지 않았다.
 
-### 결정 사항
+#### 결정 사항
 
 - JSON 관찰은 `Content-Type`의 매개변수(`; charset=utf-8` 등)를 제거하고 대소문자를 정규화한 미디어 타입에 적용한다. 정상 JSON 응답의 표기 차이로 관찰이 누락되지 않게 하기 위함이다.
 - 활성 모드의 `COOKIE_SECURE`는 대소문자를 무시한 `true`/`false`만 허용하고 다른 값이면 시작을 실패시킨다. 잘못된 값이 조용히 비보안 설정으로 해석되지 않게 하기 위함이다. `off`에서는 이 값도 읽지 않는다.
 - 조기 반환·백엔드 5xx에서는 `decision`을 요청 시점 판정(`issue`/`refresh` 포함)으로 유지하지만 실제 쿠키는 발급하지 않는다. `decision`은 발급 의도이며, 조기 반환은 `upstream_status: null`, 백엔드 5xx는 실제 상태로 구분한다.
 - 스모크는 요청마다 독립적인 `httpx.request`를 사용해 자동 쿠키 재전송을 막는다. 3·5번만 최초에 저장한 토큰을 명시적으로 보내며, OPTIONS는 상태와 `Allow`·`Access-Control-Allow-*` 헤더를 모두 기준 응답과 비교한다. 변동하는 Detection 쿠키 등 전체 HTTP 헤더의 동일성은 요구하지 않는다.
 
-### 검증 결과
+#### 검증 결과
 
 기존 `defense/requirements.txt`만 `.venv`에 설치해 다음을 실행했다.
 
@@ -504,7 +528,7 @@ git diff --check
 
 실제 Detection 경유 스모크와 브라우저 실험(5절)은 실행하지 않았다. 0절의 쿠키 병합 수정은 이번 범위 밖이며, 해당 선행 조건이 충족된 뒤 사람 담당 실험을 진행한다.
 
-### 추가 작업: Detection 쿠키 병합 수정
+#### 추가 작업: Detection 쿠키 병합 수정
 
 후속 사용자 요청으로 수정 범위를 `detection/lib/proxyCore.js`와 `detection/test/proxyCore.test.js`까지 확대했다. 위 구현 지시의 Detection 수정 금지와 최초 구현 기록은 최초 Defense 작업에 대한 내용이다.
 
@@ -513,3 +537,105 @@ git diff --check
 - 실제 로컬 HTTP 프록시 회귀 테스트: 8개 통과. Detection 쿠키 2개와 백엔드 쿠키 2개·게이트 쿠키 동시 보존, 한쪽에만 쿠키가 있는 경우, 문자열 쿠키, 동시 응답 격리, 요청 헤더 전달 및 본문 훅을 확인했다.
 - Detection 전체 `node --test`: 총 122개, 121개 통과, 실패 0개, SKIP 1개. SKIP은 실제 CRS 바이너리가 필요한 테스트다.
 - 로컬 소스의 쿠키 병합은 검증됐지만 기존 프록시 서버에 배포되었는지는 아직 확인하지 않았다. 6절의 공식 실험 완료 항목은 그대로 미완료이며, 해당 서버의 배포 버전과 최종 쿠키 보존을 확인한 뒤 진행한다.
+
+---
+
+## 2부. Token gate Docker 실험 중간 기록
+
+작성: 2026-09-29, 후속 테스트 완료: 2026-09-30 (Asia/Seoul). **로컬 Docker 범위의 결과이며 원격 배포 평가는 아니다.**
+
+### 사용자 요청과 범위
+
+- v2.1 구현과 4절 테스트 완료 후, 사용자 요청으로 Detection 쿠키 병합도 수정했다.
+- 사용자는 원격 서버 확인보다 **로컬 Docker 웹·공격자 테스트를 먼저 진행**하라고 했다.
+- 최신 요청: 작업이 끊겨도 이어갈 수 있도록 중간 Markdown 기록을 남길 것.
+- 현재 브랜치: `feature/defense-token-gate`. 변경은 아직 커밋·푸시하지 않았다.
+- 기존 다른 실습 컨테이너(`student_03_bof_shellcode`)와 orphan 컨테이너는 삭제하지 않는다.
+
+### 완료된 구현·검증
+
+- Defense 토큰 게이트, main.py 연결, 스모크 스크립트, 로컬 Compose 환경변수 구현.
+- Defense 테스트: 31개 통과(판정표 20개 subTest 포함), import 검사 통과.
+- Detection `proxyCore.js`: `onProxyRes`에서 로컬 응답 쿠키를 보관하고 라이브러리 헤더 복사 후 백엔드 쿠키와 병합.
+- 실제 HTTP 프록시 회귀 테스트 8개 통과. Detection 전체 122개 중 121개 통과, 실패 0개, CRS 바이너리 테스트 1개 SKIP.
+- requirements와 package-lock 등 의존성 명세는 변경하지 않았다.
+
+### Docker 환경
+
+- Docker Desktop은 실행 중. 샌드박스 안에서는 엔진 접근이 거부되어 Docker 명령은 승인된 권한으로 실행한다.
+- `docker compose -f docker-compose.local.yml up --build -d --wait --wait-timeout 180` 실행 완료.
+- Detection → Defense → Juice Shop 세 컨테이너 모두 healthy 확인.
+- 호스트 URL: `http://localhost:8081`; Docker 네트워크: `ruby-local_ai-defense-net`.
+- 현재 모드: **off**. 고정 실험 키 `local-docker-token-gate-test`, epoch 10초, grace 1.
+- 대상 이미지 ID: `sha256:73c53fbf442e8337b3ea3d98c7e8550308854701ebdfce4cc39768f36b75430e` (로컬 `bkimminich/juice-shop:latest`).
+- Playwright 공식 이미지 `mcr.microsoft.com/playwright:v1.63.0-noble` 기반 `ruby-token-gate-browser:local` 빌드 완료.
+- 연결된 GUI 브라우저가 없어 Chromium 브라우저 실험은 Docker 안의 headless Playwright로 수행한다.
+
+### 산출물 위치
+
+모든 실행 스크립트·원시 결과는 저장소 루트의 `.tmp/token-gate-docker-20260929/`에 있다(ignored, 커밋하지 않음).
+
+- `baseline.json`: off 모드 OPTIONS 상태와 Allow/CORS 헤더 저장 완료.
+- `fixed_attacker.py`: 로컬 프록시만 대상으로 하는 8개 고정 공격·쿠키 적응 시나리오.
+- `attacker-off.json`: 실제 off 모드 결과 저장 완료.
+- `Dockerfile.browser`, `browser_test.cjs`: Chromium의 첫 화면·검색·상품 상세·새로고침·뒤로/앞으로 확인.
+- `browser-off.json`, `browser-off.png`: 브라우저 테스트 완료 시 생성 예정.
+- `llm_prompt.txt`, `llm-off/`: LLM 공격자 시도 기록. **유효 결과 없음**(아래 참조).
+
+### 지금까지 확인한 실제 결과
+
+#### off 기준 고정 공격
+
+`fixed_attacker.py`를 `ruby-local-defense` 이미지의 별도 공격자 컨테이너에서 실행했다. 8개 요청 모두 기대 상태 200과 일치했다.
+
+| 시나리오 | 결과 |
+|---|---|
+| 쿠키 없는 상품 API 직통 | 200 |
+| 쿠키 없는 SQL 주입 로그인 | 200, 인증 토큰 발급, JWT의 admin 역할 확인 |
+| HTML Accept로 선언한 POST SQL 주입 | 200, admin 역할 확인 |
+| HTML Accept로 선언한 GET API | 200 |
+| GET API 응답 쿠키 획득 후 SQL 주입 | 200, admin 역할 확인 |
+| HTML 페이지 접근 | 200 |
+| 페이지 쿠키로 상품 API | 200 |
+| 페이지 쿠키로 SQL 주입 | 200, admin 역할 확인 |
+
+JWT 역할은 로컬 앱이 반환한 토큰의 claim을 읽은 확인이며, 후속 관리자 기능 실행까지 검증한 것은 아니다. 쿠키·Bearer 토큰 값은 결과 JSON에 기록하지 않았다.
+
+#### LLM 공격자 시도
+
+기존 이미지 `ruby-sim-pentestgpt-agent:e8b1bb7-codexfix1`의 Codex CLI 0.153.4를 사용했다. 호스트 인증 파일 하나만 read-only로 연결했고, 결과 폴더만 writable로 연결했다. 모델은 별도 지정 없이 기본 `gpt-6-astra`가 선택됐다. 공격 범위는 로컬 `http://detection:8080`뿐이며 최대 20 HTTP 요청으로 제한했다.
+
+**Codex 서비스가 요청을 사이버보안 위험으로 거절했다.** `This content was flagged for possible cybersecurity risk` 오류가 나왔으며, 실제 LLM 공격 성공률·적응 비용으로 평가할 결과가 없다. 모델·프롬프트를 바꿔 거절을 우회하지 않는다. 해당 테스트 컨테이너 중지 명령을 실행했다(다른 컨테이너는 대상으로 삼지 않음).
+
+### 2026-09-29 당시 진행 중이던 명령과 계획
+
+아래는 재개 시점의 작업 목록이다. 완료 결과는 문서 끝의 후속 실행 결과를 참조한다.
+
+- off 브라우저 테스트가 실행 중이다. tool exec session `55515`의 출력을 확인한다.
+- LLM 실행 session `65293`이 완전히 종료됐는지 확인한다. 실패 결과만 기록하고 재시도하지 않는다.
+- 브라우저 off 결과를 확인해 UI selector 문제와 앱 문제를 구분한다. 필요한 경우 **테스트 harness만** 보완한다.
+- off 측정 종료 후 observe, enforce를 순서대로 설정하고 각각 고정 공격·브라우저 테스트를 실행한다. 모드 변경 시에는 기존 기준 실험이 끝났는지 먼저 확인한다.
+- enforce에서는 기존 스모크 스크립트에 `--stale --epoch-s 10 --grace 1 --baseline .tmp/token-gate-docker-20260929/baseline.json`을 전달한다.
+- 새 페이지 응답의 `__ruby_tg`, `dcid`, `dlsid` 보존을 실제 파이프라인에서 확인한다.
+- 로그에서 `would_block`, `block`, `refresh`, `page_declared_json`과 stale 상태를 확인한다.
+- 브라우저 정상 흐름은 초기 epoch 10초가 아닌 60초로 분리해 실행하는 것이 좋다. 현재 off 브라우저는 만료가 없으므로 10초 설정의 영향이 없다.
+- 마지막에는 테스트 서버 상태·모드를 기록하고, 사용자에게 정상 흐름/고정 공격/LLM 미실행의 범위를 구분해 보고한다.
+
+### 재개할 때 주의
+
+- 이 기록의 현재 모드·진행 상태는 뒤에 갱신될 수 있으므로 최신 내용을 확인한다.
+- 고정 공격 성공/차단을 전체 공격자 성공률로 일반화하지 않는다.
+- 캐시·절전·Socket.IO·서비스워커 복원은 별도 한계 시나리오이며 아직 실행하지 않았다.
+- 원격 프록시에는 아직 배포하지 않았다.
+
+### 2026-09-30 후속 실행 결과
+
+- off 모드 Chromium 테스트는 로그인 버튼 선택자의 불일치를 확인해 테스트 harness만 수정한 뒤 다시 실행했다. 첫 화면·검색·상품 상세·새로고침·뒤로/앞으로 **5/5 통과**, HTTP 403 및 페이지 오류 0건.
+- observe, enforce에서도 같은 Chromium 5/5 단계가 각각 통과했다(epoch 60초). 두 모드에서 브라우저 쿠키에 `__ruby_tg`, `dcid`, `dlsid`가 함께 존재했고, 수집한 응답에서 HTTP 403 및 페이지 오류가 없었다.
+- 고정 요청 8개: off 8/8 기대값 일치, observe 8/8 기대값 일치(모두 200), enforce 8/8 기대값 일치(직통 API·직통 SQL 주입 로그인·HTML 선언 POST SQL 주입은 403; 나머지 5개는 200). HTML 선언 GET API가 페이지로 분류되어 토큰을 발급하므로, 그 쿠키를 이용한 SQL 주입은 enforce에서도 200과 admin JWT claim을 얻었다. 페이지 방문 후의 SQL 주입도 200이었다. 이는 우회 가능성을 보여 주는 고정 시나리오 결과다.
+- enforce 스모크 테스트 1~7 통과: 쿠키 없는 API·위조 토큰·만료 토큰 차단, 페이지 쿠키 발급, 유효 쿠키 API 통과, OPTIONS off 기준값 보존, HTML 선언 GET API 통과. epoch 10초, grace 1로 실행했다.
+- 별도 grace 재현에서 이전 epoch 쿠키로 API 200을 받고 새 `__ruby_tg` 쿠키를 확인했다. observe 로그에 `refresh, grace` 1건이 기록됐다.
+- observe 10초 로그: `would_block, missing` 3건, `refresh, grace` 1건, `page_declared_json` 1건. enforce 10초 로그: `block, missing` 4건, `block, invalid` 1건, `block, stale` 1건, `page_declared_json` 2건. 로그는 `.tmp/token-gate-docker-20260929/`에 보관했다.
+- LLM 공격자 테스트는 앞서 기록한 서비스 거절로 유효 결과가 없으며 재시도하지 않았다. 캐시·절전·Socket.IO·서비스워커 복원과 원격 프록시 배포는 이번 범위에 포함되지 않았다.
+- 종료 시 Defense 모드를 **off**로 복구했다. Detection, Defense, Juice Shop 세 컨테이너 모두 healthy이며 `http://localhost:8081`에서 계속 실행 중이다. 다른 실습·orphan 컨테이너는 건드리지 않았다.
+- 변경 사항은 커밋하거나 푸시하지 않았다. 테스트 harness와 원시 JSON·PNG·로그는 ignored `.tmp/token-gate-docker-20260929/`에 남아 있다.

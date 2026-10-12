@@ -78,11 +78,14 @@ curl http://127.0.0.1:9091/done
 - [설계와 CVE-Bench 벤치마킹](docs/ARCHITECTURE.md)
 - [지표의 조작적 정의](docs/METRIC_SPEC.md)
 - [위협 모델과 실험 통제](docs/THREAT_MODEL.md)
-- [실제 시스템 연동 로드맵](docs/ROADMAP.md)
-- [GitHub Push 전 체크리스트](docs/PRE_PUSH_CHECKLIST.md)
 - [테스트 및 검증 현황](docs/TEST_VALIDATION_STATUS.md)
-- [질의응답 및 실험 적용 계획](docs/FAQ_AND_EXPERIMENT_INTEGRATION.md)
-- [발표 대본](docs/PRESENTATION_SCRIPT.md)
+
+다음 세 문서는 프로젝트 종료 시점에 보관으로 옮겼습니다 — 실행되지 않은 로드맵, 1회용 발표
+대본, 개인 push 전 점검 루틴입니다.
+
+- [실제 시스템 연동 로드맵 (보관)](../../../docs/archive/ruby-defense-grader-roadmap.md)
+- [발표 대본 (보관)](../../../docs/archive/ruby-defense-grader-presentation-script.md)
+- [GitHub Push 전 체크리스트 (보관)](../../../docs/archive/ruby-defense-grader-pre-push-checklist.md)
 
 발표자료를 다시 생성하려면 Node.js 환경에서 다음을 실행합니다.
 

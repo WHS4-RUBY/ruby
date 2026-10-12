@@ -16,9 +16,7 @@ SQLite의 [WAL 모드](https://www.sqlite.org/wal.html)는 같은 호스트의 �
 
 2026-10-06 로컬 Juice Shop의 `frontend/dist/frontend` 전체 JS·HTML을 수집기로 확인했다. **52개 경로 후보 중 51개는 현재 경로 설정에 직접 매칭되고, `/rest/image-captcha/` 한 개는 런타임에 ID를 붙이는 `/rest/image-captcha/{id}`의 접두사**였다. 번들만으로는 경로 값을 담는 쿼리 키가 발견되지 않았다. 이 결과는 해당 빌드의 정적 자산에 한정되며, 로그인 후 네트워크 요청과 다른 앱의 쿼리 라우팅은 별도로 봐야 한다.
 
-## URL 파싱 경계
-
-### 실행 중 API 수집
+## 실행 중 API 수집
 
 정적 자산에 없는 API를 확인하려면 Playwright가 설치된 로컬 테스트 환경에서 다음처럼 실제 사용자 흐름을 실행한다. 별칭 적용 전 앱의 origin을 사용한다.
 

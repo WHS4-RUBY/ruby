@@ -7,6 +7,29 @@ LLM 펜테스트 에이전트(`codex` 등)를 상대로 CHeaT(*Cloak · Honey ·
 Security '25)의 방어 아이디어를 리버스 프록시로 주입해, 에이전트가 소모하는 **시간·토큰·요청·명령
 수**가 무방어 대비 얼마나 늘어나는지 측정하는 실험 도구.
 
+## 목차
+
+- [전제](#전제)
+- [`defense_proxy_v1`(원본) 대비 무엇이 빠졌나](#defense_proxy_v1원본-대비-무엇이-빠졌나)
+- [요구사항](#요구사항)
+- [파일 구조](#파일-구조)
+- [설치 및 실행 — 깃 클론부터](#설치-및-실행--깃-클론부터)
+- [대시보드 (`dashboard.py`)](#대시보드-dashboardpy)
+- [서버 무관 미로 (`DECOY_MAZE=1`)](#서버-무관-미로-decoy_maze1)
+- [적응형 에스컬레이션 (`ADAPTIVE_TRAP=1`)](#적응형-에스컬레이션-adaptive_trap1)
+- [가짜 포스트-익스플로잇 셸 (`FAKE_SHELL=1`)](#가짜-포스트-익스플로잇-셸-fake_shell1)
+- [애매한 공격자 판정 (`AMBIG_TRAP=1`)](#애매한-공격자-판정-ambig_trap1)
+- [탐지팀 연동 — client_id 기반 상태 격리 + X-Defense-Plan](#탐지팀-연동--client_id-기반-상태-격리--x-defense-plan)
+- [defense_action 라벨 표](#defense_action-라벨-표)
+- [실험 돌릴 때 — 우회 차단과 라운드 운영](#실험-돌릴-때--우회-차단과-라운드-운영)
+- [환경변수](#환경변수)
+- [대상 서버 프로필 (`profiles.py`)](#대상-서버-프로필-profilespy)
+- [transform 레시피 (`transforms.py`)](#transform-레시피-transformspy)
+- [FAKE_SHELL × maze 조합 예시](#fake_shell--maze-조합-예시)
+- [알려진 한계](#알려진-한계)
+
+---
+
 ## 전제
 
 - **공격자 식별은 하지 않는다.** Policy Engine이 이미 "이 트래픽은 방어 대상"으로 판정했다고 가정.
@@ -220,8 +243,9 @@ DEFENSE_DB=./defense.db DASHBOARD_PASSWORD="원하는비밀번호" \
   경로를 알려주면, 마지막 `turn.completed` 이벤트의 누적 `usage`(input/cached/output 토큰)를
   파싱해서 보여준다.
 - **풀이한 챌린지 수** — 프록시를 **거치지 않고** `REAL_BACKEND`의 `/api/Challenges`(Juice Shop
-  전용 엔드포인트)를 직접 조회해서 solved 개수를 센다 — `run_batch9.sh`의 `solved_count()`와
-  같은 방식(방어가 채점 결과에 손 못 대게 ground truth를 우회로 잡음).
+  전용 엔드포인트)를 직접 조회해서 solved 개수를 센다 — v1 실험에서 쓴 것과 같은 방식
+  (방어가 채점 결과에 손 못 대게 ground truth를 우회로 잡음. 절차는
+  [`../defense_proxy_v1/results.md`](../defense_proxy_v1/results.md) "부록 B. 재현 절차").
 
 ```bash
 CODEX_LOG_PATH=/tmp/rd-xxxx/codex.jsonl DEFENSE_DB=./defense.db \
@@ -571,9 +595,10 @@ DEFENSE_MODE=off DECOY_MAZE=1 ADAPTIVE_TRAP=1
 (위 구성을 같은 환경에서 비교한 결과는 [`results.md`](results.md). 실험이라면 앞 섹션의
 `CLIENT_ID_FALLBACK=global`·`UVICORN_PROXY_HEADERS=0` 를 함께 줄 것.)
 
-`../defense_proxy_v1/experiments/run_batch9.sh`의 `combo-tarpit-maze`/`combo-block-maze` 구성이 위
-조합들을 자동화한다(단, 그 스크립트는 기본적으로 `defense_proxy_v1`의 코드를 겨냥하고, `combo-*-max` 구성은
-`active` 에 의존해 이 디렉터리에서는 동작하지 않는다).
+v1 실험의 `combo-tarpit-maze`/`combo-block-maze` 구성이 위 조합에 대응한다(결과는
+[`../defense_proxy_v1/results.md`](../defense_proxy_v1/results.md)). 당시 자동화 스크립트는 커밋되지
+않았고, 애초에 `defense_proxy_v1`의 코드를 겨냥했다. `combo-*-max` 구성은 `active` 계층에
+의존하므로 이 디렉터리에서는 동작하지 않는다.
 
 ---
 

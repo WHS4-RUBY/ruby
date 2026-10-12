@@ -110,7 +110,7 @@ JS 가 나가고 423 미끼가 영구히 발동하지 않았다. 되돌리려면
 ## 되돌린 뒤 확인
 
 ```bash
-# 측정은 Docker 전용 — 명령은 docs/refactor-inventory.md 의 "측정 방식" 절
+# 측정은 Docker 전용 — 명령은 docs/archive/refactor-inventory.md 의 "측정 방식" 절
 docker build -t ruby-detection:check ./detection
 docker run --rm ruby-detection:check npm test
 docker run --rm -v "$PWD:/src" -w /src ruby-defense:check \

@@ -1,5 +1,10 @@
 # GitHub Push 전 체크리스트
 
+> **보관 문서.** `d54fe61`(2026-10-12)에서 보관. 원래 위치는
+> `benchmark/benchmarks/ruby-defense-grader/docs/PRE_PUSH_CHECKLIST.md` 였다. 그레이더
+> 서브프로젝트용 개인 push 전 점검 루틴이고, 저장소 CI(`.github/workflows/ci.yml`)는 이
+> 서브프로젝트를 실행하지 않는다. 명령 자체는 지금도 유효하다.
+
 ## 코드 검증
 
 ```bash

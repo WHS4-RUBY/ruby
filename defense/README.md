@@ -2,6 +2,22 @@
 
 RUBY의 방어 계층을 개발하는 영역입니다. Detection Proxy의 Policy Engine이 X-Defense-Plan 헤더로 넘긴 전략에 따라 요청에 차단, 변환, 지연, 기만 등의 방어 기법을 적용합니다.
 
+## 목차
+
+- [담당 범위](#담당-범위)
+- [Target 연결](#target-연결)
+- [대시보드](#대시보드)
+- [구현 구조](#구현-구조)
+- [경로 별칭 (v4, 2026-10-09)](#경로-별칭-v4-2026-10-09)
+- [토큰 관찰과 CRS 차단 (2026-09-30)](#토큰-관찰과-crs-차단-2026-09-30)
+- [새 사이트 추가 (2026-10-11)](#새-사이트-추가-2026-10-11)
+- [영속 저장소 (2026-10-11)](#영속-저장소-2026-10-11)
+- [전략 계약과 요청 추적](#전략-계약과-요청-추적)
+- [참여 방법](#참여-방법)
+- [보안 주의사항](#보안-주의사항)
+
+---
+
 ## 담당 범위
 
 - Defense Proxy
@@ -73,7 +89,7 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 - `PATH_ALIAS_ROUTES_FILE`의 경로마다 **클라이언트별** 난수 별칭을 응답에 실제로 나온 것만 발급하고, Defense가 발급하는 `ruby_alias_client` 쿠키에 묶습니다. 별칭은 원래 경로로 복원해 후속 전략과 대상에 전달합니다.
 - 모드: `off` / `audit`(응답을 바꾸지 않고 집계만) / `observe`(응답 치환·쿠키 발급, 원본도 전달) / `enforce`(원본 404). 운영 Compose는 `enforce`, 로컬 Compose는 `off`가 기본입니다. **enforce는 경로 파일이 `enforce_ready`와 검증한 흐름·갱신 방식을 기록해야 적용되며, 없으면 observe로 동작합니다.** 경로별 `"mode":"observe"`, 대상별 `target_ids`로 범위를 좁힐 수 있습니다.
 - 저장소는 **SQLite 파일 하나**(`PATH_ALIAS_DB_PATH`, `defense-alias-data` 볼륨, WAL)입니다. 별도 DB 서비스나 비밀번호가 필요 없고, PostgreSQL 지원은 제거했습니다. 기존 PostgreSQL 설치의 전환·롤백과 여러 호스트가 필요해지는 기준은 가이드 9절을 보세요. DB 오류는 원본 우회가 아니라 503으로 끝납니다.
-- 최종 PR의 수정·검증 결과와 연구적 한계는 [PR 검증 요약](docs/path-alias-pr-review-ko.md)에 정리했습니다.
+- 최종 PR(`#47`)의 수정·검증 결과와 연구적 한계는 [보관된 PR 검증 요약](../docs/archive/path-alias-pr-review-ko.md)에 있습니다. 본문의 테스트 수는 그 PR 시점 값입니다.
 - 교체는 사유별(`PATH_ALIAS_ROTATE_ON`)이며 기본값은 `malformed_alias,foreign_alias`입니다. 원본 경로 직접 호출은 enforce에서 404로 차단하지만 열린 탭의 별칭은 유지합니다. 만료·폐기된 자기 별칭도 교체를 일으키지 않습니다. 만료된 자기 별칭의 GET/HEAD는 현재 별칭으로 307 연결하고, POST 등은 앱별 `stale_redirect_unsafe` 설정을 따릅니다.
 - 치환은 URL 문맥(JSON 값 전체, HTML 속성, JS 문자열, 같은 출처 절대 URL)에만 적용하고 설명 문장·주석·다른 출처는 건드리지 않습니다. 후속 전략의 응답 변형 뒤에 적용하며, 전략이 직접 만든 즉시 반환 응답은 치환하지 않습니다.
 - 쿠키를 돌려주지 않는 클라이언트는 미확인 클라이언트로 상한(`PATH_ALIAS_MAX_PENDING_CLIENTS`)·수명(`PATH_ALIAS_PENDING_TTL_S`)이 있고, 넘으면 enforce에서 503입니다. 위험 점수 0.5 이상이면 첫 요청부터 쿠키가 없어도 원본 보호 경로를 enforce에서 차단합니다.
@@ -85,7 +101,7 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 
 수집 보고서는 운영자가 검토해 경로와 쿼리 라우팅 규칙을 설정합니다. AI 모델 호출과 설정 초안 생성은 제공하지 않으며, 정상 흐름 확인 후 `PATH_ALIAS_ROUTES_FILE`로 적용합니다.
 두 도구의 기본 보호 경로 접두사는 `/rest/,/api/`입니다. 다른 앱에서는 두 명령에 같은 `--prefixes /graphql,/v1/` 값을 지정해 해당 앱의 API 경로 관례에 맞춥니다.
-운영은 [설치·운영 가이드](docs/path-alias-operations.md), 연구 설계·실험 기록은 [경로 별칭 설계](docs/path-alias-plan.md), 경로 수집은 [경로 발견 설계](docs/route-discovery-design.md)를 참고하세요.
+운영은 [설치·운영 가이드](docs/path-alias-operations.md), 경로 수집은 [경로 발견 설계](docs/route-discovery-design.md)를 참고하세요. v3 연구 설계서는 [보관 문서](../docs/archive/path-alias-plan.md)로 옮겼습니다.
 
 ### 위험 점수에 따라 시작하는 경로 별칭
 
@@ -122,8 +138,9 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 `scripts/browser_inspection_regression.cjs`는 Playwright가 설치된 로컬 테스트 이미지에서 실행하며,
 화면 5단계와 모든 HTTP 4xx/5xx 응답을 함께 검사합니다. 결과 경로는 `/results`입니다.
 
-`docs/token-gate-plan.md`와 새벽 테스트 기록은 이전 설계의 이력입니다.
-이후 검증 결과는 [진행 기록](docs/token-gate-docker-progress.md)에 이어 기록합니다.
+토큰 단독 차단을 두려던 v2.1 설계서와 당시 로컬 Docker 검증 기록은
+[보관된 토큰 게이트 이력](../docs/archive/token-gate-history.md) 한 파일로 합쳐 두었습니다.
+**현재 동작은 이 절이 정본입니다** — 그 보관 문서의 차단 동작·`enforce` 서술은 지금 구현과 다릅니다.
 
 ## 새 사이트 추가 (2026-10-11)
 
@@ -312,7 +329,7 @@ WebSocket은 선택된 지연·속도 제한을 거친 뒤 위험 점수 0.5 이
 
 쿼리로 API 경로를 선택하는 웹은 `PATH_ALIAS_ROUTES_FILE`의 `query_routes`(경로 선택형, 예: `{"path":"/gateway","parameter":"route"}`) 또는 `action_routes`(기능 선택형, 예: `{"path":"/api.php","parameter":"action","actions":{"login":["POST"]}}`)를 지정한다. 보호 대상 값만 별칭으로 치환·복원하고, 원본 값·다른 사용자 별칭·보호 대상이 섞인 중복 키는 enforce에서 차단하며, 보호하지 않는 값은 그대로 통과시킨다. [설정 예시](config/query-routing-example.json)와 [설치·운영 가이드 3절](docs/path-alias-operations.md#3-경로-파일-형식)을 참고한다.
 
-기본 `juice-shop-routes.json`에는 Juice Shop 서버 코드에서 확인한 `/rest/`, `/api/`, `/b2b/` 경로 67개 패턴이 들어 있다. RUBY Market 설정은 `ruby-shop-routes.json`이며, Ruby Shop 저장소의 FastAPI `/api/` 선언 63개에서 경로 템플릿을 포함해 가져왔다. 운영 Compose는 `PATH_ALIAS_TARGET_ROUTES`로 두 파일을 대상별로 선택한다. Juice Shop 파일은 실제 스택 브라우저 검증을 기록해 `enforce_ready`이며 `target_ids: ["juice-shop"]`이고 67개 경로 모두 enforce다. Ruby Shop 파일은 `target_ids: ["ruby-shop"]`이며 브라우저 검증 전이라 운영에서도 observe로 동작한다. 매핑에 없는 대상에는 적용하지 않는다. 단일 대상 설치는 `PATH_ALIAS_ROUTES_FILE`을 사용하고, 로컬 `legacy` 대상에 쓸 때는 `PATH_ALIAS_TARGET_IDS=legacy`를 지정한다. 두 목록은 각각 `juice-shop/juice-shop`의 `1618a61`과 `WHS4-RUBY/web-defense-benchmark`의 `bba11eb` 소스 기준이며, 새 API나 플러그인이 추가되면 다시 수집하고 실제 브라우저 흐름을 확인해야 한다. Ruby Shop 목록에는 취약점 모듈이 켜졌을 때만 등록되는 API 한 개도 포함한다.
+기본 `juice-shop-routes.json`에는 Juice Shop 서버 코드에서 확인한 `/rest/`, `/api/`, `/b2b/` 경로 67개 패턴이 들어 있다. RUBY Market 설정은 `ruby-shop-routes.json`이며, RUBY Shop 저장소의 FastAPI `/api/` 선언 63개에서 경로 템플릿을 포함해 가져왔다. 운영 Compose는 `PATH_ALIAS_TARGET_ROUTES`로 두 파일을 대상별로 선택한다. Juice Shop 파일은 실제 스택 브라우저 검증을 기록해 `enforce_ready`이며 `target_ids: ["juice-shop"]`이고 67개 경로 모두 enforce다. RUBY Shop 파일은 `target_ids: ["ruby-shop"]`이며 브라우저 검증 전이라 운영에서도 observe로 동작한다. 매핑에 없는 대상에는 적용하지 않는다. 단일 대상 설치는 `PATH_ALIAS_ROUTES_FILE`을 사용하고, 로컬 `legacy` 대상에 쓸 때는 `PATH_ALIAS_TARGET_IDS=legacy`를 지정한다. 두 목록은 각각 `juice-shop/juice-shop`의 `1618a61`과 `WHS4-RUBY/web-defense-benchmark`의 `bba11eb` 소스 기준이며, 새 API나 플러그인이 추가되면 다시 수집하고 실제 브라우저 흐름을 확인해야 한다. RUBY Shop 목록에는 취약점 모듈이 켜졌을 때만 등록되는 API 한 개도 포함한다.
 
 `main`에 직접 push하지 않고 작업 브랜치에서 변경한 뒤 Pull Request를 제출합니다. 자세한 규칙은 [루트 CONTRIBUTING.md](../CONTRIBUTING.md)를 확인하세요.
 
