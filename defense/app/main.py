@@ -344,6 +344,15 @@ def _score_header(headers, name: str) -> float | None:
     return value if 0 <= value <= 1 else None
 
 
+def _alias_stage_active(headers) -> bool:
+    """Issue and enforce aliases only for the current policy's stage 3 or 4."""
+    risk = _score_header(headers, "x-ruby-risk-score")
+    confirmed = _score_header(headers, "x-ruby-confirmed-attack-score")
+    if risk is None or confirmed is None:
+        return False
+    return (risk >= 0.8 and confirmed >= 0.8) or (risk >= 0.5 and 0.5 <= confirmed < 0.8)
+
+
 def _event_metadata(request: Request | WebSocket, selected=None) -> dict:
     headers = request.headers
     return {
@@ -994,7 +1003,7 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
         )
         return
     alias_binding = _alias_for_target(selected.target_id)
-    alias_eligible = (_score_header(websocket.headers, "x-ruby-risk-score") or 0) >= 0.5
+    alias_eligible = _alias_stage_active(websocket.headers)
     alias_config, alias_table = alias_binding or (PATH_ALIAS, PATH_ALIAS_TABLE)
     alias_routing = alias_binding is not None and (
         alias_eligible or path_alias.may_reference_alias(websocket.url.path)
@@ -1014,8 +1023,11 @@ async def websocket_proxy(websocket: WebSocket, full_path: str):
             await websocket.close(code=1013, reason="route check unavailable")
             return
         decision = path_alias.decide(alias, alias_config, "GET")
-        if not alias_eligible and alias.kind == "stale":
-            decision = "translate"
+        if (not alias_eligible and alias.kind == "stale"
+                and path_alias.effective_mode(alias, alias_config) == "enforce"):
+            # Enforce mode preserves valid aliases, not revoked or expired ones.
+            # Redirecting a stale alias here could mint a new alias below stage 3.
+            decision = "block"
         elif not alias_eligible and alias.kind == "direct":
             decision = "pass"
         rotation = (await _rotate_on_event(alias, alias_client, alias_config, alias_table)
@@ -1218,11 +1230,10 @@ async def catch_all(request: Request, full_path: str):
         )
         return response
     alias_client = path_alias.valid_client_id(request.cookies.get(path_alias.COOKIE_NAME))
-    # New aliases and original-route enforcement start at risk 0.5. Previously issued
-    # alias URLs keep resolving below that score without new issuance or enforcement.
+    # New aliases and original-route enforcement start at stage 3. Previously issued
+    # alias URLs keep resolving below that stage without new issuance or enforcement.
     alias_binding = _alias_for_target(selected.target_id)
-    alias_active = (alias_binding is not None
-                    and (_score_header(request.headers, "x-ruby-risk-score") or 0) >= 0.5)
+    alias_active = alias_binding is not None and _alias_stage_active(request.headers)
     alias_config, alias_table = alias_binding or (PATH_ALIAS, PATH_ALIAS_TABLE)
     alias_routing = alias_binding is not None and (
         alias_active or path_alias.may_reference_alias(request.url.path)
@@ -1255,9 +1266,11 @@ async def catch_all(request: Request, full_path: str):
             return response
     alias_decision = (path_alias.decide(alias, alias_config, request.method)
                       if alias_routing else "pass")
-    if not alias_active and alias.kind == "stale":
-        # Reuse the restored real route; redirect_target would mint a new alias.
-        alias_decision = "translate"
+    if (not alias_active and alias.kind == "stale"
+            and path_alias.effective_mode(alias, alias_config) == "enforce"):
+        # Enforce mode preserves valid aliases, not revoked or expired ones.
+        # Redirecting a stale alias here could mint a new alias below stage 3.
+        alias_decision = "block"
     elif not alias_active and alias.kind == "direct":
         alias_decision = "pass"
     rotation = (await _rotate_on_event(alias, alias_client, alias_config, alias_table)

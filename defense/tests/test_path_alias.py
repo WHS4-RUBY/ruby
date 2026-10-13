@@ -350,8 +350,9 @@ class IntegrationTests(unittest.TestCase):
         self.addCleanup(p.stop)
         self.client = TestClient(main.app, follow_redirects=False)
         # Most compatibility cases exercise the active alias stage. Individual
-        # rollout tests override this header around the 0.5 boundary.
+        # rollout tests override these scores around the 0.5 boundary.
         self.client.headers["x-ruby-risk-score"] = "0.5"
+        self.client.headers["x-ruby-confirmed-attack-score"] = "0.5"
         self.addCleanup(self.client.close)
 
     def logs(self, event="path_alias"):
@@ -386,6 +387,21 @@ class IntegrationTests(unittest.TestCase):
         self.assertNotIn("set-cookie", below.headers)
         self.assertIsNone(self.client.cookies.get(pa.COOKIE_NAME))
 
+        for risk, confirmed in (("0.5", "0.49"), ("0.6", "0.3"), ("0.8", "0.49")):
+            with self.subTest(risk=risk, confirmed=confirmed):
+                unconfirmed = self.client.get("/", headers={
+                    "x-ruby-risk-score": risk,
+                    "x-ruby-confirmed-attack-score": confirmed})
+                self.assertIn('/rest/products/search"', unconfirmed.text)
+                self.assertNotIn("set-cookie", unconfirmed.headers)
+                self.assertIsNone(self.client.cookies.get(pa.COOKIE_NAME))
+        self.upstream = self.JSON
+        original = self.client.get("/rest/products/search", headers={
+            "x-ruby-risk-score": "0.6", "x-ruby-confirmed-attack-score": "0.3"})
+        self.assertEqual(original.status_code, 200)
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
+        self.upstream = self.PAGE
+
         active = self.client.get("/", headers={"x-ruby-risk-score": "0.5"})
         client_id = self.client.cookies.get(pa.COOKIE_NAME)
         alias = self.table.current_aliases(NOW, client_id)["/rest/products/search"]
@@ -393,7 +409,8 @@ class IntegrationTests(unittest.TestCase):
         with self.table._store.connect() as db:
             before_rows = db.execute("SELECT COUNT(*) FROM path_alias_alias_rows").fetchone()[0]
 
-        dropped = self.client.get("/", headers={"x-ruby-risk-score": "0.49"})
+        dropped = self.client.get("/", headers={
+            "x-ruby-risk-score": "0.6", "x-ruby-confirmed-attack-score": "0.3"})
         self.assertIn('/rest/products/search"', dropped.text)
         self.assertNotIn(alias, dropped.text)
         self.assertNotIn("set-cookie", dropped.headers)
@@ -402,10 +419,41 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(after_rows, before_rows)
 
         self.upstream = self.JSON
-        direct = self.client.get("/rest/products/search", headers={"x-ruby-risk-score": "0.49"})
-        restored = self.client.get(alias, headers={"x-ruby-risk-score": "0.49"})
+        weak_evidence = {"x-ruby-risk-score": "0.6",
+                         "x-ruby-confirmed-attack-score": "0.3"}
+        direct = self.client.get("/rest/products/search", headers=weak_evidence)
+        restored = self.client.get(alias, headers=weak_evidence)
         self.assertEqual((direct.status_code, restored.status_code), (200, 200))
         self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
+
+    def test_policy_gap_scores_do_not_activate_alias_but_stage_four_does(self):
+        for risk, confirmed in (("0.6", "0.9"), ("0.79", "0.8")):
+            with self.subTest(risk=risk, confirmed=confirmed):
+                headers = {"x-ruby-risk-score": risk,
+                           "x-ruby-confirmed-attack-score": confirmed}
+                self.upstream = self.PAGE
+                page = self.client.get("/", headers=headers)
+                self.assertIn('/rest/products/search"', page.text)
+                self.assertNotIn("set-cookie", page.headers)
+                self.assertIsNone(self.client.cookies.get(pa.COOKIE_NAME))
+                self.upstream = self.JSON
+                direct = self.client.get("/rest/products/search", headers=headers)
+                self.assertEqual(direct.status_code, 200)
+                self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
+        with self.table._store.connect() as db:
+            self.assertEqual(db.execute(
+                "SELECT COUNT(*) FROM path_alias_alias_rows").fetchone()[0], 0)
+
+        stage_four = {"x-ruby-risk-score": "0.8",
+                      "x-ruby-confirmed-attack-score": "0.8"}
+        self.upstream = self.PAGE
+        page = self.client.get("/", headers=stage_four)
+        client_id = self.client.cookies.get(pa.COOKIE_NAME)
+        alias = self.table.current_aliases(NOW, client_id)["/rest/products/search"]
+        self.assertIn(alias, page.text)
+        self.assertIn("set-cookie", page.headers)
+        self.upstream = self.JSON
+        self.assertEqual(self.client.get("/rest/products/search", headers=stage_four).status_code, 404)
 
     def test_low_score_search_value_with_alias_marker_is_not_enforced(self):
         query = "q=__ruby_alias_" + "a" * 26
@@ -420,18 +468,31 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(nested.status_code, 200)
         self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/__ruby_alias_demo"))
 
-    def test_low_score_stale_alias_restores_without_reissuing(self):
+    def test_low_stage_revoked_alias_is_rejected_without_reissuing(self):
         _, client_id, alias = self.open_page()
         self.table.rotate_client(client_id, NOW, "direct")
         with self.table._store.connect() as db:
             before_rows = db.execute("SELECT COUNT(*) FROM path_alias_alias_rows").fetchone()[0]
+        before_calls = len(self.calls)
         response = self.client.get(alias, headers={"x-ruby-risk-score": "0.49"})
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 404)
         self.assertNotIn("set-cookie", response.headers)
-        self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
+        self.assertEqual(len(self.calls), before_calls)
+        self.assertEqual(self.logs()[-1]["reason"], "revoked_alias")
         with self.table._store.connect() as db:
             after_rows = db.execute("SELECT COUNT(*) FROM path_alias_alias_rows").fetchone()[0]
         self.assertEqual(after_rows, before_rows)
+
+    def test_low_stage_expired_alias_is_rejected_without_reissuing(self):
+        _, _, alias = self.open_page()
+        before_calls = len(self.calls)
+        later = NOW + (self.cfg.grace_epochs + 1) * self.cfg.epoch_s + 1
+        with patch.object(main.time, "time", return_value=later):
+            response = self.client.get(alias, headers={"x-ruby-risk-score": "0.49"})
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn("set-cookie", response.headers)
+        self.assertEqual(len(self.calls), before_calls)
+        self.assertEqual(self.logs()[-1]["reason"], "stale_alias")
 
     def test_alias_block_pays_delay_and_rate_limit_precedes_lookup(self):
         plan = json.dumps([
@@ -564,7 +625,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(self.calls[-1]["url"],
                          "http://localhost:9000/rest/products/search?" + raw_query)
 
-    def test_stage_one_blocks_before_later_strategies(self):
+    def test_active_alias_stage_blocks_before_later_strategies(self):
         self.open_page()
         strategy = AsyncMock()
         strategy.apply.return_value = DefenseResult()

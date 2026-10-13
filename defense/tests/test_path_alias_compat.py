@@ -302,7 +302,7 @@ class AliasPolicyIntegrationTests(IntegrationTests):
         self.upstream = self.JSON
         self.assertEqual(self.client.get("/rest/products/search").status_code, 200)
 
-    def test_target_specific_modes_start_at_half_risk(self):
+    def test_target_specific_modes_start_at_stage_three(self):
         juice_cfg = replace(self.cfg, routes=(pa.Route("/rest/products/search"),),
                             target_ids=("juice-shop",), app_id="juice-shop")
         ruby_cfg = replace(self.cfg, routes=(pa.Route("/api/orders"),),
@@ -324,6 +324,10 @@ class AliasPolicyIntegrationTests(IntegrationTests):
                 main, "OVERLAY_DETECTOR_KEY", key):
             self.upstream = self.PAGE
             page = self.client.get("/", headers={"x-ruby-risk-score": "0.49"})
+            self.assertIn('/rest/products/search"', page.text)
+            self.assertIsNone(self.client.cookies.get(pa.COOKIE_NAME))
+            page = self.client.get("/", headers={
+                "x-ruby-risk-score": "0.99", "x-ruby-confirmed-attack-score": "0.49"})
             self.assertIn('/rest/products/search"', page.text)
             self.assertIsNone(self.client.cookies.get(pa.COOKIE_NAME))
             page = self.client.get("/", headers={"x-ruby-risk-score": "0.5"})
@@ -366,7 +370,7 @@ class AliasPolicyIntegrationTests(IntegrationTests):
             self.upstream = self.JSON
             self.assertEqual(self.client.get("/rest/products/search").status_code, 200)
 
-    def test_observe_mode_only_runs_at_half_risk(self):
+    def test_observe_mode_only_runs_at_stage_three(self):
         self.configure(mode="observe")
         for score in ("0.5", "0.99"):
             with self.subTest(score=score):
@@ -379,6 +383,58 @@ class AliasPolicyIntegrationTests(IntegrationTests):
             "x-ruby-risk-score": "0.49", "x-ruby-confirmed-attack-score": "0.99"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(self.logs()), before)
+
+    def test_low_stage_stale_alias_preserves_route_observe(self):
+        routes = tuple(replace(route, mode="observe") if route.path == "/rest/products/search"
+                       else route for route in self.cfg.routes)
+        self.configure(routes=routes)
+        _, client, alias = self.open_page()
+        self.upstream = self.JSON
+        self.table.rotate_client(client, NOW, "direct")
+        low_stage = {"x-ruby-risk-score": "0.49",
+                     "x-ruby-confirmed-attack-score": "0.49"}
+        revoked_resolution = self.table.resolve(alias, "GET", NOW, client)
+        self.assertEqual((revoked_resolution.reason,
+                          pa.effective_mode(revoked_resolution, self.cfg)),
+                         ("revoked_alias", "observe"))
+        before = len(self.calls)
+        revoked = self.client.get(alias, headers=low_stage)
+        self.assertEqual(revoked.status_code, 200)
+        self.assertEqual(len(self.calls), before + 1)
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
+        self.assertNotIn("set-cookie", revoked.headers)
+
+        fresh = self.table.current_aliases(NOW, client)["/rest/products/search"]
+        later = NOW + (self.cfg.grace_epochs + 1) * self.cfg.epoch_s + 1
+        with patch.object(main.time, "time", return_value=later):
+            expired_resolution = self.table.resolve(fresh, "GET", later, client)
+            self.assertEqual((expired_resolution.reason,
+                              pa.effective_mode(expired_resolution, self.cfg)),
+                             ("stale_alias", "observe"))
+            expired = self.client.get(fresh, headers=low_stage)
+        self.assertEqual(expired.status_code, 200)
+        self.assertEqual(len(self.calls), before + 2)
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
+        self.assertNotIn("set-cookie", expired.headers)
+        original = self.client.get("/rest/products/search", headers=low_stage)
+        self.assertEqual(original.status_code, 200)
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
+
+    def test_low_stage_stale_alias_preserves_default_observe(self):
+        self.configure(enforce_ready=False)  # Ruby Shop: enforce requested, observe until verified.
+        _, client, alias = self.open_page()
+        self.upstream = self.JSON
+        self.table.rotate_client(client, NOW, "direct")
+        resolution = self.table.resolve(alias, "GET", NOW, client)
+        self.assertEqual((resolution.reason, pa.effective_mode(resolution, self.cfg)),
+                         ("revoked_alias", "observe"))
+        before = len(self.calls)
+        response = self.client.get(alias, headers={
+            "x-ruby-risk-score": "0.49", "x-ruby-confirmed-attack-score": "0.49"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(self.calls), before + 1)
+        self.assertTrue(self.calls[-1]["url"].endswith("/rest/products/search"))
+        self.assertNotIn("set-cookie", response.headers)
 
     def test_cookieless_page_loads_in_two_tabs_share_nothing_but_still_work(self):
         self.upstream = self.PAGE
@@ -412,6 +468,12 @@ class AliasPolicyIntegrationTests(IntegrationTests):
             self.table._next_sweep = later + 3600
             self.assertEqual(self.client.get(alias).status_code, 404)
             self.assertEqual((self.logs()[-1]["reason"], self.logs()[-1]["rotation"]), ("stale_alias", None))
+            before_calls = len(self.calls)
+            low_stage = self.client.get(alias, headers={
+                "x-ruby-risk-score": "0.49", "x-ruby-confirmed-attack-score": "0.49"})
+            self.assertEqual(low_stage.status_code, 404)
+            self.assertEqual(len(self.calls), before_calls)
+            self.assertEqual(self.logs()[-1]["reason"], "stale_alias")
             # the browser that does return the cookie keeps working
             self.client.cookies.set(pa.COOKIE_NAME, cookie)
             self.assertEqual(self.client.get(alias).status_code, 200)
@@ -734,6 +796,58 @@ class AliasPolicyIntegrationTests(IntegrationTests):
 
 
 class WebSocketAliasTests(IntegrationTests):
+    def test_low_stage_observe_stale_alias_restores_upstream(self):
+        cfg = replace(self.cfg, mode="observe")
+        table = pa.PathAliasTable(cfg)
+        for name, value in (("PATH_ALIAS", cfg), ("PATH_ALIAS_TABLE", table)):
+            patched = patch.object(main, name, value)
+            patched.start()
+            self.addCleanup(patched.stop)
+        self.cfg, self.table = cfg, table
+
+        _, client, _ = self.open_page()
+        revoked_alias = table.current_aliases(NOW, client)["/rest/user/whoami"]
+        table.rotate_client(client, NOW, "direct")
+        expired_alias = table.current_aliases(NOW, client)["/rest/user/whoami"]
+        later = NOW + (cfg.grace_epochs + 1) * cfg.epoch_s + 1
+        low_stage = {"x-ruby-risk-score": "0.49",
+                     "x-ruby-confirmed-attack-score": "0.49"}
+        connected = []
+
+        class FakeUpstream:
+            subprotocol = None
+
+            def __init__(self, url, **kwargs):
+                connected.append(url)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+            async def send(self, payload):
+                pass
+
+        with patch.object(main.websockets, "connect", FakeUpstream):
+            for alias, now, reason in ((revoked_alias, NOW, "revoked_alias"),
+                                       (expired_alias, later, "stale_alias")):
+                with self.subTest(reason=reason), patch.object(main.time, "time", return_value=now):
+                    before = len(connected)
+                    with self.client.websocket_connect(alias + "?x=1", headers=low_stage):
+                        pass
+                    self.assertEqual(connected[before:],
+                                     ["ws://localhost:9000/rest/user/whoami?x=1"])
+                    self.assertEqual(self.logs()[-1]["reason"], reason)
+                    self.assertEqual(self.logs()[-1]["decision"], "translate")
+                    self.assertIsNone(self.logs()[-1]["rotation"])
+
     def test_upgrade_to_protected_route_is_checked(self):
         connected = []
 
@@ -770,8 +884,51 @@ class WebSocketAliasTests(IntegrationTests):
             with self.assertRaises(Exception):
                 with self.client.websocket_connect("/rest/user/whoami") as ws:
                     ws.receive_text()
-        self.assertEqual(len(connected), 1)  # the original route never reached the target
-        self.assertIsNone(self.logs()[-1]["rotation"])
+            self.assertEqual(len(connected), 1)  # stage three blocks the original route
+
+            # Stage two and policy-gap scores permit the original route while
+            # an already issued alias still resolves.
+            expected = ["ws://localhost:9000/rest/user/whoami?x=1"]
+            for index, (risk, confirmed) in enumerate(
+                    (("0.6", "0.3"), ("0.6", "0.9"), ("0.79", "0.8")), start=2):
+                headers = {"x-ruby-risk-score": risk,
+                           "x-ruby-confirmed-attack-score": confirmed}
+                for path, target in (("/rest/user/whoami", "ws://localhost:9000/rest/user/whoami"),
+                                     (alias + f"?x={index}",
+                                      f"ws://localhost:9000/rest/user/whoami?x={index}")):
+                    try:
+                        with self.client.websocket_connect(path, headers=headers):
+                            pass
+                    except Exception:
+                        pass
+                    expected.append(target)
+                    self.assertEqual(connected, expected)
+            self.assertIsNone(self.logs()[-1]["rotation"])
+
+            stage_four = {"x-ruby-risk-score": "0.8",
+                          "x-ruby-confirmed-attack-score": "0.8"}
+            with self.assertRaises(Exception):
+                with self.client.websocket_connect("/rest/user/whoami", headers=stage_four) as ws:
+                    ws.receive_text()
+            self.assertEqual(connected, expected)
+
+            low_stage = {"x-ruby-risk-score": "0.49",
+                         "x-ruby-confirmed-attack-score": "0.49"}
+            self.table.rotate_client(client, NOW, "direct")
+            with self.assertRaises(Exception):
+                with self.client.websocket_connect(alias, headers=low_stage) as ws:
+                    ws.receive_text()
+            self.assertEqual(connected, expected)
+            self.assertEqual(self.logs()[-1]["reason"], "revoked_alias")
+
+            fresh = self.table.current_aliases(NOW, client)["/rest/user/whoami"]
+            later = NOW + (self.cfg.grace_epochs + 1) * self.cfg.epoch_s + 1
+            with patch.object(main.time, "time", return_value=later):
+                with self.assertRaises(Exception):
+                    with self.client.websocket_connect(fresh, headers=low_stage) as ws:
+                        ws.receive_text()
+            self.assertEqual(connected, expected)
+            self.assertEqual(self.logs()[-1]["reason"], "stale_alias")
 
 
 def load_tests(loader, tests, pattern):
