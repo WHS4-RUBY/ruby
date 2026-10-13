@@ -10,10 +10,8 @@
 ## 브랜치 이름
 
 ```text
-benchmark/<project-name>
 feature/<short-description>
 experiment/<short-description>
-docs/<topic>
 fix/<short-description>
 ```
 

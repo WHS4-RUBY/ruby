@@ -4,7 +4,6 @@
 
 ## 변경 범위
 
-- [ ] Benchmark
 - [ ] Defense
 - [ ] Detection
 - [ ] 공통 설정·문서·통합 테스트
