@@ -3,7 +3,7 @@
 > **이 문서는 0.13.0 당시의 날짜 기록이고, 그 뒤 갱신하지 않았다.** 현재 패키지 버전은
 > `pyproject.toml` 기준 **0.14.0** 이다. 아래 수치(pytest 56 · Node 5)는 0.13.0 시점 값이다.
 > 그 뒤의 미끼 경로 단일화(`#48`)와 사이트 일반화(`#52`)로 스위트가 커졌고,
-> [`docs/refactor-summary.md`](../../docs/refactor-summary.md) 9절의 측정 기록은 `#52` 병합
+> [병합 당시 리팩토링 보고서](https://github.com/WHS4-RUBY/ruby/blob/4b0b82920e218d02c8b292e06619416f2ea2e20a/docs/refactor-summary.md) 9절의 측정 기록은 `#52` 병합
 > 시점 기준 **pytest 92건 + lure UI Node 6건**으로 적고 있다. 지금 수치를 직접 확인하려면
 > `python -m pytest -q` 와 `node --test tests/test_lure_ui.cjs` 를 돌린다(의존성 설치가 필요하므로
 > 측정은 Docker 또는 CI 에서 한다).
