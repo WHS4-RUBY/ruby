@@ -796,6 +796,58 @@ class AliasPolicyIntegrationTests(IntegrationTests):
 
 
 class WebSocketAliasTests(IntegrationTests):
+    def test_low_stage_observe_stale_alias_restores_upstream(self):
+        cfg = replace(self.cfg, mode="observe")
+        table = pa.PathAliasTable(cfg)
+        for name, value in (("PATH_ALIAS", cfg), ("PATH_ALIAS_TABLE", table)):
+            patched = patch.object(main, name, value)
+            patched.start()
+            self.addCleanup(patched.stop)
+        self.cfg, self.table = cfg, table
+
+        _, client, _ = self.open_page()
+        revoked_alias = table.current_aliases(NOW, client)["/rest/user/whoami"]
+        table.rotate_client(client, NOW, "direct")
+        expired_alias = table.current_aliases(NOW, client)["/rest/user/whoami"]
+        later = NOW + (cfg.grace_epochs + 1) * cfg.epoch_s + 1
+        low_stage = {"x-ruby-risk-score": "0.49",
+                     "x-ruby-confirmed-attack-score": "0.49"}
+        connected = []
+
+        class FakeUpstream:
+            subprotocol = None
+
+            def __init__(self, url, **kwargs):
+                connected.append(url)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+            async def send(self, payload):
+                pass
+
+        with patch.object(main.websockets, "connect", FakeUpstream):
+            for alias, now, reason in ((revoked_alias, NOW, "revoked_alias"),
+                                       (expired_alias, later, "stale_alias")):
+                with self.subTest(reason=reason), patch.object(main.time, "time", return_value=now):
+                    before = len(connected)
+                    with self.client.websocket_connect(alias + "?x=1", headers=low_stage):
+                        pass
+                    self.assertEqual(connected[before:],
+                                     ["ws://localhost:9000/rest/user/whoami?x=1"])
+                    self.assertEqual(self.logs()[-1]["reason"], reason)
+                    self.assertEqual(self.logs()[-1]["decision"], "translate")
+                    self.assertIsNone(self.logs()[-1]["rotation"])
+
     def test_upgrade_to_protected_route_is_checked(self):
         connected = []
 
