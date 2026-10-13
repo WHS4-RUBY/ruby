@@ -1,6 +1,6 @@
 # 경로 별칭 설치·운영 가이드 (v4, 2026-10-09)
 
-경로 별칭은 위험 점수 0.5 이상에서 새 별칭 발급과 응답 치환을 시작하며, 대상별 경로 파일과 검증 상태가 실제 모드를 정한다. 점수가 0.5 미만으로 내려가면 새 발급·치환·원본 경로 차단은 멈추고 기존 별칭 URL만 복원한다. 운영 Compose는 기본적으로 `PATH_ALIAS_MODE=enforce`를 선택하고 Juice Shop에는 enforce, 아직 검증 전인 RUBY Shop에는 observe를 적용한다. 로컬 Compose의 기본값은 `off`다. 저장소는 별도 서비스가 필요 없는 SQLite 파일 하나다. 이 문서는 설치·모드·경로 파일·쿠키 미반환 정책·기존 PostgreSQL 설치의 전환을 정리한다. 경로 수집은 [route-discovery-design.md](route-discovery-design.md)에 있다. v3 연구 설계서는 [보관 문서](../../docs/archive/path-alias-plan.md)로 옮겼고, 실제 실험 기록은 이 문서 7절과 [`benchmark/experiments/path_alias_ab/`](../../benchmark/experiments/path_alias_ab/)에 있다.
+경로 별칭은 위험 점수 0.5 이상에서 새 별칭 발급과 응답 치환을 시작하며, 대상별 경로 파일과 검증 상태가 실제 모드를 정한다. 점수가 0.5 미만으로 내려가면 새 발급·치환·원본 경로 차단은 멈추고 기존 별칭 URL만 복원한다. 운영 Compose는 기본적으로 `PATH_ALIAS_MODE=enforce`를 선택하고 Juice Shop에는 enforce, 아직 검증 전인 RUBY Shop에는 observe를 적용한다. 로컬 Compose의 기본값은 `off`다. 저장소는 별도 서비스가 필요 없는 SQLite 파일 하나다. 이 문서는 설치·모드·경로 파일·쿠키 미반환 정책·기존 PostgreSQL 설치의 전환을 정리한다. 경로 수집은 [route-discovery-design.md](route-discovery-design.md)에 있다. v3 연구 설계서는 [보관 문서](../../docs/archive/path-alias-plan.md)에 있다.
 
 ## 목차
 

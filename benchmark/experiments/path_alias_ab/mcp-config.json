@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "rubylab": {
-      "command": "python3",
-      "args": ["/mnt/c/Users/wltjq/ruby-github/ruby/benchmark/experiments/path_alias_ab/http_only_mcp.py"]
-    }
-  }
-}
