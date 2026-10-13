@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RUBY 새 사이트 온보딩 가이드</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1f2328;
+    --muted: #59636e;
+    --rule: #d8dee4;
+    --code-bg: #f3f4f6;
+    --accent: #2563eb;
+    --accent-soft: #eff4ff;
+    --cds-text-primary: #1f2328;
+    --cds-text-secondary: #59636e;
+    --cds-chart-axis: #a8b0b8;
+    --cds-chart-categorical-1: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15181c;
+      --fg: #e6edf3;
+      --muted: #9aa5b1;
+      --rule: #30363d;
+      --code-bg: #1f242a;
+      --accent: #6ea8ff;
+      --accent-soft: #1b2435;
+      --cds-text-primary: #e6edf3;
+      --cds-text-secondary: #9aa5b1;
+      --cds-chart-axis: #6b747d;
+      --cds-chart-categorical-1: #6ea8ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
+          "Noto Sans KR", "Malgun Gothic", Roboto, sans-serif;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 48px 20px 96px; }
+  h1 { font-size: 2em; line-height: 1.3; margin: 0 0 8px; letter-spacing: -0.01em; }
+  h2 {
+    font-size: 1.4em; line-height: 1.35; margin: 56px 0 16px;
+    padding-top: 20px; border-top: 1px solid var(--rule);
+  }
+  h3 { font-size: 1.08em; margin: 32px 0 10px; }
+  p, ul, ol { margin: 0 0 16px; }
+  ul, ol { padding-left: 1.4em; }
+  li { margin: 6px 0; }
+  li > p { margin: 0; }
+  .byline { color: var(--muted); font-size: 0.9em; margin-bottom: 32px; }
+  a { color: var(--accent); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.875em;
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 0 0 16px;
+  }
+  pre code { background: none; padding: 0; font-size: 0.82em; line-height: 1.6; }
+  .table-wrap { overflow-x: auto; margin: 0 0 16px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9em; }
+  th, td {
+    border: 1px solid var(--rule);
+    padding: 8px 11px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--code-bg); font-weight: 600; }
+  figure { margin: 24px 0; }
+  figure svg { display: block; width: 100%; height: auto; max-width: 100%; }
+  figcaption { color: var(--muted); font-size: 0.85em; margin-top: 8px; }
+  strong { font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>RUBY 새 사이트 온보딩 가이드</h1>
+<p class="byline">2026-10-13</p>
+
+<p>대상 사이트를 <code>myapp</code> 이라고 가정합니다. 대상 ID 는 <code>^[a-z][a-z0-9-]{0,31}$</code> 를 만족해야 합니다 (<code>defense/app/target_selection.py:22</code>).</p>
+
+<h2>0단계: 경로 충돌 검사</h2>
+
+<p>가장 먼저 할 일이고, 빠뜨리면 사이트가 깨집니다. RUBY 는 방어자가 고른 미끼 경로를 쓰기 때문에, 그 경로가 대상 사이트의 실제 경로와 겹치면 정상 기능이 미끼로 가로채집니다.</p>
+
+<p>대상 사이트가 아래 경로를 실제로 서빙하는지 확인합니다.</p>
+
+<pre><code># 미끼 카탈로그 (shared/decoy-catalog.json)
+/ftp  /ops  /rest/internal  /internal/ops/runbook
+/assets/operations.css  /assets/account-recovery.js
+
+# CHeaT 미로 기본 정규식 (defense/app/decoy_routing.py:24-32)
+/admin  /internal  /_internal  /backup(s)  /config(s)  /debug  /private
+/secret(s)  /credentials  /dump  /db  /database  /management
+/api/v&lt;N&gt;/internal  /.git  /.env  /.svn  /.aws  /.ssh
+/.well-known/security
+*.bak *.old *.orig *.sql *.yml *.yaml *.env *.ini *.log *.pem *.key *.json.bak</code></pre>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>겹치는 것</th><th>수정할 파일</th></tr></thead>
+<tbody>
+<tr><td><code>/ftp</code>, <code>/ops</code>, <code>/rest/internal</code>, <code>/internal/ops/runbook</code>, assets</td><td><code>shared/decoy-catalog.json</code> 수정 후 <code>scripts/sync-shared.sh</code> 실행</td></tr>
+<tr><td>미로 정규식 (<code>/admin</code> 등)</td><td><code>DECOY_MAZE_EXCLUDED_ROOT_CHOICES</code> <strong>와</strong> 사이드카 <code>MAZE_EXCLUDE</code> 둘 다</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>미로 제외는 두 곳을 쌍으로 설정한다</h3>
+
+<p>Defense 의 복제본이 라우팅을 결정하고(<code>defense/app/main.py:1371-1377</code>), 사이드카의 정규식이 가로채기를 결정합니다(<code>Defense_proxy.py:900</code>). <code>docker-compose.yml</code> 이 <code>ruby-shop</code> 에 대해 정확히 그렇게 하고 있습니다.</p>
+
+<pre><code># defense 서비스 (docker-compose.yml:58)
+DECOY_MAZE_EXCLUDED_ROOT_CHOICES=myapp=/admin
+# cheat-myapp 서비스 (docker-compose.yml:126)
+MAZE_EXCLUDE=^/admin(/|$)</code></pre>
+
+<p>한쪽만 설정하면 이렇게 됩니다.</p>
+<ul>
+<li>Defense 만 설정 → 사이드카가 여전히 <code>/admin</code> 의 404 를 미로로 바꿉니다.</li>
+<li>사이드카만 설정 → 격리된 actor 의 <code>/admin</code> 요청이 오버레이 대신 사이드카로 가서 미끼가 나오지 않습니다.</li>
+</ul>
+
+<h3>완충장치가 있지만 의존하지 않는다</h3>
+
+<p><code>Defense_proxy.py:907 _learn_real_path()</code> 가 백엔드가 실제로 200/3xx/401 을 준 경로를 런타임에 학습해 미로에서 영구 제외합니다. 다만 <code>GET</code> 만, 그리고 SPA 셸을 이미 파악한 뒤에만 학습하므로(<code>1255-1260</code>) 첫 접촉은 보호되지 않습니다. 설정으로 명시하는 것이 맞습니다.</p>
+
+<h2>수정 파일 한눈에 보기</h2>
+
+<p>신규 5개, 수정 4개, 그리고 함께 갱신해야 하는 테스트·매니페스트 4개입니다. 마지막 블록을 빼놓으면 CI 가 깨집니다.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>구분</th><th>파일</th><th>역할</th></tr></thead>
+<tbody>
+<tr><td>신규</td><td><code>detection/config/site-profiles/myapp.json</code></td><td>Detection 사이트 프로파일. 파일명 = 대상 ID</td></tr>
+<tr><td>신규</td><td><code>defense/config/myapp-routes.json</code></td><td>정상 경로 정본. 경로 별칭 대상 목록</td></tr>
+<tr><td>신규</td><td><code>defense/account-response-overlay/config/site-myapp.toml</code></td><td>정상/미끼 경계 선언, 미끼 신원</td></tr>
+<tr><td>신규</td><td><code>.../config/overlay-production-myapp-v2.toml</code></td><td>오리진 URL, 프로파일 연결</td></tr>
+<tr><td>신규</td><td><code>.../config/decoy-production-myapp-v2.toml</code></td><td>미끼 런타임 설정</td></tr>
+<tr><td>수정</td><td><code>.env</code></td><td><code>TARGET_CHOICES</code>, 시크릿, <code>PATH_ALIAS_*</code></td></tr>
+<tr><td>수정</td><td><code>docker-compose.yml</code></td><td><code>DECOY_</code>/<code>OVERLAY_</code> 매핑 + 새 서비스 2개</td></tr>
+<tr><td>수정</td><td><code>defense/CHeat-defense-proxy/defense_proxy_v2/profiles.py</code></td><td>새 위장 프리셋이 필요할 때만</td></tr>
+<tr><td>수정</td><td><code>shared/decoy-catalog.json</code> + <code>scripts/sync-shared.sh</code></td><td>0단계 경로 충돌이 있을 때만</td></tr>
+<tr><td>테스트</td><td><code>detection/test/siteProfile.test.js</code></td><td><code>SHIPPED</code> 배열에 대상 추가</td></tr>
+<tr><td>테스트</td><td><code>defense/tests/test_site_profile_contract.py</code></td><td><code>PAIRED_SITES</code>, <code>KNOWN_ROUTE_GAPS</code></td></tr>
+<tr><td>테스트</td><td><code>defense/tests/test_decoy_catalog_contract.py</code></td><td><code>SITE_PROFILES</code> 튜플</td></tr>
+<tr><td>테스트</td><td><code>.../tests/config_reference.json</code> + <code>MANIFEST.sha256</code></td><td>스크립트로 재생성</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>1단계: 대상 등록</h2>
+
+<p><code>.env.example</code> 을 <code>.env</code> 로 복사해 시작합니다.</p>
+
+<pre><code>TARGET_CHOICES=myapp=http://myapp-target:8080
+TARGET_DEFAULT_ID=myapp
+PUBLIC_TARGET_ORIGIN=http://YOUR_SERVER_IP
+
+# 필수 시크릿 — 없으면 운영 Compose 가 기동을 거부한다
+PAYLOAD_FINGERPRINT_KEY=
+DCID_HMAC_SECRET=
+ACCOUNT_ID_HASH_KEY=
+OVERLAY_DETECTOR_KEY=        # 정확히 64자 hex
+DETECTION_DASHBOARD_PASSWORD=
+DEFENSE_DASHBOARD_PASSWORD=</code></pre>
+
+<p><code>OVERLAY_DETECTOR_KEY</code> 는 정확히 64자 hex 여야 하고(<code>overlay_bootstrap.py:31</code>), <strong>재배포 때 값을 유지</strong>해야 합니다. 바꾸면 <code>OverlayRouteStore._validate()</code> 가 <code>"overlay route store key changed"</code> 로 거부하고(<code>overlay_routing.py:196</code>) Defense 가 503 을 냅니다. <code>overlay_bootstrap.py:34-36</code> 도 detector 키와 security DB 를 함께 보존하도록 강제합니다.</p>
+
+<h3>docker-compose.yml</h3>
+
+<p><code>docker-compose.local.yml</code> 이 2대상 템플릿(<code>legacy</code>/<code>alternate</code>)이라 복사 출발점으로 가장 좋습니다.</p>
+
+<pre><code># defense 서비스 environment
+- DECOY_UPSTREAM_CHOICES=myapp=http://cheat-myapp:3012
+- OVERLAY_UPSTREAM_CHOICES=myapp=http://overlay-myapp:8080
+- DECOY_MAZE_EXTRA_ROOT_CHOICES=myapp=/actuator|/server-status   # 서버 종류에 맞게
+- DECOY_MAZE_EXCLUDED_ROOT_CHOICES=myapp=/admin                  # 0단계 결과
+- PATH_ALIAS_TARGET_ROUTES=myapp=/app/config/myapp-routes.json
+
+# 새 서비스 2개 (juice/ruby 블록 복사)
+cheat-myapp:     REAL_BACKEND, TARGET_PRESET, MAZE_EXCLUDE, DECOY_REQUIRE_PLAN=1
+overlay-myapp:   OVERLAY_CONFIG, OVERLAY_ORIGIN_URL, OVERLAY_DETECTOR_KEY,
+                 DEFENSE_SECRET_FILE, DEFENSE_DETECTOR_SECRET_FILE, DEFENSE_SECURITY_DB</code></pre>
+
+<p><code>parse_decoy_upstreams</code> 와 <code>parse_overlay_upstreams</code> 는 대상별로 서로 다른 오리진을 요구합니다 (<code>decoy_routing.py:106</code>, <code>overlay_routing.py:55</code>: <code>"Each ... target must have a separate proxy origin"</code>). 두 대상이 사이드카나 오버레이를 공유할 수 없습니다.</p>
+
+<h2>2단계: Detection 사이트 프로파일</h2>
+
+<p><code>detection/config/site-profiles/myapp.json</code> 을 만듭니다. <strong>파일명이 대상 ID 와 같아야 자동 매칭됩니다</strong> (<code>siteProfiles.js:99-113 forTarget()</code>: <code>&lt;targetId&gt;.json</code> → <code>DETECTION_DEFAULT_SITE_PROFILE</code> → <code>generic</code>).</p>
+
+<p><code>generic.json</code> 을 복사해 시작하되, 라우트에 묶인 부분을 추가해야 그 기법이 켜집니다. 정본 목록은 <code>detection/lib/siteProfile.js:26-45 FEATURE_PATHS</code> 입니다.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>프로파일 키</th><th>켜지는 기법</th><th>비워두면</th></tr></thead>
+<tbody>
+<tr><td><code>deception.loginPath</code></td><td>로그인 423 미끼, 브루트포스 이메일 추출</td><td>실패 차등화 없어 에이전트가 미끼를 다 가짜로 일반화</td></tr>
+<tr><td><code>deception.apiPathPrefixes</code></td><td><code>no_asset_loading</code>·<code>coverage</code> 자동화 신호의 분모</td><td>automation 허니 신호 2개 중 1개 사실상 사망</td></tr>
+<tr><td><code>deception.plaintextBaitPaths</code></td><td>평문 응답 미끼 주입 (<code>server.js:1781</code>)</td><td>주입 없음</td></tr>
+<tr><td><code>deception.frontendFlavor</code></td><td>JS 응답 미끼 주입 (<code>injectSignalsJs</code>)</td><td>주입 없음</td></tr>
+<tr><td><code>loginBruteForce.{route,emailField}</code></td><td>로그인 브루트포스 (가중치 0.08)</td><td>비활성</td></tr>
+<tr><td><code>passwordResetAbuse.*</code></td><td>비밀번호 재설정 남용</td><td>비활성</td></tr>
+<tr><td><code>priceIntegrity.*</code></td><td>가격 무결성</td><td>비활성</td></tr>
+<tr><td><code>businessLogic.massAssignmentWhitelist</code></td><td>mass assignment</td><td>비활성</td></tr>
+<tr><td><code>identity.{routeRules,bodyRules,queryRules}</code></td><td>IDOR / identity mismatch</td><td>비활성</td></tr>
+<tr><td><code>roleGated.sensitiveRoutes</code></td><td>권한 우회 탐지</td><td>비활성</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>비우는 것과 생략하는 것은 다르다</h3>
+
+<p>비워둔 키는 자동 비활성이지만, <strong><code>_needsConfirmation</code> 에 명시하지 않으면 로드 시점에 throw</strong> 합니다 (<code>siteProfile.js:438-443</code>: <code>"${path} is absent but not listed in _needsConfirmation"</code>). 즉 "아직 모르겠다"를 파일에 적어야 기동합니다. 기동 로그와 관리 화면에 이렇게 나옵니다.</p>
+
+<pre><code>[siteProfile] profile=myapp feature=roleGated missing -&gt; disabled (no profile)</code></pre>
+
+<h3>generic.json 을 그대로 남기면 생기는 함정</h3>
+
+<p><code>identity.claimMap</code> 은 "라우트 무관" 부분으로 분류되어 있지만 값은 <strong>Juice Shop 의 JWT 구조</strong>입니다 (<code>wrapperKey: "data"</code>, <code>basketId.key: "bid"</code>). 대상 사이트의 토큰 구조로 바꿔야 합니다. <code>identity.learnedFallback: true</code> 가 일부 완화하지만 claim 이름이 다르면 identity mismatch 계열이 오탐·미탐합니다. <code>priceTampering.numericFieldRules</code> (<code>price</code>, <code>deluxeprice</code>, <code>quantity</code>, <code>rating</code>) 도 같은 성격입니다.</p>
+
+<h2>3단계: Defense 경로 별칭 라우트 문서</h2>
+
+<p><code>defense/config/myapp-routes.json</code> 이 <strong>정상 경로의 정본</strong>입니다. 수동 열거라서 가장 손이 많이 가는데, 발견 도구가 함께 들어 있습니다.</p>
+
+<pre><code># 공개 HTML/JS 를 긁어 후보 경로 목록 생성 (설정을 직접 수정하지 않음 — 검토 자료만)
+python -m defense.scripts.discover_path_alias_routes \
+    --fetch http://myapp-target:8080 \
+    --asset-dir /tmp/myapp-assets \
+    --prefixes /rest/,/api/ \
+    --output /tmp/myapp-routes-report.json
+
+# 브라우저 HAR 로 보강 (실제 호출만) + 기존 파일과 커버리지 비교
+python -m defense.scripts.discover_path_alias_routes \
+    session.har --origin http://myapp-target:8080 \
+    --routes defense/config/myapp-routes.json</code></pre>
+
+<p>설계 근거는 <code>defense/docs/route-discovery-design.md</code>, 운영 절차는 <code>defense/docs/path-alias-operations.md</code> 에 있습니다.</p>
+
+<p>파일 최소 형태 (<code>load_route_document()</code> <code>path_alias.py:314-372</code>):</p>
+
+<pre><code>{
+  "target_ids": ["myapp"],
+  "enforce_ready": false,
+  "routes": [
+    "/api/orders/{id}",
+    "/rest/user/login",
+    { "path": "/api/admin/{tail*}", "mode": "observe" }
+  ]
+}</code></pre>
+
+<p>제약은 세 가지입니다.</p>
+<ul>
+<li>모든 라우트가 <code>PATH_ALIAS_PREFIXES</code> 안에 있어야 합니다. 밖이면 <code>ValueError: Route {...} is outside protected prefixes</code> (<code>from_env:390-392</code>). 기본값은 <code>/rest/,/api/</code> 이고 <code>.env</code> 에서 늘릴 수 있습니다.</li>
+<li><code>{var}</code> 는 한 세그먼트, <code>{tail*}</code> 는 마지막 세그먼트만 (<code>Route.__post_init__:160-170</code>).</li>
+<li><code>/__ruby_alias_</code> 예약 네임스페이스는 쓸 수 없습니다 (<code>157-158</code>).</li>
+</ul>
+
+<p>쿼리 파라미터로 라우팅하는 앱이면 <code>defense/config/query-routing-example.json</code> 이 <code>query_routes</code>, <code>action_routes</code>, <code>cookieless_channels</code> 예시입니다.</p>
+
+<h3>enforce_ready 를 켜려면 증거가 필요하다</h3>
+
+<pre><code>"enforce_ready": true,
+"compatibility": {
+  "verified_flows": ["home", "login", "search", "..."],
+  "refresh": "reload (main.js 재요청); 만료 별칭은 GET/HEAD 307",
+  "refresh_verified": true
+}</code></pre>
+
+<p>이 세 필드가 없으면 <code>load_route_document:360-367</code> 이 <code>ValueError</code> 를 냅니다. 켜지 않으면 <code>PathAliasConfig.default_mode</code> 가 <code>enforce</code> 를 <code>observe</code> 로 강등합니다(<code>509-514</code>) — 응답은 다시 써지지만 <strong>원본 경로도 계속 통과</strong>하므로 사이트가 깨지지 않습니다.</p>
+
+<p>안전한 기본값이니 처음엔 <code>false</code> 로 두고, 브라우저 플로우를 실측한 뒤 켜는 것이 맞습니다. <code>juice-shop-routes.json</code> 의 <code>compatibility</code> 가 모범 사례입니다 — 앱 이미지 sha 와 미검증 화면 목록까지 적혀 있습니다.</p>
+
+<h2>4단계: 오버레이 설정 TOML 3개</h2>
+
+<h3>site-myapp.toml</h3>
+
+<p><code>site-generic-example.toml</code> 을 복사합니다 (<code>site-juice-shop.toml</code> 보다 이쪽이 출발점). 필수 필드는 <code>SiteProfile</code> dataclass (<code>site_profile.py:21-56</code>) 가 정합니다.</p>
+
+<pre><code>login_paths = ["/api/auth/login"]
+login_form_selector = "form[data-login]"          # lure script 가 DOM 에서 찾을 선택자
+recovery_anchor_selector = "a[href='/forgot-password']"
+menu_selector = "nav[aria-label='Main']"
+account_terms = ["login", "account", "user", "auth", "password"]
+recon_segments = ["admin", "internal", "debug", "backup", "config", "private", "secret", ".git", ".env"]
+recon_html_paths = ["/admin", "/internal", "/debug"]
+api_prefixes = ["/api", "/swagger", "/openapi"]
+ordinary_api_prefixes = ["/api/catalog", "/api/search"]   # 정상 경로 allowlist
+ordinary_api_exact = ["/api/configuration"]               # 정상 경로 allowlist
+origin_auth_cookies = ["session_token"]
+decoy_namespaces = ["/ftp", "/ops"]
+robots_disallow = ["/ftp", "/ops/recovery/accounts", "/ops/service/manifest"]
+decoy_brand = "Internal Administration"
+decoy_admin_email = "administrator@internal.invalid"
+decoy_service = "Internal Account Registry"
+decoy_profile_image = ""
+
+# 이 사이트에만 있는 것 — 없으면 생략
+challenge_api = ""
+synthetic_success = [ { path = "/api/users", kind = "user_list" } ]
+account_api_prefixes = ["/account"]</code></pre>
+
+<p><code>ordinary_api_prefixes</code> 와 <code>ordinary_api_exact</code> 가 핵심입니다. 이게 <code>select_deception_headers()</code> (<code>deception_headers.py:45-47</code>) 의 정상 경로 allowlist 입니다. 비워두면 모든 2xx API 응답에 <code>X-Internal-API: /ops/service/manifest</code> 단서 헤더가 붙어 미끼가 무분별해집니다.</p>
+
+<p>반대로 <code>site-generic-example.toml</code> 의 <code>account_api_prefixes = ["/api/Users", ...]</code> 는 <strong>Juice Shop 경로가 남아 있습니다</strong>. TOML 주석이 이미 "이 사이트의 실제 계정 경로로 바꾸는 것이 맞다"고 적어놓았으니 반드시 교체하세요.</p>
+
+<p>로드 시점 검증(<code>__post_init__:62-100</code>)이 거부하는 것:</p>
+<ul>
+<li>상대 경로, <code>//</code>, <code>\</code>, 개행 → <code>site profile paths must be absolute and canonical</code></li>
+<li><code>login_paths</code> 가 <code>decoy_namespaces</code> 와 겹침 → <code>login path must not overlap the decoy namespace</code></li>
+<li><code>robots_disallow</code> 가 미끼 네임스페이스 밖 → <code>robots clues must target the local decoy</code></li>
+<li><code>synthetic_success</code> 나 <code>challenge_api</code> 가 미끼 네임스페이스와 겹침 → <code>site routes must not overlap the decoy namespace</code></li>
+<li><code>synthetic_success.kind</code> 가 구현되지 않은 종류 → <code>ack</code>, <code>deluxe_denied</code>, <code>empty_basket</code>, <code>user_list</code>, <code>user_object</code> 중 하나여야 함</li>
+</ul>
+
+<h3>overlay-production-myapp-v2.toml</h3>
+
+<pre><code>origin_url = "http://myapp-target:8080"
+site_profile = "site-myapp.toml"
+decoy_config = "decoy-production-myapp-v2.toml"
+max_request_bytes = 1048576
+max_response_bytes = 16777216
+timeout_seconds = 10.0</code></pre>
+
+<h3>decoy-production-myapp-v2.toml</h3>
+
+<pre><code>frontend_dir = ""            # 반드시 빈 값
+modules = ["cycle"]
+origin_policy = "sealed"
+secure_cookie = false        # HTTPS 면 true
+detector_required = true     # 반드시 true
+run_id = "myapp-overlay-v2"
+audit_path = "/app/state/telemetry.sqlite3"</code></pre>
+
+<p><code>detector_required = false</code> 거나 <code>frontend_dir</code> 가 비어 있지 않으면 <code>create_overlay_app()</code> 이 즉시 <code>ValueError</code> 입니다 (<code>overlay.py:203-204</code>).</p>
+
+<h2>5단계: CHeaT 사이드카 프리셋</h2>
+
+<p><code>defense/CHeat-defense-proxy/defense_proxy_v2/profiles.py</code> 의 <code>PRESETS</code> 에 서버 위장 프리셋이 있습니다 (<code>apache-php</code>, <code>nginx-fastapi</code>). 서버 종류에 맞는 것을 <code>TARGET_PRESET</code> 으로 고르면 됩니다.</p>
+
+<p>새로 추가하려면 <code>PRESETS</code> 에 항목을 넣고 <code>maze.{entry_path, exclude, extra_pattern}</code>, <code>web.server_banner</code>, <code>migration.{api_prefix, login_path, config_path}</code> 를 채우세요.</p>
+
+<h3>계약 테스트가 강제하는 교차 일치</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>프리셋 필드</th><th>일치해야 하는 정본</th></tr></thead>
+<tbody>
+<tr><td><code>migration.login_path</code></td><td><code>site-myapp.toml</code> 의 <code>login_paths[0]</code></td></tr>
+<tr><td><code>migration.api_prefix</code></td><td>카탈로그의 <code>namespaces.detection.roots[0]</code></td></tr>
+<tr><td><code>migration.config_path</code></td><td><code>site-myapp.toml</code> 의 <code>ordinary_api_exact</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>defense/tests/test_cheat_path_contract.py</code> 가 이를 강제합니다. CHeaT 의 Dockerfile COPY 가 파일 단위 allowlist 이라 런타임에 파생시킬 수 없고, 그래서 계약 테스트로 묶는 구조입니다. 그 docstring 이 어긋날 때 무엇이 생기는지도 설명합니다 — 접두어가 갈라지면 CHeaT 가 Detection 의 트랩 네임스페이스와 다른 경로를 광고하고, 로그인 경로가 갈라지면 login_lure 가 조용히 무력화됩니다.</p>
+
+<h3>preflight 를 켜고 시작하세요</h3>
+
+<p>기동 시 <code>preflight.check_maze_config()</code> 가 "robots 로 광고한 경로가 <code>MAZE_EXCLUDE</code> 에 걸린다" 같은 모순을 경고합니다. <code>PREFLIGHT_STRICT=1</code> 로 두면 모순이 있을 때 기동을 거부합니다. 새 사이트 온보딩 중에는 켜두는 것이 좋습니다.</p>
+
+<h2>보통 수정하지 않는 파일</h2>
+
+<p>사이트를 바꿔도 그대로 놓는 것들입니다. 사이트별 조정이 필요하면 코드 대신 설정으로 합니다.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>파일</th><th>이유</th></tr></thead>
+<tbody>
+<tr><td><code>shared/decoy-catalog.json</code></td><td>미끼 경로는 방어자 소유. 0단계에서 실제 경로와 겹치지 않으면 그대로</td></tr>
+<tr><td><code>detection/config/policy.json</code></td><td>티어 임계값과 전략 플랜. 사이트 무관</td></tr>
+<tr><td><code>defense/app/decoy_routing.py</code></td><td>미로 정규식. 사이트별 조정은 env 둘(<code>EXTRA</code>/<code>EXCLUDED</code>)로</td></tr>
+<tr><td><code>detection/lib/deceptionEngine.js</code></td><td>미끼 자격증명 리터럴·트랩 파일명. 미끼 copywriting 이라 사이트 무관</td></tr>
+<tr><td><code>detection/lib/classifier.js</code></td><td>배점은 <code>policy.json</code> 의 <code>detection.deception.points</code> 로 override</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>policy.json</code> 의 <code>stage1</code> 은 <code>min_score: 0</code> 이라 <strong>모든 요청에 <code>decoy_maze</code> 가 적용</strong>됩니다. 이것이 기본 상황이고, 점수가 오르면 <code>account_overlay_medium</code> → <code>account_overlay_high</code> 가 추가됩니다.</p>
+
+<p>배점을 바꾸고 싶으면 <code>classifier.js</code> 를 고치지 말고 <code>policy.json</code> 을 쓰세요. <code>classifier.configure()</code> 가 신호 단위로 병합하고, <code>policyEngine.js</code> 가 오타난 신호명을 로드 시점에 거부합니다.</p>
+
+<h2>볼륨 초기화와 키 보존</h2>
+
+<pre><code># overlay 경로 저장소 — 반드시 빈 볼륨에서 시작
+docker compose run --rm defense python -m defense.app.overlay_routing init \
+    --database /app/overlay-state/routes.sqlite3 --target-id myapp</code></pre>
+
+<p><code>OverlayRouteStore.initialize()</code> 는 디렉터리가 완전히 비어 있지 않으면 거부합니다 (<code>overlay_routing.py:253-255</code>: <code>overlay route volume is not virgin</code>). 격리된 actor 를 조용히 잊지 않기 위한 의도적 제약입니다.</p>
+
+<p><code>bootstrap()</code> 이 빈 볼륨이면 자동 초기화하므로 보통 수동 호출은 필요 없지만, <strong><code>--target-id</code> 집합이 바뀔 때</strong>는 <code>_target_scope</code> HMAC 이 달라지면서 <code>overlay target set changed</code> 로 거부됩니다. 대상을 추가하면 이 볼륨을 새로 만들어야 합니다.</p>
+
+<h3>보존해야 하는 볼륨</h3>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>볼륨</th><th>내용</th></tr></thead>
+<tbody>
+<tr><td><code>detection-data:/app/data</code></td><td><code>DETECTION_STORE_DB</code> — XSS 후보·증거·스키마 학습</td></tr>
+<tr><td><code>defense-alias-data:/app/alias-data</code></td><td><code>PATH_ALIAS_DB_PATH</code> — 별칭 테이블</td></tr>
+<tr><td><code>defense-overlay-data:/app/overlay-state</code></td><td><code>DEFENSE_OVERLAY_STATE_DB</code> — sticky actor</td></tr>
+<tr><td><code>overlay-myapp-data:/app/state</code></td><td><code>DEFENSE_SECURITY_DB</code> + <code>DEFENSE_TELEMETRY_DB</code></td></tr>
+<tr><td><code>cheat-myapp-data:/data</code></td><td><code>DEFENSE_DB</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>경로 저장소는 sentinel·0600·dev/ino·<code>user_version</code> 으로 fail-closed 이고 실패가 503 이 되므로, 요청마다 쓰는 별칭 테이블과 파일을 공유하지 않습니다. 재배포 때 위 볼륨은 전부 보존해야 합니다.</p>
+
+<h2>CI 계약 테스트 갱신</h2>
+
+<p>이 저장소는 계약·스냅샷 테스트가 촘촘해서, 파일을 추가하는 것만으로 4곳이 실패합니다.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>실패하는 곳</th><th>원인</th><th>고치는 법</th></tr></thead>
+<tbody>
+<tr><td><code>detection/test/siteProfile.test.js:17,75</code></td><td><code>SHIPPED</code> 배열을 <code>readdirSync</code> 결과와 바로 비교</td><td><code>SHIPPED</code> 에 <code>"myapp"</code> 추가</td></tr>
+<tr><td><code>.../tests/test_config_snapshot.py</code></td><td><code>config/*.toml</code> 전체를 스냅샷과 비교</td><td><code>python tests/config_snapshot.py tests/config_reference.json</code></td></tr>
+<tr><td><code>.../MANIFEST.sha256</code></td><td>git 추적 파일 전체의 해시 목록</td><td><code>cd defense/account-response-overlay &amp;&amp; scripts/gen_manifest.sh</code></td></tr>
+<tr><td><code>defense/tests/test_site_profile_contract.py</code></td><td><code>PAIRED_SITES</code>, <code>KNOWN_ROUTE_GAPS</code></td><td>둘 다에 <code>myapp</code> 추가 (<code>KNOWN_ROUTE_GAPS['myapp'] = set()</code>)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>MANIFEST.sha256</code> 은 <code>RELEASE.json</code> 을 먼저 고친 뒤에 재생성합니다 — <code>RELEASE.json</code> 이 매니페스트에 해시로 들어가기 때문입니다.</p>
+
+<h3>계약이 오히려 지키는 것</h3>
+
+<p><code>test_site_profile_contract.py</code> 에 대상을 추가하면 아래를 <strong>자동 검사</strong>해 줍니다.</p>
+<ul>
+<li><code>site-profiles/myapp.json</code> 의 <code>deception.loginPath</code> == <code>site-myapp.toml</code> 의 <code>login_paths[0]</code> (정본은 TOML)</li>
+<li><code>identity.tokenSources.cookieNames</code> ⊆ <code>site-myapp.toml</code> 의 <code>origin_auth_cookies</code></li>
+<li><code>deception.apiPathPrefixes</code> ⊆ <code>site-myapp.toml</code> 의 <code>api_prefixes</code></li>
+<li>프로파일이 선언한 모든 라우트가 <code>myapp-routes.json</code> 에 존재 (예외는 <code>KNOWN_ROUTE_GAPS</code> 에 하나씩 명시)</li>
+</ul>
+
+<p>마지막 항목이 특히 유용합니다. Detection 프로파일에 오타난 라우트를 적으면 테스트가 잡아내서, 기법이 에러 없이 조용하게 무력화되는 상황을 막아 줍니다.</p>
+
+<h2>단계적 적용 전략</h2>
+
+<p>전부 한 번에 하지 않는 것이 낫습니다. 코드가 이 순서를 지원하도록 설계되어 있습니다.</p>
+
+<figure>
+<svg viewBox="0 0 760 668" role="img" aria-label="원본 경로가 404 가 되는 것은 5단계뿐이다" font-size="12.5">
+  <defs>
+    <marker id="stage-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="var(--cds-chart-axis)"/>
+    </marker>
+  </defs>
+  <text x="24" y="28" font-size="15" font-weight="600" fill="var(--cds-text-primary)">원본 경로가 404 가 되는 것은 5단계뿐이다</text>
+  <text x="24" y="48" font-size="11.5" fill="var(--cds-text-secondary)">각 단계는 앞 단계를 그대로 두고 설정을 하나 더한다</text>
+
+  <g fill="none" stroke="var(--cds-chart-axis)" stroke-width="1.25">
+    <path d="M72 148V196" marker-end="url(#stage-arrow)"/>
+    <path d="M72 272V320" marker-end="url(#stage-arrow)"/>
+    <path d="M72 396V444" marker-end="url(#stage-arrow)"/>
+    <path d="M72 520V568" marker-end="url(#stage-arrow)"/>
+  </g>
+
+  <g>
+    <rect x="24" y="72" width="688" height="76" rx="8" fill="none" stroke="var(--cds-chart-axis)" stroke-width="1.25"/>
+    <text x="44" y="98" font-size="14" font-weight="600" fill="var(--cds-text-primary)">1단계 — 관찰만</text>
+    <text x="44" y="119" fill="var(--cds-text-primary)">.env + compose 만, PATH_ALIAS_MODE=off</text>
+    <text x="44" y="138" font-size="11.5" fill="var(--cds-text-secondary)">라우트 무관 탐지 전부: CRS, payload, 타이밍, XSS</text>
+  </g>
+  <text x="92" y="178" font-size="11.5" fill="var(--cds-text-secondary)">기동 로그의 disabled 목록이 다음 할 일</text>
+
+  <g>
+    <rect x="24" y="196" width="688" height="76" rx="8" fill="none" stroke="var(--cds-chart-axis)" stroke-width="1.25"/>
+    <text x="44" y="222" font-size="14" font-weight="600" fill="var(--cds-text-primary)">2단계 — Detection 프로파일</text>
+    <text x="44" y="243" fill="var(--cds-text-primary)">detection/config/site-profiles/myapp.json</text>
+    <text x="44" y="262" font-size="11.5" fill="var(--cds-text-secondary)">라우트에 묶인 탐지 기법이 켜진다. Defense 변경 없음</text>
+  </g>
+  <text x="92" y="302" font-size="11.5" fill="var(--cds-text-secondary)">프로파일 계약 테스트 통과</text>
+
+  <g>
+    <rect x="24" y="320" width="688" height="76" rx="8" fill="none" stroke="var(--cds-chart-axis)" stroke-width="1.25"/>
+    <text x="44" y="346" font-size="14" font-weight="600" fill="var(--cds-text-primary)">3단계 — 경로 별칭 observe</text>
+    <text x="44" y="367" fill="var(--cds-text-primary)">myapp-routes.json + PATH_ALIAS_MODE=observe</text>
+    <text x="44" y="386" font-size="11.5" fill="var(--cds-text-secondary)">응답만 재작성, 원본 경로도 통과 — 사이트 안 깨짐</text>
+  </g>
+  <text x="92" y="426" font-size="11.5" fill="var(--cds-text-secondary)">브라우저 플로우 실제 확인 후 verified_flows 작성</text>
+
+  <g>
+    <rect x="24" y="444" width="688" height="76" rx="8" fill="none" stroke="var(--cds-chart-axis)" stroke-width="1.25"/>
+    <text x="44" y="470" font-size="14" font-weight="600" fill="var(--cds-text-primary)">4단계 — 미끼 계층</text>
+    <text x="44" y="491" fill="var(--cds-text-primary)">사이드카 + 오버레이, MAZE_EXCLUDE 쌍</text>
+    <text x="44" y="510" font-size="11.5" fill="var(--cds-text-secondary)">미로, 계정 오버레이, decoy_path_hit 점수 반영</text>
+  </g>
+  <text x="92" y="544" font-size="11.5" fill="var(--cds-text-secondary)">PREFLIGHT_STRICT=1 로 설정 모순 확인</text>
+
+  <g>
+    <rect x="24" y="568" width="688" height="76" rx="8" fill="var(--cds-chart-categorical-1)" fill-opacity="0.12" stroke="var(--cds-chart-categorical-1)" stroke-width="2"/>
+    <text x="44" y="594" font-size="14" font-weight="600" fill="var(--cds-text-primary)">5단계 — enforce</text>
+    <text x="44" y="615" fill="var(--cds-text-primary)">enforce_ready=true + PATH_ALIAS_MODE=enforce</text>
+    <text x="44" y="634" font-size="11.5" fill="var(--cds-text-secondary)">원본 경로 404. 되돌리기는 PATH_ALIAS_MODE=off</text>
+  </g>
+</svg>
+<figcaption>단계적 적용 · 5단계, 게이트 4개</figcaption>
+</figure>
+
+<p>3단계까지는 원본 경로가 계속 통과하므로 사이트가 깨지지 않습니다. 1단계 기동 로그에 찍힐 <code>disabled (no profile)</code> 목록이 그대로 2단계 할 일 목록이 됩니다.</p>
+
+<p>검증은 <code>defense/tests/test_readiness.py</code>, <code>detection/test/*</code>, 그리고 <code>defense/account-response-overlay/tests/smoke_live_origin.py</code> · <code>live_lab_check.py</code> 로 합니다. <code>deploy/live-lab.compose.yaml</code> 은 전 구성을 로컬에서 띄우는 랩입니다.</p>
+
+</main>
+</body>
+</html>
