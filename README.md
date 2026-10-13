@@ -1,31 +1,23 @@
 # RUBY
 
-RUBY는 웹 요청의 공격 가능성을 탐지하고, 위험도와 정책에 따라 대응 전략을 선택해 방어 기법을 적용하며, 그 성능과 재현성을 검증하는 프로젝트입니다. 탐지, 정책 판단, 방어, 벤치마크에 필요한 코드와 문서를 함께 관리합니다.
+RUBY는 웹 요청의 공격 가능성을 탐지하고, 위험도와 정책에 따라 대응 전략을 선택해 방어 기법을 적용하며, 그 성능과 재현성을 검증하는 프로젝트입니다. 탐지, 정책 판단, 방어에 필요한 코드와 문서를 함께 관리합니다.
 
 ## 저장소 구조
 
 ```text
 RUBY/
-├── benchmark/   # 실험 대상, 실행 환경, 결과 및 재현 자료
 ├── defense/     # 차단·변환·지연·기만 등 방어 계층
 ├── detection/   # Node.js 탐지 프록시, ModSecurity/CRS, 대시보드, Policy
-├── docs/        # 저장소 전체에 걸친 설계·리팩토링 기록
 ├── shared/      # Detection·Defense 가 함께 쓰는 편집 원본 (미끼 카탈로그, 이벤트 스키마, SQLite 계층)
 └── scripts/     # shared/ 사본 동기화
 ```
 
-`shared/` 가 원본이고 각 서비스 트리에 사본을 함께 커밋한다. 네 이미지의 빌드
-컨텍스트가 모두 하위 디렉터리라 Docker 가 `COPY ../` 를 금지하기 때문이다. 원본을
-고치면 `scripts/sync-shared.sh` 를 돌리고, 동일성은
-`defense/tests/test_shared_sources.py` 가 CI 에서 강제한다.
+`shared/` 가 편집 원본이고 각 서비스 트리에 사본을 함께 커밋한다. 원본을 고치면
+`scripts/sync-shared.sh` 를 돌린다 — 이유와 원본별 사용처는
+[`INTEGRATION.md`](INTEGRATION.md#공유-설정)의 "공유 설정" 절에 있다.
 
-서비스 간 계약 문서는 [`INTEGRATION.md`](INTEGRATION.md)에 있다.
-
-### `benchmark/`
-
-논문과 오픈소스 프로젝트의 실행 가능성 및 결과 재현성을 검증합니다. 프로젝트별 실험 문서, 공통 실행 환경, 결과 요약과 작성 템플릿을 관리합니다.
-
-자세한 내용은 [`benchmark/README.md`](benchmark/README.md)를 참고하세요.
+서비스 간 계약(헤더, 대상 선택 파일, 이벤트 필드명, 신뢰 경계)은
+[`INTEGRATION.md`](INTEGRATION.md)가 정본이다.
 
 ### `defense/`
 
@@ -39,11 +31,12 @@ RUBY/
 ModSecurity/OWASP CRS, 행동 기반 휴리스틱, Honey/Deception 신호와 실시간 대시보드를 포함합니다.
 위험도 점수를 정책에 따라 해석하고 Defense에서 적용할 대응 전략을 선택합니다.
 
+자세한 내용은 [`detection/README.md`](detection/README.md)를 참고하세요.
 
 ## 작업 방법
 
 1. 최신 `main`에서 작업 브랜치를 만듭니다.
-2. 변경 대상에 따라 `benchmark/`, `defense/`, `detection/`에서 작업합니다.
+2. 변경 대상에 따라 `defense/`, `detection/`에서 작업합니다.
 3. 관련 테스트와 재현 절차를 확인하고 문서화합니다.
 4. 비밀 정보와 개인정보가 포함되지 않았는지 확인합니다.
 5. Pull Request를 생성해 검토받은 뒤 병합합니다.

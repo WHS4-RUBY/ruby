@@ -9,6 +9,18 @@ RUBY의 진입점에서 모든 HTTP 요청과 응답을 관찰하는 Node.js 리
 ModSecurity 및 OWASP CRS의 버전과 라이선스는
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)에 기록했습니다.
 
+## 목차
+
+- [RUBY 요청 흐름](#ruby-요청-흐름)
+- [HTTP 응답 스트리밍 범위](#http-응답-스트리밍-범위)
+- [실행 및 확인](#실행-및-확인)
+- [주요 환경 변수](#주요-환경-변수)
+- [미끼 경로 적중 신호 (2026-10-11)](#미끼-경로-적중-신호-2026-10-11)
+- [Fingerprint Client Flow 집계](#fingerprint-client-flow-집계)
+- [신원 보존과 XSS 관찰](#신원-보존과-xss-관찰)
+
+---
+
 ## RUBY 요청 흐름
 
 ```text

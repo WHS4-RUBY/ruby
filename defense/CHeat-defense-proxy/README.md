@@ -13,11 +13,12 @@ LLM 펜테스트 에이전트(`codex` 등)를 상대로 **CHeaT**(*Cloak · Hone
 ## 디렉터리 구조
 
 ```
-CHeat-defense-proxy/
+defense/CHeat-defense-proxy/
 ├── defense_proxy_v1/   원본 — Batch 1~9 전체 실험, 모든 기법 포함(T4.2b·passive 전체·
-│                       T1.2/T2.2/T4.1/T4.2/T4.3/T6.3 레시피 등). 실험 하니스(experiments/)와
-│                       결과 기록(results.md)이 여기 있다. "이 프로젝트가 실제로 뭘 해봤는지"
-│                       전체 이력을 보려면 여기.
+│                       T1.2/T2.2/T4.1/T4.2/T4.3/T6.3 레시피 등). 실험 기록·v1 설정 표면·재현
+│                       절차가 `results.md` 한 파일에 모여 있다(실험 하니스는 로컬 전용이라
+│                       커밋되지 않았다). "이 프로젝트가 실제로 뭘 해봤는지" 전체 이력을
+│                       보려면 여기. **운영에는 배포하지 않는다.**
 └── defense_proxy_v2/   정리판 — 실측으로 효과가 확인된 것만 남기고 나머지를 뺀 버전
                         (DEFENSE_MODE는 off|transform 둘뿐. transform 레시피 T2.1 /
                         MIGRATION_TRACES(옛 T2.2+T4.2-bare), FAKE_SHELL, DECOY_MAZE+ADAPTIVE_TRAP,
@@ -33,10 +34,11 @@ CHeat-defense-proxy/
 | 하고 싶은 것 | 여기로 |
 |---|---|
 | 지금까지 어떤 기법을 실험했고 뭐가 효과 있었는지 읽기 | [`defense_proxy_v1/results.md`](defense_proxy_v1/results.md) |
+| v1 의 방어 계층·환경변수·레시피 표를 보기 | 같은 문서의 "부록 A. v1 프록시 구성과 사용법" |
 | 방어 프록시를 직접 켜보고 GUI로 관찰하기 | [`defense_proxy_v2/README.md`](defense_proxy_v2/README.md) — 요약과 빠른 시작(상세는 `REFERENCE.md`) |
 | 최종 버전의 비교 실험 결과(베이스라인·마이그레이션·T2.1+FAKE_SHELL·미로만) 보기 | [`defense_proxy_v2/results.md`](defense_proxy_v2/results.md) |
 | 다른 서버에 배포 / 탐지팀과 연동 | [`defense_proxy_v2/DEPLOYMENT_GUIDE.md`](defense_proxy_v2/DEPLOYMENT_GUIDE.md) / [`DETECTION_INTEGRATION.md`](defense_proxy_v2/DETECTION_INTEGRATION.md) |
-| 기존 실험(Batch 9 등)을 재현하거나 새 배치를 돌리기 | [`defense_proxy_v1/experiments/run_batch9.sh`](defense_proxy_v1/experiments/run_batch9.sh) |
+| 기존 실험(Batch 7·9 등)을 재현하거나 새 배치를 돌리기 | [`defense_proxy_v1/results.md`](defense_proxy_v1/results.md) 의 "부록 B. 재현 절차" (당시 하니스 스크립트는 커밋되지 않아 수동 절차로 남아 있다) |
 | 제거된 기법이 왜 빠졌는지(효과 없음 실측 근거) 확인 | [`defense_proxy_v2/REFERENCE.md`](defense_proxy_v2/REFERENCE.md)의 "`defense_proxy_v1`(원본) 대비 무엇이 빠졌나" 표 |
 
 두 디렉터리는 서로 독립적으로 실행 가능하다(각자 `Defense_proxy.py`/`transforms.py`/

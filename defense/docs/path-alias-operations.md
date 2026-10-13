@@ -1,6 +1,21 @@
 # 경로 별칭 설치·운영 가이드 (v4, 2026-10-09)
 
-경로 별칭은 현재 정책의 `stage3`(위험 점수 0.5 이상, 확정 공격 점수 0.5 이상 0.8 미만) 또는 `stage4`(두 점수 모두 0.8 이상)에서 새 별칭 발급과 응답 치환을 시작하며, 대상별 경로 파일과 검증 상태가 실제 모드를 정한다. 현재 점수 조합이 두 구간에서 벗어나면 새 발급·치환·원본 경로 차단은 멈춘다. enforce에서는 유효한 기존 별칭 URL만 복원하고 만료·폐기된 별칭을 거부한다. observe는 기존 별칭 해석·관찰을 유지하고 audit은 요청을 변경하지 않는다. 운영 Compose는 기본적으로 `PATH_ALIAS_MODE=enforce`를 선택하고 Juice Shop에는 enforce, 아직 검증 전인 Ruby Shop에는 observe를 적용한다. 로컬 Compose의 기본값은 `off`다. 저장소는 별도 서비스가 필요 없는 SQLite 파일 하나다. 이 문서는 설치·모드·경로 파일·쿠키 미반환 정책·기존 PostgreSQL 설치의 전환을 정리한다. 연구 설계와 실험 기록은 [path-alias-plan.md](path-alias-plan.md), 경로 수집은 [route-discovery-design.md](route-discovery-design.md)에 있다.
+경로 별칭은 현재 정책의 `stage3`(위험 점수 0.5 이상, 확정 공격 점수 0.5 이상 0.8 미만) 또는 `stage4`(두 점수 모두 0.8 이상)에서 새 별칭 발급과 응답 치환을 시작하며, 대상별 경로 파일과 검증 상태가 실제 모드를 정한다. 현재 점수 조합이 두 구간에서 벗어나면 새 발급·치환·원본 경로 차단은 멈춘다. enforce에서는 유효한 기존 별칭 URL만 복원하고 만료·폐기된 별칭을 거부한다. observe는 기존 별칭 해석·관찰을 유지하고 audit은 요청을 변경하지 않는다. 운영 Compose는 기본적으로 `PATH_ALIAS_MODE=enforce`를 선택하고 Juice Shop에는 enforce, 아직 검증 전인 RUBY Shop에는 observe를 적용한다. 로컬 Compose의 기본값은 `off`다. 저장소는 별도 서비스가 필요 없는 SQLite 파일 하나다. 이 문서는 설치·모드·경로 파일·쿠키 미반환 정책·기존 PostgreSQL 설치의 전환을 정리한다. 경로 수집은 [route-discovery-design.md](route-discovery-design.md)에 있다.
+
+## 목차
+
+- [1. 설치: SQLite](#1-설치-sqlite)
+- [2. 모드: 영향 없는 점검과 실제 적용을 구분](#2-모드-영향-없는-점검과-실제-적용을-구분)
+- [3. 경로 파일 형식](#3-경로-파일-형식)
+- [4. 응답 치환 범위](#4-응답-치환-범위)
+- [5. 교체·만료·여러 탭](#5-교체만료여러-탭)
+- [6. 쿠키 미반환 대응](#6-쿠키-미반환-대응)
+- [7. 검증 결과](#7-검증-결과)
+- [8. 주소가 각 단계에서 어떻게 보이나 (실측 예)](#8-주소가-각-단계에서-어떻게-보이나-실측-예)
+- [9. 저장소: SQLite 단일 구성, 기존 PostgreSQL 설치의 전환·롤백](#9-저장소-sqlite-단일-구성-기존-postgresql-설치의-전환롤백)
+- [10. 설정 요약](#10-설정-요약)
+
+---
 
 ## 1. 설치: SQLite
 
@@ -209,7 +224,7 @@ enforce에서 거부한다. observe는 기존 별칭 해석·관찰을 유지하
 
 - 쿠키 미반환 공격이 실제 Juice Shop에서 `suspected` 미끼 단계까지 가는 경로(위 6.3). 미끼 실행 자체는 계획 헤더를 직접 넣어 확인했다.
 - 서비스 워커: Juice Shop은 등록하지 않아 확인할 수 없었다.
-- 관리자 화면, 2FA 설정·결제·파일 업로드·데이터 내보내기 등의 **제출 동작**(화면 열기만 확인), Ruby Shop 전체 흐름. 모든 경로를 enforce로 두었으므로 이 동작에서 치환이 빠진 호출이 있으면 정상 사용자에게 404와 별칭 교체가 생길 수 있다. 발견되면 해당 경로를 고치거나 그 경로만 `mode: observe`로 낮춘다.
+- 관리자 화면, 2FA 설정·결제·파일 업로드·데이터 내보내기 등의 **제출 동작**(화면 열기만 확인), RUBY Shop 전체 흐름. 모든 경로를 enforce로 두었으므로 이 동작에서 치환이 빠진 호출이 있으면 정상 사용자에게 404와 별칭 교체가 생길 수 있다. 발견되면 해당 경로를 고치거나 그 경로만 `mode: observe`로 낮춘다.
 - 여러 호스트 배포(SQLite로는 지원하지 않음), 장시간(30분 이상) 탭 유지.
 - 실제 PHP 등 기능 선택형 dispatcher 앱(에코 앱으로만 확인).
 
@@ -260,7 +275,7 @@ SQLite는 쓰기 잠금이 DB 전체 단위라 서로 다른 사용자의 발급
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `PATH_ALIAS_MODE` | 운영 Compose: `enforce`, 로컬 Compose: `off` | off / audit / observe / enforce. 현재 정책의 3·4단계에서 새 발급·치환을 시작하고 경로 파일의 준비 상태가 enforce 상한을 정함 |
-| `PATH_ALIAS_TARGET_ROUTES` | 운영 Compose: Juice Shop·Ruby Shop 매핑, 로컬 Compose: 비어 있음 | `target-id=/app/config/routes.json` 쉼표 구분. 대상별 파일·DB 이름공간을 선택하며 매핑 밖 대상은 적용하지 않음 |
+| `PATH_ALIAS_TARGET_ROUTES` | 운영 Compose: Juice Shop·RUBY Shop 매핑, 로컬 Compose: 비어 있음 | `target-id=/app/config/routes.json` 쉼표 구분. 대상별 파일·DB 이름공간을 선택하며 매핑 밖 대상은 적용하지 않음 |
 | `PATH_ALIAS_ROUTES_FILE` | Compose: juice-shop | 경로 파일 |
 | `PATH_ALIAS_TARGET_IDS` | 비어 있음(파일의 `target_ids`) | 단일 파일 모드에서 대상 ID 덮어쓰기 (로컬·실험: `legacy`); 대상별 매핑과 함께 사용 불가 |
 | `PATH_ALIAS_PREFIXES` | `/rest/,/api/,/b2b/` | 직접 호출을 보는 보호 접두사. 경로 파일의 모든 경로가 이 안에 있어야 함 |
