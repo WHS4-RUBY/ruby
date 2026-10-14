@@ -119,8 +119,8 @@ const RUBY_PROFILE = loadSiteProfile(
 );
 
 test("다른 사이트의 로그인 경로와 필드명으로도 같은 신호가 나온다", () => {
-  // 저장소 근거가 있는 RUBY 의 로그인 경로에 가상의 필드명을 붙인 합성 프로파일.
-  // ruby-shop.json 자체는 본문 필드명 근거가 없어 이 블록을 비워 두었다.
+  // RUBY 의 로그인 경로에 가상의 필드명(username)을 붙인 합성 프로파일.
+  // ruby-shop.json 은 실제 필드명 email 을 쓴다 — 아래 별도 테스트가 고정한다.
   const otherSite = {
     ...GENERIC_PROFILE,
     loginBruteForce: {
@@ -152,8 +152,30 @@ test("다른 사이트의 로그인 경로와 필드명으로도 같은 신호�
 // 규칙 3: 프로파일에 설정이 없으면 기능은 꺼지지만 조용히 꺼지지는 않는다.
 // 비활성 사실은 프로파일의 disabledFeatures 에 있고, siteProfiles.js 가 기동 시
 // 경고하며 /__detection/api/site-profile-status 가 노출한다.
+test("ruby-shop 은 자기 로그인 경로와 email 필드로 활성이다", () => {
+  assert.ok(!RUBY_PROFILE.disabledFeatures.includes("loginBruteForce"),
+    "ruby-shop 이 loginBruteForce 를 비활성으로 선언했다");
+  assert.equal(
+    extract({ method: "POST", normalizedPath: "/api/auth/login",
+              body: { email: "  ADMIN@Example.Test " }, profile: RUBY_PROFILE }),
+    "admin@example.test"
+  );
+  // juice-shop 의 로그인 경로는 RUBY 에서 잡히지 않는다.
+  assert.equal(
+    extract({ method: "POST", normalizedPath: "/rest/user/login",
+              body: { email: "a@b" }, profile: RUBY_PROFILE }),
+    null
+  );
+  // email 필드가 아니면 잡지 않는다.
+  assert.equal(
+    extract({ method: "POST", normalizedPath: "/api/auth/login",
+              body: { username: "a@b" }, profile: RUBY_PROFILE }),
+    null
+  );
+});
+
 test("프로파일에 설정이 없으면 비활성이고 그 사실이 드러난다", () => {
-  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+  for (const profile of [GENERIC_PROFILE]) {
     assert.equal(
       extract({ method: "POST", normalizedPath: "/rest/user/login",
                 body: { email: "a@b" }, profile }),

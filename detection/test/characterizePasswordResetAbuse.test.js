@@ -192,8 +192,30 @@ test("프로파일에 설정이 없으면 양쪽 모두 비활성이고 그 사�
     assert.equal(extractReset({ ...RESET, body: { email: "a@b" }, profile }), null);
     assert.equal(extractQuestion({ ...QUESTION, url: "?email=a@b", profile }), null);
   }
-  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+  for (const profile of [GENERIC_PROFILE]) {
     assert.ok(profile.disabledFeatures.includes("passwordResetAbuse"),
       `${profile.profileId} 가 passwordResetAbuse 비활성을 선언하지 않았다`);
   }
+});
+
+// RUBY 는 재설정 라우트만 선언한다(보안질문 라우트는 앱에 없다).
+test("ruby-shop 은 재설정 반쪽만 활성이고 보안질문 반쪽은 꺼져 있다", () => {
+  assert.ok(!RUBY_PROFILE.disabledFeatures.includes("passwordResetAbuse"),
+    "ruby-shop 이 passwordResetAbuse 를 비활성으로 선언했다");
+  assert.equal(
+    extractReset({ method: "POST", normalizedPath: "/api/auth/password-reset/request",
+                   body: { email: "  Bender@Example.Test " }, profile: RUBY_PROFILE }),
+    "bender@example.test"
+  );
+  // 확정 단계(confirm)는 이메일을 받지 않으므로 잡지 않는다.
+  assert.equal(
+    extractReset({ method: "POST", normalizedPath: "/api/auth/password-reset/confirm",
+                   body: { email: "a@b" }, profile: RUBY_PROFILE }),
+    null
+  );
+  assert.equal(
+    extractQuestion({ method: "GET", normalizedPath: "/api/auth/password-reset/request",
+                      url: "?email=a@b", profile: RUBY_PROFILE }),
+    null
+  );
 });
