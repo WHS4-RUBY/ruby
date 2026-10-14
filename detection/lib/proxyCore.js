@@ -4,8 +4,17 @@ const querystring = require("node:querystring");
 
 const DEFAULT_MAX_RESPONSE_BODY_BYTES = 4 * 1024 * 1024;
 const DETECTION_COOKIE_NAMES = new Set(["dlsid", "dcid"]);
-const PRIVATE_ROUTE_FEEDBACK_HEADERS = new Set([
+// Internal control headers that never reach the browser:
+//   - route feedback and the overlay marker are signed Defense-to-Detection state;
+//   - the applied delay names the selected policy stage (300/500/700 ms) and the
+//     rate-limit signal announces that a defense fired, so a client that reads
+//     them can watch its own tier and settle just below the next threshold;
+//   - the request id is the two dashboards' join key.
+// Detection records every one of them against the completed request; only the
+// relay to the client is cut, so dashboard traceability is unchanged.
+const PRIVATE_RESPONSE_HEADERS = new Set([
   "x-ruby-resolved-url", "x-ruby-resolved-url-sig", "x-ruby-overlay-active",
+  "x-defense-delay-ms", "x-defense-signal", "x-ruby-request-id",
 ]);
 const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
   "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
@@ -136,10 +145,9 @@ function copyResponseHeaders(proxyRes, res, { rawBody, dropContentLength = false
   const nominatedHopHeaders = new Set(String(proxyRes.headers.connection || "")
     .split(",").map((name) => name.trim().toLowerCase()).filter(Boolean));
   for (const [key, value] of Object.entries(proxyRes.headers)) {
-    // The Detection middleware minted this correlation ID before the proxy
-    // request. A target response must not replace it.
-    if (key === "x-ruby-request-id" && res.hasHeader(key)) continue;
-    if (PRIVATE_ROUTE_FEEDBACK_HEADERS.has(key) ||
+    // A header Detection minted on `res` survives: only the upstream copy is
+    // dropped here, so an upstream cannot replace the correlation ID either.
+    if (PRIVATE_RESPONSE_HEADERS.has(key) ||
         HOP_BY_HOP_RESPONSE_HEADERS.has(key) || nominatedHopHeaders.has(key) ||
         (key === "content-length" && (!rawBody || dropContentLength)) ||
         (key === "content-encoding" && !rawBody) ||

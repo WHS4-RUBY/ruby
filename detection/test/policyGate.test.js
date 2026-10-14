@@ -75,6 +75,7 @@ async function startDetection(t, targetPort, { forceStage4 = false, gateEnabled 
       DETECTION_POLICY_GATE_ENABLED: gateEnabled ? "true" : "false",
       OVERLAY_DETECTOR_KEY: KEY,
       CRS_ENABLED: "false", DECEPTION_ENABLED: "true", XSS_STORE: "memory",
+      DETECTION_EXPOSE_REQUEST_ID: "true",
       DETECTION_DASHBOARD_PASSWORD: dashboardPassword,
       DCID_HMAC_SECRET: crypto.randomBytes(32).toString("hex"),
       ACCOUNT_ID_HASH_KEY: crypto.randomBytes(32).toString("hex"),
@@ -248,8 +249,10 @@ test("rate and failed gates stop local traps; selected overlay login bypasses ga
 
   const blocked = await request(port, "GET", "/rest/internal/ops/alarm.sh");
   assert.equal(blocked.status, 429);
-  assert.equal(blocked.headers["x-defense-signal"], "rate_limited");
-  assert.equal(blocked.headers["x-defense-delay-ms"], "700");
+  // 적용된 지연과 속도 제한 신호는 내부 상태다. 단계를 알려 주는 지연값과 "방어가
+  // 발동했다"는 신호 모두 공개 응답에 실리지 않고 기록으로만 남는다.
+  assert.equal(blocked.headers["x-defense-signal"], undefined);
+  assert.equal(blocked.headers["x-defense-delay-ms"], undefined);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].path, "/__defense/policy-gate");
   const record = await recordedRequest(port, dashboardPassword,

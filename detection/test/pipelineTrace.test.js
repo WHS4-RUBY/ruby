@@ -138,6 +138,7 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
       TARGET_DEFAULT_ID: "legacy",
       TARGET_SELECTION_FILE: path.join(selectionDirectory, "selection.json"),
       CRS_ENABLED: "false", DECEPTION_ENABLED: "false",
+      DETECTION_EXPOSE_REQUEST_ID: "true",
       TRUST_PROXY: "true",
       DETECTION_DASHBOARD_PASSWORD: dashboardPassword,
       DCID_HMAC_SECRET: crypto.randomBytes(32).toString("hex"),
@@ -185,7 +186,8 @@ test("HTTP request trace and signed versus unsigned WebSocket upgrade policies",
     if (response.status === 429) { blockedResponse = response; break; }
   }
   assert.ok(blockedResponse, "repeated confirmed attack never reached strict policy");
-  assert.equal(blockedResponse.headers["x-defense-signal"], "rate_limited");
+  // 속도 제한 신호는 Defense → Detection 내부 계약이다. 공개 응답에는 상태 코드만 남는다.
+  assert.equal(blockedResponse.headers["x-defense-signal"], undefined);
   const last = seen.at(-1);
   assert.equal(last.blocked, true);
   assert.equal(last.requestId, blockedResponse.headers["x-ruby-request-id"]);

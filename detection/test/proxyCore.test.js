@@ -163,6 +163,34 @@ test("signed route feedback is visible to hooks but never forwarded to clients",
   }
 });
 
+test("applied delay, rate-limit signal and request ID stay out of the client response",
+  { timeout: 5000 }, async (t) => {
+    const seen = [];
+    const url = await proxyPair(t, (_req, res) => {
+      res.writeHead(429, {
+        "Content-Type": "application/json",
+        "X-Defense-Delay-Ms": "700",
+        "X-Defense-Signal": "rate_limited",
+        "X-Ruby-Request-Id": "request:upstream",
+        "X-Defense-Applied": "delay,rate_limit_strict",
+      });
+      res.end('{"error":"rate_limited"}');
+    }, { hooks: [{ onResponse({ proxyRes }) { seen.push(proxyRes.headers); } }] });
+    const response = await get(url);
+    await bodyOf(response);
+    // 공격자가 자기 단계(300/500/700ms)와 방어 발동 여부를 읽어 임계값 아래로
+    // 조정하지 못하게 한다. 상태 코드와 공식 전략 이름만 남는다.
+    assert.equal(response.statusCode, 429);
+    assert.equal(response.headers["x-defense-delay-ms"], undefined);
+    assert.equal(response.headers["x-defense-signal"], undefined);
+    assert.equal(response.headers["x-ruby-request-id"], undefined);
+    assert.equal(response.headers["x-defense-applied"], "delay,rate_limit_strict");
+    // 훅은 기록을 위해 세 값을 그대로 본다.
+    assert.equal(seen[0]["x-defense-delay-ms"], "700");
+    assert.equal(seen[0]["x-defense-signal"], "rate_limited");
+    assert.equal(seen[0]["x-ruby-request-id"], "request:upstream");
+  });
+
 test("SSE 첫 청크를 upstream 종료 전에 전달하고 완료 뒤 빈 본문으로 기록한다", { timeout: 5000 }, async (t) => {
   let releaseBackend;
   let backendEnded = false;

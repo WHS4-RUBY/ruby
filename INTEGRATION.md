@@ -127,6 +127,25 @@ Defense 가 HMAC 으로 서명한 라벨을 붙인다(`detector.sign_headers`):
 `X-Defense-Signal: rate_limited` 는 Defense 가 429 를 반환한 경우에만 되돌린다.
 대상이 보낸 같은 이름의 헤더는 제거한다.
 
+## 공개 응답에서 제거하는 헤더
+
+브라우저까지 가면 안 되는 헤더는 Detection 의 마지막 복사 단계
+(`proxyCore.js` `PRIVATE_RESPONSE_HEADERS`)에서 한 곳에 모아 지운다. Detection 이
+자기 응답에 직접 실을 수 있는 값도 같은 이유로 싣지 않는다(미끼 응답, 정책 게이트).
+
+| 헤더 | 지우는 이유 |
+| --- | --- |
+| `X-Ruby-Resolved-Url` / `X-Ruby-Resolved-Url-Sig` | 별칭의 복원 경로와 그 서명 |
+| `X-Ruby-Overlay-Active` | 이미 격리됐다는 사실 |
+| `X-Defense-Delay-Ms` | 값이 곧 단계다(300·500·700ms) |
+| `X-Defense-Signal` | 방어가 발동했다는 신호 |
+| `X-Ruby-Request-Id` | 두 대시보드의 내부 조인 키 |
+
+네 값 모두 Detection 이 완료 기록에 남기므로 대시보드 추적성은 그대로다. 공개
+응답에 남는 방어 흔적은 상태 코드와 `X-Defense-Applied`(공식 전략 이름만,
+`decoy_*` 제외) 뿐이다. `X-Ruby-Request-Id` 를 응답으로 되돌려 받아야 하는
+실험·통합 테스트는 `DETECTION_EXPOSE_REQUEST_ID=true` 로만 켠다.
+
 ## 대상 선택 파일
 
 Detection 이 유일한 writer 다(`detection/lib/targetSelection.js`, 임시 파일 생성 후

@@ -198,6 +198,7 @@ const BLOCK_MODE = process.env.BLOCK_MODE === "true";
 const DETECTION_LEVEL = normalizeDetectionLevel(process.env.DETECTION_LEVEL);
 const ENABLE_EXPERIMENT_RUN_ID = process.env.ENABLE_EXPERIMENT_RUN_ID === "true";
 const EXPERIMENT_RUN_HEADER = "x-experiment-run-id";
+const EXPOSE_REQUEST_ID = process.env.DETECTION_EXPOSE_REQUEST_ID === "true";
 const configuredPayloadFingerprintKey = process.env.PAYLOAD_FINGERPRINT_KEY;
 const PAYLOAD_FINGERPRINT_KEY = configuredPayloadFingerprintKey || crypto.randomBytes(32);
 const DETECTION_DASHBOARD_SESSION_COOKIE = "detection_dashboard_session";
@@ -206,6 +207,7 @@ const DETECTION_DASHBOARD_COOKIE_SECURE =
   process.env.DETECTION_DASHBOARD_COOKIE_SECURE === "true";
 const DETECTION_DASHBOARD_REQUIRE_HTTPS =
   process.env.DETECTION_DASHBOARD_REQUIRE_HTTPS === "true";
+const DCID_COOKIE_SECURE = process.env.DCID_COOKIE_SECURE === "true";
 const ALLOW_INSECURE_DASHBOARD_HTTP =
   process.env.ALLOW_INSECURE_DASHBOARD_HTTP === "true";
 if (process.env.NODE_ENV === "production") {
@@ -224,6 +226,16 @@ if (process.env.NODE_ENV === "production") {
       (!DETECTION_DASHBOARD_COOKIE_SECURE || !DETECTION_DASHBOARD_REQUIRE_HTTPS)) {
     throw new Error("production dashboard authentication requires HTTPS and Secure cookies");
   }
+  // dcid 는 정책 키다 — 검증된 dcid 일 때만 확정 공격 점수가 쌓이고 stage2~4 의 계정
+  // 오버레이·속도 제한이 가능하다(INTEGRATION.md "신뢰 경계"). 30 일 수명으로 왕복하므로
+  // HTTPS 를 전제한 배포가 이 쿠키만 평문으로 내보내면 탈취·재생으로 그 신원을 빌려
+  // 쓸 수 있다. .env.example 이 문서로만 요구했던 계약을 여기서 닫는다.
+  if (ALLOW_INSECURE_DASHBOARD_HTTP && DCID_COOKIE_SECURE) {
+    throw new Error("HTTP mode requires DCID_COOKIE_SECURE to be disabled");
+  }
+  if (!ALLOW_INSECURE_DASHBOARD_HTTP && !DCID_COOKIE_SECURE) {
+    throw new Error("production requires DCID_COOKIE_SECURE for the policy client cookie");
+  }
 }
 const CSRF_ALLOWED_ORIGINS = buildAllowedOrigins(
   (process.env.CSRF_ALLOWED_ORIGINS || `http://localhost:${PORT},http://127.0.0.1:${PORT}`)
@@ -234,10 +246,14 @@ const CSRF_ALLOWED_ORIGINS = buildAllowedOrigins(
 
 const SESSION_COOKIE = "dlsid";
 const DCID_COOKIE = "dcid";
+// 이 프록시가 발급한 세션 ID 형식(crypto.randomUUID). 형식이 맞지 않는 쿠키는
+// 연결 근거로 쓰지 않고 새로 발급한다 — dcid 의 서명 검증과 같은 취지다.
+const SESSION_ID_FORMAT =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const inspectionConfig = loadInspectionConfig();
 const crsScanner = new CrsScanner();
 const deceptionEngine = new DeceptionEngine({ enabled: process.env.DECEPTION_ENABLED !== "false" });
-const dcidManager = new DcidManager();
+const dcidManager = new DcidManager({ secureCookie: DCID_COOKIE_SECURE });
 const accountIdentityResolver = new AccountIdentityResolver();
 const policyRules = loadPolicyRules();
 // 미끼 신호 배점은 policy.json 의 detection.deception.points 로 조정할 수 있다.
@@ -941,12 +957,23 @@ function recordCompletedRequest(req, {
   };
 }
 
-// 세션 쿠키 부여 (없으면 새로 발급)
+// 세션 쿠키 부여 (없거나 이 프록시가 발급한 형식이 아니면 새로 발급).
+//
+// httpOnly 다. 보호 대상은 의도적으로 XSS 에 취약한 앱이고 Detection 은 그 XSS 를
+// 탐지·귀속하는 쪽이다. 페이지에 주입된 스크립트가 이 값을 읽을 수 있으면 세션 ID 가
+// 그대로 유출되고, 검증이 없으면 임의 값을 써넣어 세션 단위 증거를 리셋하거나 다른
+// 흐름에 섞을 수 있었다. 삽입된 telemetry.js 는 document.cookie 를 읽지 않고 브라우저의
+// 자동 전송에만 의존하므로(detection/public/telemetry.js) 읽기 권한이 필요 없다.
 app.use((req, res, next) => {
   let sid = req.cookies[SESSION_COOKIE];
-  if (!sid) {
+  if (!SESSION_ID_FORMAT.test(String(sid ?? ""))) {
     sid = crypto.randomUUID();
-    res.cookie(SESSION_COOKIE, sid, { httpOnly: false, sameSite: "lax" });
+    res.cookie(SESSION_COOKIE, sid, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: dcidManager.secureCookie,
+      path: "/",
+    });
   }
   req.detectionSessionId = sid;
   next();
@@ -969,9 +996,13 @@ app.use((req, res, next) => {
   next();
 });
 
+// 요청 ID 는 두 대시보드를 잇는 내부 조인 키다(INTEGRATION.md "헤더 계약"). 기본값은
+// 응답에 싣지 않는다 — 공개 면에 내부 ID 네임스페이스를 드러내지 않기 위해서다.
+// 관리 화면은 저장된 기록에서 이 값을 읽으므로 끄더라도 추적성은 그대로다. 응답으로
+// 되돌려 받아 상관관계를 확인해야 하는 실험·통합 테스트만 명시적으로 켠다.
 app.use((req, res, next) => {
   req.rubyRequestId = `request:${crypto.randomUUID()}`;
-  res.setHeader("X-Ruby-Request-Id", req.rubyRequestId);
+  if (EXPOSE_REQUEST_ID) res.setHeader("X-Ruby-Request-Id", req.rubyRequestId);
   next();
 });
 
@@ -1062,8 +1093,9 @@ app.use(async (req, res, next) => {
     upstreamReached: false,
   });
   res.setHeader("Cache-Control", "no-store");
-  if (policy.delay) res.setHeader("X-Defense-Delay-Ms", policy.delay);
-  if (status === 429) res.setHeader("X-Defense-Signal", "rate_limited");
+  // 적용된 지연과 속도 제한 신호는 proxyCore 의 PRIVATE_RESPONSE_HEADERS 와 같은
+  // 이유로 클라이언트에 싣지 않는다. 두 값은 위의 recordCompletedRequest 와
+  // req.defenseSignal 로 이미 기록됐다.
   res.status(status).type(contentType).send(responseBuffer);
 });
 
