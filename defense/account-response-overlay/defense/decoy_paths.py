@@ -34,6 +34,14 @@ STAGE_ROOT: str = CATALOG['stageRoot']
 STAGE_FAMILIES: tuple[str, ...] = tuple(CATALOG['stageFamilies'])
 IDENTITY: dict[str, str] = dict(CATALOG['identity'])
 DECOY_COOKIES: dict[str, str] = dict(CATALOG['decoyCookies'])
+# 미끼가 발급하는 쿠키 이름 전체. 발급(`core.COOKIE`, `facade.AUTH_COOKIE`)과
+# 통과 판정(`gateway_contract.ISOLATION_COOKIES`, `overlay._origin_headers`)이 같은
+# 출처를 보게 한다 — 예전에는 카탈로그가 이름을 선언만 하고 세 곳이 리터럴을 따로
+# 들고 있어서, 카탈로그를 고쳐도 아무 일이 없거나 발급과 통과 목록이 엇갈렸다.
+# 엇갈리면 내부 미끼가 세션 쿠키를 못 받아 요청마다 새 세션이 되고 증상이 조용하다.
+SESSION_COOKIE: str = DECOY_COOKIES['session']
+AUTH_COOKIE: str = DECOY_COOKIES['auth']
+DECOY_COOKIE_NAMES: frozenset[str] = frozenset(DECOY_COOKIES.values())
 
 LEGACY = OVERLAY_PATHS['legacy']
 RECOVERY = OVERLAY_PATHS['recovery']

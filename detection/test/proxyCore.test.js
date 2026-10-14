@@ -193,6 +193,28 @@ test("the applied plan, delay, rate-limit signal and request ID stay out of the 
     assert.equal(seen[0]["x-defense-applied"], "delay,rate_limit_strict");
   });
 
+test("an internal response header nobody registered is blocked by the namespace rule",
+  { timeout: 5000 }, async (t) => {
+    const url = await proxyPair(t, (_req, res) => {
+      res.writeHead(200, {
+        "Content-Type": "text/plain",
+        // 아직 존재하지 않는 내부 헤더. 이름을 열거하는 방식이었다면 그대로 나갔다.
+        "X-Defense-Next-Experiment": "stage5",
+        "X-Ruby-Something-New": "leak",
+        // 같은 응답의 평범한 헤더는 영향받지 않는다.
+        "X-Request-Id": "app-trace",
+        "X-Frame-Options": "DENY",
+      });
+      res.end("ok");
+    });
+    const response = await get(url);
+    await bodyOf(response);
+    assert.equal(response.headers["x-defense-next-experiment"], undefined);
+    assert.equal(response.headers["x-ruby-something-new"], undefined);
+    assert.equal(response.headers["x-request-id"], "app-trace");
+    assert.equal(response.headers["x-frame-options"], "DENY");
+  });
+
 test("SSE 첫 청크를 upstream 종료 전에 전달하고 완료 뒤 빈 본문으로 기록한다", { timeout: 5000 }, async (t) => {
   let releaseBackend;
   let backendEnded = false;

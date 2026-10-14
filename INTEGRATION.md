@@ -129,11 +129,12 @@ Defense 가 HMAC 으로 서명한 라벨을 붙인다(`detector.sign_headers`):
 
 ## 공개 응답에서 제거하는 헤더
 
-브라우저까지 가면 안 되는 헤더는 Detection 의 마지막 복사 단계
-(`proxyCore.js` `PRIVATE_RESPONSE_HEADERS`)에서 한 곳에 모아 지운다. Detection 이
-자기 응답에 직접 실을 수 있는 값도 같은 이유로 싣지 않는다(미끼 응답, 정책 게이트).
+`x-defense-*` 와 `x-ruby-*` 는 내부 제어 네임스페이스다. **요청 측과 응답 측 모두
+접두어로 차단한다** — 요청은 `rubyPolicy.stripDetectionHeaders`, 응답은 Detection 의
+마지막 복사 단계(`proxyCore.js` `isPrivateResponseHeader`)다. 이름을 열거하는 방식은
+나중에 추가된 내부 헤더를 기본적으로 통과시켜서, 실제로 아래 네 개가 그렇게 샜다.
 
-| 헤더 | 지우는 이유 |
+| 헤더 | 클라이언트가 알게 되는 것 |
 | --- | --- |
 | `X-Ruby-Resolved-Url` / `X-Ruby-Resolved-Url-Sig` | 별칭의 복원 경로와 그 서명 |
 | `X-Ruby-Overlay-Active` | 이미 격리됐다는 사실 |
@@ -142,8 +143,15 @@ Defense 가 HMAC 으로 서명한 라벨을 붙인다(`detector.sign_headers`):
 | `X-Ruby-Request-Id` | 두 대시보드의 내부 조인 키 |
 | `X-Defense-Applied` | 전략 목록만으로 단계가 식별된다 |
 
+새 내부 응답 헤더는 두 네임스페이스 안에 두면 따로 등록하지 않아도 차단된다.
 Defense 는 이 헤더들을 계속 Detection 으로 보내고 Detection 이 완료 기록에 남긴다 —
-끊는 것은 클라이언트로 가는 중계뿐이라 대시보드 추적성은 그대로다.
+끊는 것은 클라이언트로 가는 중계뿐이라 대시보드 추적성은 그대로다. Detection 이
+자기 응답에 직접 실을 수 있는 값도 같은 이유로 싣지 않는다(미끼 응답, 정책 게이트).
+
+네임스페이스 밖이라 따로 다루는 것이 하나 있다. 내부 미끼는 예전에
+`X-Request-Id` 로 자기 trace 를 돌려줬는데, 오버레이가 통과시키는 실제 origin
+응답에는 그 헤더가 없어서 **미끼 응답만 구분되는 지문**이었다. 지금은 감사 기록에만
+남긴다(`core.py`).
 
 `X-Defense-Applied` 는 **upstream 사본만** 지운다. Detection 이 전달 전 검사에서
 직접 거부한 요청에 붙이는 `X-Defense-Applied: crs` 는 프록시 앞단에서 끝나 이

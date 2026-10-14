@@ -4,26 +4,27 @@ const querystring = require("node:querystring");
 
 const DEFAULT_MAX_RESPONSE_BODY_BYTES = 4 * 1024 * 1024;
 const DETECTION_COOKIE_NAMES = new Set(["dlsid", "dcid"]);
-// Internal control headers that never reach the browser:
-//   - route feedback and the overlay marker are signed Defense-to-Detection state;
-//   - the applied delay names the selected policy stage (300/500/700 ms) and the
-//     rate-limit signal announces that a defense fired, so a client that reads
-//     them can watch its own tier and settle just below the next threshold;
-//   - the request id is the two dashboards' join key;
-//   - the applied strategy list names the stage on its own ("none" / "delay" /
-//     "path_alias,delay" / "path_alias,delay,rate_limit_strict"), so dropping
-//     only the delay value would still leave the tier readable.
-// Detection records every one of them against the completed request; only the
-// relay to the client is cut, so dashboard traceability is unchanged.
+// The two internal control namespaces, by prefix, mirroring the request-side rule
+// in rubyPolicy.stripDetectionHeaders. Enumerating names instead would relay any
+// internal header added later: that is how the applied plan, the applied delay,
+// the rate-limit signal and the dashboards' join key each reached the browser.
 //
-// Only the upstream copy is dropped. Detection's own `X-Defense-Applied: crs`
-// comes from the pre-proxy inspection short circuit, which never reaches this
+// What they would tell a client: route feedback and the overlay marker are signed
+// Defense-to-Detection state; the delay value and the strategy list each name the
+// selected policy stage on their own, so a client reading either can watch its own
+// tier and settle just below the next threshold.
+//
+// Detection records all of them against the completed request, so dashboard
+// traceability is unchanged — only the relay to the client is cut. This filter
+// covers the upstream copy alone. Detection's own `X-Defense-Applied: crs` is set
+// on `res` by the pre-proxy inspection short circuit, which never reaches this
 // function, and stays the published signal that this proxy refused a request.
-const PRIVATE_RESPONSE_HEADERS = new Set([
-  "x-ruby-resolved-url", "x-ruby-resolved-url-sig", "x-ruby-overlay-active",
-  "x-defense-delay-ms", "x-defense-signal", "x-ruby-request-id",
-  "x-defense-applied",
-]);
+const PRIVATE_RESPONSE_PREFIXES = ["x-defense-", "x-ruby-"];
+
+function isPrivateResponseHeader(name) {
+  const key = String(name).toLowerCase();
+  return PRIVATE_RESPONSE_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
 const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
   "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
   "te", "trailer", "transfer-encoding", "upgrade",
@@ -155,7 +156,7 @@ function copyResponseHeaders(proxyRes, res, { rawBody, dropContentLength = false
   for (const [key, value] of Object.entries(proxyRes.headers)) {
     // A header Detection minted on `res` survives: only the upstream copy is
     // dropped here, so an upstream cannot replace the correlation ID either.
-    if (PRIVATE_RESPONSE_HEADERS.has(key) ||
+    if (isPrivateResponseHeader(key) ||
         HOP_BY_HOP_RESPONSE_HEADERS.has(key) || nominatedHopHeaders.has(key) ||
         (key === "content-length" && (!rawBody || dropContentLength)) ||
         (key === "content-encoding" && !rawBody) ||

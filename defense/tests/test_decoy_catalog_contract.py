@@ -228,5 +228,45 @@ class PathPredicatePrecondition(unittest.TestCase):
         self.assertEqual('/ops/x', decoy_paths.normalize_decoy_key('//OPS/x/'))
 
 
+class DecoyCookieNamesHaveOneSource(unittest.TestCase):
+    """쿠키 이름은 카탈로그가 정하고, 발급과 통과 판정이 그 하나를 본다.
+
+    예전에는 카탈로그가 `decoyCookies` 를 선언만 하고 `core.py`·`gateway_contract.py`·
+    `overlay.py` 가 리터럴을 따로 들고 있었다. 그래서 카탈로그를 고치면 아무 일도
+    일어나지 않거나, 한 곳만 고치면 발급 이름과 통과 허용목록이 엇갈렸다. 엇갈리면
+    내부 미끼가 세션 쿠키를 받지 못해 요청마다 새 세션이 되고, 오류가 아니라서
+    증상이 조용하다. 리네임을 카탈로그 한 줄로 끝내려면 이 테스트가 필요하다.
+    """
+
+    # fastapi 를 요구하는 모듈(core·overlay)은 이 job 에서 import 할 수 없다.
+    # 그래서 "리터럴이 소스에 남아 있지 않다"로 같은 계약을 검사한다.
+    SOURCE_DIR = OVERLAY_ROOT / 'defense'
+
+    def test_the_catalog_declares_both_decoy_cookies(self):
+        declared = json.loads(SHARED.read_text(encoding='utf-8'))['decoyCookies']
+        self.assertEqual({'session', 'auth'}, set(declared))
+        self.assertEqual(declared['session'], decoy_paths.SESSION_COOKIE)
+        self.assertEqual(declared['auth'], decoy_paths.AUTH_COOKIE)
+        self.assertEqual(set(declared.values()), set(decoy_paths.DECOY_COOKIE_NAMES))
+
+    def test_the_isolation_allowlist_is_built_from_the_catalog(self):
+        gateway_contract = importlib.import_module('overlay_pkg.gateway_contract')
+        self.assertEqual(decoy_paths.DECOY_COOKIE_NAMES | {'token'},
+                         gateway_contract.ISOLATION_COOKIES)
+
+    def test_no_module_hardcodes_a_decoy_cookie_name(self):
+        """카탈로그 이름을 코드가 리터럴로 들고 있으면 리네임이 반쪽이 된다."""
+        offenders = []
+        for name in decoy_paths.DECOY_COOKIE_NAMES:
+            quoted = re.compile(r"""['"]""" + re.escape(name) + r"""['"]""")
+            for source in sorted(self.SOURCE_DIR.rglob('*.py')):
+                for number, line in enumerate(
+                        source.read_text(encoding='utf-8').splitlines(), start=1):
+                    # 주석·docstring 의 산문은 동작에 영향이 없다.
+                    if quoted.search(line) and not line.lstrip().startswith('#'):
+                        offenders.append(f'{source.relative_to(OVERLAY_ROOT)}:{number} {name}')
+        self.assertEqual([], offenders)
+
+
 if __name__ == '__main__':
     unittest.main()

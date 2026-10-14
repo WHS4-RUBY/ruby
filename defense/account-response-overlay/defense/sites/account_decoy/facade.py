@@ -1,11 +1,12 @@
 """Small local account UI and API facade for the decoy namespace."""
 from starlette.responses import JSONResponse, Response
-from ...decoy_paths import DECOY_COOKIES, OPERATIONS_CSS as OPERATIONS_CSS_PATH, robots_body
+from ...decoy_paths import AUTH_COOKIE, OPERATIONS_CSS as OPERATIONS_CSS_PATH, robots_body
 from ...model import page, links, error
 from ..base import site_for
 from .presentation import OPERATIONS_CSS
 
-AUTH_COOKIE = DECOY_COOKIES['auth']
+# AUTH_COOKIE 는 카탈로그가 정한다(decoy_paths). cycle·false_success 가 여기서
+# 가져다 쓰므로 그 import 를 유지하기 위해 이름만 다시 노출한다.
 
 
 def challenges(ctx, completed=False):

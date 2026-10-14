@@ -22,8 +22,8 @@ from .config import load as load_decoy_config
 from .core import create_app as create_decoy_app, METHODS
 from . import decoy_paths
 from .deception_headers import select_deception_headers
-from .decoy_paths import (HOP_HEADERS, clue_headers, decoy_stage, is_entry, is_overlay_decoy,
-                          robots_body, session_aliases)
+from .decoy_paths import (DECOY_COOKIE_NAMES, HOP_HEADERS, clue_headers, decoy_stage, is_entry,
+                          is_overlay_decoy, robots_body, session_aliases)
 from .detector import DetectorVerifier, sign_headers
 from .gateway_contract import isolation_headers
 from .high_risk import HighRiskIsolation
@@ -123,7 +123,7 @@ def _origin_headers(request: Request, profile: SiteProfile) -> list[tuple[str, s
                 raise ValueError('Malformed cookie')
             parts = []
             for morsel in parsed.values():
-                if morsel.key in {'defense_session', 'defense_auth', *profile.origin_auth_cookies}:
+                if morsel.key in DECOY_COOKIE_NAMES or morsel.key in profile.origin_auth_cookies:
                     continue
                 parts.append(morsel.OutputString())
             if parts:
