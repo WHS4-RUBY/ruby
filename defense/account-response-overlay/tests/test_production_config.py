@@ -155,8 +155,14 @@ async def test_ruby_production_profile_removes_real_credentials_and_isolates_log
             me = await client.get('/api/me', headers={**_signed('GET', '/api/me'),
                 'authorization': 'Bearer production-token', 'cookie': 'ruby_session=real'})
             assert me.status_code == 401
-            service = await client.get('/api/operations/status',
-                                       headers=_signed('GET', '/api/operations/status'))
+            # /api/operations 는 이제 RUBY 의 ordinary_api_prefixes 에 있다(실제 업무 API,
+            # site-ruby-shop.toml) — 업무 API 응답에는 미끼 헤더를 붙이지 않는다.
+            ordinary = await client.get('/api/operations/status',
+                                        headers=_signed('GET', '/api/operations/status'))
+            assert 'x-internal-api' not in ordinary.headers
+            # 미끼 헤더는 업무 API 가 아닌 /api/ 경로에 붙는다.
+            service = await client.get('/api/inventory',
+                                       headers=_signed('GET', '/api/inventory'))
             assert service.headers['x-internal-api'] == '/ops/service/manifest'
             decoy = await client.get('/ftp', headers=_signed('GET', '/ftp'))
             assert decoy.status_code == 200
@@ -170,7 +176,8 @@ async def test_ruby_production_profile_removes_real_credentials_and_isolates_log
             assert downgraded.status_code == high.status_code
 
     assert [(method, path) for method, path, _ in seen] == [
-        ('GET', '/'), ('GET', '/api/me'), ('GET', '/api/operations/status')]
+        ('GET', '/'), ('GET', '/api/me'), ('GET', '/api/operations/status'),
+        ('GET', '/api/inventory')]
     assert 'authorization' not in seen[0][2]
     assert seen[0][2].get('cookie') == 'locale=ko'
     assert not any(name.startswith('x-defense-') for name in seen[0][2])
