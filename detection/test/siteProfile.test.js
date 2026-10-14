@@ -146,8 +146,8 @@ test("ruby-shop 은 근거가 있는 값만 담고 나머지는 확인 필요로
     "priceIntegrity",
   ]);
   // generic 에서 가져왔을 뿐 RUBY 에서 검증되지 않은 것.
-  assert.ok(ruby.genericDefaultFeatures.includes("identity.claimMap"));
-  assert.ok(ruby.genericDefaultFeatures.includes("priceTampering"));
+  assert.ok(ruby.genericDefaultFeatures.includes("businessLogic.alwaysSuspiciousFields"));
+  assert.ok(!ruby.genericDefaultFeatures.includes("priceTampering"));
 });
 
 // ---------------------------------------------------------------------------
@@ -388,7 +388,8 @@ test("status() 는 활성 대상과 비활성 기능을 관리 API 모양으로 
   const ruby = status.profiles.find((p) => p.profileId === "ruby-shop");
   assert.ok(ruby.disabledFeatures.includes("identity.bodyRules"));
   assert.ok(ruby.disabledFeatures.includes("priceIntegrity"));
-  assert.ok(ruby.genericDefaultFeatures.includes("priceTampering"));
+  assert.ok(ruby.genericDefaultFeatures.includes("businessLogic.alwaysSuspiciousFields"));
+
   assert.deepEqual(status.profiles.find((p) => p.profileId === "juice-shop").disabledFeatures, []);
 
   // 매핑 없는 대상은 목록에 남아 대시보드가 보여줄 수 있다.
