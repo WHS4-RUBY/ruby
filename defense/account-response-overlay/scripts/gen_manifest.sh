@@ -34,7 +34,7 @@ if [ "${1:-}" = "--check" ]; then
     # 1) 적힌 해시가 맞는가
     sha256sum -c --quiet "$MANIFEST" || status=1
     # 2) 추적 파일과 적힌 목록이 같은가 (빠진 파일·사라진 파일)
-    listed=$(sed 's/^[0-9a-f]\{64\}  //' "$MANIFEST" | LC_ALL=C sort)
+    listed=$(sed 's/^[0-9a-f]\{64\} [ *]//' "$MANIFEST" | LC_ALL=C sort)
     missing=$(printf '%s\n' "$listed" | comm -13 - "$(printf '%s\n' "$(tracked)" > /tmp/_gm_tracked; echo /tmp/_gm_tracked)")
     extra=$(printf '%s\n' "$listed" | comm -23 - /tmp/_gm_tracked)
     rm -f /tmp/_gm_tracked

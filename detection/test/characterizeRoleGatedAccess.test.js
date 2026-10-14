@@ -226,12 +226,43 @@ test("다른 사이트의 민감 라우트와 역할 이름으로도 같은 판�
   assert.equal(isHardcodedRoute("GET", "/api/admin/users", otherSite), true);
 });
 
-// 규칙 3: ruby-shop 은 /api/admin/users 같은 후보 경로를 알면서도 이 블록을 비워 둔다.
-// **역할 이름**(admin? ADMIN? administrator?)이 저장소에 없어서다. 역할 이름을 틀리면
-// 모든 관리자 요청을 오탐하거나 모든 침입을 미탐한다.
+// ruby-shop 은 main.py 에서 근거를 찾은 민감 라우트와 역할 이름(admin, support_staff,
+// seller_staff)을 선언한다. 단, 실제 세션 토큰이 JWT 가 아니라서 이 선언이 운영에서
+// 판정까지 이어지는지는 별개다(ruby-shop.json 의 _note 참고) — 여기서는 선언 자체만 고정한다.
+test("ruby-shop 의 민감 라우트는 선언돼 있고 juice-shop 라우트는 섞이지 않는다", () => {
+  assert.ok(!RUBY_PROFILE.disabledFeatures.includes("roleGated"),
+    "ruby-shop 이 roleGated 를 비활성으로 선언했다");
+
+  const routes = RUBY_PROFILE.roleGated.sensitiveRoutes;
+  assert.ok(routes.length > 0);
+  for (const { method, normalizedPath } of routes) {
+    assert.equal(isHardcodedRoute(method, normalizedPath, RUBY_PROFILE), true,
+      `${method} ${normalizedPath} 가 민감 라우트로 인식되지 않는다`);
+  }
+
+  // 역할 이름은 소문자로 선언돼야 한다(비교가 소문자 기준이다).
+  for (const { requiredRoles } of routes) {
+    for (const role of requiredRoles) assert.equal(role, role.toLowerCase());
+  }
+
+  // juice-shop 의 일곱 라우트는 RUBY 에서 민감하지 않다.
+  const customerAuth = `Bearer ${token({ data: { role: "customer" } })}`;
+  for (const [, method, normalizedPath] of SEVEN_ROUTES) {
+    assert.equal(isHardcodedRoute(method, normalizedPath, RUBY_PROFILE), false,
+      `${method} ${normalizedPath} 가 RUBY 에서 민감 라우트로 잡혔다`);
+    assert.deepEqual(
+      checkRoleGated({ method, normalizedPath, authorizationHeader: customerAuth,
+                       profile: RUBY_PROFILE }),
+      [], `ruby-shop 의 ${method} ${normalizedPath} 에서 태그가 나왔다`);
+  }
+});
+
+// 규칙 3: generic 은 사이트별 역할 이름(admin? ADMIN? administrator?)을 알 수 없어
+// 이 블록을 비워 둔다. 역할 이름을 틀리면 모든 관리자 요청을 오탐하거나 모든 침입을
+// 미탐한다.
 test("프로파일에 설정이 없으면 비활성이고 학습 폴백만 남는다", () => {
   const customerAuth = `Bearer ${token({ data: { role: "customer" } })}`;
-  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+  for (const profile of [GENERIC_PROFILE]) {
     for (const [, method, normalizedPath] of SEVEN_ROUTES) {
       assert.deepEqual(
         checkRoleGated({ method, normalizedPath, authorizationHeader: customerAuth, profile }),

@@ -1322,26 +1322,28 @@
   },
   "site:site-ruby-shop.toml": {
     "account_api_prefixes": [
-      "/api/Users",
-      "/administration",
-      "/account"
+      "/api/me",
+      "/api/admin/users",
+      "/api/customers"
     ],
     "account_terms": [
-      "login",
-      "account",
       "auth",
-      "user",
+      "login",
       "password",
-      "session"
+      "register",
+      "users",
+      "customers",
+      "profile"
     ],
     "api_prefixes": [
       "/api",
-      "/swagger",
-      "/openapi"
+      "/openapi",
+      "/docs",
+      "/redoc"
     ],
     "challenge_api": "",
-    "decoy_admin_email": "administrator@archive.invalid",
-    "decoy_brand": "RUBY Market Archive",
+    "decoy_admin_email": "administrator@ruby.local",
+    "decoy_brand": "Market Internal Administration",
     "decoy_namespaces": [
       "/ftp",
       "/ops"
@@ -1353,22 +1355,34 @@
       "/api/auth/login"
     ],
     "menu_selector": "nav.primary",
-    "ordinary_api_exact": [],
+    "ordinary_api_exact": [
+      "/api/search",
+      "/api/guest-inquiries"
+    ],
     "ordinary_api_prefixes": [
       "/api/products",
-      "/api/search",
-      "/api/shops"
+      "/api/orders",
+      "/api/me",
+      "/api/tickets",
+      "/api/seller",
+      "/api/support",
+      "/api/customers",
+      "/api/shops",
+      "/api/promotions",
+      "/api/operations",
+      "/api/integration",
+      "/api/integrations"
     ],
     "origin_auth_cookies": [
       "ruby_session",
-      "ruby_remember",
-      "token"
+      "ruby_remember"
     ],
     "recon_html_paths": [
       "/admin",
       "/internal",
       "/debug",
       "/backup",
+      "/config",
       "/.git",
       "/.env"
     ],
@@ -1380,15 +1394,32 @@
       "config",
       "private",
       "secret",
+      "wp-admin",
+      "phpmyadmin",
+      "server-status",
+      "actuator",
       ".git",
       ".env"
     ],
-    "recovery_anchor_selector": "a[href='#/account']",
+    "recovery_anchor_selector": "button[type='submit']",
     "robots_disallow": [
       "/ftp",
       "/ops/recovery/accounts",
       "/ops/service/manifest"
     ],
-    "synthetic_success": []
+    "synthetic_success": [
+      [
+        "/api/me",
+        "user_object"
+      ],
+      [
+        "/api/admin/users",
+        "user_list"
+      ],
+      [
+        "/api/auth/remember-device",
+        "ack"
+      ]
+    ]
   }
 }

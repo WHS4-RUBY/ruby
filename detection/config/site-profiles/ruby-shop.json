@@ -2,129 +2,92 @@
   "schemaVersion": 1,
   "profileId": "ruby-shop",
   "label": "RUBY Market",
-  "_note": "RUBY Market. 값은 저장소 안의 근거에서만 채웠다: defense/config/ruby-shop-routes.json, defense/account-response-overlay/config/site-ruby-shop.toml, 같은 패키지의 INTEGRATION.md, tests/test_production_config.py. _genericDefaults 는 generic 에서 그대로 가져온 값이고 RUBY 에서 검증되지 않았다.",
-  "_needsConfirmation": [
-    "loginBruteForce",
-    "passwordResetAbuse",
-    "priceIntegrity",
-    "businessLogic.massAssignmentWhitelist",
-    "roleGated",
-    "identity.routeRules",
-    "identity.bodyRules",
-    "identity.queryRules"
-  ],
-  "_genericDefaults": [
-    "priceTampering",
-    "businessLogic.alwaysSuspiciousFields",
-    "businessLogic.suspiciousRoleValues",
-    "businessLogic.numericFieldRules",
-    "identity.tokenSources",
-    "identity.claimMap",
-    "deception.plaintextBaitPaths"
-  ],
+  "_note": "RUBY Market. 값은 저장소 안의 근거에서만 채웠다: main.py(@app.* 72개), schemas.py, security.py, database.py, frontend. 주의 1: 세션 토큰은 JWT 가 아니다 — security.py:issue_unsigned_session 이 'rsv1.'+base64url('<uuid>:<role>:<nonce>') 를 발급하고 안전 빌드는 불투명 세션 id 다. identityMismatch.js:decodeClaimedIdentity 는 parts[1] 를 JSON.parse 하므로 둘 다 실패 → identity.claimMap 을 비웠고, roleGatedAccess.js:78 때문에 아래 roleGated 는 선언만 있고 동작하지 않는다. 주의 2: 모든 id 가 uuid4(database.py:12) 또는 slug 라서 extractTrailingNumericId/numericIdFrom 의 숫자 추출이 성립하지 않는다 → identity.routeRules·priceIntegrity 비움. 주의 3: priceDropRatio 는 앱에서 유도 불가능한 임계값이다.",
+  "_needsConfirmation": [ "priceIntegrity", "identity.routeRules",
+                          "identity.bodyRules", "identity.queryRules" ],
+  "_genericDefaults": [ "businessLogic.alwaysSuspiciousFields" ],
+
   "deception": {
     "loginPath": "/api/auth/login",
-    "apiPathPrefixes": [
-      "/api/"
-    ],
-    "plaintextBaitPaths": [
-      "/robots.txt",
-      "/security.txt",
-      "/.well-known/security.txt",
-      "/metrics"
-    ],
+    "apiPathPrefixes": [ "/api/" ],
+    "plaintextBaitPaths": [ "/robots.txt","/security.txt", "/.well-known/security.txt", "/metrics" ],
     "frontendFlavor": "fetch"
   },
+  "loginBruteForce": {
+    "route": { "method": "POST", "normalizedPath": "/api/auth/login" },
+    "emailField": "email"
+  },
+  "passwordResetAbuse": {
+    "resetRoute": { "method": "POST", "normalizedPath": "/api/auth/password-reset/request" },
+    "resetEmailField": "email"
+  },
   "priceTampering": {
-    "quantityFields": [
-      "quantity",
-      "qty"
-    ],
-    "unitPriceFields": [
-      "price",
-      "unitprice",
-      "itemprice"
-    ],
-    "totalFields": [
-      "totalprice",
-      "total",
-      "amount",
-      "ordertotal",
-      "linetotal"
-    ],
+    "quantityFields": [ "quantity", "qty" ],
+    "unitPriceFields": [ "price", "unitprice", "itemprice", "unit_price_cents", "price_cents" ],
+    "totalFields": [ "totalprice", "total", "amount", "ordertotal", "linetotal", "total_cents", "settled_cents", "discounted_total_cents" ],
     "amountTolerance": 0.01
   },
   "businessLogic": {
-    "alwaysSuspiciousFields": [
-      "role",
-      "isadmin",
-      "is_admin",
-      "admin",
-      "permissions",
-      "scope",
-      "accesslevel",
-      "is_staff",
-      "is_superuser",
-      "usertype",
-      "roles",
-      "authority",
-      "authorities",
-      "grants",
-      "privilege",
-      "privileges",
-      "acl",
-      "superuser",
-      "root",
-      "roleid",
-      "role_id"
+    "massAssignmentWhitelist": [
+      { "route": "POST /api/auth/register",                 "fields": ["email","display_name","password"] },
+      { "route": "POST /api/auth/login",                    "fields": ["email","password"] },
+      { "route": "POST /api/auth/password-reset/request",    "fields": ["email"] },
+      { "route": "POST /api/auth/password-reset/confirm",    "fields": ["token","new_password"] },
+      { "route": "PATCH /api/me/profile",                   "fields": ["display_name"] },
+      { "route": "POST /api/seller/products",               "fields": ["id","name","description","price_cents","stock"] },
+      { "route": "POST /api/orders",                        "fields": ["items"] },
+      { "route": "POST /api/guest-inquiries",               "fields": ["email","subject","body"] },
+      { "route": "POST /api/integration/settlement-callback","fields": ["order_id","settled_cents","reference"] },
+      { "route": "POST /api/integrations/partner/shipment-events",
+                                                            "fields": ["order_id","shipment_status","event_id","occurred_at"] },
+      { "route": "PATCH /api/admin/users/:uuid",            "fields": ["active"] },
+      { "route": "PATCH /api/admin/users/:uuid/role",       "fields": ["role"] },
+      { "route": "POST /api/orders/:uuid/pay",              "fields": ["method"] },
+      { "route": "POST /api/tickets/:uuid/messages",        "fields": ["body"] },
+      { "route": "PATCH /api/tickets/:uuid/status",         "fields": ["status"] }
     ],
-    "suspiciousRoleValues": [
-      "admin",
-      "administrator",
-      "root",
-      "superadmin",
-      "super_admin",
-      "sysadmin",
-      "owner"
-    ],
+    "alwaysSuspiciousFields": ["role","isadmin","is_admin","admin","permissions","scope",
+      "accesslevel","is_staff","is_superuser","usertype","roles","authority","authorities",
+      "grants","privilege","privileges","acl","superuser","root","roleid","role_id"],
+    "suspiciousRoleValues": ["admin","support_staff","seller_staff","administrator","root",
+      "superadmin","super_admin","sysadmin","owner"],
     "numericFieldRules": [
-      {
-        "field": "price",
-        "min": 0.01
-      },
-      {
-        "field": "deluxeprice",
-        "min": 0
-      },
-      {
-        "field": "quantity",
-        "min": 1,
-        "max": 100
-      },
-      {
-        "field": "rating",
-        "min": 1,
-        "max": 5
-      }
+      { "field": "price_cents",   "min": 1, "max": 10000000 },
+      { "field": "stock",         "min": 0, "max": 1000000 },
+      { "field": "quantity",      "min": 1, "max": 20 },
+      { "field": "settled_cents", "min": 0, "max": 100000000 }
     ]
   },
   "identity": {
-    "tokenSources": {
-      "bearer": true,
-      "cookieNames": [
-        "token"
-      ]
-    },
+    "tokenSources": { "bearer": true, "cookieNames": ["ruby_session"] },
     "claimMap": {
       "wrapperKey": "data",
       "id": "id",
       "email": "email",
       "role": "role",
-      "basketId": {
-        "at": "root",
-        "key": "bid"
-      }
+      "basketId": { "at": "root", "key": "bid" }
     },
     "learnedFallback": true
+  },
+  "roleGated": {
+    "sensitiveRoutes": [
+      { "tag": "role-gated:admin-user-directory",       "method": "GET",   "normalizedPath": "/api/admin/users",                              "requiredRoles": ["admin"] },
+      { "tag": "role-gated:admin-user-status",          "method": "PATCH", "normalizedPath": "/api/admin/users/:uuid",                        "requiredRoles": ["admin"] },
+      { "tag": "role-gated:admin-user-role",            "method": "PATCH", "normalizedPath": "/api/admin/users/:uuid/role",                   "requiredRoles": ["admin"] },
+      { "tag": "role-gated:admin-role-form-read",       "method": "GET",   "normalizedPath": "/api/admin/users/:uuid/role-form",              "requiredRoles": ["admin"] },
+      { "tag": "role-gated:admin-role-form-write",      "method": "POST",  "normalizedPath": "/api/admin/users/:uuid/role-form",              "requiredRoles": ["admin"] },
+      { "tag": "role-gated:admin-remembered-role-form", "method": "POST",  "normalizedPath": "/api/admin/users/:uuid/remembered-role-form",   "requiredRoles": ["admin"] },
+      { "tag": "role-gated:operations-metrics",         "method": "GET",   "normalizedPath": "/api/operations/metrics",                       "requiredRoles": ["admin"] },
+      { "tag": "role-gated:support-tickets",            "method": "GET",   "normalizedPath": "/api/support/tickets",                          "requiredRoles": ["support_staff","admin"] },
+      { "tag": "role-gated:support-documents",          "method": "GET",   "normalizedPath": "/api/support/documents",                        "requiredRoles": ["support_staff","admin"] },
+      { "tag": "role-gated:support-guest-inquiries",    "method": "GET",   "normalizedPath": "/api/support/guest-inquiries",                  "requiredRoles": ["support_staff","admin"] },
+      { "tag": "role-gated:support-audit-events",       "method": "GET",   "normalizedPath": "/api/support/audit-events",                     "requiredRoles": ["support_staff","admin"] },
+      { "tag": "role-gated:seller-products-read",       "method": "GET",   "normalizedPath": "/api/seller/products",                          "requiredRoles": ["seller_staff"] },
+      { "tag": "role-gated:seller-products-create",     "method": "POST",  "normalizedPath": "/api/seller/products",                          "requiredRoles": ["seller_staff"] },
+      { "tag": "role-gated:seller-orders",              "method": "GET",   "normalizedPath": "/api/seller/orders",                            "requiredRoles": ["seller_staff"] },
+      { "tag": "role-gated:seller-fulfillment-queue",   "method": "GET",   "normalizedPath": "/api/seller/fulfillment-queue",                 "requiredRoles": ["seller_staff"] },
+      { "tag": "role-gated:seller-report-catalog",      "method": "GET",   "normalizedPath": "/api/seller/report-catalog",                    "requiredRoles": ["seller_staff"] },
+      { "tag": "role-gated:seller-report-export",       "method": "POST",  "normalizedPath": "/api/seller/reports/exports",                   "requiredRoles": ["seller_staff"] }
+    ]
   }
 }
