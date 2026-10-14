@@ -30,11 +30,16 @@ def _test_settings(tmp_path, name):
     decoy = load_decoy_config(settings.decoy_config)
     assert decoy.detector_required and not decoy.secure_cookie
     assert decoy.audit_path == '/app/state/telemetry.sqlite3'
-    # 사이트별 능력은 이제 프로파일이 선언한다 — Juice Shop 만 챌린지 API 와 합성
-    # 성공 라우트를 갖는다. 예전에는 decoy TOML 의 site_adapter 가 이 사실을 알았다.
+    # 사이트별 능력은 이제 프로파일이 선언한다 — 챌린지 API 는 Juice Shop 만 갖고,
+    # RUBY 는 자기 합성 성공 라우트를 따로 선언한다(site-ruby-shop.toml).
+    # 예전에는 decoy TOML 의 site_adapter 가 이 사실을 알았다.
     if 'ruby' in name:
         assert not settings_profile(settings).challenge_api
-        assert not settings_profile(settings).synthetic_success
+        assert settings_profile(settings).synthetic_success == (
+            ('/api/me', 'user_object'),
+            ('/api/admin/users', 'user_list'),
+            ('/api/auth/remember-device', 'ack'),
+        )
     else:
         assert settings_profile(settings).challenge_api == '/api/Challenges'
         assert len(settings_profile(settings).synthetic_success) == 5
@@ -110,7 +115,8 @@ async def test_ruby_production_profile_removes_real_credentials_and_isolates_log
     settings = _test_settings(tmp_path, 'overlay-production-ruby-v2.toml')
     profile = load_site_profile(settings.site_profile)
     assert profile.login_paths == ('/api/auth/login',)
-    assert {'ruby_session', 'ruby_remember', 'token'} <= set(profile.origin_auth_cookies)
+    # 'token' 은 Juice Shop 잔존물이라 RUBY 프로파일에서 뺐다(main.py:828,858 의 두 쿠키만).
+    assert set(profile.origin_auth_cookies) == {'ruby_session', 'ruby_remember'}
     security = tmp_path / 'security.sqlite3'
     initialize_security_store(str(security))
     app = create_overlay_app(settings, SESSION, KEY, security_db=str(security),
@@ -120,7 +126,7 @@ async def test_ruby_production_profile_removes_real_credentials_and_isolates_log
                                      base_url='http://overlay') as client:
             headers = {**_signed('GET', '/'),
                        'authorization': 'Bearer production-token',
-                       'cookie': 'ruby_session=real; ruby_remember=remember; token=decoy; locale=ko',
+                       'cookie': 'ruby_session=real; ruby_remember=remember; locale=ko',
                        'x-defense-plan': '[{"name":"bypass"}]'}
             page = await client.get('/', headers=headers)
             assert page.status_code == 200
@@ -154,7 +160,7 @@ async def test_ruby_production_profile_removes_real_credentials_and_isolates_log
             assert service.headers['x-internal-api'] == '/ops/service/manifest'
             decoy = await client.get('/ftp', headers=_signed('GET', '/ftp'))
             assert decoy.status_code == 200
-            assert 'RUBY Market Archive' in decoy.text
+            assert 'Market Internal Administration' in decoy.text
 
             high = await client.get('/api/me', headers=_signed('GET', '/api/me',
                                                                  risk='high', actor='high-ruby'))

@@ -155,16 +155,20 @@ def test_the_account_family_prefixes():
     juice_ctx = _ctx('/x', profile=JUICE)
     # 로그인 경로에서 파생되는 접두어.
     assert hook.family('/rest/user/login', juice_ctx) == 'accounts'
-    # 프로파일과 무관하게 박혀 있는 세 접두어.
+    # Juice Shop 프로파일의 세 접두어.
     for path in ('/api/Users', '/administration', '/account'):
         assert hook.family(path, juice_ctx) == 'accounts', path
     assert hook.family('/products', juice_ctx) is None
 
-    # 다른 사이트에서도 그 세 접두어가 그대로 계정 경로로 잡힌다.
+    # 다른 사이트는 자기 프로파일의 account_api_prefixes 를 쓴다. RUBY 는 Juice Shop
+    # 잔존물을 제거하고 자기 경로를 선언했으므로(site-ruby-shop.toml) 그쪽이 잡힌다.
     ruby_ctx = _ctx('/x', profile=RUBY)
     assert hook.family('/api/auth/login', ruby_ctx) == 'accounts'
-    for path in ('/api/Users', '/administration', '/account'):
+    assert RUBY.account_api_prefixes == ('/api/me', '/api/admin/users', '/api/customers')
+    for path in RUBY.account_api_prefixes:
         assert hook.family(path, ruby_ctx) == 'accounts', path
+    # Juice Shop 의 접두어는 더 이상 RUBY 의 계정 경로가 아니다.
+    assert hook.family('/api/Users', ruby_ctx) is None
 
 
 def test_the_account_family_needs_a_context():
