@@ -9,12 +9,20 @@ const DETECTION_COOKIE_NAMES = new Set(["dlsid", "dcid"]);
 //   - the applied delay names the selected policy stage (300/500/700 ms) and the
 //     rate-limit signal announces that a defense fired, so a client that reads
 //     them can watch its own tier and settle just below the next threshold;
-//   - the request id is the two dashboards' join key.
+//   - the request id is the two dashboards' join key;
+//   - the applied strategy list names the stage on its own ("none" / "delay" /
+//     "path_alias,delay" / "path_alias,delay,rate_limit_strict"), so dropping
+//     only the delay value would still leave the tier readable.
 // Detection records every one of them against the completed request; only the
 // relay to the client is cut, so dashboard traceability is unchanged.
+//
+// Only the upstream copy is dropped. Detection's own `X-Defense-Applied: crs`
+// comes from the pre-proxy inspection short circuit, which never reaches this
+// function, and stays the published signal that this proxy refused a request.
 const PRIVATE_RESPONSE_HEADERS = new Set([
   "x-ruby-resolved-url", "x-ruby-resolved-url-sig", "x-ruby-overlay-active",
   "x-defense-delay-ms", "x-defense-signal", "x-ruby-request-id",
+  "x-defense-applied",
 ]);
 const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
   "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",

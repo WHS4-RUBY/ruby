@@ -140,11 +140,21 @@ Defense 가 HMAC 으로 서명한 라벨을 붙인다(`detector.sign_headers`):
 | `X-Defense-Delay-Ms` | 값이 곧 단계다(300·500·700ms) |
 | `X-Defense-Signal` | 방어가 발동했다는 신호 |
 | `X-Ruby-Request-Id` | 두 대시보드의 내부 조인 키 |
+| `X-Defense-Applied` | 전략 목록만으로 단계가 식별된다 |
 
-네 값 모두 Detection 이 완료 기록에 남기므로 대시보드 추적성은 그대로다. 공개
-응답에 남는 방어 흔적은 상태 코드와 `X-Defense-Applied`(공식 전략 이름만,
-`decoy_*` 제외) 뿐이다. `X-Ruby-Request-Id` 를 응답으로 되돌려 받아야 하는
-실험·통합 테스트는 `DETECTION_EXPOSE_REQUEST_ID=true` 로만 켠다.
+Defense 는 이 헤더들을 계속 Detection 으로 보내고 Detection 이 완료 기록에 남긴다 —
+끊는 것은 클라이언트로 가는 중계뿐이라 대시보드 추적성은 그대로다.
+
+`X-Defense-Applied` 는 **upstream 사본만** 지운다. Detection 이 전달 전 검사에서
+직접 거부한 요청에 붙이는 `X-Defense-Applied: crs` 는 프록시 앞단에서 끝나 이
+복사 단계를 지나지 않으므로 그대로 남고, 운영 점검(`verify_request_inspection.py`)이
+그 값을 확인한다. 전략 목록만으로 `none`·`delay`·`path_alias,delay`·
+`path_alias,delay,rate_limit_strict` 가 단계와 1:1 이라 지연값만 지우는 것으로는
+단계를 가릴 수 없다.
+
+공개 응답에 남는 방어 흔적은 상태 코드와 CRS 거부 표시뿐이다.
+`X-Ruby-Request-Id` 를 응답으로 되돌려 받아야 하는 실험·통합 테스트는
+`DETECTION_EXPOSE_REQUEST_ID=true` 로만 켠다.
 
 ## 대상 선택 파일
 
