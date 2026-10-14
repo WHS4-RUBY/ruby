@@ -86,7 +86,7 @@ Compose의 단일 Target(legacy) 구성은 루트 `.env`의 `TARGET_PORT`를 사
 
 설치·운영·검증 결과는 [경로 별칭 설치·운영 가이드](docs/path-alias-operations.md)에 정리했습니다. 요약:
 
-- `PATH_ALIAS_ROUTES_FILE`의 경로마다 **클라이언트별** 난수 별칭을 응답에 실제로 나온 것만 발급하고, Defense가 발급하는 `ruby_alias_client` 쿠키에 묶습니다. 별칭은 원래 경로로 복원해 후속 전략과 대상에 전달합니다.
+- `PATH_ALIAS_ROUTES_FILE`의 경로마다 **클라이언트별** 난수 별칭을 응답에 실제로 나온 것만 발급하고, Defense가 발급하는 `ui_state` 쿠키에 묶습니다. 별칭은 원래 경로로 복원해 후속 전략과 대상에 전달합니다.
 - 모드: `off` / `audit`(응답을 바꾸지 않고 집계만) / `observe`(응답 치환·쿠키 발급, 원본도 전달) / `enforce`(원본 404). 운영 Compose는 `enforce`, 로컬 Compose는 `off`가 기본입니다. **enforce는 경로 파일이 `enforce_ready`와 검증한 흐름·갱신 방식을 기록해야 적용되며, 없으면 observe로 동작합니다.** 경로별 `"mode":"observe"`, 대상별 `target_ids`로 범위를 좁힐 수 있습니다.
 - 저장소는 **SQLite 파일 하나**(`PATH_ALIAS_DB_PATH`, `defense-alias-data` 볼륨, WAL)입니다. 별도 DB 서비스나 비밀번호가 필요 없고, PostgreSQL 지원은 제거했습니다. 기존 PostgreSQL 설치의 전환·롤백과 여러 호스트가 필요해지는 기준은 가이드 9절을 보세요. DB 오류는 원본 우회가 아니라 503으로 끝납니다.
 - 경로 별칭 도입과 검증 이력은 [PR #47](https://github.com/WHS4-RUBY/ruby/pull/47)에서 확인할 수 있습니다.

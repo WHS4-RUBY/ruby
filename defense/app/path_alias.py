@@ -40,7 +40,7 @@ REWRITABLE_TYPES = frozenset({
     "text/html", "application/javascript", "text/javascript",
     "application/x-javascript", "application/json",
 })
-COOKIE_NAME = "ruby_alias_client"
+COOKIE_NAME = "ui_state"
 MODES = ("off", "audit", "observe", "enforce")
 _RANK = {mode: index for index, mode in enumerate(MODES)}
 # Reasons an alias request is refused. ``stale_alias`` (expired or replaced by time/config)
@@ -685,7 +685,7 @@ class PathAliasTable:
     The table is one SQLite file (``PATH_ALIAS_DB_PATH``, WAL) shared by the workers of one
     host. Several hosts cannot share it; see docs/path-alias-operations.md.
 
-    Each client (identified by the ``ruby_alias_client`` cookie) owns at most one alias per
+    Each client (identified by the ``ui_state`` cookie) owns at most one alias per
     configured route, issued lazily when a response first needs it. A client stays *pending*
     until it returns its cookie; pending clients are capped and expire after
     ``pending_ttl_s``, so cookieless traffic cannot grow the table without bound.

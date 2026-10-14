@@ -9,7 +9,9 @@ from pathlib import Path
 
 import httpx
 
-COOKIE_NAME = "__ruby_tg"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.token_gate import COOKIE_NAME  # noqa: E402  리터럴 중복을 두지 않는다
+
 API_PATH = "/rest/products/search?q=apple"
 OPTIONS_PATH = "/rest/products/search"
 

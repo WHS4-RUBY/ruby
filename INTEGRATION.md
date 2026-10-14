@@ -119,7 +119,7 @@ Defense 가 HMAC 으로 서명한 라벨을 붙인다(`detector.sign_headers`):
 
 - `overlay_headers` — 중위험에서 **원본 자격증명을 유지**해 실제 사이트로 전달한다.
 - `isolation_headers` — 내부 미끼로 가는 호출. `accept`/`content-type` 과 미끼 자신의
-  쿠키(`defense_session`, `defense_auth`, 조건부 `token`)만 통과시킨다. 운영
+  쿠키(`ops_session`, `ops_auth`, 조건부 `token`)만 통과시킨다. 운영
   Authorization·다른 쿠키·전달 헤더·클라이언트가 보낸 detector 라벨은 모두 제외한다.
 
 ### Defense → Detection (응답)

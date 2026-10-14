@@ -4,7 +4,10 @@ import httpx
 from starlette.requests import Request
 from starlette.websockets import WebSocket
 
-from defense.app.main import _websocket_headers, build_upstream_headers, proxy_response, streaming_proxy_response
+from defense.app import path_alias, token_gate
+from defense.app.main import (
+    _websocket_headers, build_upstream_headers, proxy_response, streaming_proxy_response,
+)
 
 
 class ProxyResponseTests(unittest.TestCase):
@@ -131,6 +134,39 @@ class ProxyResponseTests(unittest.TestCase):
         self.assertEqual(response.headers["location"], "https://ruby.example.com/login")
         self.assertEqual(response.headers["content-encoding"], "gzip")
         self.assertEqual(response.headers["set-cookie"], "sid=1; Path=/")
+
+
+class ReservedCookieNames(unittest.TestCase):
+    """대상이 Defense 의 쿠키 이름을 쓰면 그 Set-Cookie 는 전달하지 않는다.
+
+    별칭·토큰 게이트 쿠키는 보호 대상과 **같은 origin** 에 나간다. 이름이 겹치면
+    브라우저가 대상의 값으로 덮어써서 별칭 귀속이 매 응답 새 미확인 클라이언트로
+    떨어진다(`path-alias-operations.md` 6절). Detection 이 dlsid·dcid 에 하는 것과
+    같은 보호이고, 이름을 일반적인 쪽으로 바꿀 때 필요해졌다.
+    """
+
+    def upstream(self, cookies):
+        return httpx.Response(200, content=b"ok",
+                              headers=[("Set-Cookie", value) for value in cookies])
+
+    def test_the_target_cannot_overwrite_the_alias_or_token_gate_cookie(self):
+        reserved = [f"{path_alias.COOKIE_NAME}=target-wins; Path=/",
+                    f"{token_gate.COOKIE_NAME}=target-wins; Path=/"]
+        upstream = self.upstream([*reserved, "app_session=keep; Path=/"])
+
+        for response in (proxy_response(upstream),
+                         streaming_proxy_response(upstream, ProxyResponseTests.request())):
+            with self.subTest(kind=type(response).__name__):
+                self.assertEqual(response.headers.getlist("set-cookie"),
+                                 ["app_session=keep; Path=/"])
+
+    def test_a_different_name_is_forwarded_even_when_it_shares_a_prefix(self):
+        # 접두어 규칙이 아니라 정확한 이름만 막는다 — 대상의 평범한 쿠키를 삼키지 않는다.
+        similar = [f"{path_alias.COOKIE_NAME}_extra=1; Path=/",
+                   f"prefix_{token_gate.COOKIE_NAME}=1; Path=/"]
+        response = proxy_response(self.upstream(similar))
+
+        self.assertEqual(response.headers.getlist("set-cookie"), similar)
 
 
 if __name__ == "__main__":

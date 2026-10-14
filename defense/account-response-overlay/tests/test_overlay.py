@@ -231,7 +231,7 @@ async def test_origin_credentials_filter_preserves_real_cookie(tmp_path):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
                                      base_url='http://overlay') as client:
             response = await client.get('/private', headers={**signed('GET', '/private'),
-                'cookie': 'session=real; defense_session=fake; defense_auth=fake; token=real-admin',
+                'cookie': 'session=real; ops_session=fake; ops_auth=fake; token=real-admin',
                 'authorization': 'Bearer real-admin'})
             assert response.json() == {'user': 'real'}
     assert 'session=real' in seen[0]['cookie']

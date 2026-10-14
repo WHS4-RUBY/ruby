@@ -3,11 +3,15 @@
 import argparse
 import base64
 import json
+import sys
 import time
 import uuid
 from pathlib import Path
 
 import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.token_gate import COOKIE_NAME as TOKEN_GATE_COOKIE  # noqa: E402  리터럴 중복을 두지 않는다
 
 
 def admin_claim(response):
@@ -50,8 +54,8 @@ def run(args):
     with httpx.Client(base_url=base, timeout=30) as client:
         response = client.get("/", headers={"Accept": "text/html"})
         check("page_and_cookies", response, 200,
-              all(name in client.cookies for name in ("__ruby_tg", "dcid", "dlsid")))
-        saved_token = client.cookies.get("__ruby_tg")
+              all(name in client.cookies for name in (TOKEN_GATE_COOKIE, "dcid", "dlsid")))
+        saved_token = client.cookies.get(TOKEN_GATE_COOKIE)
         response = client.post("/rest/user/login", json=payload)
         check("sqli_after_page_visit", response, 403,
               response.headers.get("x-defense-applied") == "crs" and not admin_claim(response))
@@ -81,7 +85,7 @@ def run(args):
             check("benign_authenticated_identity", response, 200,
                   response.json().get("user", {}).get("email") == email)
 
-    response = httpx.get(base + "/rest/products/search?q=apple", headers={"Cookie": "__ruby_tg=invalid"}, timeout=30)
+    response = httpx.get(base + "/rest/products/search?q=apple", headers={"Cookie": f"{TOKEN_GATE_COOKIE}=invalid"}, timeout=30)
     check("benign_invalid_gate_token", response, 200)
     response = httpx.post(base + "/rest/user/login", content="uninspected",
                           headers={"Content-Type": "application/octet-stream"}, timeout=30)
@@ -96,7 +100,7 @@ def run(args):
         print(f"Waiting {args.expiry_wait}s for the saved page token to expire", flush=True)
         time.sleep(args.expiry_wait)
         response = httpx.get(base + "/rest/products/search?q=apple",
-                             headers={"Cookie": f"__ruby_tg={saved_token}"}, timeout=30)
+                             headers={"Cookie": f"{TOKEN_GATE_COOKIE}={saved_token}"}, timeout=30)
         check("benign_expired_gate_token", response, 200)
         response = httpx.get(base + "/rest/products/search?q=apple", timeout=30)
         check("benign_cookie_dropped_after_idle", response, 200)

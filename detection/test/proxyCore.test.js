@@ -491,9 +491,9 @@ function aliasRequest(url, headers = {}) {
 
 for (const scenario of [
   { name: "local and upstream cookies", local: ["dlsid=session; Path=/", "dcid=client; Path=/"],
-    upstream: ["first=1; Path=/", "second=2; Path=/", "__ruby_tg=token; Path=/; HttpOnly"] },
+    upstream: ["first=1; Path=/", "second=2; Path=/", "_vt=token; Path=/; HttpOnly"] },
   { name: "local cookies only", local: ["dlsid=session; Path=/", "dcid=client; Path=/"], upstream: [] },
-  { name: "upstream cookies only", local: [], upstream: ["__ruby_tg=token; Path=/; HttpOnly"] },
+  { name: "upstream cookies only", local: [], upstream: ["_vt=token; Path=/; HttpOnly"] },
   { name: "no cookies", local: [], upstream: [] },
   { name: "single string local cookie", local: "dcid=client; Path=/", upstream: ["app=1; Path=/"] },
 ]) {
@@ -524,7 +524,7 @@ for (const scenario of [
     const baseUrl = await aliasListen(proxy);
     t.after(() => aliasClose(proxy));
     const headers = { Accept: "text/html", "Sec-Fetch-Dest": "document",
-      "Sec-Fetch-Mode": "navigate", Cookie: "__ruby_tg=existing; app=1" };
+      "Sec-Fetch-Mode": "navigate", Cookie: "_vt=existing; app=1" };
     const result = await aliasRequest(baseUrl + "/api", headers);
     const local = Array.isArray(scenario.local) ? scenario.local : [scenario.local];
     const expected = [...local, ...scenario.upstream];
@@ -541,7 +541,7 @@ for (const scenario of [
 test("concurrent proxy responses keep cookie snapshots isolated and preserve body hooks", async (t) => {
   const backend = http.createServer((req, res) => {
     const client = req.url.slice(1);
-    res.setHeader("Set-Cookie", [`__ruby_tg=${client}; Path=/`]);
+    res.setHeader("Set-Cookie", [`_vt=${client}; Path=/`]);
     res.setHeader("Content-Type", "text/plain");
     setTimeout(() => res.end(client), client === "one" ? 20 : 0);
   });
@@ -562,7 +562,7 @@ test("concurrent proxy responses keep cookie snapshots isolated and preserve bod
   const results = await Promise.all(["one", "two"].map((client) => aliasRequest(`${baseUrl}/${client}`)));
   for (const [index, client] of ["one", "two"].entries()) {
     assert.deepEqual(results[index].headers["set-cookie"], [
-      `dcid=${client}; Path=/`, `dlsid=${client}; Path=/`, `__ruby_tg=${client}; Path=/`,
+      `dcid=${client}; Path=/`, `dlsid=${client}; Path=/`, `_vt=${client}; Path=/`,
     ]);
     assert.equal(results[index].body, `${client}-hook`);
   }

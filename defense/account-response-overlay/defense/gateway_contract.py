@@ -31,7 +31,7 @@ def isolation_headers(client_headers, signed_headers):
     generated from the fixed isolation upstream. Never reuse an HTTP client's
     cross-actor cookie jar. Caller handles failures with an error, not origin.
     Production Authorization, other cookies, forwarding headers and client-supplied
-    detector labels are intentionally excluded. V1's defense_auth cookie lets its
+    detector labels are intentionally excluded. V1's decoy auth cookie lets its
     synthetic session work without forwarding a production bearer token.
     """
     result, seen, cookie_parts = {}, set(), []

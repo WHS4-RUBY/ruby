@@ -488,7 +488,7 @@ class SmokeTests(unittest.TestCase):
             if method == "OPTIONS":
                 return httpx.Response(204, headers={"Allow": "POST"})
             if path == "/":
-                return httpx.Response(200, headers={"Set-Cookie": "__ruby_tg=test; Max-Age=20", "Cache-Control": "no-store"})
+                return httpx.Response(200, headers={"Set-Cookie": f"{tg.COOKIE_NAME}=test; Max-Age=20", "Cache-Control": "no-store"})
             return httpx.Response(200)
 
         def http_response(*args, **kwargs):

@@ -535,6 +535,21 @@ def _public_origin(request: Request) -> str:
     return f"{scheme}://{host}" if host else ""
 
 
+# Defense 가 이 origin 에서 발급하는 쿠키 이름. 대상이 같은 이름으로 Set-Cookie 를
+# 보내면 브라우저에서 이쪽 값을 덮어쓴다 — 별칭 귀속이 매 응답 새 미확인 클라이언트로
+# 떨어지거나 토큰 상태가 뒤섞인다. Detection 이 dlsid·dcid 를 예약하는 것과 같은
+# 이유이고, 자기 쿠키는 자기 계층이 지키는 쪽이 계층 간 결합을 늘리지 않는다.
+_RESERVED_COOKIE_NAMES = frozenset({path_alias.COOKIE_NAME, token_gate.COOKIE_NAME})
+
+
+def _reserved_cookie(key: str, value: str) -> bool:
+    """대상이 Defense 의 쿠키 이름을 쓰면 그 Set-Cookie 는 전달하지 않는다."""
+    if key.lower() != "set-cookie":
+        return False
+    # 쿠키 이름은 대소문자를 구분한다(RFC 6265): 정확히 같은 이름만 충돌한다.
+    return value.split("=", 1)[0].strip() in _RESERVED_COOKIE_NAMES
+
+
 def _rewrite_response_header(
     key: str, value: str, request: Request | None, target_url: str | None = None
 ) -> str:
@@ -559,7 +574,8 @@ def proxy_response(
     )
     skip = _RESPONSE_SKIP - {"server"} if keep_server else _RESPONSE_SKIP
     for key, value in upstream.headers.multi_items():
-        if key.lower() in skip or key.lower().startswith("x-defense-"):
+        if (key.lower() in skip or key.lower().startswith("x-defense-")
+                or _reserved_cookie(key, _header_value(value))):
             continue
         response.raw_headers.append(
             (
@@ -609,7 +625,8 @@ def streaming_proxy_response(
     response = StreamingResponse(body if body is not None else _stream_body(upstream, on_complete), status_code=upstream.status_code)
     skip = _STREAM_RESPONSE_SKIP - {"server"} if keep_server else _STREAM_RESPONSE_SKIP
     for key, value in upstream.headers.multi_items():
-        if key.lower() in skip or key.lower().startswith("x-defense-"):
+        if (key.lower() in skip or key.lower().startswith("x-defense-")
+                or _reserved_cookie(key, _header_value(value))):
             continue
         response.raw_headers.append(
             (
@@ -842,7 +859,8 @@ async def alias_proxy_response(
                 skip = skip - {"server"}
             response = Response(content=body, status_code=upstream.status_code)
             for key, value in upstream.headers.multi_items():
-                if key.lower() in skip or key.lower().startswith("x-defense-"):
+                if (key.lower() in skip or key.lower().startswith("x-defense-")
+                        or _reserved_cookie(key, _header_value(value))):
                     continue
                 response.raw_headers.append(
                     (
