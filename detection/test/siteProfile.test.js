@@ -140,18 +140,14 @@ test("ruby-shop 은 근거가 있는 값만 담고 나머지는 확인 필요로
   assert.equal(ruby.deception.frontendFlavor, "fetch");
   // 근거가 없어 비워 둔 것 — 추측해서 채우지 않았다.
   assert.deepEqual([...ruby.disabledFeatures].sort(), [
-    "businessLogic.massAssignmentWhitelist",
     "identity.bodyRules",
     "identity.queryRules",
     "identity.routeRules",
-    "loginBruteForce",
-    "passwordResetAbuse",
     "priceIntegrity",
-    "roleGated",
   ]);
   // generic 에서 가져왔을 뿐 RUBY 에서 검증되지 않은 것.
-  assert.ok(ruby.genericDefaultFeatures.includes("identity.claimMap"));
-  assert.ok(ruby.genericDefaultFeatures.includes("priceTampering"));
+  assert.ok(ruby.genericDefaultFeatures.includes("businessLogic.alwaysSuspiciousFields"));
+  assert.ok(!ruby.genericDefaultFeatures.includes("priceTampering"));
 });
 
 // ---------------------------------------------------------------------------
@@ -349,7 +345,7 @@ test("비활성 기능은 기동 시 대상·기능·사유와 함께 한 번 �
   const disabled = lines.filter((line) => line.includes("-> disabled (no profile)"));
   assert.ok(disabled.length >= 9, "generic 의 비활성 기능이 경고되지 않았다");
   assert.ok(disabled.some((l) => l.includes("profile=generic") && l.includes("feature=roleGated")));
-  assert.ok(disabled.some((l) => l.includes("profile=ruby-shop") && l.includes("feature=loginBruteForce")));
+  assert.ok(disabled.some((l) => l.includes("profile=ruby-shop") && l.includes("feature=identity.bodyRules")));
   // juice-shop 은 전부 설정돼 있으므로 비활성 경고가 없어야 한다.
   assert.equal(disabled.filter((l) => l.includes("profile=juice-shop")).length, 0);
   // generic 기본값을 쓰는 것은 별도로 알린다.
@@ -390,8 +386,10 @@ test("status() 는 활성 대상과 비활성 기능을 관리 API 모양으로 
   assert.deepEqual(status.profiles.map((p) => p.profileId).sort(), [...SHIPPED].sort());
 
   const ruby = status.profiles.find((p) => p.profileId === "ruby-shop");
-  assert.ok(ruby.disabledFeatures.includes("roleGated"));
-  assert.ok(ruby.genericDefaultFeatures.includes("priceTampering"));
+  assert.ok(ruby.disabledFeatures.includes("identity.bodyRules"));
+  assert.ok(ruby.disabledFeatures.includes("priceIntegrity"));
+  assert.ok(ruby.genericDefaultFeatures.includes("businessLogic.alwaysSuspiciousFields"));
+
   assert.deepEqual(status.profiles.find((p) => p.profileId === "juice-shop").disabledFeatures, []);
 
   // 매핑 없는 대상은 목록에 남아 대시보드가 보여줄 수 있다.

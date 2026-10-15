@@ -1,28 +1,45 @@
-# RUBY Market: frontend/src/main.tsx + backend/ruby_web/main.py.
-login_paths = ["/api/auth/login"]
-login_form_selector = ".masthead .session form.inline"
-# RUBY's inline login form has no recovery anchor; the lure script appends one.
-recovery_anchor_selector = "a[href='#/account']"
-menu_selector = "nav.primary"
-account_terms = ["login", "account", "auth", "user", "password", "session"]
-recon_segments = ["admin", "internal", "debug", "backup", "config", "private", "secret", ".git", ".env"]
-recon_html_paths = ["/admin", "/internal", "/debug", "/backup", "/.git", "/.env"]
-api_prefixes = ["/api", "/swagger", "/openapi"]
-ordinary_api_prefixes = ["/api/products", "/api/search", "/api/shops"]
-ordinary_api_exact = []
-# RUBY accepts Bearer first, then ruby_session. The overlay also removes both
-# real session cookies and the synthetic decoy's separate token cookie.
-origin_auth_cookies = ["ruby_session", "ruby_remember", "token"]
-# 미끼가 차지하는 경로 네임스페이스. robots 단서와 로그인 경로 검증의 기준이다.
+login_paths = ["/api/auth/login"]                       # main.py:813
+login_form_selector = ".masthead .session form.inline"  # main.tsx: .masthead > .session > form.inline
+# TODO(human): 이 사이트에는 '비밀번호 찾기' 앵커가 없다. 재설정 UI 는 #/account
+# (pages/Account.tsx:74,87) 안에 따로 있다. account_recovery.js:118-123 은 이 선택자를
+# 폼 내부에서 찾아 그 뒤에 링크를 넣고 못 찾으면 폼 끝에 붙인다. 배치는 의도대로 되지만
+# 의미는 원래 정의와 다르다 — 실제 앵커를 추가하면 그 선택자로 바꿔라.
+recovery_anchor_selector = "button[type='submit']"
+menu_selector = "nav.primary"                           # main.tsx <nav className="primary">
+# 경로 부분 문자열 비교(deception_headers.py:32). "me" 는 뺐다 — "docuMEnts"/"settleMEnt"
+# 안에 들어가 업무 경로를 계정 경로로 오분류한다.
+account_terms = ["auth", "login", "password", "register", "users", "customers", "profile"]
+recon_segments = ["admin","internal","debug","backup","config","private","secret",
+                  "wp-admin","phpmyadmin","server-status","actuator",".git",".env"]
+# nginx.conf 의 try_files 때문에 없는 경로도 200 text/html 이다 → html_recon 분기 성립
+recon_html_paths = ["/admin","/internal","/debug","/backup","/config","/.git","/.env"]
+# /api 는 nginx `location /api/`; 나머지는 같은 파일의 = /openapi.json|/docs|/redoc
+api_prefixes = ["/api", "/openapi", "/docs", "/redoc"]
+ordinary_api_prefixes = [
+  "/api/products", "/api/orders", "/api/me", "/api/tickets", "/api/seller", "/api/support",
+  "/api/customers", "/api/shops", "/api/promotions", "/api/operations",
+  "/api/integration", "/api/integrations",
+]
+ordinary_api_exact = ["/api/search", "/api/guest-inquiries"]
+origin_auth_cookies = ["ruby_session", "ruby_remember"]   # main.py:828, main.py:858
 decoy_namespaces = ["/ftp", "/ops"]
 robots_disallow = ["/ftp", "/ops/recovery/accounts", "/ops/service/manifest"]
-decoy_brand = "RUBY Market Archive"
-decoy_admin_email = "administrator@archive.invalid"
+decoy_brand = "Market Internal Administration"
+# seed.py:SEED_USERS 의 실제 계정은 전부 @ruby.local 이고 administrator@ 는 미사용 →
+# 도메인은 맞추고 실제 계정과는 충돌하지 않는다.
+decoy_admin_email = "administrator@ruby.local"
 decoy_service = "Internal Account Registry"
+# 이 사이트는 아바타 자산을 서빙하지 않는다(src 전체에 <img> 없음, Vite 산출물은 index-* 뿐)
 decoy_profile_image = ""
 
-# 계정 관련으로 취급할 추가 경로 접두어. 이 셋은 리팩토링 이전에 engagement.py 와
-# cycle.py 에 **사이트와 무관하게** 박혀 있었으므로 동작 보존을 위해 그대로 둔다.
-# /administration 과 /account 는 웹 전반의 관례지만 /api/Users 는 Juice Shop 경로다 —
-# 이 사이트의 실제 계정 경로로 바꾸는 것이 맞고, 근거가 생기면 교체할 항목이다.
-account_api_prefixes = ["/api/Users", "/administration", "/account"]
+# challenge_api: 이 사이트에 챌린지 API 가 없다 → 선언하지 않는다(미끼는 404).
+
+# false_success.py 가 login_path 에서 /api/auth/{whoami,logout,authentication-details}
+# 를 자동 파생하므로 여기에는 적지 않는다.
+synthetic_success = [
+  { path = "/api/me", kind = "user_object" },
+  { path = "/api/admin/users", kind = "user_list" },
+  { path = "/api/auth/remember-device", kind = "ack" },
+]
+# Juice Shop 잔존물(/api/Users, /administration, /account)은 제거했다.
+account_api_prefixes = ["/api/me", "/api/admin/users", "/api/customers"]

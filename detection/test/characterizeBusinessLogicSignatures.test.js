@@ -289,10 +289,12 @@ test("특성화: 본문이 객체가 아니면 아무것도 판정하지 않는�
 const GENERIC_PROFILE = profileAt("generic");
 const RUBY_PROFILE = profileAt("ruby-shop");
 
-// D3-R: 라우트 무관한 세 판정은 generic·ruby-shop 에도 같은 값으로 들어간다.
+// D3-R: 라우트 무관한 세 판정은 generic 에 juice-shop 과 같은 값으로 들어간다.
 // 빠지면 프로파일 없는 대상(legacy/alternate)의 동작이 바뀐다.
-test("라우트 무관 판정은 세 프로파일에서 모두 같다", () => {
-  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+// ruby-shop 은 자기 저장소 근거로 값을 채웠으므로(예: quantity 상한 20) juice-shop 과
+// 같을 이유가 없다 — 아래 별도 테스트가 RUBY 값을 고정한다.
+test("라우트 무관 판정은 generic 에서 juice-shop 과 같다", () => {
+  for (const profile of [GENERIC_PROFILE]) {
     // 의심 필드명 — 라우트와 무관하다.
     assert.deepEqual(
       detectMass("POST", "/anything", { role: "admin" }, profile).suspiciousFields,
@@ -315,9 +317,35 @@ test("라우트 무관 판정은 세 프로파일에서 모두 같다", () => {
   }
 });
 
-// 반대로 라우트별 화이트리스트는 사이트 종속이므로 generic·ruby-shop 에 없다.
-test("라우트별 화이트리스트는 generic·ruby-shop 에서 비활성이고 그 사실이 드러난다", () => {
-  for (const profile of [GENERIC_PROFILE, RUBY_PROFILE]) {
+test("ruby-shop 은 의심 필드명은 juice-shop 과 같고 숫자 범위는 RUBY 값을 쓴다", () => {
+  assert.deepEqual(
+    detectMass("POST", "/anything", { role: "admin" }, RUBY_PROFILE).suspiciousFields,
+    detectMass("POST", "/anything", { role: "admin" }, JUICE_PROFILE).suspiciousFields
+  );
+  // quantity 상한은 juice-shop(100)이 아니라 RUBY(20)다.
+  assert.deepEqual(detectNumeric({ quantity: -1 }, RUBY_PROFILE), {
+    hit: true,
+    violations: [{ field: "quantity", value: -1, rule: { min: 1, max: 20 } }],
+  });
+  assert.equal(detectNumeric({ quantity: 21 }, RUBY_PROFILE).hit, true);
+  assert.equal(detectNumeric({ quantity: 5 }, RUBY_PROFILE).hit, false);
+  // RUBY 는 *_cents 필드 규칙을 가진다.
+  assert.equal(detectNumeric({ price_cents: 0 }, RUBY_PROFILE).hit, true);
+  assert.equal(detectNumeric({ price_cents: 1999 }, RUBY_PROFILE).hit, false);
+  // RUBY 에 없는 규칙은 걸리지 않는다.
+  assert.equal(detectNumeric({ rating: 0 }, RUBY_PROFILE).hit, false);
+  for (const feature of ["businessLogic.alwaysSuspiciousFields",
+                         "businessLogic.suspiciousRoleValues",
+                         "businessLogic.numericFieldRules"]) {
+    assert.ok(!RUBY_PROFILE.disabledFeatures.includes(feature),
+      `ruby-shop 이 ${feature} 를 비활성으로 선언했다`);
+  }
+});
+
+// 반대로 라우트별 화이트리스트는 사이트 종속이므로 generic 에는 없다.
+// ruby-shop 은 main.py 의 라우트에서 근거를 찾아 선언했으므로 활성이다.
+test("라우트별 화이트리스트는 generic 에서 비활성이고 그 사실이 드러난다", () => {
+  for (const profile of [GENERIC_PROFILE]) {
     assert.equal(hasWhitelist("POST", "/api/Users", profile), false);
     const result = detectMass("POST", "/api/Users", { email: "a@b", zzz: 1 }, profile);
     assert.deepEqual(result.extraFields, [], "화이트리스트가 없으면 판단하지 않는다");
@@ -325,6 +353,22 @@ test("라우트별 화이트리스트는 generic·ruby-shop 에서 비활성이�
     assert.ok(profile.disabledFeatures.includes("businessLogic.massAssignmentWhitelist"),
       `${profile.profileId} 가 massAssignmentWhitelist 비활성을 선언하지 않았다`);
   }
+});
+
+test("ruby-shop 의 라우트별 화이트리스트는 활성이다", () => {
+  assert.ok(!RUBY_PROFILE.disabledFeatures.includes("businessLogic.massAssignmentWhitelist"));
+  assert.equal(hasWhitelist("POST", "/api/auth/register", RUBY_PROFILE), true);
+  // juice-shop 의 라우트는 RUBY 화이트리스트에 없다.
+  assert.equal(hasWhitelist("POST", "/api/Users", RUBY_PROFILE), false);
+
+  const clean = detectMass("POST", "/api/auth/register",
+    { email: "a@b", display_name: "x", password: "y" }, RUBY_PROFILE);
+  assert.deepEqual(clean.extraFields, []);
+
+  const mass = detectMass("POST", "/api/auth/register",
+    { email: "a@b", display_name: "x", password: "y", role: "admin" }, RUBY_PROFILE);
+  assert.deepEqual(mass.extraFields, ["role"]);
+  assert.deepEqual(mass.suspiciousFields, ["role"]);
 });
 
 test("다른 사이트의 라우트·필드·범위로도 같은 판정이 나온다", () => {
