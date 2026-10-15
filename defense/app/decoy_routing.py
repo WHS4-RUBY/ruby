@@ -31,6 +31,15 @@ _MAZE_ROOT = re.compile(r"/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\Z")
 
 
 def _parse_maze_root_choices(raw: str | None, target_ids, name: str) -> dict[str, tuple[str, ...]]:
+    """Validate a fixed map, then use entries enabled in this deployment.
+
+    Compose gives the same fixed map to every deployment of a target, while
+    TARGET_CHOICES decides which of those targets this one actually runs. An
+    entry for a target that is not enabled is dropped here, as it is in
+    parse_decoy_upstreams — the map is a catalog, not a claim that each target
+    exists. A malformed entry is still fatal: a mistyped root would quietly
+    leave a real path out of the maze.
+    """
     if not raw or not raw.strip():
         return {}
     allowed = set(target_ids)
@@ -39,14 +48,14 @@ def _parse_maze_root_choices(raw: str | None, target_ids, name: str) -> dict[str
         target_id, separator, paths = item.strip().partition("=")
         roots = paths.split("|")
         normalized = tuple(root.lower() for root in roots)
-        if (not separator or target_id not in allowed or target_id in configured
+        if (not separator or not _TARGET_ID.fullmatch(target_id) or target_id in configured
                 or not roots or any(not _MAZE_ROOT.fullmatch(root) or
                                      any(segment in {".", ".."} for segment in root.split("/"))
                                      for root in roots)
                 or len(set(normalized)) != len(normalized)):
             raise RuntimeError(f"{name} must contain valid id=/root entries")
         configured[target_id] = normalized
-    return configured
+    return {target_id: roots for target_id, roots in configured.items() if target_id in allowed}
 
 
 def parse_maze_extra_roots(raw: str | None, target_ids) -> dict[str, tuple[str, ...]]:
