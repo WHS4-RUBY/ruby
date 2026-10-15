@@ -111,6 +111,24 @@ curl -I http://localhost:8081
 docker compose -f docker-compose.local.yml down
 ```
 
+### `./local.sh`
+
+같은 Compose 를 사전 점검·검증과 함께 돌리는 도우미입니다. 설정을 만들어 내지 않습니다 —
+`.env` 를 생성하지 않고, 키나 대상 목록을 임의로 정하지 않으며, 볼륨은 `reset` 에서만 지웁니다.
+
+```bash
+./local.sh up            # 점검 → up -d --build --wait → 공개·관리 경로 검증 → 접속 주소 요약
+./local.sh logs -f defense
+./local.sh ps
+./local.sh down          # 컨테이너만 내림 (볼륨 보존)
+./local.sh reset         # 볼륨까지 삭제 — 격리 이력·탐지 저장소·경로 별칭이 사라집니다 (확인 필요)
+./local.sh test          # ci.yml 과 같은 방식의 Detection·Defense 단위 테스트
+```
+
+옵션은 `--no-build`, `--pull`, `--timeout <초>`(기본 180), `-y`, `--help` 입니다.
+`up` 은 호스트 포트 충돌과 `TARGET_PORT` 의 보호 대상 앱 도달성을 먼저 확인하고,
+대상이 없으면 중단하지 않고 경고와 함께 위의 Juice Shop 명령을 안내합니다.
+
 ## 영속 저장소
 
 컨테이너마다 자기 SQLite 파일을 쓰고, 재배포 때 아래 볼륨은 보존해야 합니다.

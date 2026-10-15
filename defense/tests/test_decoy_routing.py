@@ -102,13 +102,29 @@ class DecoyConfigurationTests(unittest.TestCase):
         self.assertEqual(parse_maze_excluded_roots(
             "ruby-shop=/admin", {"juice-shop", "ruby-shop"}
         ), {"ruby-shop": ("/admin",)})
-        for invalid in ("missing=/admin", "juice-shop=admin", "juice-shop=/",
+        for invalid in ("juice-shop=admin", "juice-shop=/", "=/admin", "Juice_Shop=/admin",
                         "juice-shop=/admin/,juice-shop=/other", "juice-shop=/admin|/admin",
                         "juice-shop=/admin?x=1", "juice-shop=/../admin"):
             with self.subTest(invalid=invalid), self.assertRaises(RuntimeError):
                 parse_maze_extra_roots(invalid, {"juice-shop", "ruby-shop"})
             with self.subTest(invalid=invalid), self.assertRaises(RuntimeError):
                 parse_maze_excluded_roots(invalid, {"juice-shop", "ruby-shop"})
+
+    def test_the_fixed_map_may_name_targets_this_deployment_does_not_enable(self):
+        # 두 Compose 는 대상별 고정 맵을 주지만 실제로 활성인 대상은 TARGET_CHOICES 가
+        # 정한다. 로컬 Compose 는 legacy·alternate 의 맵을 주면서 기본 TARGET_CHOICES 는
+        # 비어 있어 legacy 만 활성이다 — 비활성 항목 때문에 Defense 가 기동에 실패하면
+        # 기본값만으로 띄우는 로컬 실행이 막힌다. parse_decoy_upstreams 와 같은 규칙이다.
+        apache = "/.htpasswd|/actuator|/server-status|/server-info|/phpinfo"
+        self.assertEqual(
+            parse_maze_extra_roots(f"legacy={apache},alternate={apache}", {"legacy"}),
+            {"legacy": tuple(apache.split("|"))},
+        )
+        self.assertEqual(
+            parse_maze_excluded_roots("ruby-shop=/admin", {"juice-shop"}), {})
+        # 비활성 대상이어도 항목 자체가 잘못됐으면 기동 실패로 남는다.
+        with self.assertRaises(RuntimeError):
+            parse_maze_extra_roots("alternate=admin", {"legacy"})
 
     def test_generic_pattern_stays_in_sync_with_cheat(self):
         syntax = ast.parse((CHEAT_DIR / "transforms.py").read_text(encoding="utf-8"))
