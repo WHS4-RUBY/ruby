@@ -184,3 +184,43 @@ test("세션만 바꿔 보내는 공격은 같은 후보 이력으로 미끼 단
     item.plan.length === 1 && item.plan[0] === "decoy_maze"),
   "cookie-less attacks do not enter the confirmed overlay or rate-limit tiers");
 });
+
+test("세션 쿠키는 스크립트가 읽을 수 없고, 형식이 다른 dlsid는 연결 근거로 쓰이지 않는다",
+  { timeout: 30000 }, async (t) => {
+    const seen = [];
+    const defenseStub = http.createServer((req, res) => {
+      seen.push({ clientId: req.headers["x-client-id"] });
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("ok");
+    });
+    await listen(defenseStub);
+    t.after(() => defenseStub.close());
+    const { port } = await startDetection(t, defenseStub.address().port);
+
+    const issued = await request(port, "GET", "/");
+    const session = (issued.headers["set-cookie"] || [])
+      .find((value) => value.startsWith("dlsid="));
+    assert.ok(session, "첫 요청에 세션 쿠키를 발급한다");
+    // 주입된 스크립트가 세션 ID를 읽어 가지 못한다. telemetry.js 는 브라우저의 자동
+    // 전송만 쓰므로 읽기 권한이 필요 없다.
+    assert.match(session, /;\s*HttpOnly/i);
+    assert.match(session, /;\s*Path=\//i);
+    assert.match(session, /;\s*SameSite=Lax/i);
+    const value = session.split(";", 1)[0].slice("dlsid=".length);
+    assert.match(value, /^[0-9a-f-]{36}$/);
+
+    // 서버가 발급한 값은 그대로 유지한다(세션 연속성).
+    const kept = await request(port, "GET", "/", { headers: { cookie: `dlsid=${value}` } });
+    assert.equal((kept.headers["set-cookie"] || [])
+      .some((cookie) => cookie.startsWith("dlsid=")), false);
+
+    // 형식이 다른 값은 받아들이지 않고 새로 발급한다 — 페이지 스크립트가 임의 세션
+    // ID를 써넣어 세션 단위 증거를 리셋하거나 다른 흐름에 섞을 수 없다.
+    for (const forged of ["attacker-chosen", "", "../../etc/passwd", "x".repeat(200)]) {
+      const response = await request(port, "GET", "/", { headers: { cookie: `dlsid=${forged}` } });
+      const reissued = (response.headers["set-cookie"] || [])
+        .find((cookie) => cookie.startsWith("dlsid="));
+      assert.ok(reissued, `형식이 다른 dlsid(${forged.slice(0, 12)})는 새로 발급한다`);
+      assert.notEqual(reissued.split(";", 1)[0].slice("dlsid=".length), forged);
+    }
+  });

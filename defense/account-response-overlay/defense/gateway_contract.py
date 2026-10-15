@@ -1,7 +1,11 @@
 """Small detector-side header contract; this module never sends a request."""
 from http.cookies import SimpleCookie, CookieError
 
-ISOLATION_COOKIES = frozenset({'defense_session', 'defense_auth', 'token'})
+from .decoy_paths import AUTH_COOKIE, DECOY_COOKIE_NAMES
+
+# 미끼 자신의 쿠키 + Angular 가 읽는 프런트엔드 토큰. 앞의 두 이름은 카탈로그가
+# 정하므로 발급 쪽과 엇갈리지 않는다(decoy_paths.DECOY_COOKIE_NAMES 주석 참고).
+ISOLATION_COOKIES = DECOY_COOKIE_NAMES | {'token'}
 
 
 def overlay_headers(client_headers, signed_headers):
@@ -27,7 +31,7 @@ def isolation_headers(client_headers, signed_headers):
     generated from the fixed isolation upstream. Never reuse an HTTP client's
     cross-actor cookie jar. Caller handles failures with an error, not origin.
     Production Authorization, other cookies, forwarding headers and client-supplied
-    detector labels are intentionally excluded. V1's defense_auth cookie lets its
+    detector labels are intentionally excluded. V1's decoy auth cookie lets its
     synthetic session work without forwarding a production bearer token.
     """
     result, seen, cookie_parts = {}, set(), []
@@ -58,8 +62,8 @@ def isolation_headers(client_headers, signed_headers):
         raise ValueError('Malformed isolation cookie') from exc
     # Angular removes its readable token cookie when logging out. Forward it only
     # when it matches the decoy-issued HttpOnly credential, never an origin token.
-    if 'token' in cookies and ('defense_auth' not in cookies or
-                               cookies['token'].value != cookies['defense_auth'].value):
+    if 'token' in cookies and (AUTH_COOKIE not in cookies or
+                               cookies['token'].value != cookies[AUTH_COOKIE].value):
         del cookies['token']
     if cookies:
         result['cookie'] = '; '.join(m.OutputString() for m in cookies.values())

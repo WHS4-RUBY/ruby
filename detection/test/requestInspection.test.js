@@ -74,7 +74,7 @@ test("inspection finishes before any upstream request is dispatched", async (t) 
 
 test("HTML-declared requests and token-bearing requests receive the same attack inspection", async (t) => {
   const f = await fixture(t, { scan: async () => attack });
-  for (const headers of [{}, { Accept: "text/html" }, { Cookie: "__ruby_tg=valid-test-token; dcid=identity" },
+  for (const headers of [{}, { Accept: "text/html" }, { Cookie: "_vt=valid-test-token; dcid=identity" },
     { "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" }]) {
     const response = await request(f.base + "/any-path", { headers });
     assert.equal(response.status, 403);
@@ -174,7 +174,7 @@ test("real CRS blocks first-request SQLi before the HTTP backend and preserves b
   t.after(() => scanner.child?.kill());
   const f = await fixture(t, { maximumBodyBytes: scanner.maximumBodyBytes,
     scan: (req) => scanner.scan(req, "127.0.0.1") });
-  for (const headers of [{}, { Accept: "text/html" }, { Cookie: "__ruby_tg=token; dcid=client" }]) {
+  for (const headers of [{}, { Accept: "text/html" }, { Cookie: "_vt=token; dcid=client" }]) {
     for (const type of ["application/json", "application/problem+json", "application/x-www-form-urlencoded"]) {
       const body = type.endsWith("urlencoded") ? "email=%27+OR+1%3D1--&password=x"
         : JSON.stringify({ email: "' OR 1=1--", password: "x" });
@@ -193,7 +193,7 @@ test("real CRS blocks first-request SQLi before the HTTP backend and preserves b
   assert.equal((await request(f.base + "/arbitrary/login", { method: "POST",
     headers: { "Content-Type": "application/json" }, body })).status, 200);
   assert.equal(f.received[0].body, body);
-  assert.equal((await request(f.base + "/search?q=apple", { headers: { Cookie: "__ruby_tg=expired" } })).status, 200);
+  assert.equal((await request(f.base + "/search?q=apple", { headers: { Cookie: "_vt=expired" } })).status, 200);
   assert.equal(f.received.length, 2);
   assert.equal((await request(f.base + "/plain", { method: "POST", headers: { "Content-Type": "text/plain" }, body: "40" })).status, 200);
   assert.equal(f.received[2].body, "40");

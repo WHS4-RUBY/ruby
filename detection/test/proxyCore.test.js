@@ -163,6 +163,58 @@ test("signed route feedback is visible to hooks but never forwarded to clients",
   }
 });
 
+test("the applied plan, delay, rate-limit signal and request ID stay out of the client response",
+  { timeout: 5000 }, async (t) => {
+    const seen = [];
+    const url = await proxyPair(t, (_req, res) => {
+      res.writeHead(429, {
+        "Content-Type": "application/json",
+        "X-Defense-Delay-Ms": "700",
+        "X-Defense-Signal": "rate_limited",
+        "X-Ruby-Request-Id": "request:upstream",
+        "X-Defense-Applied": "delay,rate_limit_strict",
+      });
+      res.end('{"error":"rate_limited"}');
+    }, { hooks: [{ onResponse({ proxyRes }) { seen.push(proxyRes.headers); } }] });
+    const response = await get(url);
+    await bodyOf(response);
+    // 공격자가 자기 단계와 방어 발동 여부를 읽어 임계값 아래로 조정하지 못하게 한다.
+    // 전략 목록만으로도 단계가 식별되므로(none/delay/path_alias,delay/...) 지연값만
+    // 지우는 것으로는 부족하다. 공개 응답에 남는 것은 상태 코드뿐이다.
+    assert.equal(response.statusCode, 429);
+    assert.equal(response.headers["x-defense-delay-ms"], undefined);
+    assert.equal(response.headers["x-defense-signal"], undefined);
+    assert.equal(response.headers["x-ruby-request-id"], undefined);
+    assert.equal(response.headers["x-defense-applied"], undefined);
+    // 훅은 기록을 위해 네 값을 그대로 본다.
+    assert.equal(seen[0]["x-defense-delay-ms"], "700");
+    assert.equal(seen[0]["x-defense-signal"], "rate_limited");
+    assert.equal(seen[0]["x-ruby-request-id"], "request:upstream");
+    assert.equal(seen[0]["x-defense-applied"], "delay,rate_limit_strict");
+  });
+
+test("an internal response header nobody registered is blocked by the namespace rule",
+  { timeout: 5000 }, async (t) => {
+    const url = await proxyPair(t, (_req, res) => {
+      res.writeHead(200, {
+        "Content-Type": "text/plain",
+        // 아직 존재하지 않는 내부 헤더. 이름을 열거하는 방식이었다면 그대로 나갔다.
+        "X-Defense-Next-Experiment": "stage5",
+        "X-Ruby-Something-New": "leak",
+        // 같은 응답의 평범한 헤더는 영향받지 않는다.
+        "X-Request-Id": "app-trace",
+        "X-Frame-Options": "DENY",
+      });
+      res.end("ok");
+    });
+    const response = await get(url);
+    await bodyOf(response);
+    assert.equal(response.headers["x-defense-next-experiment"], undefined);
+    assert.equal(response.headers["x-ruby-something-new"], undefined);
+    assert.equal(response.headers["x-request-id"], "app-trace");
+    assert.equal(response.headers["x-frame-options"], "DENY");
+  });
+
 test("SSE 첫 청크를 upstream 종료 전에 전달하고 완료 뒤 빈 본문으로 기록한다", { timeout: 5000 }, async (t) => {
   let releaseBackend;
   let backendEnded = false;
@@ -439,9 +491,9 @@ function aliasRequest(url, headers = {}) {
 
 for (const scenario of [
   { name: "local and upstream cookies", local: ["dlsid=session; Path=/", "dcid=client; Path=/"],
-    upstream: ["first=1; Path=/", "second=2; Path=/", "__ruby_tg=token; Path=/; HttpOnly"] },
+    upstream: ["first=1; Path=/", "second=2; Path=/", "_vt=token; Path=/; HttpOnly"] },
   { name: "local cookies only", local: ["dlsid=session; Path=/", "dcid=client; Path=/"], upstream: [] },
-  { name: "upstream cookies only", local: [], upstream: ["__ruby_tg=token; Path=/; HttpOnly"] },
+  { name: "upstream cookies only", local: [], upstream: ["_vt=token; Path=/; HttpOnly"] },
   { name: "no cookies", local: [], upstream: [] },
   { name: "single string local cookie", local: "dcid=client; Path=/", upstream: ["app=1; Path=/"] },
 ]) {
@@ -472,7 +524,7 @@ for (const scenario of [
     const baseUrl = await aliasListen(proxy);
     t.after(() => aliasClose(proxy));
     const headers = { Accept: "text/html", "Sec-Fetch-Dest": "document",
-      "Sec-Fetch-Mode": "navigate", Cookie: "__ruby_tg=existing; app=1" };
+      "Sec-Fetch-Mode": "navigate", Cookie: "_vt=existing; app=1" };
     const result = await aliasRequest(baseUrl + "/api", headers);
     const local = Array.isArray(scenario.local) ? scenario.local : [scenario.local];
     const expected = [...local, ...scenario.upstream];
@@ -489,7 +541,7 @@ for (const scenario of [
 test("concurrent proxy responses keep cookie snapshots isolated and preserve body hooks", async (t) => {
   const backend = http.createServer((req, res) => {
     const client = req.url.slice(1);
-    res.setHeader("Set-Cookie", [`__ruby_tg=${client}; Path=/`]);
+    res.setHeader("Set-Cookie", [`_vt=${client}; Path=/`]);
     res.setHeader("Content-Type", "text/plain");
     setTimeout(() => res.end(client), client === "one" ? 20 : 0);
   });
@@ -510,7 +562,7 @@ test("concurrent proxy responses keep cookie snapshots isolated and preserve bod
   const results = await Promise.all(["one", "two"].map((client) => aliasRequest(`${baseUrl}/${client}`)));
   for (const [index, client] of ["one", "two"].entries()) {
     assert.deepEqual(results[index].headers["set-cookie"], [
-      `dcid=${client}; Path=/`, `dlsid=${client}; Path=/`, `__ruby_tg=${client}; Path=/`,
+      `dcid=${client}; Path=/`, `dlsid=${client}; Path=/`, `_vt=${client}; Path=/`,
     ]);
     assert.equal(results[index].body, `${client}-hook`);
   }

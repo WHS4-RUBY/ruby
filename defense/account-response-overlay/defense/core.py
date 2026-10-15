@@ -8,13 +8,14 @@ import time
 from fastapi import FastAPI, Request
 from .audit import Audit
 from .config import Settings
+from .decoy_paths import SESSION_COOKIE
 from .sites import get_site
 from .model import ProxyContext, error
 from .state import State, CapacityError
 from .detector import DetectorVerifier
 from .security_store import SecurityStoreError
 
-COOKIE = 'defense_session'
+COOKIE = SESSION_COOKIE
 METHODS = {'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'}
 
 
@@ -187,7 +188,9 @@ def create_app(settings: Settings, secret: bytes, *, transport=None, detector_se
             response.headers['content-security-policy'] = (
                 "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; "
                 "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-            response.headers['x-request-id'] = trace
+            # `trace` 는 아래 감사 기록에만 쓴다. 예전에는 x-request-id 로도 돌려줬는데,
+            # 이 응답만 그 헤더를 달고 오버레이가 통과시키는 실제 origin 응답에는 없어서
+            # "같은 사이트의 다른 영역"이라는 위장을 클라이언트가 헤더 하나로 깰 수 있었다.
             response.set_cookie(COOKIE, state.sign(session.sid), httponly=True, samesite='strict',
                                 secure=settings.secure_cookie, max_age=settings.limits.session_ttl, path='/')
             common = {'module': ctx.meta.get('module', 'facade'), 'http_status': response.status_code,

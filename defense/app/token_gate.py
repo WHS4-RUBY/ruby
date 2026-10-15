@@ -13,7 +13,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-COOKIE_NAME = "__ruby_tg"
+COOKIE_NAME = "_vt"
 LOGGER_NAME = "ruby.defense.token_gate"
 DEFAULT_EXEMPT = ("/healthz", "/__defense/", "/__detection/")
 _TOKEN = re.compile(r"v1\.([0-9]{1,12})\.([A-Za-z0-9_-]{22})")

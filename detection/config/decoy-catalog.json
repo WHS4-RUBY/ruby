@@ -35,7 +35,7 @@
     "legacy": { "header": "X-Legacy-Storage", "title": "Legacy file service", "pathKey": "legacy" },
     "service": { "header": "X-Internal-API", "title": "Service manifest", "pathKey": "manifest" }
   },
-  "decoyCookies": { "session": "defense_session", "auth": "defense_auth" },
+  "decoyCookies": { "session": "ops_session", "auth": "ops_auth" },
   "identity": {
     "service": "Internal Account Registry",
     "consoleBrand": "Internal Operations Console"

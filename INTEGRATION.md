@@ -119,13 +119,50 @@ Defense 가 HMAC 으로 서명한 라벨을 붙인다(`detector.sign_headers`):
 
 - `overlay_headers` — 중위험에서 **원본 자격증명을 유지**해 실제 사이트로 전달한다.
 - `isolation_headers` — 내부 미끼로 가는 호출. `accept`/`content-type` 과 미끼 자신의
-  쿠키(`defense_session`, `defense_auth`, 조건부 `token`)만 통과시킨다. 운영
+  쿠키(`ops_session`, `ops_auth`, 조건부 `token`)만 통과시킨다. 운영
   Authorization·다른 쿠키·전달 헤더·클라이언트가 보낸 detector 라벨은 모두 제외한다.
 
 ### Defense → Detection (응답)
 
 `X-Defense-Signal: rate_limited` 는 Defense 가 429 를 반환한 경우에만 되돌린다.
 대상이 보낸 같은 이름의 헤더는 제거한다.
+
+## 공개 응답에서 제거하는 헤더
+
+`x-defense-*` 와 `x-ruby-*` 는 내부 제어 네임스페이스다. **요청 측과 응답 측 모두
+접두어로 차단한다** — 요청은 `rubyPolicy.stripDetectionHeaders`, 응답은 Detection 의
+마지막 복사 단계(`proxyCore.js` `isPrivateResponseHeader`)다. 이름을 열거하는 방식은
+나중에 추가된 내부 헤더를 기본적으로 통과시켜서, 실제로 아래 네 개가 그렇게 샜다.
+
+| 헤더 | 클라이언트가 알게 되는 것 |
+| --- | --- |
+| `X-Ruby-Resolved-Url` / `X-Ruby-Resolved-Url-Sig` | 별칭의 복원 경로와 그 서명 |
+| `X-Ruby-Overlay-Active` | 이미 격리됐다는 사실 |
+| `X-Defense-Delay-Ms` | 값이 곧 단계다(300·500·700ms) |
+| `X-Defense-Signal` | 방어가 발동했다는 신호 |
+| `X-Ruby-Request-Id` | 두 대시보드의 내부 조인 키 |
+| `X-Defense-Applied` | 전략 목록만으로 단계가 식별된다 |
+
+새 내부 응답 헤더는 두 네임스페이스 안에 두면 따로 등록하지 않아도 차단된다.
+Defense 는 이 헤더들을 계속 Detection 으로 보내고 Detection 이 완료 기록에 남긴다 —
+끊는 것은 클라이언트로 가는 중계뿐이라 대시보드 추적성은 그대로다. Detection 이
+자기 응답에 직접 실을 수 있는 값도 같은 이유로 싣지 않는다(미끼 응답, 정책 게이트).
+
+네임스페이스 밖이라 따로 다루는 것이 하나 있다. 내부 미끼는 예전에
+`X-Request-Id` 로 자기 trace 를 돌려줬는데, 오버레이가 통과시키는 실제 origin
+응답에는 그 헤더가 없어서 **미끼 응답만 구분되는 지문**이었다. 지금은 감사 기록에만
+남긴다(`core.py`).
+
+`X-Defense-Applied` 는 **upstream 사본만** 지운다. Detection 이 전달 전 검사에서
+직접 거부한 요청에 붙이는 `X-Defense-Applied: crs` 는 프록시 앞단에서 끝나 이
+복사 단계를 지나지 않으므로 그대로 남고, 운영 점검(`verify_request_inspection.py`)이
+그 값을 확인한다. 전략 목록만으로 `none`·`delay`·`path_alias,delay`·
+`path_alias,delay,rate_limit_strict` 가 단계와 1:1 이라 지연값만 지우는 것으로는
+단계를 가릴 수 없다.
+
+공개 응답에 남는 방어 흔적은 상태 코드와 CRS 거부 표시뿐이다.
+`X-Ruby-Request-Id` 를 응답으로 되돌려 받아야 하는 실험·통합 테스트는
+`DETECTION_EXPOSE_REQUEST_ID=true` 로만 켠다.
 
 ## 대상 선택 파일
 

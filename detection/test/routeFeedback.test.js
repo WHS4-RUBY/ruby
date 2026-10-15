@@ -56,6 +56,7 @@ async function startDetection(t, targetPort) {
       TARGET_DEFAULT_ID: "juice-shop",
       TARGET_SELECTION_FILE: path.join(directory, "selection.json"),
       CRS_ENABLED: "false", DECEPTION_ENABLED: "true",
+      DETECTION_EXPOSE_REQUEST_ID: "true",
       DETECTION_DASHBOARD_PASSWORD: dashboardPassword,
       DCID_HMAC_SECRET: crypto.randomBytes(32).toString("hex"),
       ACCOUNT_ID_HASH_KEY: crypto.randomBytes(32).toString("hex"),
